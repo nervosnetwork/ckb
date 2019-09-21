@@ -1,3 +1,4 @@
+use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
@@ -7,23 +8,27 @@ use crate::{
 };
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
-    Col, DBVector, Direction, Error, RocksDBTransaction, RocksDBTransactionSnapshot,
+    Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
+use ckb_error::Error;
 use ckb_types::{
-    core::{
-        cell::{CellProvider, CellStatus, HeaderChecker},
-        BlockExt, BlockView, EpochExt, HeaderView,
-    },
+    core::{BlockExt, BlockView, EpochExt, HeaderView},
     packed,
     prelude::*,
 };
+use std::sync::Arc;
 
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
+    pub(crate) cache: Arc<StoreCache>,
 }
 
 impl<'a> ChainStore<'a> for StoreTransaction {
     type Vector = DBVector;
+
+    fn cache(&'a self) -> Option<&'a StoreCache> {
+        Some(&self.cache)
+    }
 
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.inner.get(col, key).expect("db operation should be ok")
@@ -41,11 +46,20 @@ impl<'a> ChainStore<'a> for StoreTransaction {
     }
 }
 
-impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
+pub struct StoreTransactionSnapshot<'a> {
+    pub(crate) inner: RocksDBTransactionSnapshot<'a>,
+    pub(crate) cache: Arc<StoreCache>,
+}
+
+impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
     type Vector = DBVector;
 
+    fn cache(&'a self) -> Option<&'a StoreCache> {
+        Some(&self.cache)
+    }
+
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
-        self.get(col, key).expect("db operation should be ok")
+        self.inner.get(col, key).expect("db operation should be ok")
     }
 
     fn get_iter<'i>(
@@ -54,7 +68,8 @@ impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
         from_key: &'i [u8],
         direction: Direction,
     ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
-        self.iter(col, from_key, direction)
+        self.inner
+            .iter(col, from_key, direction)
             .expect("db operation should be ok")
     }
 }
@@ -72,16 +87,19 @@ impl StoreTransaction {
         self.inner.commit()
     }
 
-    pub fn get_snapshot(&self) -> RocksDBTransactionSnapshot<'_> {
-        self.inner.get_snapshot()
+    pub fn get_snapshot(&self) -> StoreTransactionSnapshot<'_> {
+        StoreTransactionSnapshot {
+            inner: self.inner.get_snapshot(),
+            cache: Arc::clone(&self.cache),
+        }
     }
 
     pub fn get_update_for_tip_hash(
         &self,
-        snapshot: &RocksDBTransactionSnapshot<'_>,
+        snapshot: &StoreTransactionSnapshot<'_>,
     ) -> Option<packed::Byte32> {
         self.inner
-            .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, snapshot)
+            .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, &snapshot.inner)
             .expect("db operation should be ok")
             .map(|slice| {
                 packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()[..]).to_entity()
@@ -198,34 +216,5 @@ impl StoreTransaction {
 
     pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
         self.delete(COLUMN_CELL_SET, tx_hash.as_slice())
-    }
-}
-
-impl CellProvider for StoreTransaction {
-    fn cell(&self, out_point: &packed::OutPoint, with_data: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        let index: u32 = out_point.index().unpack();
-        match self.get_tx_meta(&tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
-                Some(false) => {
-                    let mut cell_meta = self
-                        .get_cell_meta(&tx_hash, index)
-                        .expect("store should be consistent with cell_set");
-                    if with_data {
-                        cell_meta.mem_cell_data = self.get_cell_data(&tx_hash, index);
-                    }
-                    CellStatus::live_cell(cell_meta)
-                }
-                Some(true) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            },
-            None => CellStatus::Unknown,
-        }
-    }
-}
-
-impl HeaderChecker for StoreTransaction {
-    fn is_valid(&self, block_hash: &packed::Byte32) -> bool {
-        self.get_block_number(block_hash).is_some()
     }
 }

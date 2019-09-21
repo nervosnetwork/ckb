@@ -1,38 +1,33 @@
 use crate::{
-    errors::PeerError,
+    errors::{Error, PeerError},
     multiaddr::Multiaddr,
     peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
-    peer_store::{PeerStore, SqlitePeerStore},
+    peer_store::PeerStore,
     PeerId, SessionType,
 };
 use std::time::{Duration, Instant};
 
-fn new_peer_store() -> Box<dyn PeerStore> {
-    Box::new(SqlitePeerStore::temp().expect("temp"))
-}
-
-// TODO: add test evict peer in same network group
-
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
-    let mut peer_store = new_peer_store();
+    let mut peer_store = PeerStore::default();
     let whitelist_peer = PeerId::random();
-    let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
+    let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     let session_id = 1.into();
 
     // whitelist_only mode: only accept whitelist_peer
     let mut peers = PeerRegistry::new(3, 3, true, vec![whitelist_peer.clone()]);
+    let err = peers
+        .accept_peer(
+            PeerId::random(),
+            addr.clone(),
+            session_id,
+            SessionType::Inbound,
+            &mut peer_store,
+        )
+        .unwrap_err();
     assert_eq!(
-        peers
-            .accept_peer(
-                PeerId::random(),
-                addr.clone(),
-                session_id,
-                SessionType::Inbound,
-                peer_store.as_mut(),
-            )
-            .unwrap_err(),
-        PeerError::NonReserved
+        format!("{}", err),
+        format!("{}", Error::Peer(PeerError::NonReserved))
     );
 
     peers
@@ -41,16 +36,16 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
             addr.clone(),
             session_id,
             SessionType::Inbound,
-            peer_store.as_mut(),
+            &mut peer_store,
         )
         .expect("accept");
 }
 
 #[test]
 fn test_accept_inbound_peer_until_full() {
-    let mut peer_store = new_peer_store();
+    let mut peer_store = PeerStore::default();
     let whitelist_peer = PeerId::random();
-    let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
+    let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     // accept node until inbound connections is full
     let mut peers = PeerRegistry::new(3, 3, false, vec![whitelist_peer.clone()]);
     for session_id in 1..=3 {
@@ -60,22 +55,23 @@ fn test_accept_inbound_peer_until_full() {
                 addr.clone(),
                 session_id.into(),
                 SessionType::Inbound,
-                peer_store.as_mut(),
+                &mut peer_store,
             )
             .expect("accept");
     }
 
+    let err = peers
+        .accept_peer(
+            PeerId::random(),
+            addr.clone(),
+            3.into(),
+            SessionType::Outbound,
+            &mut peer_store,
+        )
+        .unwrap_err();
     assert_eq!(
-        peers
-            .accept_peer(
-                PeerId::random(),
-                addr.clone(),
-                3.into(),
-                SessionType::Outbound,
-                peer_store.as_mut(),
-            )
-            .unwrap_err(),
-        PeerError::SessionExists(3.into()),
+        format!("{}", err),
+        format!("{}", Error::Peer(PeerError::SessionExists(3.into()))),
     );
 
     // test evict a peer
@@ -85,7 +81,7 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             4.into(),
             SessionType::Inbound,
-            peer_store.as_mut(),
+            &mut peer_store,
         )
         .expect("Accept peer should ok")
         .is_some());
@@ -96,20 +92,24 @@ fn test_accept_inbound_peer_until_full() {
             addr.clone(),
             5.into(),
             SessionType::Inbound,
-            peer_store.as_mut(),
+            &mut peer_store,
         )
         .expect("accept");
+    let err = peers
+        .accept_peer(
+            whitelist_peer.clone(),
+            addr.clone(),
+            6.into(),
+            SessionType::Inbound,
+            &mut peer_store,
+        )
+        .unwrap_err();
     assert_eq!(
-        peers
-            .accept_peer(
-                whitelist_peer.clone(),
-                addr.clone(),
-                6.into(),
-                SessionType::Inbound,
-                peer_store.as_mut(),
-            )
-            .unwrap_err(),
-        PeerError::PeerIdExists(whitelist_peer.clone()),
+        format!("{}", err),
+        format!(
+            "{}",
+            Error::Peer(PeerError::PeerIdExists(whitelist_peer.clone()))
+        ),
     );
 }
 
@@ -120,12 +120,12 @@ fn test_accept_inbound_peer_eviction() {
     // PeerRegistry should
     // 1. evict from largest network groups
     // 2. never evict whitelist peer
-    let mut peer_store = new_peer_store();
+    let mut peer_store = PeerStore::default();
     let whitelist_peer = PeerId::random();
     let evict_target = PeerId::random();
     let mut evict_targets = vec![evict_target.to_owned()];
-    let addr1 = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
-    let addr2 = "/ip4/192.168.0.1".parse::<Multiaddr>().unwrap();
+    let addr1 = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
+    let addr2 = "/ip4/192.168.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
     let protected_peers_count = 2 * (EVICTION_PROTECT_PEERS + longest_connection_time_peers_count);
@@ -143,7 +143,7 @@ fn test_accept_inbound_peer_eviction() {
                 addr2.clone(),
                 session_id.into(),
                 SessionType::Inbound,
-                peer_store.as_mut(),
+                &mut peer_store,
             )
             .is_ok());
     }
@@ -207,7 +207,7 @@ fn test_accept_inbound_peer_eviction() {
             addr1.clone(),
             2000.into(),
             SessionType::Inbound,
-            peer_store.as_mut(),
+            &mut peer_store,
         )
         .expect("accept");
     let len_after_eviction = evict_targets

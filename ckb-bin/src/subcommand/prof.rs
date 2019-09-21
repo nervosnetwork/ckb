@@ -2,17 +2,14 @@ use ckb_app_config::{ExitCode, ProfArgs};
 use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
 use ckb_logger::info;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use std::sync::Arc;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
     let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
-        .script_config(args.config.script)
         .build()
         .map_err(|err| {
             eprintln!("Prof error: {:?}", err);
@@ -30,8 +27,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
     let from = std::cmp::max(1, args.from);
     let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
-    let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainService::new(tmp_shared, table, notify);
+    let chain = ChainService::new(tmp_shared, table);
     let chain_controller = chain.start(Some("chain"));
     profile_block_process(
         shared.clone(),
@@ -59,10 +55,11 @@ fn profile_block_process(
     to: u64,
 ) -> usize {
     let mut tx_count = 0;
+    let snapshot = shared.snapshot();
     for index in from..=to {
         let block = {
-            let block_hash = shared.store().get_block_hash(index).unwrap();
-            shared.store().get_block(&block_hash).unwrap()
+            let block_hash = snapshot.get_block_hash(index).unwrap();
+            snapshot.get_block(&block_hash).unwrap()
         };
         tx_count += block.transactions().len().saturating_sub(1);
         chain_controller

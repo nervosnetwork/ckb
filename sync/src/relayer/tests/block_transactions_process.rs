@@ -2,7 +2,7 @@ use crate::relayer::block_transactions_process::{BlockTransactionsProcess, Statu
 use crate::relayer::error::{Error, Misbehavior};
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -32,8 +32,21 @@ fn test_accept_block() {
         .output_data(Bytes::new().pack())
         .build();
 
+    let tx3 = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(2).unwrap().pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+    let uncle = packed::BlockBuilder::default()
+        .proposals(vec![tx3.proposal_short_id()].pack())
+        .build();
+
     let block = BlockBuilder::default()
         .transactions(vec![tx1.clone(), tx2.clone()])
+        .uncle(uncle.clone().as_uncle().into_view())
         .build();
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
 
@@ -41,12 +54,15 @@ fn test_accept_block() {
     let hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1]), (other_peer_index, vec![1])]),
+                HashMap::from_iter(vec![
+                    (peer_index, (vec![1], vec![0])),
+                    (other_peer_index, (vec![1], vec![])),
+                ]),
             ),
         );
     }
@@ -54,6 +70,7 @@ fn test_accept_block() {
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .transactions(vec![tx2.data()].pack())
+        .uncles(vec![uncle.clone().as_uncle()].pack())
         .build();
 
     let mock_protocal_context = MockProtocalContext::default();
@@ -68,10 +85,16 @@ fn test_accept_block() {
 
     let r = process.execute();
 
-    let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+    let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
 
     assert!(pending_compact_blocks.get(&hash).is_none());
     assert_eq!(r.ok(), Some(Status::Accept));
+
+    assert!(relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&tx3.proposal_short_id()));
 }
 
 #[test]
@@ -99,12 +122,12 @@ fn test_unknown_request() {
 
     let foo_peer_index: PeerIndex = 998.into();
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(foo_peer_index, vec![1])]),
+                HashMap::from_iter(vec![(foo_peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -165,12 +188,12 @@ fn test_invalid_transaction_root() {
     let block_hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             block_hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -201,11 +224,8 @@ fn test_invalid_transaction_root() {
 fn test_collision_and_send_missing_indexes() {
     let (relayer, _) = build_chain(5);
 
-    let last_block = relayer
-        .shared
-        .store()
-        .get_block(&relayer.shared.snapshot().tip_hash())
-        .unwrap();
+    let snapshot = relayer.shared.snapshot();
+    let last_block = snapshot.get_block(&snapshot.tip_hash()).unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
     let peer_index: PeerIndex = 100.into();
@@ -253,20 +273,21 @@ fn test_collision_and_send_missing_indexes() {
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 
     {
-        let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
+        let tx_pool = relayer.shared.shared().tx_pool_controller();
+        let entry = TxEntry::new(tx3.clone(), 0, Capacity::shannons(0), 0, vec![]);
         tx_pool
-            .add_tx_to_pool(tx3.clone(), 10000u16.into())
+            .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
     }
 
     let hash = compact_block.header().calc_header_hash();
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -305,14 +326,14 @@ fn test_collision_and_send_missing_indexes() {
 
     // update cached missing_index
     {
-        let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         assert_eq!(
             pending_compact_blocks
                 .get(&hash)
                 .unwrap()
                 .1
                 .get(&peer_index),
-            Some(&vec![1, 2])
+            Some(&(vec![1, 2], vec![]))
         );
     }
 
@@ -374,12 +395,12 @@ fn test_missing() {
     // tx3 should be in tx_pool already, but it's not.
     // so the reconstruct block will fail
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }

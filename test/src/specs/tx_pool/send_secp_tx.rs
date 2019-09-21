@@ -4,8 +4,8 @@ use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_miner::BlockAssemblerConfig;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
@@ -203,7 +203,7 @@ impl Spec for CheckTypical2In2OutTx {
             .rpc_client()
             .dry_run_transaction(tx.data().into())
             .cycles
-            .0;
+            .into();
         assert_eq!(
             cycles, TX_2_IN_2_OUT_CYCLES,
             "2 in 2 out tx cycles changed, PLEASE UPDATE consensus"
@@ -264,6 +264,5 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         code_hash,
         hash_type: hash_type.into(),
         args: vec![JsonBytes::from_bytes(lock_arg.clone())],
-        data: Default::default(),
     }
 }

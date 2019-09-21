@@ -79,6 +79,11 @@ function check_dependencies() {
                 srcdir="${pkgroot}"
             fi
             tmpcnt=$({\
+                ${GREP} -rh "\(^\| \)extern crate ${dependency}\(::\|;\)" "${srcdir}" \
+                    || true; }\
+                | wc -l)
+            depcnt=$((depcnt + tmpcnt))
+            tmpcnt=$({\
                 ${GREP} -rh "\(^\| \)use ${dependency}\(::\|;\)" "${srcdir}" \
                     || true; }\
                 | wc -l)

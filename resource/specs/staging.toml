@@ -69,6 +69,13 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "type"
+# Satoshi's gift, a cell send to satoshi's lock,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
+lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
+lock.hash_type = "type"
 
 [params]
 epoch_reward = 1_250_000_00000000

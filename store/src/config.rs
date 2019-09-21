@@ -1,8 +1,3 @@
-use crate::{
-    BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE, BLOCK_UNCLES_CACHE, CELLBASE_CACHE,
-    CELL_DATA_CACHE, HEADER_CACHE,
-};
-use lru_cache::LruCache;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
@@ -15,13 +10,15 @@ pub struct StoreConfig {
     pub cellbase_cache_size: usize,
 }
 
-impl StoreConfig {
-    pub fn apply(self) {
-        *HEADER_CACHE.lock() = LruCache::new(self.header_cache_size);
-        *CELL_DATA_CACHE.lock() = LruCache::new(self.cell_data_cache_size);
-        *BLOCK_PROPOSALS_CACHE.lock() = LruCache::new(self.block_proposals_cache_size);
-        *BLOCK_TX_HASHES_CACHE.lock() = LruCache::new(self.block_tx_hashes_cache_size);
-        *BLOCK_UNCLES_CACHE.lock() = LruCache::new(self.block_uncles_cache_size);
-        *CELLBASE_CACHE.lock() = LruCache::new(self.cellbase_cache_size);
+impl Default for StoreConfig {
+    fn default() -> Self {
+        StoreConfig {
+            header_cache_size: 4096,
+            cell_data_cache_size: 128,
+            block_proposals_cache_size: 30,
+            block_tx_hashes_cache_size: 30,
+            block_uncles_cache_size: 30,
+            cellbase_cache_size: 30,
+        }
     }
 }

@@ -1,9 +1,8 @@
 use ckb_chain::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -11,7 +10,6 @@ use ckb_shared::{
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -67,9 +65,10 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
         .transactions(transactions)
         .build();
 
-    let mut consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
     let mut chains = Chains::default();
@@ -79,8 +78,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -129,10 +127,11 @@ pub fn gen_always_success_block(
     );
     let cellbase = create_always_success_cellbase(shared, &p_block.header());
 
+    let snapshot = shared.snapshot();
+
     // spent n-2 block's tx and proposal n-1 block's tx
     let transactions: Vec<TransactionView> = if blocks.len() > 1 {
-        let pp_block = shared
-            .store()
+        let pp_block = snapshot
             .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
@@ -271,9 +270,10 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .transactions(transactions)
         .build();
 
-    let mut consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
     let mut chains = Chains::default();
@@ -283,8 +283,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -329,11 +328,11 @@ pub fn gen_secp_block(
         p_block.header().difficulty() + U256::from(1u64),
     );
     let cellbase = create_secp_cellbase(shared, &p_block.header());
+    let snapshot = shared.snapshot();
 
     // spent n-2 block's tx and proposal n-1 block's tx
     let transactions: Vec<TransactionView> = if blocks.len() > 1 {
-        let pp_block = shared
-            .store()
+        let pp_block = snapshot
             .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
@@ -397,7 +396,7 @@ fn create_transaction(parent_hash: &Byte32, lock: Script, dep: OutPoint) -> Tran
         .build()
 }
 
-fn create_2out_transaction(
+pub fn create_2out_transaction(
     inputs: Vec<OutPoint>,
     lock: Script,
     cell_deps: Vec<CellDep>,
@@ -446,7 +445,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let snapshot: &Snapshot = &shared.snapshot();
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-    let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
+    let rtxs = txs.iter().cloned().try_fold(vec![], |mut rtxs, tx| {
         let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot);
         match rtx {
             Ok(rtx) => {
@@ -457,7 +456,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot);
     calculator
         .dao_field(&rtxs, &parent)
         .expect("calculator dao_field")
@@ -465,12 +464,11 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
 
 pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity {
     let number = parent.number() + 1;
+    let snapshot = shared.snapshot();
     let target_number = shared.consensus().finalize_target(number).unwrap();
-    let target = shared
-        .store()
-        .get_ancestor(&parent.hash(), target_number)
-        .expect("calculate_reward get_ancestor");
-    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    let target_hash = snapshot.get_block_hash(target_number).unwrap();
+    let target = snapshot.get_block_header(&target_hash).unwrap();
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_ref());
     calculator
         .primary_block_reward(&target)
         .expect("calculate_reward primary_block_reward")

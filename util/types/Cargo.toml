@@ -1,12 +1,12 @@
 [package]
 name = "ckb-types"
-version = "0.20.0"
+version = "0.21.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
 
 [dependencies]
-molecule = "=0.2.5"
+molecule = "=0.3.1"
 ckb-fixed-hash = { path = "../fixed-hash" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { version="0.4.12", features = ["serde"] }
@@ -16,3 +16,4 @@ ckb-hash = { path = "../hash" }
 crossbeam-channel = "0.3"
 bit-vec = "0.5.1"
 failure = "0.1.5"
+ckb-error = { path = "../../error" }

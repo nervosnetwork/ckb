@@ -4,23 +4,22 @@ use crate::module::{
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_db::DBConfig;
-use ckb_indexer::{DefaultIndexerStore, IndexerStore};
+use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
+use ckb_jsonrpc_types::Uint64;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
 };
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
 };
+use ckb_store::ChainStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
@@ -37,8 +36,9 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
+use serde::ser::Serialize;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::{from_reader, json, to_string, to_string_pretty, Map, Value};
+use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs::File;
@@ -78,10 +78,11 @@ fn always_success_consensus() -> Consensus {
         .dao(dao)
         .transaction(always_success_tx)
         .build();
-    Consensus::default()
-        .set_genesis_block(genesis)
-        .set_epoch_reward(Capacity::shannons(EPOCH_REWARD))
-        .set_cellbase_maturity(CELLBASE_MATURITY)
+    ConsensusBuilder::default()
+        .genesis_block(genesis)
+        .epoch_reward(Capacity::shannons(EPOCH_REWARD))
+        .cellbase_maturity(CELLBASE_MATURITY)
+        .build()
 }
 
 // Construct `Transaction` with an always-success cell
@@ -100,15 +101,16 @@ fn always_success_transaction() -> TransactionView {
 
 // Construct the next block based the given `parent`
 fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
+    let snapshot: &Snapshot = &shared.snapshot();
     let epoch = {
-        let last_epoch = shared
+        let last_epoch = snapshot
             .get_block_epoch(&parent.hash())
             .expect("current epoch exists");
-        shared
-            .next_epoch_ext(&last_epoch, parent)
+        snapshot
+            .next_epoch_ext(shared.consensus(), &last_epoch, parent)
             .unwrap_or(last_epoch)
     };
-    let (_, reward) = shared.finalize_block_reward(parent).unwrap();
+    let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
 
     // We store a cellbase for constructing a new transaction later
@@ -119,9 +121,8 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     }
 
     let dao = {
-        let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
-            resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
+            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
@@ -143,13 +144,11 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = {
-        let notify = NotifyService::default().start::<&str>(None);
-        ChainService::new(shared.clone(), table, notify).start::<&str>(None)
-    };
+    let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
+
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
@@ -183,11 +182,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
     let indexer_store = {
-        let db_config = DBConfig {
-            path: dir.join("indexer"),
-            ..Default::default()
-        };
-        let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
+        let mut indexer_config = IndexerConfig::default();
+        indexer_config.db.path = dir.join("indexer");
+        let indexer_store = DefaultIndexerStore::new(&indexer_config, shared.clone());
         let (_, _, always_success_script) = always_success_cell();
         indexer_store.insert_lock_hash(&always_success_script.calc_script_hash(), Some(0));
         // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
@@ -326,7 +323,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         let snapshot = shared.snapshot();
         snapshot.tip_header().to_owned()
     };
-    let tip_number = json!(tip.number().to_string());
+    let tip_number: Uint64 = tip.number().into();
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
     let (_, _, always_success_script) = always_success_cell();
     let always_success_script_hash = {
@@ -358,19 +355,21 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         | "tx_pool_info"
         | "get_peers_state"
         | "get_lock_hash_index_states" => vec![],
-        "get_epoch_by_number" => vec![json!("0")],
-        "get_block_hash" | "get_block_by_number" | "get_header_by_number" => vec![tip_number],
+        "get_epoch_by_number" => vec![json!("0x0")],
+        "get_block_hash" | "get_block_by_number" | "get_header_by_number" => {
+            vec![json!(tip_number)]
+        }
         "get_block" | "get_header" | "get_cellbase_output_capacity_details" => vec![tip_hash],
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
         | "get_transactions_by_lock_hash" => {
-            vec![always_success_script_hash, json!("0"), json!("2")]
+            vec![always_success_script_hash, json!("0x0"), json!("0x2")]
         }
-        "get_live_cell" => vec![always_success_out_point],
+        "get_live_cell" => vec![always_success_out_point, json!(true)],
         "set_ban" => vec![
             json!("192.168.0.2"),
             json!("insert"),
-            json!("1840546800000"),
+            json!("0x1ac89236180"),
             json!(true),
             json!("set_ban example"),
         ],
@@ -378,7 +377,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![transaction]
         }
         "get_transaction" => vec![transaction_hash],
-        "index_lock_hash" => vec![json!(always_success_script_hash), json!("1024")],
+        "index_lock_hash" => vec![json!(always_success_script_hash), json!("0x400")],
         "deindex_lock_hash" => vec![json!(always_success_script_hash)],
         "_compute_code_hash" => vec![json!("0x123456")],
         "_compute_script_hash" => {
@@ -386,6 +385,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             let json_script: ckb_jsonrpc_types::Script = script.into();
             vec![json!(json_script)]
         }
+        "calculate_dao_maximum_withdraw" => vec![json!(always_success_out_point), json!(tip_hash)],
         method => {
             panic!("Unknown method: {}", method);
         }
@@ -394,35 +394,43 @@ fn params_of(shared: &Shared, method: &str) -> Value {
 }
 
 // Print the expected documentation based the actual results
-fn print_document(shared: &Shared, client: &reqwest::Client, uri: &str) {
+fn print_document(params: Option<&Vec<(String, Value)>>, result: Option<&Vec<(String, Value)>>) {
+    let is_params = params.is_some();
     let document: Vec<_> = load_cases_from_file()
         .iter_mut()
-        .map(|case| {
-            let method = case.get("method").expect("get method").as_str().unwrap();
-            let params = params_of(shared, method);
-            let result = if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
-                case.get("result").expect("get result").clone()
-            } else {
-                result_of(client, uri, method, params.clone())
-            };
-
+        .enumerate()
+        .map(|(i, case)| {
             let object = case.as_object_mut().unwrap();
-            object.insert("params".to_string(), params);
-            object.insert("result".to_string(), result);
+            if is_params {
+                object.insert(
+                    "params".to_string(),
+                    params.unwrap().get(i).unwrap().clone().1,
+                );
+            } else {
+                object.insert(
+                    "result".to_string(),
+                    result.unwrap().get(i).unwrap().clone().1,
+                );
+            }
             json!(object)
         })
         .collect();
     println!("\n\n###################################");
     println!("Expected RPC Document is written into rpc/json/rpc.expect.json");
     println!("Check full diff using following commands:");
-    println!("    devtools/doc/jsonfmt.py rpc/json/rpc.expect.json");
     println!("    diff rpc/json/rpc.json rpc/json/rpc.expect.json");
     println!("###################################\n\n");
 
     let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     out_path.push("json");
     out_path.push("rpc.expect.json");
-    std::fs::write(out_path, to_string_pretty(&document).unwrap())
+
+    let buf = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(buf, formatter);
+    document.serialize(&mut ser).unwrap();
+
+    std::fs::write(out_path, String::from_utf8(ser.into_inner()).unwrap())
         .expect("Write to rpc/json/rpc.expect.json");
 }
 
@@ -454,7 +462,7 @@ fn test_rpc() {
             expected.push((method.clone(), params_of(&shared, &method)));
         });
         if actual != expected {
-            print_document(&shared, &client, &uri);
+            print_document(Some(&expected), None);
             pretty_assert_eq!(actual, expected, "Assert params of jsonrpc",);
         }
     }
@@ -480,7 +488,7 @@ fn test_rpc() {
             actual.push((method.clone(), result));
         });
         if actual != expected {
-            print_document(&shared, &client, &uri);
+            print_document(None, Some(&expected));
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
         }
     }

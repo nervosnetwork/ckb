@@ -59,7 +59,6 @@ pub struct InitArgs {
     pub block_assembler_code_hash: Option<String>,
     pub block_assembler_args: Vec<String>,
     pub block_assembler_hash_type: ScriptHashType,
-    pub block_assembler_data: Option<String>,
 }
 
 pub struct ResetDataArgs {

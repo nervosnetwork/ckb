@@ -4,13 +4,12 @@ use std::path::PathBuf;
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
-use ckb_db::{db::RocksDB, DBConfig, Error};
+use ckb_db::{db::RocksDB, DBConfig};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
-use ckb_script::Runner;
 use ckb_types::{prelude::*, H256};
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
@@ -22,8 +21,11 @@ fn check_db_compatibility(path: PathBuf) {
             path: path.clone(),
             ..Default::default()
         };
-        if let Some(Error::DBError(err_msg)) = RocksDB::open_with_error(&config, 1).err() {
-            if err_msg.contains("the database version is not matched") {
+        if let Some(err) = RocksDB::open_with_error(&config, 1).err() {
+            if err
+                .to_string()
+                .contains("the database version is not matched")
+            {
                 let input =
                     prompt(format!("Database is not incompatible, remove {:?}? ", path).as_str());
 
@@ -72,7 +74,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
         let in_block_assembler_code_hash = prompt("code hash: ");
         let in_args = prompt("args: ");
-        let in_data = prompt("data: ");
         let in_hash_type = prompt("hash_type: ");
 
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
@@ -83,15 +84,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        args.block_assembler_data = Some(in_data.trim().to_string());
-
         match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
             Some(hash_type) => args.block_assembler_hash_type = hash_type,
             None => eprintln!("Invalid block assembler hash type"),
         }
     }
-
-    let runner = Runner::default().to_string();
 
     // Try to find the default secp256k1 from bundled chain spec.
     let default_code_hash_option =
@@ -142,12 +139,9 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
                  args = [ \"{}\" ]\n\
-                 data = \"{}\"\n\
                  hash_type = \"{}\"",
                 hash,
                 args.block_assembler_args.join("\", \""),
-                args.block_assembler_data
-                    .unwrap_or_else(|| "0x".to_string()),
                 serde_plain::to_string(&args.block_assembler_hash_type).unwrap(),
             )
         }
@@ -158,7 +152,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  # [block_assembler]\n\
                  # code_hash = \"{}\"\n\
                  # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
-                 # data = \"A 0x-prefixed hex string\"\n\
                  # hash_type = \"{}\"",
                 default_code_hash_option.unwrap_or_default(),
                 DEFAULT_LOCK_SCRIPT_HASH_TYPE,
@@ -172,7 +165,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         p2p_port: &args.p2p_port,
         log_to_file: args.log_to_file,
         log_to_stdout: args.log_to_stdout,
-        runner: &runner,
         block_assembler: &block_assembler,
     };
 

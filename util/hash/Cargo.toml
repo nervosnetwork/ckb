@@ -1,9 +1,9 @@
 [package]
 name = "ckb-hash"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-blake2b-rs = "0.1.4"
+blake2b-rs = "0.1.5"

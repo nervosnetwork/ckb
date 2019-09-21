@@ -102,9 +102,19 @@ impl Callback for IdentifyCallback {
             peer_id,
             addrs,
         );
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg
+                .get_key_by_peer_id(peer_id)
+                .and_then(|session_id| reg.get_peer_mut(session_id))
+            {
+                peer.listened_addrs = addrs.clone();
+            }
+        });
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                peer_store.add_discovered_addr(&peer_id, addr);
+                if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
+                    debug!("Failed to add addrs to peer_store {:?} {:?}", err, peer_id);
+                }
             }
         })
     }

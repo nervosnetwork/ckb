@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }
@@ -24,10 +23,10 @@ bytes = "0.4.12"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "0.16.0"
 futures = "0.1"
-arc-swap = "0.4"
+ckb-error = {path = "../error"}
+ckb-tx-pool = { path = "../tx-pool" }
 
 [dev-dependencies]
-ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 env_logger = "0.6"
 crossbeam-channel = "0.3"

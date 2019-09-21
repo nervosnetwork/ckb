@@ -1,6 +1,7 @@
 mod block_proposal_process;
 mod block_transactions_process;
 mod block_transactions_verifier;
+mod block_uncles_verifier;
 mod compact_block_process;
 mod compact_block_verifier;
 mod error;
@@ -22,12 +23,11 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::SyncSharedState;
+use crate::types::{SyncSharedState, SyncSnapshot};
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_types::{
     core,
     packed::{self, Byte32, ProposalShortId},
@@ -48,26 +48,22 @@ pub const MAX_RELAY_PEERS: usize = 128;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionError {
-    MissingIndexes(Vec<usize>),
+    MissingIndexes(Vec<usize>, Vec<usize>),
     InvalidTransactionRoot,
     Collision,
+    InvalidUncle,
+    Internal(String),
 }
 
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState>,
-    pub(crate) tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
 impl Relayer {
     pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Self {
-        let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
-        Relayer {
-            chain,
-            shared,
-            tx_pool_executor,
-        }
+        Relayer { chain, shared }
     }
 
     pub fn shared(&self) -> &Arc<SyncSharedState> {
@@ -111,7 +107,7 @@ impl Relayer {
                 GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;
             }
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
-                BlockProposalProcess::new(reader, self, nc).execute()?;
+                BlockProposalProcess::new(reader, self).execute()?;
             }
             packed::RelayMessageUnionReader::NotSet => Err(err_msg("invalid data"))?,
         }
@@ -137,22 +133,16 @@ impl Relayer {
         &self,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
-        block: &packed::CompactBlock,
-    ) {
-        let proposals = block.proposals().into_iter().chain(
-            block
-                .uncles()
-                .into_iter()
-                .flat_map(|u| u.proposals().into_iter()),
-        );
-        let fresh_proposals: Vec<ProposalShortId> = {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            proposals
-                .filter(|id| !tx_pool.contains_proposal_id(id))
-                .collect()
-        };
+        block_hash: Byte32,
+        mut proposals: Vec<packed::ProposalShortId>,
+    ) -> Result<(), FailureError> {
+        proposals.dedup();
+        let tx_pool = self.shared.shared().tx_pool_controller();
+        let fresh_proposals = tx_pool.fresh_proposals_filter(proposals)?;
+
         let to_ask_proposals: Vec<ProposalShortId> = self
             .shared()
+            .state()
             .insert_inflight_proposals(fresh_proposals.clone())
             .into_iter()
             .zip(fresh_proposals)
@@ -160,7 +150,7 @@ impl Relayer {
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block.calc_header_hash())
+                .block_hash(block_hash)
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -172,22 +162,27 @@ impl Relayer {
                     "relayer send GetBlockProposal error {:?}",
                     err,
                 );
-                self.shared().remove_inflight_proposals(&to_ask_proposals);
+                self.shared()
+                    .state()
+                    .remove_inflight_proposals(&to_ask_proposals);
             }
         }
+        Ok(())
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: core::BlockView) {
-        if self
-            .shared()
-            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
-        {
+    pub fn accept_block(
+        &self,
+        snapshot: &SyncSnapshot,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        block: core::BlockView,
+    ) {
+        if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
             return;
         }
 
         let boxed = Arc::new(block);
-        if self
-            .shared()
+        if snapshot
             .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
             .unwrap_or(false)
         {
@@ -198,7 +193,7 @@ impl Relayer {
                 unix_time_as_millis()
             );
             let block_hash = boxed.hash();
-            self.shared.remove_header_view(&block_hash);
+            snapshot.state().remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
             let data = message.as_slice().into();
@@ -230,13 +225,16 @@ impl Relayer {
     // and that nodes must not be penalized for such collisions, wherever they appear.
     pub fn reconstruct_block(
         &self,
+        snapshot: &SyncSnapshot,
         compact_block: &packed::CompactBlock,
-        transactions: Vec<core::TransactionView>,
+        received_transactions: Vec<core::TransactionView>,
+        uncles_index: &[u32],
+        received_unlces: &[core::UncleBlockView],
     ) -> Result<core::BlockView, ReconstructionError> {
-        let block_txs_len = transactions.len();
+        let block_txs_len = received_transactions.len();
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "start block reconstruction, block hash: {}, transactions len: {}",
+            "start block reconstruction, block hash: {}, received transactions len: {}",
             compact_block.calc_header_hash(),
             block_txs_len,
         );
@@ -244,7 +242,7 @@ impl Relayer {
         let mut short_ids_set: HashSet<ProposalShortId> =
             compact_block.short_ids().into_iter().collect();
 
-        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = transactions
+        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = received_transactions
             .into_iter()
             .filter_map(|tx| {
                 let short_id = tx.proposal_short_id();
@@ -257,12 +255,13 @@ impl Relayer {
             .collect();
 
         if !short_ids_set.is_empty() {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            short_ids_set.into_iter().for_each(|short_id| {
-                if let Some(tx) = tx_pool.get_tx_from_pool_or_store(&short_id) {
-                    txs_map.insert(short_id, tx);
-                }
-            })
+            let tx_pool = self.shared.shared().tx_pool_controller();
+
+            let fetch_txs = tx_pool.fetch_txs(short_ids_set.into_iter().collect());
+            if let Err(e) = fetch_txs {
+                return Err(ReconstructionError::Internal(format!("{}", e)));
+            }
+            txs_map.extend(fetch_txs.unwrap().into_iter());
         }
 
         let txs_len = compact_block.txs_len();
@@ -290,14 +289,64 @@ impl Relayer {
 
         let missing = block_transactions.iter().any(Option::is_none);
 
-        if !missing {
+        let mut missing_uncles = Vec::with_capacity(compact_block.uncles().len());
+        let mut uncles = Vec::with_capacity(compact_block.uncles().len());
+
+        let mut position = 0;
+        for (i, uncle_hash) in compact_block.uncles().into_iter().enumerate() {
+            if uncles_index.contains(&(i as u32)) {
+                uncles.push(
+                    received_unlces
+                        .get(position)
+                        .expect("have checked the indexes")
+                        .clone()
+                        .data(),
+                );
+                position += 1;
+                continue;
+            };
+            let status = snapshot.get_block_status(&uncle_hash);
+            match status {
+                BlockStatus::UNKNOWN | BlockStatus::HEADER_VALID => missing_uncles.push(i),
+                BlockStatus::BLOCK_STORED | BlockStatus::BLOCK_VALID => {
+                    if let Some(uncle) = snapshot.get_block(&uncle_hash) {
+                        uncles.push(uncle.as_uncle().data());
+                    } else {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "reconstruct_block could not find {:#?} uncle block: {:#?}",
+                            status,
+                            uncle_hash,
+                        );
+                        missing_uncles.push(i);
+                    }
+                }
+                BlockStatus::BLOCK_RECEIVED => {
+                    if let Some(uncle) = self.shared.state().get_orphan_block(&uncle_hash) {
+                        uncles.push(uncle.as_uncle().data());
+                    } else {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "reconstruct_block could not find {:#?} uncle block: {:#?}",
+                            status,
+                            uncle_hash,
+                        );
+                        missing_uncles.push(i);
+                    }
+                }
+                BlockStatus::BLOCK_INVALID => return Err(ReconstructionError::InvalidUncle),
+                _ => missing_uncles.push(i),
+            }
+        }
+
+        if !missing && missing_uncles.is_empty() {
             let txs = block_transactions
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
             let block = packed::Block::new_builder()
                 .header(compact_block.header())
-                .uncles(compact_block.uncles())
+                .uncles(uncles.pack())
                 .transactions(txs.into_iter().map(|tx| tx.data()).pack())
                 .proposals(compact_block.proposals())
                 .build()
@@ -335,21 +384,35 @@ impl Relayer {
                 compact_block.short_ids().len(),
             );
 
-            Err(ReconstructionError::MissingIndexes(missing_indexes))
+            Err(ReconstructionError::MissingIndexes(
+                missing_indexes,
+                missing_uncles,
+            ))
         }
     }
 
     fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
-        let get_block_proposals = self.shared().clear_get_block_proposals();
+        let get_block_proposals = self.shared().state().clear_get_block_proposals();
+        let tx_pool = self.shared.shared().tx_pool_controller();
+
+        let fetch_txs = tx_pool.fetch_txs(get_block_proposals.keys().cloned().collect());
+        if let Err(err) = fetch_txs {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "relayer prune_tx_proposal_request internal error: {:?}",
+                err,
+            );
+            return;
+        }
+
+        let txs = fetch_txs.unwrap();
+
         let mut peer_txs = HashMap::new();
-        {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            for (id, peer_indices) in get_block_proposals.into_iter() {
-                if let Some(tx) = tx_pool.get_tx(&id) {
-                    for peer_index in peer_indices {
-                        let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
-                        tx_set.push(tx.clone());
-                    }
+        for (id, peer_indices) in get_block_proposals.into_iter() {
+            if let Some(tx) = txs.get(&id) {
+                for peer_index in peer_indices {
+                    let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
+                    tx_set.push(tx.clone());
                 }
             }
         }
@@ -372,12 +435,13 @@ impl Relayer {
 
     // Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
-        for (peer, peer_state) in self.shared().peers().state.write().iter_mut() {
+        let state = self.shared().state();
+        for (peer, peer_state) in state.peers().state.write().iter_mut() {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
                 .into_iter()
                 .filter(|tx_hash| {
-                    let already_known = self.shared().already_known_tx(&tx_hash);
+                    let already_known = state.already_known_tx(&tx_hash);
                     if already_known {
                         // Remove tx_hash from `tx_ask_for_set`
                         peer_state.remove_ask_for_tx(&tx_hash);
@@ -412,8 +476,8 @@ impl Relayer {
     pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
         let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
         {
-            let peer_tx_hashes = self.shared.take_tx_hashes();
-            let mut known_txs = self.shared.known_txs();
+            let peer_tx_hashes = self.shared.state().take_tx_hashes();
+            let mut known_txs = self.shared.state().known_txs();
 
             for (peer_index, tx_hashes) in peer_tx_hashes.into_iter() {
                 for tx_hash in tx_hashes {
@@ -467,7 +531,7 @@ impl CKBProtocolHandler for Relayer {
         data: bytes::Bytes,
     ) {
         // If self is in the IBD state, don't process any relayer message.
-        if self.shared.is_initial_block_download() {
+        if self.shared.snapshot().is_initial_block_download() {
             return;
         }
 
@@ -534,7 +598,7 @@ impl CKBProtocolHandler for Relayer {
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
-        if self.shared.is_initial_block_download() {
+        if self.shared.snapshot().is_initial_block_download() {
             return;
         }
 

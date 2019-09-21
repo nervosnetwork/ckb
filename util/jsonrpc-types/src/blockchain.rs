@@ -1,6 +1,6 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version,
+    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -47,6 +47,7 @@ impl fmt::Display for ScriptHashType {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Script {
     pub args: Vec<JsonBytes>,
     pub code_hash: H256,
@@ -80,6 +81,7 @@ impl From<packed::Script> for Script {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellOutput {
     pub capacity: Capacity,
     pub lock: Script,
@@ -90,7 +92,7 @@ pub struct CellOutput {
 impl From<packed::CellOutput> for CellOutput {
     fn from(input: packed::CellOutput) -> CellOutput {
         CellOutput {
-            capacity: Capacity(input.capacity().unpack()),
+            capacity: input.capacity().unpack(),
             lock: input.lock().into(),
             type_: input.type_().to_opt().map(Into::into),
         }
@@ -111,7 +113,7 @@ impl From<CellOutput> for packed::CellOutput {
         }
         .build();
         packed::CellOutput::new_builder()
-            .capacity(capacity.0.pack())
+            .capacity(capacity.pack())
             .lock(lock.into())
             .type_(type_)
             .build()
@@ -119,9 +121,10 @@ impl From<CellOutput> for packed::CellOutput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct OutPoint {
     pub tx_hash: H256,
-    pub index: Unsigned,
+    pub index: Uint32,
 }
 
 impl From<packed::OutPoint> for OutPoint {
@@ -129,7 +132,7 @@ impl From<packed::OutPoint> for OutPoint {
         let index: u32 = input.index().unpack();
         OutPoint {
             tx_hash: input.tx_hash().unpack(),
-            index: Unsigned(u64::from(index)),
+            index: index.into(),
         }
     }
 }
@@ -137,24 +140,26 @@ impl From<packed::OutPoint> for OutPoint {
 impl From<OutPoint> for packed::OutPoint {
     fn from(json: OutPoint) -> Self {
         let OutPoint { tx_hash, index } = json;
+        let index = index.value() as u32;
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash.pack())
-            .index((index.0 as u32).pack())
+            .index(index.pack())
             .build()
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub since: Unsigned,
+    pub since: Uint64,
 }
 
 impl From<packed::CellInput> for CellInput {
     fn from(input: packed::CellInput) -> CellInput {
         CellInput {
             previous_output: input.previous_output().into(),
-            since: Unsigned(input.since().unpack()),
+            since: input.since().unpack(),
         }
     }
 }
@@ -167,12 +172,13 @@ impl From<CellInput> for packed::CellInput {
         } = json;
         packed::CellInput::new_builder()
             .previous_output(previous_output.into())
-            .since(since.0.pack())
+            .since(since.pack())
             .build()
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Witness {
     data: Vec<JsonBytes>,
 }
@@ -223,6 +229,7 @@ impl From<core::DepType> for DepType {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellDep {
     out_point: OutPoint,
     dep_type: DepType,
@@ -252,6 +259,7 @@ impl From<CellDep> for packed::CellDep {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Transaction {
     pub version: Version,
     pub cell_deps: Vec<CellDep>,
@@ -273,7 +281,7 @@ impl From<packed::Transaction> for Transaction {
     fn from(input: packed::Transaction) -> Self {
         let raw = input.raw();
         Self {
-            version: Version(raw.version().unpack()),
+            version: raw.version().unpack(),
             cell_deps: raw.cell_deps().into_iter().map(Into::into).collect(),
             header_deps: raw
                 .header_deps()
@@ -309,7 +317,7 @@ impl From<Transaction> for packed::Transaction {
             outputs_data,
         } = json;
         let raw = packed::RawTransaction::new_builder()
-            .version(version.0.pack())
+            .version(version.pack())
             .cell_deps(cell_deps.into_iter().map(Into::into).pack())
             .header_deps(header_deps.iter().map(Pack::pack).pack())
             .inputs(inputs.into_iter().map(Into::into).pack())
@@ -398,6 +406,7 @@ impl TxStatus {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Header {
     pub version: Version,
     pub parent_hash: H256,
@@ -409,9 +418,9 @@ pub struct Header {
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
-    pub uncles_count: Unsigned,
+    pub uncles_count: Uint32,
     pub dao: Byte32,
-    pub nonce: Unsigned,
+    pub nonce: Uint64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -426,19 +435,19 @@ impl From<packed::Header> for Header {
         let raw = input.raw();
         let uncles_count: u32 = raw.uncles_count().unpack();
         Self {
-            version: Version(raw.version().unpack()),
+            version: raw.version().unpack(),
             parent_hash: raw.parent_hash().unpack(),
-            timestamp: Timestamp(raw.timestamp().unpack()),
-            number: BlockNumber(raw.number().unpack()),
-            epoch: EpochNumber(raw.epoch().unpack()),
+            timestamp: raw.timestamp().unpack(),
+            number: raw.number().unpack(),
+            epoch: raw.epoch().unpack(),
             transactions_root: raw.transactions_root().unpack(),
             witnesses_root: raw.witnesses_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             difficulty: raw.difficulty().unpack(),
             uncles_hash: raw.uncles_hash().unpack(),
-            uncles_count: Unsigned(u64::from(uncles_count)),
+            uncles_count: uncles_count.into(),
             dao: raw.dao().into(),
-            nonce: Unsigned(input.nonce().unpack()),
+            nonce: input.nonce().unpack(),
         }
     }
 }
@@ -477,27 +486,28 @@ impl From<Header> for packed::Header {
             nonce,
         } = json;
         let raw = packed::RawHeader::new_builder()
-            .version(version.0.pack())
+            .version(version.pack())
             .parent_hash(parent_hash.pack())
-            .timestamp(timestamp.0.pack())
-            .number(number.0.pack())
-            .epoch(epoch.0.pack())
+            .timestamp(timestamp.pack())
+            .number(number.pack())
+            .epoch(epoch.pack())
             .transactions_root(transactions_root.pack())
             .witnesses_root(witnesses_root.pack())
             .proposals_hash(proposals_hash.pack())
             .difficulty(difficulty.pack())
             .uncles_hash(uncles_hash.pack())
-            .uncles_count((uncles_count.0 as u32).pack())
+            .uncles_count(uncles_count.value().pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()
             .raw(raw)
-            .nonce(nonce.0.pack())
+            .nonce(nonce.pack())
             .build()
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
@@ -547,6 +557,7 @@ impl From<UncleBlock> for packed::UncleBlock {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Block {
     pub header: Header,
     pub uncles: Vec<UncleBlock>,
@@ -669,9 +680,9 @@ pub struct EpochView {
 impl EpochView {
     pub fn from_ext(ext: packed::EpochExt) -> EpochView {
         EpochView {
-            number: EpochNumber(ext.number().unpack()),
-            start_number: BlockNumber(ext.start_number().unpack()),
-            length: BlockNumber(ext.length().unpack()),
+            number: ext.number().unpack(),
+            start_number: ext.start_number().unpack(),
+            length: ext.length().unpack(),
             difficulty: ext.difficulty().unpack(),
         }
     }
@@ -689,11 +700,11 @@ pub struct BlockReward {
 impl From<core::BlockReward> for BlockReward {
     fn from(core: core::BlockReward) -> Self {
         Self {
-            total: Capacity(core.total),
-            primary: Capacity(core.primary),
-            secondary: Capacity(core.secondary),
-            tx_fee: Capacity(core.tx_fee),
-            proposal_reward: Capacity(core.proposal_reward),
+            total: core.total.into(),
+            primary: core.primary.into(),
+            secondary: core.secondary.into(),
+            tx_fee: core.tx_fee.into(),
+            proposal_reward: core.proposal_reward.into(),
         }
     }
 }

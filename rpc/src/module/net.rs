@@ -1,9 +1,10 @@
 use crate::error::RPCError;
-use ckb_jsonrpc_types::{BannedAddress, Node, NodeAddress, Timestamp, Unsigned};
+use ckb_jsonrpc_types::{BannedAddr, Node, NodeAddress, Timestamp};
 use ckb_network::NetworkController;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use std::collections::HashMap;
 
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
@@ -20,7 +21,7 @@ pub trait NetworkRpc {
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_banned_addresses","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "get_banned_addresses")]
-    fn get_banned_addresses(&self) -> Result<Vec<BannedAddress>>;
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>>;
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"set_ban","params": ["192.168.0.0/24", "insert"]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "set_ban")]
@@ -50,7 +51,7 @@ impl NetworkRpc for NetworkRpcImpl {
                 .into_iter()
                 .map(|(address, score)| NodeAddress {
                     address,
-                    score: Unsigned(u64::from(score)),
+                    score: u64::from(score).into(),
                 })
                 .collect(),
         })
@@ -60,35 +61,53 @@ impl NetworkRpc for NetworkRpcImpl {
         let peers = self.network_controller.connected_peers();
         Ok(peers
             .into_iter()
-            .map(|(peer_id, peer, addresses)| Node {
-                is_outbound: Some(peer.is_outbound()),
-                version: peer
-                    .identify_info
-                    .map(|info| info.client_version)
-                    .unwrap_or_else(|| "unknown".to_string()),
-                node_id: peer_id.to_base58(),
-                // TODO how to get correct port and score?
-                addresses: addresses
-                    .into_iter()
-                    .map(|(address, score)| NodeAddress {
-                        address: address.to_string(),
-                        score: Unsigned(u64::from(score)),
+            .map(|(peer_id, peer)| {
+                let mut addresses: HashMap<_, _> = peer
+                    .listened_addrs
+                    .iter()
+                    .map(|addr| {
+                        (
+                            addr,
+                            NodeAddress {
+                                address: addr.to_string(),
+                                score: 1.into(),
+                            },
+                        )
                     })
-                    .collect(),
+                    .collect();
+                if peer.is_outbound() {
+                    addresses.insert(
+                        &peer.connected_addr,
+                        NodeAddress {
+                            address: peer.connected_addr.to_string(),
+                            score: u64::from(std::u8::MAX).into(),
+                        },
+                    );
+                }
+                let addresses = addresses.values().cloned().collect();
+                Node {
+                    is_outbound: Some(peer.is_outbound()),
+                    version: peer
+                        .identify_info
+                        .map(|info| info.client_version)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    node_id: peer_id.to_base58(),
+                    addresses,
+                }
             })
             .collect())
     }
 
-    fn get_banned_addresses(&self) -> Result<Vec<BannedAddress>> {
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>> {
         Ok(self
             .network_controller
-            .get_banned_addresses()
+            .get_banned_addrs()
             .into_iter()
-            .map(|banned| BannedAddress {
+            .map(|banned| BannedAddr {
                 address: banned.address.to_string(),
-                ban_until: Timestamp(banned.ban_until),
+                ban_until: banned.ban_until.into(),
                 ban_reason: banned.ban_reason,
-                created_at: Timestamp(banned.created_at),
+                created_at: banned.created_at.into(),
             })
             .collect())
     }
@@ -107,17 +126,24 @@ impl NetworkRpc for NetworkRpcImpl {
         match command.as_ref() {
             "insert" => {
                 let ban_until = if absolute.unwrap_or(false) {
-                    ban_time.unwrap_or_default().0
+                    ban_time.unwrap_or_default().into()
                 } else {
-                    unix_time_as_millis() + ban_time.unwrap_or(Timestamp(DEFAULT_BAN_DURATION)).0
+                    unix_time_as_millis()
+                        + ban_time
+                            .unwrap_or_else(|| DEFAULT_BAN_DURATION.into())
+                            .value()
                 };
-                self.network_controller.insert_ban(
-                    ip_network,
-                    ban_until,
-                    &reason.unwrap_or_default(),
-                )
+                if let Err(err) =
+                    self.network_controller
+                        .ban(ip_network, ban_until, reason.unwrap_or_default())
+                {
+                    Err(RPCError::custom(
+                        RPCError::Invalid,
+                        format!("ban address error {}", err),
+                    ))?
+                }
             }
-            "delete" => self.network_controller.delete_ban(&ip_network),
+            "delete" => self.network_controller.unban(&ip_network),
             _ => Err(RPCError::custom(
                 RPCError::Invalid,
                 "invalid command".to_owned(),

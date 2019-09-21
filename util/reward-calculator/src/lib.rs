@@ -2,23 +2,15 @@
 
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
+use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockNumber, BlockReward, Capacity, HeaderView},
+    core::{BlockReward, Capacity, HeaderView},
     packed::{Byte32, ProposalShortId, Script},
 };
-use failure::{Error as FailureError, Fail};
 use std::cmp;
 use std::collections::HashSet;
-
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Can't resolve finalize target: {}", _0)]
-    Target(BlockNumber),
-    #[fail(display = "Can't parse Script from target witness: {}", _0)]
-    Script(Byte32),
-}
 
 pub struct RewardCalculator<'a, CS> {
     pub consensus: &'a Consensus,
@@ -32,20 +24,20 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), FailureError> {
+    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         let consensus = self.consensus;
         let store = self.store;
 
         let block_number = parent.number() + 1;
         let target_number = consensus
             .finalize_target(block_number)
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block number checked before involving finalize_target");
 
         let target = self
             .store
             .get_block_hash(target_number)
             .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block hash checked before involving get_ancestor");
 
         let target_lock = Script::from_witness(
             store
@@ -55,7 +47,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
                 .get(0)
                 .expect("target witness exist"),
         )
-        .ok_or_else(|| Error::Script(target.hash().to_owned()))?;
+        .expect("cellbase loaded from store should has non-empty witness");
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;
@@ -91,7 +83,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
     /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, FailureError> {
+    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let consensus = self.consensus;
         let target_ext = self
             .store
@@ -128,7 +120,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         &self,
         parent: &HeaderView,
         target: &HeaderView,
-    ) -> Result<Capacity, FailureError> {
+    ) -> Result<Capacity, Error> {
         let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();
@@ -219,7 +211,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), FailureError> {
+    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), Error> {
         let calculator = DaoCalculator::new(&self.consensus, self.store);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
@@ -244,7 +236,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 #[cfg(test)]
 mod tests {
     use super::RewardCalculator;
-    use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+    use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
     use ckb_db::RocksDB;
     use ckb_occupied_capacity::AsCapacity;
     use ckb_store::{ChainDB, ChainStore, COLUMNS};
@@ -259,7 +251,7 @@ mod tests {
     #[test]
     fn get_proposal_ids_by_hash() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
         let proposal1 = ProposalShortId::new([1; 10]);
         let proposal2 = ProposalShortId::new([2; 10]);
@@ -303,7 +295,7 @@ mod tests {
     #[test]
     fn test_txs_fees() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
         // Default PROPOSER_REWARD_RATIO is Ratio(4, 10)
         let consensus = Consensus::default();
@@ -361,9 +353,11 @@ mod tests {
     #[test]
     fn test_proposal_reward() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
-        let consensus = Consensus::default().set_tx_proposal_window(ProposalWindow(2, 5));
+        let consensus = ConsensusBuilder::default()
+            .tx_proposal_window(ProposalWindow(2, 5))
+            .build();
 
         let tx1 = TransactionBuilder::default().version(100u32.pack()).build();
         let tx2 = TransactionBuilder::default().version(200u32.pack()).build();

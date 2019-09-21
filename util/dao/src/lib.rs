@@ -1,14 +1,18 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_dao_utils::{extract_dao_data, pack_dao_data, Error};
+use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
+use ckb_error::Error;
 use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
-    core::{cell::ResolvedTransaction, BlockNumber, Capacity, EpochExt, HeaderView},
+    bytes::Bytes,
+    core::{
+        cell::{CellMeta, ResolvedTransaction},
+        BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView,
+    },
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
 };
-use failure::Error as FailureError;
 use std::cmp::max;
 use std::collections::HashSet;
 
@@ -28,17 +32,17 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         }
     }
 
-    pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, FailureError> {
+    pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let target_epoch = self
             .store
             .get_block_epoch_index(&target.hash())
             .and_then(|index| self.store.get_epoch_ext(&index))
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
 
         target_epoch.block_reward(target.number())
     }
 
-    pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, FailureError> {
+    pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         if target.number() == 0 {
             return Ok(Capacity::zero());
         }
@@ -46,12 +50,12 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         let target_parent = self
             .store
             .get_block_header(&target_parent_hash)
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
         let target_epoch = self
             .store
             .get_block_epoch_index(&target.hash())
             .and_then(|index| self.store.get_epoch_ext(&index))
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
 
         let target_g2 = calculate_g2(
             target.number(),
@@ -67,30 +71,28 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
 
     // Notice unlike primary_block_reward and secondary_epoch_reward above,
     // this starts calculating from parent, not target header.
-    pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, FailureError> {
+    pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, Error> {
         let target_number = self
             .consensus
             .finalize_target(parent.number() + 1)
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
         let target = self
             .store
             .get_block_hash(target_number)
             .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
 
         let primary_block_reward = self.primary_block_reward(&target)?;
         let secondary_block_reward = self.secondary_block_reward(&target)?;
 
-        primary_block_reward
-            .safe_add(secondary_block_reward)
-            .map_err(Into::into)
+        Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
     pub fn dao_field(
         &self,
         rtxs: &[ResolvedTransaction],
         parent: &HeaderView,
-    ) -> Result<Byte32, FailureError> {
+    ) -> Result<Byte32, Error> {
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
             rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
@@ -121,17 +123,17 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             let target_number = self
                 .consensus
                 .finalize_target(parent.number())
-                .ok_or(Error::InvalidHeader)?;
+                .ok_or(DaoError::InvalidHeader)?;
             let target = self
                 .store
                 .get_block_hash(target_number)
                 .and_then(|hash| self.store.get_block_header(&hash))
-                .ok_or(Error::InvalidHeader)?;
+                .ok_or(DaoError::InvalidHeader)?;
             let target_epoch = self
                 .store
                 .get_block_epoch_index(&target.hash())
                 .and_then(|index| self.store.get_epoch_ext(&index))
-                .ok_or(Error::InvalidHeader)?;
+                .ok_or(DaoError::InvalidHeader)?;
             let parent_g2 = calculate_g2(
                 target.number(),
                 &target_epoch,
@@ -158,19 +160,19 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         &self,
         out_point: &OutPoint,
         withdraw_header_hash: &Byte32,
-    ) -> Result<Capacity, FailureError> {
+    ) -> Result<Capacity, Error> {
         let (tx, block_hash) = self
             .store
             .get_transaction(&out_point.tx_hash())
-            .ok_or(Error::InvalidOutPoint)?;
+            .ok_or(DaoError::InvalidOutPoint)?;
         let output = tx
             .outputs()
             .get(out_point.index().unpack())
-            .ok_or(Error::InvalidOutPoint)?;
+            .ok_or(DaoError::InvalidOutPoint)?;
         let output_data = tx
             .outputs_data()
             .get(out_point.index().unpack())
-            .ok_or(Error::InvalidOutPoint)?;
+            .ok_or(DaoError::InvalidOutPoint)?;
         self.calculate_maximum_withdraw(
             &output,
             Capacity::bytes(output_data.len())?,
@@ -179,13 +181,13 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         )
     }
 
-    pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, FailureError> {
+    pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         let header_deps: HashSet<Byte32> = rtx.transaction.header_deps_iter().collect();
         rtx.resolved_inputs
             .iter()
             .enumerate()
             .try_fold(Capacity::zero(), |capacities, (i, cell_meta)| {
-                let capacity: Result<Capacity, FailureError> = {
+                let capacity: Result<Capacity, Error> = {
                     let output = &cell_meta.cell_output;
                     if output
                         .type_()
@@ -198,16 +200,16 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .as_ref()
                             .map(|info| &info.block_hash)
                             .filter(|hash| header_deps.contains(&hash))
-                            .ok_or(Error::InvalidOutPoint)?;
+                            .ok_or(DaoError::InvalidOutPoint)?;
                         let withdraw_header_hash = rtx
                             .transaction
                             .witnesses()
                             .get(i)
                             .and_then(|witness| witness.get(1))
-                            .ok_or(Error::InvalidOutPoint)
+                            .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
                                 if witness_data.raw_data().len() != 8 {
-                                    Err(Error::Format)
+                                    Err(DaoError::InvalidDaoFormat)
                                 } else {
                                     Ok(LittleEndian::read_u64(&witness_data.raw_data()[0..8]))
                                 }
@@ -217,7 +219,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                                     .header_deps()
                                     .get(header_dep_index as usize)
                                     .and_then(|hash| header_deps.get(&hash))
-                                    .ok_or(Error::InvalidOutPoint)
+                                    .ok_or(DaoError::InvalidOutPoint)
                             })?;
                         self.calculate_maximum_withdraw(
                             &output,
@@ -239,14 +241,11 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             })
     }
 
-    fn input_occupied_capacities(
-        &self,
-        rtx: &ResolvedTransaction,
-    ) -> Result<Capacity, FailureError> {
+    fn input_occupied_capacities(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         rtx.resolved_inputs
             .iter()
             .try_fold(Capacity::zero(), |capacities, cell_meta| {
-                let current_capacity = cell_meta.occupied_capacity();
+                let current_capacity = modified_occupied_capacity(&cell_meta, &self.consensus);
                 current_capacity.and_then(|c| capacities.safe_add(c))
             })
             .map_err(Into::into)
@@ -258,15 +257,15 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         output_data_capacity: Capacity,
         deposit_header_hash: &Byte32,
         withdraw_header_hash: &Byte32,
-    ) -> Result<Capacity, FailureError> {
+    ) -> Result<Capacity, Error> {
         let deposit_header = self
             .store
             .get_block_header(deposit_header_hash)
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
         let withdraw_header = self
             .store
             .get_block_header(withdraw_header_hash)
-            .ok_or(Error::InvalidHeader)?;
+            .ok_or(DaoError::InvalidHeader)?;
         let (deposit_ar, _, _) = extract_dao_data(deposit_header.dao())?;
         let (withdraw_ar, _, _) = extract_dao_data(withdraw_header.dao())?;
 
@@ -287,7 +286,7 @@ fn calculate_g2(
     block_number: BlockNumber,
     current_epoch_ext: &EpochExt,
     secondary_epoch_reward: Capacity,
-) -> Result<Capacity, FailureError> {
+) -> Result<Capacity, Error> {
     if block_number == 0 {
         return Ok(Capacity::zero());
     }
@@ -300,6 +299,30 @@ fn calculate_g2(
         g2 = g2.safe_add(Capacity::one())?;
     }
     Ok(g2)
+}
+
+/// return special occupied capacity if cell is satoshi's gift
+/// otherwise return cell occupied capacity
+pub fn modified_occupied_capacity(
+    cell_meta: &CellMeta,
+    consensus: &Consensus,
+) -> CapacityResult<Capacity> {
+    if let Some(tx_info) = &cell_meta.transaction_info {
+        if tx_info.is_genesis()
+            && tx_info.is_cellbase()
+            && cell_meta
+                .cell_output
+                .lock()
+                .args()
+                .get(0)
+                .map(|arg| arg.unpack())
+                == Some(Bytes::from(&consensus.satoshi_pubkey_hash.0[..]))
+        {
+            return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
+                .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
+        }
+    }
+    cell_meta.occupied_capacity()
 }
 
 #[cfg(test)]
@@ -317,7 +340,7 @@ mod tests {
     };
 
     fn new_store() -> ChainDB {
-        ChainDB::new(RocksDB::open_tmp(COLUMNS))
+        ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
     }
 
     fn prepare_store(
@@ -335,16 +358,16 @@ mod tests {
                 .build();
             // TODO: should make it simple after refactor get_ancestor
             for number in target_epoch_start..parent.number() {
-                let epoch_ext = EpochExt::new(
-                    number,
-                    Capacity::shannons(50_000_000_000),
-                    Capacity::shannons(1_000_128),
-                    U256::one(),
-                    h256!("0x1").pack(),
-                    target_epoch_start,
-                    2091,
-                    U256::from(1u64),
-                );
+                let epoch_ext = EpochExt::new_builder()
+                    .number(number)
+                    .base_block_reward(Capacity::shannons(50_000_000_000))
+                    .remainder_reward(Capacity::shannons(1_000_128))
+                    .previous_epoch_hash_rate(U256::one())
+                    .last_block_hash_in_previous_epoch(h256!("0x1").pack())
+                    .start_number(target_epoch_start)
+                    .length(2091)
+                    .difficulty(U256::one())
+                    .build();
 
                 let header = HeaderBuilder::default()
                     .number(number.pack())
@@ -548,7 +571,7 @@ mod tests {
             .output_data(output_cell_data.pack())
             .build();
         let rtx = ResolvedTransaction {
-            transaction: &tx,
+            transaction: tx,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![
                 CellMetaBuilder::from_cell_output(input_cell, input_cell_data).build(),

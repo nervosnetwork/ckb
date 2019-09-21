@@ -1,12 +1,34 @@
+use ckb_db::DBConfig;
 use ckb_jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
-    LiveCell as JsonLiveCell, TransactionPoint as JsonTransactionPoint, Unsigned,
+    CellTransaction as JsonCellTransaction, LiveCell as JsonLiveCell,
+    TransactionPoint as JsonTransactionPoint,
 };
 use ckb_types::{
     core::BlockNumber,
     packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
 };
+use serde_derive::{Deserialize, Serialize};
+
+/// Indexer configuration
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerConfig {
+    /// The minimum time (in milliseconds) between indexing exectuion, default is 500
+    pub batch_interval: u64,
+    /// The maximum number of blocks in a single indexing execution batch, default is 200
+    pub batch_size: usize,
+    pub db: DBConfig,
+}
+
+impl Default for IndexerConfig {
+    fn default() -> Self {
+        IndexerConfig {
+            batch_interval: 500,
+            batch_size: 200,
+            db: Default::default(),
+        }
+    }
+}
 
 pub struct LockHashIndex {
     pub lock_hash: Byte32,
@@ -201,9 +223,9 @@ impl From<TransactionPoint> for JsonTransactionPoint {
             index,
         } = transaction_point;
         JsonTransactionPoint {
-            block_number: JsonBlockNumber(block_number),
+            block_number: block_number.into(),
             tx_hash: tx_hash.unpack(),
-            index: Unsigned(u64::from(index)),
+            index: u64::from(index).into(),
         }
     }
 }

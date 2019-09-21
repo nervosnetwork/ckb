@@ -3,7 +3,6 @@ use crate::utils::{temp_path, wait_until};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
@@ -30,6 +29,7 @@ pub struct Node {
     always_success_code_hash: Byte32,
     guard: Option<ProcessGuard>,
     consensus: Option<Consensus>,
+    spec: Option<ChainSpec>,
 }
 
 struct ProcessGuard(pub Child);
@@ -59,6 +59,7 @@ impl Node {
             dep_group_tx_hash: Default::default(),
             always_success_code_hash: Default::default(),
             consensus: None,
+            spec: None,
         }
     }
 
@@ -68,6 +69,10 @@ impl Node {
 
     pub fn consensus(&self) -> &Consensus {
         self.consensus.as_ref().expect("uninitialized consensus")
+    }
+
+    pub fn spec(&self) -> &ChainSpec {
+        self.spec.as_ref().expect("uninitialized spec")
     }
 
     pub fn p2p_port(&self) -> u16 {
@@ -385,6 +390,7 @@ impl Node {
         );
 
         self.consensus = Some(consensus);
+        self.spec = Some(spec.clone());
 
         // write to dir
         fs::write(
@@ -405,7 +411,6 @@ impl Node {
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
             code_hash: self.always_success_code_hash.unpack(),
             args: Default::default(),
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data.into(),
         });
 
@@ -456,23 +461,23 @@ impl Node {
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.pending.0, pending_size);
-        assert_eq!(tx_pool_info.proposed.0, proposed_size);
+        assert_eq!(tx_pool_info.pending.value(), pending_size);
+        assert_eq!(tx_pool_info.proposed.value(), proposed_size);
     }
 
     pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
-        assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+        assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
+        assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+        assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_serialized_size(&self, total_tx_size: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
+        assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
     }
 }

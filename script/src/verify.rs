@@ -5,8 +5,10 @@ use crate::{
         LoadWitness,
     },
     type_id::TypeIdSystemScript,
-    DataLoader, ScriptConfig, ScriptError,
+    DataLoader, ScriptError,
 };
+use ckb_error::{Error, InternalErrorKind};
+#[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
@@ -18,16 +20,18 @@ use ckb_types::{
     packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
     prelude::*,
 };
+#[cfg(has_asm)]
+use ckb_vm::{
+    machine::asm::{AsmCoreMachine, AsmMachine},
+    DefaultMachineBuilder, SupportMachine,
+};
+#[cfg(not(has_asm))]
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-#[cfg(all(unix, target_pointer_width = "64"))]
-use crate::Runner;
-#[cfg(all(unix, target_pointer_width = "64"))]
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 // A script group is defined as scripts that share the same hash.
 // A script group will only be executed once per transaction, the
@@ -49,6 +53,13 @@ impl ScriptGroup {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptGroupType {
+    Lock,
+    Type,
+}
+
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
 // future, we might refactor this to share buffer to achive zero-copy
@@ -57,25 +68,18 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     debug_printer: Option<Box<dyn Fn(&Byte32, &str)>>,
 
     outputs: Vec<CellMeta>,
-    rtx: &'a ResolvedTransaction<'a>,
+    rtx: &'a ResolvedTransaction,
 
     binaries_by_data_hash: HashMap<Byte32, Bytes>,
     binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)>,
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
-
-    // On windows we won't need this config right now, but removing it
-    // on windows alone is too much effort comparing to simply allowing
-    // it here.
-    #[allow(dead_code)]
-    config: &'a ScriptConfig,
 }
 
 impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     pub fn new(
         rtx: &'a ResolvedTransaction,
         data_loader: &'a DL,
-        config: &'a ScriptConfig,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
@@ -145,7 +149,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             binaries_by_type_hash,
             outputs,
             rtx,
-            config,
             lock_groups,
             type_groups,
             debug_printer: None,
@@ -242,49 +245,37 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     // Extracts actual script binary either in dep cells.
-    fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
+    fn extract_script(&self, script: &'a Script) -> Result<Bytes, Error> {
         match script.hash_type().unpack() {
             ScriptHashType::Data => {
                 if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(data.to_owned())
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::InvalidCodeHash)?
                 }
             }
             ScriptHashType::Type => {
                 if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash())
                 {
                     if *multiple {
-                        Err(ScriptError::MultipleMatches)
+                        Err(ScriptError::MultipleMatches)?
                     } else {
                         Ok(data.to_owned())
                     }
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::InvalidCodeHash)?
                 }
             }
         }
     }
 
-    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles: Cycle = 0;
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
-            let result = if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-                && group.script.hash_type().unpack() == ScriptHashType::Type
-            {
-                let verifier = TypeIdSystemScript {
-                    rtx: self.rtx,
-                    script_group: group,
-                    max_cycles,
-                };
-                verifier.verify()
-            } else {
-                let program = self.extract_script(&group.script)?;
-                self.run(&program, &group, max_cycles)
-            };
-            let cycle = result.map_err(|e| {
+            let cycle = self.verify_script_group(group, max_cycles).map_err(|e| {
+                #[cfg(feature = "logging")]
                 info!(
                     "Error validating script group {} of transaction {}: {:?}",
                     group.script.calc_script_hash(),
@@ -297,126 +288,61 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .checked_add(cycle)
                 .ok_or(ScriptError::ExceededMaximumCycles)?;
             if current_cycles > max_cycles {
-                return Err(ScriptError::ExceededMaximumCycles);
+                Err(ScriptError::ExceededMaximumCycles)?;
             }
             cycles = current_cycles;
         }
         Ok(cycles)
     }
 
-    #[cfg(all(unix, target_pointer_width = "64"))]
-    fn run(
+    // Run a single script in current transaction, while this is not useful for
+    // CKB itself, it can be very helpful when building a CKB debugger.
+    pub fn verify_single(
         &self,
-        program: &Bytes,
-        script_group: &ScriptGroup,
+        script_group_type: &ScriptGroupType,
+        script_hash: &Byte32,
         max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script_group.script.calc_script_hash();
-        let prefix = format!("script group: {}", current_script_hash);
-        let debug_printer = |message: &str| {
-            if let Some(ref printer) = self.debug_printer {
-                printer(&current_script_hash, message);
-            } else {
-                debug!("{} DEBUG OUTPUT: {}", prefix, message);
-            };
+    ) -> Result<Cycle, Error> {
+        let group = match script_group_type {
+            ScriptGroupType::Lock => self.lock_groups.get(script_hash),
+            ScriptGroupType::Type => self.type_groups.get(script_hash),
         };
-        let mut args = vec!["verify".into()];
-        args.extend(
-            script_group
-                .script
-                .args()
-                .into_iter()
-                .map(|arg| arg.raw_data()),
-        );
-        let (code, cycles) = match self.config.runner {
-            Runner::Assembly => {
-                let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
-                let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
-                    .instruction_cycle_func(Box::new(instruction_cycles))
-                    .syscall(Box::new(
-                        self.build_load_script_hash(current_script_hash.clone()),
-                    ))
-                    .syscall(Box::new(self.build_load_tx_hash()))
-                    .syscall(Box::new(self.build_load_cell(
-                        &script_group.input_indices,
-                        &script_group.output_indices,
-                    )))
-                    .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
-                    .syscall(Box::new(
-                        self.build_load_header(&script_group.input_indices),
-                    ))
-                    .syscall(Box::new(
-                        self.build_load_witness(&script_group.input_indices),
-                    ))
-                    .syscall(Box::new(self.build_load_cell_data(
-                        &script_group.input_indices,
-                        &script_group.output_indices,
-                    )))
-                    .syscall(Box::new(Debugger::new(&debug_printer)))
-                    .build();
-                let mut machine = AsmMachine::new(machine, None);
-                machine
-                    .load_program(&program, &args)
-                    .map_err(ScriptError::VMError)?;
-                let code = machine.run().map_err(ScriptError::VMError)?;
-                (code, machine.machine.cycles())
-            }
-            Runner::Rust => {
-                let core_machine =
-                    DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(max_cycles);
-                let machine = DefaultMachineBuilder::<
-                    DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
-                >::new(core_machine)
-                .instruction_cycle_func(Box::new(instruction_cycles))
-                .syscall(Box::new(
-                    self.build_load_script_hash(current_script_hash.clone()),
-                ))
-                .syscall(Box::new(self.build_load_tx_hash()))
-                .syscall(Box::new(self.build_load_cell(
-                    &script_group.input_indices,
-                    &script_group.output_indices,
-                )))
-                .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
-                .syscall(Box::new(
-                    self.build_load_header(&script_group.input_indices),
-                ))
-                .syscall(Box::new(
-                    self.build_load_witness(&script_group.input_indices),
-                ))
-                .syscall(Box::new(self.build_load_cell_data(
-                    &script_group.input_indices,
-                    &script_group.output_indices,
-                )))
-                .syscall(Box::new(Debugger::new(&debug_printer)))
-                .build();
-                let mut machine = TraceMachine::new(machine);
-                machine
-                    .load_program(&program, &args)
-                    .map_err(ScriptError::VMError)?;
-                let code = machine.run().map_err(ScriptError::VMError)?;
-                (code, machine.machine.cycles())
-            }
-        };
-        if code == 0 {
-            Ok(cycles)
-        } else {
-            Err(ScriptError::ValidationFailure(code))
+        match group {
+            Some(group) => self.verify_script_group(group, max_cycles),
+            None => Err(ScriptError::InvalidCodeHash.into()),
         }
     }
 
-    #[cfg(not(all(unix, target_pointer_width = "64")))]
+    fn verify_script_group(&self, group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && group.script.hash_type().unpack() == ScriptHashType::Type
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            let program = self.extract_script(&group.script)?;
+            self.run(&program, &group, max_cycles)
+        }
+    }
+
     fn run(
         &self,
         program: &Bytes,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
+    ) -> Result<Cycle, Error> {
         let current_script_hash = script_group.script.calc_script_hash();
+        #[cfg(feature = "logging")]
         let prefix = format!("script group: {}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
                 printer(&current_script_hash, message);
             } else {
+                #[cfg(feature = "logging")]
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
         };
@@ -428,53 +354,65 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .into_iter()
                 .map(|arg| arg.raw_data()),
         );
-        let core_machine =
-            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
-                max_cycles,
-            );
-        let machine = DefaultMachineBuilder::<
-            DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
-        >::new(core_machine)
-        .instruction_cycle_func(Box::new(instruction_cycles))
-        .syscall(Box::new(
-            self.build_load_script_hash(current_script_hash.clone()),
-        ))
-        .syscall(Box::new(self.build_load_tx_hash()))
-        .syscall(Box::new(self.build_load_cell(
-            &script_group.input_indices,
-            &script_group.output_indices,
-        )))
-        .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
-        .syscall(Box::new(
-            self.build_load_header(&script_group.input_indices),
-        ))
-        .syscall(Box::new(
-            self.build_load_witness(&script_group.input_indices),
-        ))
-        .syscall(Box::new(self.build_load_cell_data(
-            &script_group.input_indices,
-            &script_group.output_indices,
-        )))
-        .syscall(Box::new(Debugger::new(&debug_printer)))
-        .build();
-        let mut machine = TraceMachine::new(machine);
+        #[cfg(has_asm)]
+        let machine_builder = {
+            let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
+            DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
+        };
+        #[cfg(not(has_asm))]
+        let machine_builder = {
+            let core_machine =
+                DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
+                    max_cycles,
+                );
+            DefaultMachineBuilder::<DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>>::new(core_machine)
+        };
+        let default_machine = machine_builder
+            .instruction_cycle_func(Box::new(instruction_cycles))
+            .syscall(Box::new(
+                self.build_load_script_hash(current_script_hash.clone()),
+            ))
+            .syscall(Box::new(self.build_load_tx_hash()))
+            .syscall(Box::new(self.build_load_cell(
+                &script_group.input_indices,
+                &script_group.output_indices,
+            )))
+            .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
+            .syscall(Box::new(
+                self.build_load_header(&script_group.input_indices),
+            ))
+            .syscall(Box::new(
+                self.build_load_witness(&script_group.input_indices),
+            ))
+            .syscall(Box::new(self.build_load_cell_data(
+                &script_group.input_indices,
+                &script_group.output_indices,
+            )))
+            .syscall(Box::new(Debugger::new(&debug_printer)))
+            .build();
+        #[cfg(has_asm)]
+        let mut machine = AsmMachine::new(default_machine, None);
+        #[cfg(not(has_asm))]
+        let mut machine = TraceMachine::new(default_machine);
         machine
             .load_program(&program, &args)
-            .map_err(ScriptError::VMError)?;
-        let code = machine.run().map_err(ScriptError::VMError)?;
+            .map_err(internal_error)?;
+        let code = machine.run().map_err(internal_error)?;
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
-            Err(ScriptError::ValidationFailure(code))
+            Err(ScriptError::ValidationFailure(code))?
         }
     }
+}
+
+fn internal_error(error: ckb_vm::Error) -> Error {
+    InternalErrorKind::VM.cause(format!("{:?}", error)).into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(all(unix, target_pointer_width = "64")))]
-    use crate::Runner;
     use byteorder::{ByteOrder, LittleEndian};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::RocksDB;
@@ -494,6 +432,7 @@ mod tests {
     };
     use faster_hex::hex_encode;
 
+    use ckb_error::assert_error_eq;
     use ckb_test_chain_utils::always_success_cell;
     use ckb_vm::Error as VMInternalError;
     use std::fs::File;
@@ -509,7 +448,7 @@ mod tests {
     }
 
     fn new_store() -> ChainDB {
-        ChainDB::new(RocksDB::open_tmp(COLUMNS))
+        ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
     }
 
     fn random_keypair() -> (Privkey, Pubkey) {
@@ -577,7 +516,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -586,10 +525,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
         assert!(verifier.verify(100).is_ok());
     }
 
@@ -641,7 +577,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -649,98 +585,15 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
-
-        // Default Runner
-        assert!(verifier.verify(100_000_000).is_ok());
-
-        // Not enought cycles
-        assert_eq!(
-            verifier.verify(100).err(),
-            Some(ScriptError::VMError(VMInternalError::InvalidCycles))
-        );
-
-        // Rust Runner
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            &data_loader,
-            &ScriptConfig {
-                runner: Runner::Rust,
-            },
-        );
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(100_000_000).is_ok());
-    }
 
-    #[cfg(all(unix, target_pointer_width = "64"))]
-    #[test]
-    fn check_signature_assembly() {
-        let mut file = open_cell_verify();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-
-        let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-
-        let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
-
-        let code_hash = blake2b_256(&buffer);
-        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
-        let cell_dep = CellDep::new_builder()
-            .out_point(dep_out_point.clone())
-            .build();
-        let data = Bytes::from(buffer);
-        let output = CellOutputBuilder::default()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
-            .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
-            .build();
-
-        let script = Script::new_builder()
-            .args(args.pack())
-            .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data.pack())
-            .build();
-        let input = CellInput::new(OutPoint::null(), 0);
-
-        let transaction = TransactionBuilder::default()
-            .input(input.clone())
-            .cell_dep(cell_dep)
-            .build();
-
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
-            .lock(script)
-            .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-            .transaction_info(default_transaction_info())
-            .build();
-
-        let rtx = ResolvedTransaction {
-            transaction: &transaction,
-            resolved_cell_deps: vec![dep_cell],
-            resolved_inputs: vec![dummy_cell],
-            resolved_dep_groups: vec![],
-        };
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            &data_loader,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
+        // Not enough cycles
+        assert_error_eq(
+            verifier.verify(100).unwrap_err(),
+            internal_error(VMInternalError::InvalidCycles),
         );
-
-        assert!(verifier.verify(100_000_000).is_ok());
     }
 
     #[test]
@@ -800,7 +653,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -808,10 +661,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -895,7 +745,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, dep_cell2],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -903,14 +753,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(100_000_000),
-            Err(ScriptError::MultipleMatches)
+        assert_error_eq(
+            verifier.verify(100_000_000).unwrap_err(),
+            ScriptError::MultipleMatches,
         );
     }
 
@@ -976,7 +823,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -985,10 +832,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -1043,7 +887,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1051,14 +895,11 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(100_000_000).err(),
-            Some(ScriptError::ValidationFailure(2))
+        assert_error_eq(
+            verifier.verify(100_000_000).unwrap_err(),
+            ScriptError::ValidationFailure(2),
         );
     }
 
@@ -1100,7 +941,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1108,14 +949,11 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(100_000_000).err(),
-            Some(ScriptError::InvalidCodeHash)
+        assert_error_eq(
+            verifier.verify(100_000_000).unwrap_err(),
+            ScriptError::InvalidCodeHash,
         );
     }
 
@@ -1186,7 +1024,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1194,10 +1032,7 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1265,7 +1100,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1274,14 +1109,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(100_000_000).err(),
-            Some(ScriptError::ValidationFailure(2))
+        assert_error_eq(
+            verifier.verify(100_000_000).unwrap_err(),
+            ScriptError::ValidationFailure(2),
         );
     }
 
@@ -1334,20 +1166,17 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
         };
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         // Cycles can tell that both lock and type scripts are executed
-        assert_eq!(verifier.verify(100_000_000), Ok(2_818_104));
+        assert_eq!(verifier.verify(100_000_000).ok(), Some(2_818_104));
     }
 
     #[test]
@@ -1396,7 +1225,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1405,10 +1234,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(1_001_000).is_ok());
     }
@@ -1459,7 +1285,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1468,14 +1294,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(500_000).err(),
-            Some(ScriptError::ExceededMaximumCycles)
+        assert_error_eq(
+            verifier.verify(500_000).unwrap_err(),
+            ScriptError::ExceededMaximumCycles,
         );
     }
 
@@ -1533,7 +1356,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1542,10 +1365,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(1_001_000).is_ok());
     }
@@ -1595,7 +1415,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1604,10 +1424,7 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert!(verifier.verify(1_001_000).is_ok());
     }
@@ -1672,7 +1489,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1681,14 +1498,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-3))
+        assert_error_eq(
+            verifier.verify(1_001_000).unwrap_err(),
+            ScriptError::ValidationFailure(-3),
         );
     }
 
@@ -1755,7 +1569,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1764,14 +1578,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-1))
+        assert_error_eq(
+            verifier.verify(1_001_000).unwrap_err(),
+            ScriptError::ValidationFailure(-1),
         );
     }
 
@@ -1827,7 +1638,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1836,14 +1647,11 @@ mod tests {
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
 
-        let config = ScriptConfig {
-            runner: Runner::default(),
-        };
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_eq!(
-            verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-2))
+        assert_error_eq(
+            verifier.verify(1_001_000).unwrap_err(),
+            ScriptError::ValidationFailure(-2),
         );
     }
 }

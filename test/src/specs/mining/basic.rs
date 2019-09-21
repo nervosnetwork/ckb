@@ -46,9 +46,9 @@ impl MiningBasic {
     }
 
     pub fn test_block_template_cache(&self, node: &Node) {
-        let mut block1 = node.new_block(None, None, None);
+        let block1 = node.new_block(None, None, None);
         sleep(Duration::new(Self::BLOCK_TEMPLATE_TIMEOUT + 1, 0)); // Wait block timeout cache timeout
-        let mut block2 = node
+        let block2 = node
             .new_block_builder(None, None, None)
             .header(
                 block1
@@ -61,11 +61,8 @@ impl MiningBasic {
             .build();
         assert_ne!(block1.header().timestamp(), block2.header().timestamp());
 
-        // Expect block1.hash() > block2.hash(), so that when we submit block2 after block1,
-        // block2 will replace block1 as tip block
-        if block1.hash() < block2.hash() {
-            std::mem::swap(&mut block1, &mut block2);
-        }
+        // According to the first-received policy,
+        // the first block is always the best block
         let rpc_client = node.rpc_client();
         assert_eq!(block1.hash(), node.submit_block(&block1.data()));
         assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
@@ -80,11 +77,11 @@ impl MiningBasic {
         );
 
         assert_eq!(block2.hash(), node.submit_block(&block2.data()));
-        assert_eq!(block2.hash(), rpc_client.get_tip_header().hash.pack());
+        assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
         let template3 = rpc_client.get_block_template(None, None, None);
-        assert_eq!(block2.hash(), template3.parent_hash.pack());
+        assert_eq!(block1.hash(), template3.parent_hash.pack());
         assert!(
-            template3.current_time.0 > template1.current_time.0,
+            template3.current_time.value() > template1.current_time.value(),
             "New tip block, new template",
         );
     }
@@ -92,6 +89,6 @@ impl MiningBasic {
 
 fn is_block_template_equal(template1: &BlockTemplate, template2: &BlockTemplate) -> bool {
     let mut temp = template1.clone();
-    temp.current_time = template2.current_time.clone();
+    temp.current_time = template2.current_time;
     &temp == template2
 }

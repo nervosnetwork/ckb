@@ -1,8 +1,8 @@
 use crate::types::{
-    CellTransaction, LiveCell, LockHashCellOutput, LockHashIndex, LockHashIndexState,
-    TransactionPoint,
+    CellTransaction, IndexerConfig, LiveCell, LockHashCellOutput, LockHashIndex,
+    LockHashIndexState, TransactionPoint,
 };
-use ckb_db::{db::RocksDB, Col, DBConfig, DBIterator, Direction, RocksDBTransaction};
+use ckb_db::{db::RocksDB, Col, DBIterator, Direction, RocksDBTransaction};
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -17,8 +17,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-const TXN_ATTACH_BLOCK_NUMS: usize = 100;
-const SYNC_INTERVAL: Duration = Duration::from_secs(1);
 const COLUMNS: u32 = 4;
 
 /// +---------------------------------+---------------+--------------------------+
@@ -67,6 +65,8 @@ pub trait IndexerStore: Sync + Send {
 pub struct DefaultIndexerStore {
     db: Arc<RocksDB>,
     shared: Shared,
+    batch_interval: Duration,
+    batch_size: usize,
     sync_lock: Arc<Mutex<()>>,
 }
 
@@ -164,10 +164,7 @@ impl IndexerStore for DefaultIndexerStore {
     ) -> LockHashIndexState {
         let index_state = {
             let snapshot = self.shared.snapshot();
-            let tip_number = snapshot
-                .get_tip_header()
-                .expect("tip header exists")
-                .number();
+            let tip_number = snapshot.tip_header().number();
             let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
                 block_number,
@@ -227,11 +224,13 @@ impl IndexerStore for DefaultIndexerStore {
 }
 
 impl DefaultIndexerStore {
-    pub fn new(db_config: &DBConfig, shared: Shared) -> Self {
-        let db = RocksDB::open(db_config, COLUMNS);
+    pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
+        let db = RocksDB::open(&config.db, COLUMNS);
         DefaultIndexerStore {
             db: Arc::new(db),
             shared,
+            batch_interval: Duration::from_millis(config.batch_interval),
+            batch_size: config.batch_size,
             sync_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -245,7 +244,7 @@ impl DefaultIndexerStore {
         thread_builder
             .spawn(move || loop {
                 self.sync_index_states();
-                thread::sleep(SYNC_INTERVAL);
+                thread::sleep(self.batch_interval);
             })
             .expect("start DefaultIndexerStore failed");
     }
@@ -318,13 +317,10 @@ impl DefaultIndexerStore {
             min_block_number + 1
         };
 
-        let tip_number = snapshot
-            .get_tip_header()
-            .expect("tip header exists")
-            .number();
+        let tip_number = snapshot.tip_header().number();
         self.commit_txn(|txn| {
             (start_number..=tip_number)
-                .take(TXN_ATTACH_BLOCK_NUMS)
+                .take(self.batch_size)
                 .for_each(|block_number| {
                     let index_lock_hashes = lock_hash_index_states
                         .iter()
@@ -614,11 +610,8 @@ mod tests {
     use super::*;
     use ckb_chain::chain::{ChainController, ChainService};
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_db::DBConfig;
-    use ckb_notify::NotifyService;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
-    use ckb_traits::chain_provider::ChainProvider;
     use ckb_types::{
         core::{
             capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
@@ -635,12 +628,9 @@ mod tests {
         let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
 
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        let config = DBConfig {
-            path: tmp_dir.as_ref().to_path_buf(),
-            ..Default::default()
-        };
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let mut config = IndexerConfig::default();
+        config.db.path = tmp_dir.as_ref().to_path_buf();
+        let chain_service = ChainService::new(shared.clone(), table);
         let chain_controller = chain_service.start::<&str>(None);
         (
             DefaultIndexerStore::new(&config, shared.clone()),

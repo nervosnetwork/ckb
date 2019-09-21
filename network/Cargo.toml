@@ -1,12 +1,9 @@
 [package]
 name = "ckb-network"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-
-[features]
-db-trace = ["rusqlite/trace"]
 
 [dependencies]
 rand = "0.6"
@@ -20,17 +17,16 @@ tokio = "0.1.18"
 tokio-threadpool = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.3", package="tentacle" }
-p2p-ping = { version="0.3.5", package="tentacle-ping" }
-p2p-discovery = { version="0.2.5", package="tentacle-discovery" }
-p2p-identify = { version="0.2.6", package="tentacle-identify" }
+p2p = { version="0.2.4", package="tentacle", features = ["molc"] }
+p2p-ping = { version="0.3.6", package="tentacle-ping", features = ["molc"] }
+p2p-discovery = { version="0.2.6", package="tentacle-discovery", features = ["molc"] }
+p2p-identify = { version="0.2.7", package="tentacle-identify", features = ["molc"] }
 faketime = "0.2.0"
-rusqlite = {version = "0.18.0", features = ["bundled"]}
 lazy_static = "1.3.0"
 generic-channel = { version = "0.2.0", features = ["all"] }
 bs58 = "0.2.0"
 sentry = "0.16.0"
-faster-hex = "0.3"
+faster-hex = "0.4"
 ckb-hash = {path = "../util/hash"}
 secp256k1 = {version = "0.15.0", features = ["recovery"] }
 resolve = "0.2.0"
@@ -39,12 +35,14 @@ num_cpus = "1.10"
 snap = "0.2"
 ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
-
-[dev-dependencies]
-criterion = "0.2"
+serde_json = "1.0"
 tempfile = "3.0.7"
 
+[dev-dependencies]
+criterion = "0.3"
+proptest = "0.9"
+
 [[bench]]
-name = "sqlite_peer_store"
+name = "peer_store"
 harness = false
-path = "src/benches/sqlite_peer_store.rs"
+path = "src/benches/peer_store.rs"

@@ -1,6 +1,8 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
+use crate::types::SyncSnapshot;
 use crate::MAX_HEADERS_LEN;
+use ckb_error::{Error, ErrorKind};
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::BlockMedianTimeContext;
@@ -9,7 +11,7 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use std::sync::Arc;
 
@@ -18,10 +20,11 @@ pub struct HeadersProcess<'a> {
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
+    snapshot: SyncSnapshot,
 }
 
 pub struct VerifierResolver<'a> {
-    synchronizer: &'a Synchronizer,
+    snapshot: SyncSnapshot,
     header: &'a core::HeaderView,
     parent: Option<&'a core::HeaderView>,
     epoch: Option<EpochExt>,
@@ -31,18 +34,16 @@ impl<'a> VerifierResolver<'a> {
     pub fn new(
         parent: Option<&'a core::HeaderView>,
         header: &'a core::HeaderView,
-        synchronizer: &'a Synchronizer,
+        snapshot: SyncSnapshot,
     ) -> Self {
         let epoch = parent
             .and_then(|parent| {
-                synchronizer
-                    .shared
+                snapshot
                     .get_epoch_ext(&parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {
-                synchronizer
-                    .shared
+                snapshot
                     .next_epoch_ext(&last_epoch, parent)
                     .unwrap_or(last_epoch)
             });
@@ -50,7 +51,7 @@ impl<'a> VerifierResolver<'a> {
         VerifierResolver {
             parent,
             header,
-            synchronizer,
+            snapshot,
             epoch,
         }
     }
@@ -61,7 +62,7 @@ impl<'a> ::std::clone::Clone for VerifierResolver<'a> {
         VerifierResolver {
             parent: self.parent,
             header: self.header,
-            synchronizer: self.synchronizer,
+            snapshot: self.snapshot.clone(),
             epoch: self.epoch.clone(),
         }
     }
@@ -69,16 +70,12 @@ impl<'a> ::std::clone::Clone for VerifierResolver<'a> {
 
 impl<'a> BlockMedianTimeContext for VerifierResolver<'a> {
     fn median_block_count(&self) -> u64 {
-        self.synchronizer
-            .shared
-            .consensus()
-            .median_time_block_count() as u64
+        self.snapshot.consensus().median_time_block_count() as u64
     }
 
     fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         let header = self
-            .synchronizer
-            .shared
+            .snapshot
             .get_header(&block_hash)
             .expect("[VerifierResolver] blocks used for median time exist");
         (
@@ -110,11 +107,13 @@ impl<'a> HeadersProcess<'a> {
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
+        let snapshot = synchronizer.shared().snapshot();
         HeadersProcess {
             message,
             nc,
             synchronizer,
             peer,
+            snapshot,
         }
     }
 
@@ -136,27 +135,22 @@ impl<'a> HeadersProcess<'a> {
 
     fn received_new_header(&self, headers: &[core::HeaderView]) -> bool {
         let last = headers.last().expect("empty checked");
-        self.synchronizer
-            .shared()
-            .unknown_block_status(&last.hash())
+        self.snapshot.unknown_block_status(&last.hash())
     }
 
     pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
-        let parent = self
-            .synchronizer
-            .shared
-            .get_header(&first.data().raw().parent_hash());
-        let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
+        let parent = self.snapshot.get_header(&first.data().raw().parent_hash());
+        let resolver = VerifierResolver::new(parent.as_ref(), &first, self.snapshot.clone());
         let verifier = HeaderVerifier::new(
             &resolver,
-            Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
+            Arc::clone(&self.snapshot.consensus().pow_engine()),
         );
         let acceptor = HeaderAcceptor::new(
             first,
             self.peer,
-            &self.synchronizer,
             resolver.clone(),
             verifier,
+            self.snapshot.clone(),
         );
         acceptor.accept()
     }
@@ -173,7 +167,10 @@ impl<'a> HeadersProcess<'a> {
             .collect::<Vec<_>>();
 
         if headers.len() > MAX_HEADERS_LEN {
-            self.synchronizer.shared().misbehavior(self.peer, 20);
+            self.synchronizer
+                .shared()
+                .state()
+                .misbehavior(self.peer, 20);
             warn!("HeadersProcess is_oversize");
             return Ok(());
         }
@@ -192,7 +189,10 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.shared().misbehavior(self.peer, 20);
+            self.synchronizer
+                .shared()
+                .state()
+                .misbehavior(self.peer, 20);
             debug!("HeadersProcess is not continuous");
             return Ok(());
         }
@@ -202,6 +202,7 @@ impl<'a> HeadersProcess<'a> {
             if result.misbehavior > 0 {
                 self.synchronizer
                     .shared()
+                    .state()
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(
@@ -213,17 +214,17 @@ impl<'a> HeadersProcess<'a> {
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                let resolver = VerifierResolver::new(Some(&parent), &header, &self.synchronizer);
+                let resolver = VerifierResolver::new(Some(&parent), &header, self.snapshot.clone());
                 let verifier = HeaderVerifier::new(
                     &resolver,
-                    Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
+                    Arc::clone(&self.snapshot.consensus().pow_engine()),
                 );
                 let acceptor = HeaderAcceptor::new(
                     &header,
                     self.peer,
-                    &self.synchronizer,
                     resolver.clone(),
                     verifier,
+                    self.snapshot.clone(),
                 );
                 let result = acceptor.accept();
 
@@ -231,6 +232,7 @@ impl<'a> HeadersProcess<'a> {
                     if result.misbehavior > 0 {
                         self.synchronizer
                             .shared()
+                            .state()
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!("HeadersProcess accept is invalid {:?}", result);
@@ -241,13 +243,12 @@ impl<'a> HeadersProcess<'a> {
 
         if log_enabled!(Level::Debug) {
             // Regain the updated best known
-            let snapshot = self.synchronizer.shared.snapshot();
-            let shared_best_known = self.synchronizer.shared.shared_best_header();
+            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
-                snapshot.tip_number(),
-                snapshot.total_difficulty()
+                self.snapshot.tip_number(),
+                self.snapshot.total_difficulty()
             );
             debug!(
                 "shared best_known_header: num={}, diff={:#x}, hash={};",
@@ -276,8 +277,7 @@ impl<'a> HeadersProcess<'a> {
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
-            self.synchronizer
-                .shared
+            self.snapshot
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }
 
@@ -291,7 +291,7 @@ impl<'a> HeadersProcess<'a> {
             .get(&self.peer)
             .map(|state| state.peer_flags)
             .unwrap_or_default();
-        if self.synchronizer.shared.is_initial_block_download()
+        if self.snapshot.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN
             && (!peer_flags.is_protect && !peer_flags.is_whitelist && peer_flags.is_outbound)
         {
@@ -311,7 +311,7 @@ impl<'a> HeadersProcess<'a> {
 #[derive(Clone)]
 pub struct HeaderAcceptor<'a, V: Verifier> {
     header: &'a core::HeaderView,
-    synchronizer: &'a Synchronizer,
+    snapshot: SyncSnapshot,
     peer: PeerIndex,
     resolver: V::Target,
     verifier: V,
@@ -324,16 +324,16 @@ where
     pub fn new(
         header: &'a core::HeaderView,
         peer: PeerIndex,
-        synchronizer: &'a Synchronizer,
         resolver: VerifierResolver<'a>,
         verifier: V,
+        snapshot: SyncSnapshot,
     ) -> Self {
         HeaderAcceptor {
             header,
             peer,
             resolver,
             verifier,
-            synchronizer,
+            snapshot,
         }
     }
 
@@ -351,7 +351,7 @@ where
     }
 
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        if self.synchronizer.shared().contains_block_status(
+        if self.snapshot.contains_block_status(
             &self.header.data().raw().parent_hash(),
             BlockStatus::BLOCK_INVALID,
         ) {
@@ -362,34 +362,25 @@ where
     }
 
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        self.verifier
-            .verify(&self.resolver)
-            .map_err(|error| match error {
-                VerifyError::Pow(e) => {
-                    debug!(
-                        "HeadersProcess accept {:?} pow error {:?}",
-                        self.header.number(),
-                        e
-                    );
-                    state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
+        self.verifier.verify(&self.resolver).map_err(|error| {
+            debug!(
+                "HeadersProcess accept {:?} error {:?}",
+                self.header.number(),
+                error
+            );
+            if error.kind() == &ErrorKind::Header {
+                let header_error = error
+                    .downcast_ref::<HeaderError>()
+                    .expect("error kind checked");
+                match header_error.kind() {
+                    HeaderErrorKind::Pow => state.dos(Some(ValidationError::Verify(error)), 100),
+                    HeaderErrorKind::Epoch => state.dos(Some(ValidationError::Verify(error)), 50),
+                    _ => state.invalid(Some(ValidationError::Verify(error))),
                 }
-                VerifyError::Epoch(e) => {
-                    debug!(
-                        "HeadersProcess accept {:?} epoch error {:?}",
-                        self.header.number(),
-                        e
-                    );
-                    state.dos(Some(ValidationError::Verify(VerifyError::Epoch(e))), 50);
-                }
-                error => {
-                    debug!(
-                        "HeadersProcess accept {:?} {:?}",
-                        self.header.number(),
-                        error
-                    );
-                    state.invalid(Some(ValidationError::Verify(error)));
-                }
-            })
+            } else {
+                state.invalid(Some(ValidationError::Verify(error)));
+            }
+        })
     }
 
     pub fn version_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
@@ -407,16 +398,15 @@ where
         // FIXME If status == BLOCK_INVALID then return early. But which error
         // type should we return?
         if self
-            .synchronizer
-            .shared()
+            .snapshot
             .contains_block_status(&self.header.hash(), BlockStatus::HEADER_VALID)
         {
             let header_view = self
-                .synchronizer
-                .shared()
+                .snapshot
                 .get_header_view(&self.header.hash())
                 .expect("header with HEADER_VALID should exist");
-            self.synchronizer
+            self.snapshot
+                .state()
                 .peers()
                 .new_header_received(self.peer, &header_view);
             return result;
@@ -437,8 +427,8 @@ where
                 self.header.number(),
                 self.header.hash(),
             );
-            self.synchronizer
-                .shared()
+            self.snapshot
+                .state()
                 .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
@@ -449,8 +439,8 @@ where
                 self.header.number(),
                 self.header.hash(),
             );
-            self.synchronizer
-                .shared()
+            self.snapshot
+                .state()
                 .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
@@ -461,15 +451,14 @@ where
                 self.header.number(),
                 self.header.hash(),
             );
-            self.synchronizer
-                .shared()
+            self.snapshot
+                .state()
                 .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
         let epoch = self.resolver.epoch().expect("epoch verified").clone();
-        self.synchronizer
-            .shared()
+        self.snapshot
             .insert_valid_header(self.peer, &self.header, epoch);
         result
     }
@@ -489,7 +478,7 @@ impl Default for ValidationState {
 
 #[derive(Debug)]
 pub enum ValidationError {
-    Verify(VerifyError),
+    Verify(Error),
     Version,
     InvalidParent,
 }

@@ -6,7 +6,7 @@ use crate::types::InflightBlocks;
 use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -48,6 +48,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
+            .state()
             .insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -68,6 +69,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
+            .state()
             .insert_block_status(block.header().hash().clone(), BlockStatus::BLOCK_STORED);
     }
 
@@ -114,7 +116,7 @@ fn test_unknow_parent() {
 
     let snapshot = relayer.shared.snapshot();
     let header = snapshot.tip_header();
-    let locator_hash = relayer.shared.get_locator(header);
+    let locator_hash = snapshot.get_locator(&header);
 
     let content = packed::GetHeaders::new_builder()
         .block_locator_hashes(locator_hash.pack())
@@ -196,7 +198,7 @@ fn test_already_in_flight() {
     // Already in flight
     let mut in_flight_blocks = InflightBlocks::default();
     in_flight_blocks.insert(peer_index, block.header().hash().clone());
-    *relayer.shared.write_inflight_blocks() = in_flight_blocks;
+    *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
 
     let compact_block_process = CompactBlockProcess::new(
         compact_block.as_reader(),
@@ -238,12 +240,12 @@ fn test_already_pending() {
 
     // Already in pending
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().into_view().hash().clone(),
             (
                 compact_block.clone(),
-                HashMap::from_iter(vec![(1.into(), vec![0])]),
+                HashMap::from_iter(vec![(1.into(), (vec![0], vec![]))]),
             ),
         );
     }
@@ -302,7 +304,10 @@ fn test_header_invalid() {
     );
     // Assert block_status_map update
     assert_eq!(
-        relayer.shared().get_block_status(&block.header().hash()),
+        relayer
+            .shared()
+            .snapshot()
+            .get_block_status(&block.header().hash()),
         BlockStatus::BLOCK_INVALID
     );
 }
@@ -347,7 +352,7 @@ fn test_inflight_blocks_reach_limit() {
         for i in 0..=MAX_PEERS_PER_BLOCK {
             in_flight_blocks.insert(i.into(), block.header().hash().clone());
         }
-        *relayer.shared.write_inflight_blocks() = in_flight_blocks;
+        *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
     }
 
     let compact_block_process = CompactBlockProcess::new(
@@ -376,6 +381,8 @@ fn test_send_missing_indexes() {
 
     let proposal_id = ProposalShortId::new([1u8; 10]);
 
+    let uncle = packed::BlockBuilder::default().build();
+
     // Better block including one missing transaction
     let block = BlockBuilder::default()
         .header(header.clone())
@@ -390,6 +397,7 @@ fn test_send_missing_indexes() {
                 .output_data(Bytes::new().pack())
                 .build(),
         )
+        .uncle(uncle.clone().as_uncle().into_view())
         .proposal(proposal_id.clone())
         .build();
 
@@ -408,7 +416,11 @@ fn test_send_missing_indexes() {
         peer_index,
     );
 
-    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(!relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::SendMissingIndexes));
@@ -416,6 +428,7 @@ fn test_send_missing_indexes() {
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .indexes([1u32].pack())
+        .uncle_indexes([0u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_slice().into();
@@ -428,7 +441,11 @@ fn test_send_missing_indexes() {
         .contains(&(peer_index, data)));
 
     // insert inflight proposal
-    assert!(relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
@@ -455,11 +472,26 @@ fn test_accept_block() {
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
-    // Better block without missing txs
+    let uncle = packed::BlockBuilder::default().build();
+    let ext = packed::BlockExtBuilder::default()
+        .verified(Some(true).pack())
+        .build();
+
     let block = BlockBuilder::default()
         .header(header.clone())
         .transaction(TransactionBuilder::default().build())
+        .uncle(uncle.clone().as_uncle().into_view())
         .build();
+
+    let uncle_hash = uncle.calc_header_hash();
+    {
+        let uncle_view = uncle.into_view();
+        let db_txn = relayer.shared().shared().store().begin_transaction();
+        db_txn.insert_block(&uncle_view).unwrap();
+        db_txn.attach_block(&uncle_view).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
+        db_txn.commit().unwrap();
+    }
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -483,11 +515,10 @@ fn test_accept_block() {
 #[test]
 fn test_ignore_a_too_old_block() {
     let (relayer, _) = build_chain(1804);
-    let parent = {
-        let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
-    };
-    let parent = relayer.shared.get_ancestor(&parent.hash(), 2).unwrap();
+
+    let snapshot = relayer.shared.snapshot();
+    let parent = snapshot.tip_header().clone();
+    let parent = snapshot.get_ancestor(&parent.hash(), 2).unwrap();
 
     let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
 
@@ -561,7 +592,7 @@ fn test_collision() {
 
     let last_block = relayer
         .shared
-        .store()
+        .snapshot()
         .get_block(&relayer.shared.snapshot().tip_hash())
         .unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
@@ -592,9 +623,10 @@ fn test_collision() {
     assert_ne!(missing_tx.hash(), fake_tx.hash());
 
     let parent = {
-        let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
+        let tx_pool = relayer.shared.shared().tx_pool_controller();
+        let entry = TxEntry::new(missing_tx.clone(), 0, Capacity::shannons(0), 0, vec![]);
         tx_pool
-            .add_tx_to_pool(missing_tx.clone(), 100u16.into())
+            .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
         relayer.shared.snapshot().tip_header().clone()
     };
@@ -625,7 +657,11 @@ fn test_collision() {
         peer_index,
     );
 
-    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(!relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::CollisionAndSendMissingIndexes));

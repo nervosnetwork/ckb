@@ -1,10 +1,9 @@
 use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
+use ckb_jsonrpc_types::{Capacity, DryRunResult, OutPoint, Script, Transaction};
 use ckb_logger::error;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
     packed,
@@ -59,7 +58,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let consensus = snapshot.consensus();
         let calculator = DaoCalculator::new(consensus, snapshot);
         match calculator.maximum_withdraw(&out_point.into(), &hash.pack()) {
-            Ok(capacity) => Ok(Capacity(capacity)),
+            Ok(capacity) => Ok(capacity.into()),
             Err(err) => {
                 error!("calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
@@ -90,11 +89,11 @@ impl<'a> CellProvider for DryRunner<'a> {
 }
 
 impl<'a> HeaderChecker for DryRunner<'a> {
-    fn is_valid(&self, block_hash: &packed::Byte32) -> bool {
-        self.shared
-            .snapshot()
-            .get_block_number(block_hash)
-            .is_some()
+    fn check_valid(
+        &self,
+        block_hash: &packed::Byte32,
+    ) -> std::result::Result<(), ckb_error::Error> {
+        self.shared.snapshot().check_valid(block_hash)
     }
 }
 
@@ -105,15 +104,13 @@ impl<'a> DryRunner<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
         let snapshot: &Snapshot = &self.shared.snapshot();
-        match resolve_transaction(&tx.into_view(), &mut HashSet::new(), self, self) {
+        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, snapshot, self.shared.script_config())
-                    .verify(max_cycles)
-                {
+                match ScriptVerifier::new(&resolved, snapshot).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
-                        cycles: Cycle(cycles),
+                        cycles: cycles.into(),
                     }),
                     Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
                 }

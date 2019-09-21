@@ -3,15 +3,15 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1567836000183
+timestamp = 1569045600322
 difficulty = "0x11940000000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x010b345d81d1107c100839abdc4bd015a4e6c10fbac466dbc076d4326cf61e57"
+hash = "0x5b6196b4d433c25b7eae85da24ee4da428dfa4c7bec0666e8effa965bed14f05"
 
 [genesis.genesis_cell]
-message = "rylai-v9 d97c5409 test: bench next_epoch_ext <u2 2019-08-31 11:50:16 +0800>"
+message = "rylai-v10"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
@@ -70,6 +70,13 @@ lock.hash_type = "type"
 capacity = 50_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
+lock.hash_type = "type"
+# Satoshi's gift, a cell send to satoshi's lock,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
+lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
 lock.hash_type = "type"
 
 [pow]

@@ -8,7 +8,7 @@ pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, ResetDataArgs, RunArgs, StatsArgs,
 };
-pub use ckb_miner::BlockAssemblerConfig;
+pub use ckb_tx_pool::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;
@@ -229,7 +229,6 @@ impl Setup {
             .value_of(cli::ARG_BA_HASH_TYPE)
             .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
             .unwrap();
-        let block_assembler_data = matches.value_of(cli::ARG_BA_DATA).map(str::to_string);
 
         Ok(InitArgs {
             interactive,
@@ -244,7 +243,6 @@ impl Setup {
             block_assembler_code_hash,
             block_assembler_args,
             block_assembler_hash_type,
-            block_assembler_data,
         })
     }
 
@@ -252,7 +250,7 @@ impl Setup {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
         let db_path = config.db.path;
-        let indexer_db_path = config.indexer_db.path;
+        let indexer_db_path = config.indexer.db.path;
         let network_config = config.network;
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();

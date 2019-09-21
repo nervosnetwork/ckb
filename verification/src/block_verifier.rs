@@ -1,7 +1,7 @@
-use crate::error::{CellbaseError, Error};
 use crate::header_verifier::HeaderResolver;
-use crate::Verifier;
+use crate::{BlockErrorKind, CellbaseError, Verifier};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockView, EpochExt, HeaderView},
@@ -56,13 +56,29 @@ impl CellbaseVerifier {
 
         // empty checked, block must contain cellbase
         if cellbase_len != 1 {
-            return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
+            Err(CellbaseError::InvalidQuantity)?;
         }
 
         let cellbase_transaction = &block.transactions()[0];
 
         if !cellbase_transaction.is_cellbase() {
-            return Err(Error::Cellbase(CellbaseError::InvalidPosition));
+            Err(CellbaseError::InvalidPosition)?;
+        }
+
+        // cellbase outputs/outputs_data len must eq 1
+        if cellbase_transaction.outputs().len() != 1
+            || cellbase_transaction.outputs_data().len() != 1
+        {
+            Err(CellbaseError::InvalidQuantity)?;
+        }
+
+        // cellbase output data must empty
+        if !cellbase_transaction
+            .outputs_data()
+            .get_unchecked(0)
+            .is_empty()
+        {
+            Err(CellbaseError::InvalidOutputData)?;
         }
 
         if cellbase_transaction
@@ -71,7 +87,7 @@ impl CellbaseVerifier {
             .and_then(Script::from_witness)
             .is_none()
         {
-            return Err(Error::Cellbase(CellbaseError::InvalidWitness));
+            Err(CellbaseError::InvalidWitness)?;
         }
 
         if cellbase_transaction
@@ -79,7 +95,7 @@ impl CellbaseVerifier {
             .into_iter()
             .any(|output| output.type_().is_some())
         {
-            return Err(Error::Cellbase(CellbaseError::InvalidTypeScript));
+            Err(CellbaseError::InvalidTypeScript)?;
         }
 
         let cellbase_input = &cellbase_transaction
@@ -87,7 +103,7 @@ impl CellbaseVerifier {
             .get(0)
             .expect("cellbase should have input");
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
-            return Err(Error::Cellbase(CellbaseError::InvalidInput));
+            Err(CellbaseError::InvalidInput)?;
         }
 
         Ok(())
@@ -105,7 +121,7 @@ impl DuplicateVerifier {
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let mut seen = HashSet::with_capacity(block.transactions().len());
         if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
-            return Err(Error::CommitTransactionDuplicate);
+            Err(BlockErrorKind::CommitTransactionDuplicate)?;
         }
 
         let mut seen = HashSet::with_capacity(block.data().proposals().len());
@@ -115,7 +131,7 @@ impl DuplicateVerifier {
             .into_iter()
             .all(|id| seen.insert(id))
         {
-            return Err(Error::ProposalTransactionDuplicate);
+            Err(BlockErrorKind::ProposalTransactionDuplicate)?;
         }
         Ok(())
     }
@@ -131,15 +147,15 @@ impl MerkleRootVerifier {
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.transactions_root() != block.calc_transactions_root() {
-            return Err(Error::CommitTransactionsRoot);
+            Err(BlockErrorKind::CommitTransactionsRoot)?;
         }
 
         if block.witnesses_root() != block.calc_witnesses_root() {
-            return Err(Error::WitnessesMerkleRoot);
+            Err(BlockErrorKind::WitnessesMerkleRoot)?;
         }
 
         if block.proposals_hash() != block.calc_proposals_hash() {
-            return Err(Error::ProposalTransactionsRoot);
+            Err(BlockErrorKind::ProposalTransactionsRoot)?;
         }
 
         Ok(())
@@ -222,7 +238,7 @@ impl BlockProposalsLimitVerifier {
         if proposals_len <= self.block_proposals_limit {
             Ok(())
         } else {
-            Err(Error::ExceededMaximumProposalsLimit)
+            Err(BlockErrorKind::ExceededMaximumProposalsLimit)?
         }
     }
 }
@@ -246,7 +262,7 @@ impl BlockBytesVerifier {
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(Error::ExceededMaximumBlockBytes)
+            Err(BlockErrorKind::ExceededMaximumBlockBytes)?
         }
     }
 }

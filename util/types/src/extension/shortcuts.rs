@@ -117,7 +117,6 @@ impl packed::Transaction {
     pub fn is_cellbase(&self) -> bool {
         let raw_tx = self.raw();
         raw_tx.inputs().len() == 1
-            && raw_tx.outputs().len() == 1
             && self.witnesses().len() == 1
             && raw_tx
                 .inputs()
@@ -205,7 +204,7 @@ impl packed::CompactBlock {
             .header(block.data().header())
             .short_ids(short_ids.pack())
             .prefilled_transactions(prefilled_transactions.pack())
-            .uncles(block.data().uncles())
+            .uncles(block.uncle_hashes.clone())
             .proposals(block.data().proposals())
             .build()
     }

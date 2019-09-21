@@ -1,10 +1,8 @@
 use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{BlockBuilder, BlockExt, BlockView},
     prelude::Pack,
@@ -23,8 +21,7 @@ use std::sync::Arc;
 fn test_find_fork_case1() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -96,8 +93,7 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -169,8 +165,7 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -242,8 +237,7 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -311,7 +305,6 @@ fn test_find_fork_case4() {
 // this case is create for issuse from https://github.com/nervosnetwork/ckb/pull/1470
 #[test]
 fn repeatedly_switch_fork() {
-    ckb_store::set_cache_enable(false);
     let (shared, _) = SharedBuilder::default()
         .consensus(Consensus::default())
         .build()
@@ -324,12 +317,11 @@ fn repeatedly_switch_fork() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
     let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
 
-    let notify = NotifyService::default().start::<&str>(None);
     let (shared, table) = SharedBuilder::default()
         .consensus(Consensus::default())
         .build()
         .unwrap();
-    let mut chain_service = ChainService::new(shared, table, notify);
+    let mut chain_service = ChainService::new(shared, table);
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u64, &mock_store);

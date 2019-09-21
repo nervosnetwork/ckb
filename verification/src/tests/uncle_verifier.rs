@@ -1,12 +1,11 @@
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
-use crate::error::{Error, UnclesError};
 use crate::uncles_verifier::UnclesVerifier;
+use crate::UnclesError;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_notify::NotifyService;
+use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{
         BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
@@ -43,8 +42,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, table) = builder.build().unwrap();
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
@@ -81,9 +79,10 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
 
     let mut parent = genesis.clone();
     for _ in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
-        let epoch = shared
-            .next_epoch_ext(&parent_epoch, &parent)
+        let snapshot = shared.snapshot();
+        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
             .unwrap_or(parent_epoch);
         let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
@@ -97,9 +96,10 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
-        let epoch = shared
-            .next_epoch_ext(&parent_epoch, &parent)
+        let snapshot = shared.snapshot();
+        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
             .unwrap_or(parent_epoch);
         let new_block = if i > 10 {
             gen_block(&parent, random(), &epoch)
@@ -113,24 +113,19 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
         parent = new_block.header();
     }
 
-    // the second chain must have smaller hash
-    let hash1 = chain1.last().unwrap().hash();
-    let hash2 = chain2.last().unwrap().hash();
-    if hash1 < hash2 {
-        (shared, chain2, chain1)
-    } else {
-        (shared, chain1, chain2)
-    }
+    // According to the first-received policy, chain1 is the main chain
+    (shared, chain1, chain2)
 }
 
 fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
-    VerifyContext::new(shared.store(), shared.consensus(), shared.script_config())
+    VerifyContext::new(shared.store(), shared.consensus())
 }
 
 fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
-    let parent_epoch = shared.get_block_epoch(&chain[index].hash()).unwrap();
-    shared
-        .next_epoch_ext(&parent_epoch, &chain[index].header())
+    let snapshot = shared.snapshot();
+    let parent_epoch = snapshot.get_block_epoch(&chain[index].hash()).unwrap();
+    snapshot
+        .next_epoch_ext(shared.consensus(), &parent_epoch, &chain[index].header())
         .unwrap_or(parent_epoch)
 }
 
@@ -152,12 +147,12 @@ fn test_uncle_count() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::MissMatchCount {
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::MissMatchCount {
             expected: 0,
-            actual: 1
-        }))
+            actual: 1,
+        },
     );
 }
 
@@ -181,12 +176,12 @@ fn test_invalid_uncle_hash_case1() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::InvalidHash {
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::InvalidHash {
             expected: Byte32::zero(),
-            actual: block.calc_uncles_hash()
-        }))
+            actual: block.calc_uncles_hash(),
+        },
     );
 }
 
@@ -211,12 +206,12 @@ fn test_invalid_uncle_hash_case2() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::InvalidHash {
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::InvalidHash {
             expected: uncles_hash,
             actual: Byte32::zero(),
-        }))
+        },
     );
 }
 
@@ -239,11 +234,9 @@ fn test_double_inclusion() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::DoubleInclusion(
-            block.uncles().get(0).unwrap().hash()
-        )))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::DoubleInclusion(block.uncles().get(0).unwrap().header().hash().to_owned()),
     );
 }
 
@@ -252,16 +245,16 @@ fn test_double_inclusion() {
 fn test_invalid_difficulty() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
-    let epoch = epoch(&shared, &chain2, 17);
+    let epoch = epoch(&shared, &chain1, 17);
     let invalid_difficulty = epoch.difficulty() + U256::one();
 
-    let uncle = chain1[16]
+    let uncle = chain2[16]
         .clone()
         .as_advanced_builder()
         .difficulty(invalid_difficulty.pack())
         .build()
         .as_uncle();
-    let block = chain1[18]
+    let block = chain2[18]
         .clone()
         .as_advanced_builder()
         .uncle(uncle)
@@ -269,9 +262,9 @@ fn test_invalid_difficulty() {
 
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::InvalidDifficulty))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedDifficulty,
     );
 }
 // Uncle.epoch != block.epoch
@@ -299,9 +292,9 @@ fn test_invalid_epoch() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::InvalidDifficultyEpoch,
     );
 }
 
@@ -311,22 +304,19 @@ fn test_invalid_number() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    let uncle = chain1[18].as_uncle();
+    let uncle = chain2[18].as_uncle();
 
-    let block = chain2[17]
+    let block = chain1[17]
         .clone()
         .as_advanced_builder()
         .uncle(uncle)
-        .header(chain2[17].header())
+        .header(chain1[17].header())
         .build();
 
-    let epoch = epoch(&shared, &chain2, 16);
+    let epoch = epoch(&shared, &chain1, 16);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::InvalidNumber))
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::InvalidNumber);
 }
 
 // Uncle proposals_hash is invalid
@@ -336,26 +326,23 @@ fn test_uncle_proposals_hash() {
     let dummy_context = dummy_context(&shared);
     let block_number = 17;
 
-    let uncle = chain1[16]
+    let uncle = chain2[16]
         .to_owned()
         .as_advanced_builder()
-        .parent_hash(chain2[15].hash())
+        .parent_hash(chain1[15].hash())
         .proposal([1; 10].pack())
         .build_unchecked()
         .as_uncle();
-    let block = chain2[18]
+    let block = chain1[18]
         .to_owned()
         .as_advanced_builder()
         .uncle(uncle)
         .build();
 
-    let epoch = epoch(&shared, &chain2, block_number);
+    let epoch = epoch(&shared, &chain1, block_number);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::ProposalsHash))
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::ProposalsHash);
 }
 
 // Uncle contains duplicated proposals
@@ -380,9 +367,9 @@ fn test_uncle_duplicated_proposals() {
     let epoch = epoch(&shared, &chain2, 7);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::ProposalDuplicate))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::ProposalDuplicate,
     );
 }
 
@@ -392,23 +379,21 @@ fn test_duplicated_uncles() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    let uncle1 = chain1[10].as_uncle();
-    let duplicated_uncles = vec![uncle1.clone(), uncle1.clone()];
+    let uncle = chain2[10].as_uncle();
+    let duplicated_uncles = vec![uncle.clone(), uncle.clone()];
 
-    let block = chain2[12]
+    let block = chain1[12]
         .to_owned()
         .as_advanced_builder()
         .uncles(duplicated_uncles)
         .build();
 
-    let epoch = epoch(&shared, &chain2, 11);
+    let epoch = epoch(&shared, &chain1, 11);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles().get(1).unwrap().hash()
-        )))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::Duplicate(block.uncles().get(1).unwrap().header().hash().to_owned()),
     );
 }
 
@@ -421,10 +406,10 @@ fn test_uncle_over_count() {
     let max_uncles_num = shared.consensus().max_uncles_num();
     let mut uncles: Vec<UncleBlockView> = Vec::new();
     for _ in 0..=max_uncles_num {
-        let uncle = chain1[10].clone().as_uncle();
+        let uncle = chain2[10].clone().as_uncle();
         uncles.push(uncle);
     }
-    let block = chain2[12]
+    let block = chain1[12]
         .clone()
         .as_advanced_builder()
         .uncles(uncles)
@@ -434,12 +419,12 @@ fn test_uncle_over_count() {
     let epoch = epoch(&shared, &chain1, 11);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::OverCount {
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::OverCount {
             max: max_uncles_num as u32,
-            actual: max_uncles_num as u32 + 1
-        }))
+            actual: max_uncles_num as u32 + 1,
+        },
     );
 }
 
@@ -465,9 +450,9 @@ fn test_exceeded_maximum_proposals_limit() {
     let epoch = epoch(&shared, &chain1, 7);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_eq!(
-        verifier.verify(),
-        Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit))
+    assert_error_eq(
+        verifier.verify().unwrap_err(),
+        UnclesError::ExceededMaximumProposalsLimit,
     );
 }
 
@@ -477,47 +462,44 @@ fn test_descendant_limit() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = chain1[16].clone().as_uncle();
-        let block = chain2[18]
+        let uncle = chain2[16].clone().as_uncle();
+        let block = chain1[18]
             .clone()
             .as_advanced_builder()
             .uncle(uncle)
             .build();
 
-        let epoch = epoch(&shared, &chain2, 17);
+        let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(
-            verifier.verify(),
-            Err(Error::Uncles(UnclesError::DescendantLimit))
-        );
+        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 
     // embedded should be ok
     {
-        let uncle1 = chain1[15]
+        let uncle1 = chain2[15]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[14].hash())
+            .parent_hash(chain1[14].hash())
             .build()
             .as_uncle();
-        let uncle2 = chain1[16]
+        let uncle2 = chain2[16]
             .clone()
             .as_advanced_builder()
             .parent_hash(uncle1.hash())
             .build()
             .as_uncle();
-        let block = chain2[18]
+        let block = chain1[18]
             .clone()
             .as_advanced_builder()
             .uncle(uncle1)
             .uncle(uncle2)
             .build();
 
-        let epoch = epoch(&shared, &chain2, 17);
+        let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(verifier.verify(), Ok(()));
+        assert!(verifier.verify().is_ok());
     }
 }
 
@@ -527,25 +509,22 @@ fn test_descendant_continuity() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = chain1[16]
+        let uncle = chain2[16]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[14].hash())
+            .parent_hash(chain1[14].hash())
             .build()
             .as_uncle();
-        let block = chain2[18]
+        let block = chain1[18]
             .clone()
             .as_advanced_builder()
             .uncle(uncle)
             .build();
 
-        let epoch = epoch(&shared, &chain2, 17);
+        let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(
-            verifier.verify(),
-            Err(Error::Uncles(UnclesError::DescendantLimit))
-        );
+        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 }
 
@@ -555,27 +534,27 @@ fn test_ok() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = chain1[16]
+        let uncle = chain2[16]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[15].hash())
+            .parent_hash(chain1[15].hash())
             .build()
             .as_uncle();
-        let block = chain2[18]
+        let block = chain1[18]
             .clone()
             .as_advanced_builder()
             .uncle(uncle)
             .build();
 
-        let epoch = epoch(&shared, &chain2, 17);
+        let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(verifier.verify(), Ok(()));
+        assert!(verifier.verify().is_ok());
     }
 
     {
-        let uncle = chain1[10].clone().as_uncle();
-        let block = chain2[12]
+        let uncle = chain2[10].clone().as_uncle();
+        let block = chain1[12]
             .clone()
             .as_advanced_builder()
             .uncle(uncle)
@@ -584,7 +563,7 @@ fn test_ok() {
         let epoch = epoch(&shared, &chain1, 11);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(verifier.verify(), Ok(()));
+        assert!(verifier.verify().is_ok());
     }
 }
 
@@ -596,7 +575,6 @@ fn test_uncle_with_uncle_descendant() {
     consensus.max_block_proposals_limit = 3;
     consensus.genesis_epoch_ext.set_length(10);
     let (controller, shared) = start_chain(Some(consensus));
-    ckb_store::set_cache_enable(false);
 
     for block in &chain2 {
         controller
@@ -628,6 +606,6 @@ fn test_uncle_with_uncle_descendant() {
         let dummy_context = dummy_context(&shared);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch18);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &new_block);
-        assert_eq!(verifier.verify(), Ok(()));
+        assert!(verifier.verify().is_ok());
     }
 }

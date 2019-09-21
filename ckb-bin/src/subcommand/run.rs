@@ -1,18 +1,15 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
-use ckb_app_config::{ExitCode, RunArgs};
+use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
-use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
-use ckb_notify::NotifyService;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
@@ -22,11 +19,14 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
+    let block_assembler_config = sanitize_block_assembler_config(&args)?;
+    let miner_enable = block_assembler_config.is_some();
+
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
-        .script_config(args.config.script)
         .store_config(args.config.store)
+        .block_assembler_config(block_assembler_config)
         .build()
         .map_err(|err| {
             eprintln!("Run error: {:?}", err);
@@ -36,74 +36,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
 
-    let notify = NotifyService::default().start(Some("notify"));
-    let chain_service = ChainService::new(shared.clone(), table, notify.clone());
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
         "chain genesis hash: {}",
         shared.genesis_hash()
     );
-
-    let block_assembler_controller =
-        match (args.config.rpc.miner_enable(), args.config.block_assembler) {
-            (true, Some(block_assembler)) => {
-                let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
-                    let secp_cell_data =
-                        Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
-                            .get()
-                            .map_err(|err| {
-                                eprintln!(
-                                    "Load specs/cells/secp256k1_blake160_sighash_all error: {:?}",
-                                    err
-                                );
-                                ExitCode::Failure
-                            })?;
-                    let genesis_cellbase = &shared.consensus().genesis_block().transactions()[0];
-                    Ok(genesis_cellbase
-                        .outputs()
-                        .into_iter()
-                        .zip(genesis_cellbase.outputs_data().into_iter())
-                        .any(|(output, data)| {
-                            data.raw_data() == secp_cell_data.as_ref()
-                                && output
-                                    .type_()
-                                    .to_opt()
-                                    .map(|script| script.calc_script_hash())
-                                    .as_ref()
-                                    == Some(code_hash)
-                        }))
-                };
-                if args.block_assembler_advanced
-                    || (block_assembler.hash_type == ScriptHashType::Type
-                        && block_assembler.args.len() == 1
-                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
-                        && check_lock_code_hash(&block_assembler.code_hash.pack())?)
-                {
-                    Some(
-                        BlockAssembler::new(shared.clone(), block_assembler)
-                            .start(Some("MinerAgent"), &notify),
-                    )
-                } else {
-                    info_target!(
-                    crate::LOG_TARGET_MAIN,
-                    "Miner is disabled because block assmebler is not a recommended lock format. \
-                     Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
-                );
-
-                    None
-                }
-            }
-
-            _ => {
-                info_target!(
-                    crate::LOG_TARGET_MAIN,
-                    "Miner is disabled, edit ckb.toml to enable it"
-                );
-
-                None
-            }
-        };
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let network_state = Arc::new(
@@ -171,7 +110,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             shared.clone(),
             network_controller.clone(),
             chain_controller.clone(),
-            block_assembler_controller,
+            miner_enable,
         )
         .enable_net(network_controller.clone())
         .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
@@ -182,7 +121,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             chain_controller.clone(),
         )
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer_db, shared.clone());
+        .enable_indexer(&args.config.indexer, shared.clone());
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler);
@@ -204,4 +143,68 @@ fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
             eprintln!("genesis error: {}", err);
             ExitCode::Config
         })
+}
+
+fn sanitize_block_assembler_config(
+    args: &RunArgs,
+) -> Result<Option<BlockAssemblerConfig>, ExitCode> {
+    let block_assembler_config = match (
+        args.config.rpc.miner_enable(),
+        args.config.block_assembler.clone(),
+    ) {
+        (true, Some(block_assembler)) => {
+            let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
+                let secp_cell_data =
+                    Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
+                        .get()
+                        .map_err(|err| {
+                            eprintln!(
+                                "Load specs/cells/secp256k1_blake160_sighash_all error: {:?}",
+                                err
+                            );
+                            ExitCode::Failure
+                        })?;
+                let genesis_cellbase = &args.consensus.genesis_block().transactions()[0];
+                Ok(genesis_cellbase
+                    .outputs()
+                    .into_iter()
+                    .zip(genesis_cellbase.outputs_data().into_iter())
+                    .any(|(output, data)| {
+                        data.raw_data() == secp_cell_data.as_ref()
+                            && output
+                                .type_()
+                                .to_opt()
+                                .map(|script| script.calc_script_hash())
+                                .as_ref()
+                                == Some(code_hash)
+                    }))
+            };
+            if args.block_assembler_advanced
+                || (block_assembler.hash_type == ScriptHashType::Type
+                    && block_assembler.args.len() == 1
+                    && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                    && check_lock_code_hash(&block_assembler.code_hash.pack())?)
+            {
+                Some(block_assembler)
+            } else {
+                info_target!(
+                    crate::LOG_TARGET_MAIN,
+                    "Miner is disabled because block assmebler is not a recommended lock format. \
+                     Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                );
+
+                None
+            }
+        }
+
+        _ => {
+            info_target!(
+                crate::LOG_TARGET_MAIN,
+                "Miner is disabled, edit ckb.toml to enable it"
+            );
+
+            None
+        }
+    };
+    Ok(block_assembler_config)
 }

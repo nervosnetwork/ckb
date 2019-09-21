@@ -1,11 +1,9 @@
 use ckb_chain::chain::ChainController;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
-use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
-use ckb_traits::ChainProvider;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use faketime::unix_time_as_millis;
@@ -20,8 +18,8 @@ pub trait MinerRpc {
     #[rpc(name = "get_block_template")]
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate>;
 
@@ -33,33 +31,39 @@ pub trait MinerRpc {
 pub(crate) struct MinerRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
-    pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
 }
 
 impl MinerRpc for MinerRpcImpl {
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate> {
         let bytes_limit = match bytes_limit {
-            Some(b) => Some(b.0),
+            Some(b) => Some(b.into()),
             None => None,
         };
 
         let proposals_limit = match proposals_limit {
-            Some(b) => Some(b.0),
+            Some(b) => Some(b.into()),
             None => None,
         };
 
-        self.block_assembler
-            .get_block_template(bytes_limit, proposals_limit, max_version.map(|v| v.0))
-            .map_err(|err| {
-                error!("get_block_template error {}", err);
-                Error::internal_error()
-            })
+        let tx_pool = self.shared.tx_pool_controller();
+
+        let get_block_template =
+            tx_pool.get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into));
+        if let Err(e) = get_block_template {
+            error!("send get_block_template request error {}", e);
+            return Err(Error::internal_error());
+        };
+
+        get_block_template.unwrap().map_err(|err| {
+            error!("get_block_template result error {}", err);
+            Error::internal_error()
+        })
     }
 
     fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
@@ -73,10 +77,9 @@ impl MinerRpc for MinerRpcImpl {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();
-        let resolver =
-            HeaderResolverWrapper::new(&header, self.shared.store(), self.shared.consensus());
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
         let header_verify_ret = {
-            let snapshot: &Snapshot = &self.shared.snapshot();
             let header_verifier =
                 HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()));
             header_verifier.verify(&resolver)

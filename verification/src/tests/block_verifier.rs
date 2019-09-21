@@ -2,7 +2,8 @@ use super::super::block_verifier::{
     BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier, DuplicateVerifier,
     MerkleRootVerifier,
 };
-use super::super::error::{CellbaseError, Error as VerifyError};
+use crate::{BlockErrorKind, CellbaseError};
+use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -41,6 +42,51 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> TransactionV
         .build()
 }
 
+fn create_cellbase_transaction_with_non_empty_output_data() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .output_data(Bytes::from("123").pack())
+        .witness(Script::default().into_witness())
+        .build()
+}
+
+fn create_cellbase_transaction_with_two_output() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(Script::default().into_witness())
+        .build()
+}
+
+fn create_cellbase_transaction_with_two_output_data() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().pack())
+        .witness(Script::default().into_witness())
+        .build()
+}
+
 fn create_cellbase_transaction() -> TransactionView {
     create_cellbase_transaction_with_capacity(capacity_bytes!(100))
 }
@@ -64,9 +110,9 @@ pub fn test_block_without_cellbase() {
         .transaction(TransactionBuilder::default().build())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     );
 }
 
@@ -103,9 +149,9 @@ pub fn test_block_with_incorrect_cellbase_number() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidInput))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidInput,
     );
 }
 
@@ -118,10 +164,49 @@ pub fn test_block_with_one_cellbase_at_last() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidPosition))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidPosition,
     );
+}
+
+#[test]
+pub fn test_cellbase_with_non_empty_output_data() {
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(create_cellbase_transaction_with_non_empty_output_data())
+        .build();
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidOutputData,
+    );
+}
+
+#[test]
+pub fn test_cellbase_with_two_output() {
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(create_cellbase_transaction_with_two_output())
+        .build();
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
+    )
+}
+
+#[test]
+pub fn test_cellbase_with_two_output_data() {
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(create_cellbase_transaction_with_two_output_data())
+        .build();
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
+    )
 }
 
 #[test]
@@ -134,9 +219,9 @@ pub fn test_block_with_duplicated_txs() {
         .build();
 
     let verifier = DuplicateVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionDuplicate)
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::CommitTransactionDuplicate,
     );
 }
 
@@ -149,9 +234,9 @@ pub fn test_block_with_duplicated_proposals() {
         .build();
 
     let verifier = DuplicateVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::ProposalTransactionDuplicate)
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::ProposalTransactionDuplicate,
     );
 }
 
@@ -167,9 +252,9 @@ pub fn test_transaction_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsRoot)
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::CommitTransactionsRoot,
     );
 }
 
@@ -185,9 +270,9 @@ pub fn test_proposals_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsRoot)
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::CommitTransactionsRoot,
     );
 }
 
@@ -203,9 +288,9 @@ pub fn test_witnesses_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::WitnessesMerkleRoot)
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::WitnessesMerkleRoot,
     );
 }
 
@@ -218,9 +303,9 @@ pub fn test_block_with_two_cellbases() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     );
 }
 
@@ -259,12 +344,12 @@ pub fn test_max_block_bytes_verifier_skip_genesis() {
     let block = BlockBuilder::default().build();
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64);
-        assert_eq!(verifier.verify(&block), Ok(()));
+        assert!(verifier.verify(&block).is_ok());
     }
 
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
-        assert_eq!(verifier.verify(&block), Ok(()));
+        assert!(verifier.verify(&block).is_ok());
     }
 }
 
@@ -276,14 +361,14 @@ pub fn test_max_block_bytes_verifier() {
 
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64);
-        assert_eq!(verifier.verify(&block), Ok(()));
+        assert!(verifier.verify(&block).is_ok());
     }
 
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
-        assert_eq!(
-            verifier.verify(&block),
-            Err(VerifyError::ExceededMaximumBlockBytes)
+        assert_error_eq(
+            verifier.verify(&block).unwrap_err(),
+            BlockErrorKind::ExceededMaximumBlockBytes,
         );
     }
 }
@@ -296,14 +381,14 @@ pub fn test_max_proposals_limit_verifier() {
 
     {
         let verifier = BlockProposalsLimitVerifier::new(1);
-        assert_eq!(verifier.verify(&block), Ok(()));
+        assert!(verifier.verify(&block).is_ok());
     }
 
     {
         let verifier = BlockProposalsLimitVerifier::new(0);
-        assert_eq!(
-            verifier.verify(&block),
-            Err(VerifyError::ExceededMaximumProposalsLimit)
+        assert_error_eq(
+            verifier.verify(&block).unwrap_err(),
+            BlockErrorKind::ExceededMaximumProposalsLimit,
         );
     }
 }

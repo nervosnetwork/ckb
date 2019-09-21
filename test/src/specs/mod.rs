@@ -1,4 +1,5 @@
 mod alert;
+mod dao;
 mod indexer;
 mod mining;
 mod p2p;
@@ -7,6 +8,7 @@ mod sync;
 mod tx_pool;
 
 pub use alert::*;
+pub use dao::*;
 pub use indexer::*;
 pub use mining::*;
 pub use p2p::*;

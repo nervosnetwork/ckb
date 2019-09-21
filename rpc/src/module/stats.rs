@@ -1,4 +1,4 @@
-use ckb_jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
+use ckb_jsonrpc_types::{AlertMessage, ChainInfo, PeerState};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_sync::Synchronizer;
@@ -34,7 +34,11 @@ impl StatsRpc for StatsRpcImpl {
         };
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty().clone();
-        let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
+        let is_initial_block_download = self
+            .synchronizer
+            .shared
+            .snapshot()
+            .is_initial_block_download();
         let alerts: Vec<AlertMessage> = {
             let now = faketime::unix_time_as_millis();
             let mut notifier = self.alert_notifier.lock();
@@ -48,8 +52,8 @@ impl StatsRpc for StatsRpcImpl {
 
         Ok(ChainInfo {
             chain,
-            median_time: Timestamp(median_time),
-            epoch: EpochNumber(epoch),
+            median_time: median_time.into(),
+            epoch: epoch.into(),
             difficulty,
             is_initial_block_download,
             alerts,
@@ -61,6 +65,7 @@ impl StatsRpc for StatsRpcImpl {
         Ok(self
             .synchronizer
             .shared()
+            .state()
             .read_inflight_blocks()
             .blocks_iter()
             .map(|(peer, blocks)| PeerState::new(peer.value(), 0, blocks.len()))

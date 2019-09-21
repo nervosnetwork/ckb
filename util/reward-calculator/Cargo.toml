@@ -1,6 +1,6 @@
 [package]
 name = "ckb-reward-calculator"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,10 +8,10 @@ edition = "2018"
 [dependencies]
 ckb-types = { path = "../types" }
 ckb-store = { path = "../../store" }
-failure = "0.1.5"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
 ckb-chain-spec = {path = "../../spec"}
+ckb-error = { path = "../../error" }
 
 [dev-dependencies]
 ckb-chain-spec = { path = "../../spec" }

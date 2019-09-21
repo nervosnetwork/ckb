@@ -227,7 +227,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         Resource::bundled_ckb_config()

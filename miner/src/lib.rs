@@ -1,14 +1,11 @@
-mod block_assembler;
-mod candidate_uncles;
 mod client;
 mod config;
 mod error;
 mod miner;
 mod worker;
 
-pub use crate::block_assembler::{BlockAssembler, BlockAssemblerController};
 pub use crate::client::Client;
-pub use crate::config::{BlockAssemblerConfig, ClientConfig, MinerConfig, WorkerConfig};
+pub use crate::config::{ClientConfig, MinerConfig, WorkerConfig};
 pub use crate::error::Error;
 pub use crate::miner::Miner;
 
@@ -24,11 +21,11 @@ pub struct Work {
 
 impl From<BlockTemplate> for Work {
     fn from(block_template: BlockTemplate) -> Work {
-        let work_id = block_template.work_id.clone();
+        let work_id = block_template.work_id;
         let block: Block = block_template.into();
 
         Work {
-            work_id: work_id.0,
+            work_id: work_id.into(),
             block,
         }
     }

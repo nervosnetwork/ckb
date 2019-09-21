@@ -5,9 +5,7 @@ use crate::module::{
     NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
-use ckb_db::DBConfig;
-use ckb_indexer::DefaultIndexerStore;
-use ckb_miner::BlockAssemblerController;
+use ckb_indexer::{DefaultIndexerStore, IndexerConfig};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
@@ -50,20 +48,17 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
-        block_assembler: Option<BlockAssemblerController>,
+        enable: bool,
     ) -> Self {
-        if let Some(block_assembler) = block_assembler {
-            if self.config.miner_enable() {
-                self.io_handler.extend_with(
-                    MinerRpcImpl {
-                        shared: shared.clone(),
-                        block_assembler,
-                        chain: chain.clone(),
-                        network_controller: network_controller.clone(),
-                    }
-                    .to_delegate(),
-                );
-            }
+        if enable && self.config.miner_enable() {
+            self.io_handler.extend_with(
+                MinerRpcImpl {
+                    shared: shared.clone(),
+                    chain: chain.clone(),
+                    network_controller: network_controller.clone(),
+                }
+                .to_delegate(),
+            );
         }
         self
     }
@@ -136,9 +131,9 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_indexer(mut self, db_config: &DBConfig, shared: Shared) -> Self {
+    pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
         if self.config.indexer_enable() {
-            let store = DefaultIndexerStore::new(db_config, shared);
+            let store = DefaultIndexerStore::new(indexer_config, shared);
             store.clone().start(Some("IndexerStore"));
 
             self.io_handler

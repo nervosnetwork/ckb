@@ -16,7 +16,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
-pub const MEDIAN_TIME_BLOCK_COUNT: u64 = 11;
 pub const FLAG_SINCE_RELATIVE: u64 =
     0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 pub const FLAG_SINCE_BLOCK_NUMBER: u64 =

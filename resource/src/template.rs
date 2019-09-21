@@ -17,7 +17,6 @@ pub struct TemplateContext<'a> {
     pub p2p_port: &'a str,
     pub log_to_file: bool,
     pub log_to_stdout: bool,
-    pub runner: &'a str,
     pub block_assembler: &'a str,
 }
 
@@ -38,7 +37,6 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
             .replace("{p2p_port}", context.p2p_port)
             .replace("{log_to_file}", &format!("{}", context.log_to_file))
             .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))
-            .replace("{runner}", &context.runner.to_string())
             .replace("{block_assembler}", context.block_assembler)
     )
 }

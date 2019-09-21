@@ -1,18 +1,17 @@
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     core::{capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, HeaderView, TransactionBuilder},
-    h256,
     packed::{Byte32, CellInput, Script},
     prelude::*,
-    H256, U256,
+    u256, U256,
 };
 use criterion::{criterion_group, Criterion};
 use faketime::unix_time_as_millis;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 
-const GENESIS_DIFFICULTY: H256 = h256!("0x1000000");
+const GENESIS_DIFFICULTY: U256 = u256!("0x1000000");
 const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 const MIN_BLOCK_INTERVAL: u64 = 8;
 
@@ -90,7 +89,8 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let consensus = Consensus::new(genesis_block, DEFAULT_EPOCH_REWARD);
+                    let consensus =
+                        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD).build();
                     let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
 
                     let mut store = FakeStore::default();

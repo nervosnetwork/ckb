@@ -1,14 +1,12 @@
 use crate::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 pub use ckb_test_chain_utils::MockStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -50,19 +48,22 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .difficulty(U256::one().pack())
             .transaction(tx)
             .build();
-        Consensus::default()
-            .set_cellbase_maturity(0)
-            .set_genesis_block(genesis_block)
+        ConsensusBuilder::default()
+            .cellbase_maturity(0)
+            .genesis_block(genesis_block)
+            .build()
     });
     let (shared, table) = builder.consensus(consensus).build().unwrap();
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
-    let parent = shared
-        .store()
-        .get_block_header(&shared.store().get_block_hash(0).unwrap())
-        .unwrap();
+    let parent = {
+        let snapshot = shared.snapshot();
+        snapshot
+            .get_block_hash(0)
+            .and_then(|hash| snapshot.get_block_header(&hash))
+            .unwrap()
+    };
 
     (chain_controller, shared, parent)
 }
@@ -74,7 +75,8 @@ pub(crate) fn calculate_reward(
 ) -> Capacity {
     let number = parent.number() + 1;
     let target_number = consensus.finalize_target(number).unwrap();
-    let target = store.0.get_ancestor(&parent.hash(), target_number).unwrap();
+    let target_hash = store.0.get_block_hash(target_number).unwrap();
+    let target = store.0.get_block_header(&target_hash).unwrap();
     let calculator = DaoCalculator::new(consensus, store.store());
     calculator
         .primary_block_reward(&target)
@@ -207,6 +209,11 @@ impl<'a> MockChain<'a> {
         }
     }
 
+    fn commit_block(&mut self, store: &MockStore, block: BlockView) {
+        store.insert_block(&block, self.consensus.genesis_epoch_ext());
+        self.blocks.push(block);
+    }
+
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
@@ -221,8 +228,7 @@ impl<'a> MockChain<'a> {
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &MockStore) {
@@ -238,8 +244,7 @@ impl<'a> MockChain<'a> {
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block_with_nonce(&mut self, nonce: u64, store: &MockStore) {
@@ -257,8 +262,7 @@ impl<'a> MockChain<'a> {
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block(&mut self, diff: u64, store: &MockStore) {
@@ -275,8 +279,7 @@ impl<'a> MockChain<'a> {
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_block_with_commit_txs(
@@ -307,8 +310,7 @@ impl<'a> MockChain<'a> {
             .transactions(txs)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn tip_header(&self) -> HeaderView {
@@ -350,7 +352,7 @@ pub fn dao_data(
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, store);
+        let rtx = resolve_transaction(tx.clone(), &mut seen_inputs, &overlay_cell_provider, store);
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);

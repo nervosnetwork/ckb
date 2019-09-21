@@ -1,7 +1,7 @@
 use crate::relayer::Relayer;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::{core, packed, prelude::*};
+use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
 use std::sync::Arc;
 
@@ -30,35 +30,37 @@ impl<'a> GetBlockProposalProcess<'a> {
     pub fn execute(self) -> Result<(), FailureError> {
         let proposals: Vec<packed::ProposalShortId> =
             self.message.proposals().to_entity().into_iter().collect();
-        let proposals_transactions: Vec<Option<core::TransactionView>> = {
-            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
-            proposals
-                .iter()
-                .map(|short_id| tx_pool.get_tx_from_pool_or_store(short_id))
-                .collect()
+
+        let fetched_transactions = {
+            let tx_pool = self.relayer.shared.shared().tx_pool_controller();
+            let fetch_txs = tx_pool.fetch_txs(proposals.clone());
+            if let Err(e) = fetch_txs {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer tx_pool_controller send fetch_txs error: {:?}",
+                    e
+                );
+                return Ok(());
+            }
+            fetch_txs.unwrap()
         };
         let fresh_proposals: Vec<packed::ProposalShortId> = proposals
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, short_id)| {
-                if proposals_transactions[index].is_none() {
-                    Some(short_id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let transactions: Vec<packed::Transaction> = proposals_transactions
-            .into_iter()
-            .filter_map(|pt| pt.map(|x| x.data()))
+            .filter(|short_id| fetched_transactions.get(&short_id).is_none())
             .collect();
 
         self.relayer
             .shared()
+            .state()
             .insert_get_block_proposals(self.peer, fresh_proposals);
 
         let content = packed::BlockProposal::new_builder()
-            .transactions(transactions.pack())
+            .transactions(
+                fetched_transactions
+                    .into_iter()
+                    .map(|(_, tx)| tx.data())
+                    .pack(),
+            )
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
         let data = message.as_slice().into();

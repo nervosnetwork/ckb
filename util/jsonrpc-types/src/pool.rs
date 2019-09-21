@@ -1,12 +1,12 @@
-use crate::{Timestamp, Unsigned};
+use crate::{Timestamp, Uint64};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TxPoolInfo {
-    pub pending: Unsigned,
-    pub proposed: Unsigned,
-    pub orphan: Unsigned,
-    pub total_tx_size: Unsigned,
-    pub total_tx_cycles: Unsigned,
+    pub pending: Uint64,
+    pub proposed: Uint64,
+    pub orphan: Uint64,
+    pub total_tx_size: Uint64,
+    pub total_tx_cycles: Uint64,
     pub last_txs_updated_at: Timestamp,
 }

@@ -1,4 +1,4 @@
-use crate::peer_store::types::PeerAddr;
+use crate::peer_store::types::AddrInfo;
 use crate::NetworkState;
 use ckb_logger::{trace, warn};
 use faketime::unix_time_as_millis;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 
-const FEELER_CONNECTION_COUNT: u32 = 5;
+const FEELER_CONNECTION_COUNT: usize = 5;
 
 pub struct OutboundPeerService {
     network_state: Arc<NetworkState>,
@@ -33,22 +33,24 @@ impl OutboundPeerService {
         }
     }
 
-    fn dial_peers(&mut self, is_feeler: bool, count: u32) {
+    fn dial_peers(&mut self, is_feeler: bool, count: usize) {
         let now_ms = unix_time_as_millis();
         let attempt_peers = self.network_state.with_peer_store_mut(|peer_store| {
             // take extra 5 peers
             // in current implementation fetch peers may return less than count
             let extra_count = 5;
             let mut paddrs = if is_feeler {
-                peer_store.peers_to_feeler(count + extra_count)
+                peer_store.fetch_addrs_to_feeler(count + extra_count)
             } else {
-                peer_store.peers_to_attempt(count + extra_count)
+                peer_store.fetch_addrs_to_attempt(count + extra_count)
             };
             paddrs.truncate(count as usize);
             for paddr in &mut paddrs {
                 // mark addr as tried
-                paddr.mark_tried(now_ms);
-                peer_store.update_peer_addr(&paddr);
+                let key = paddr.ip_port();
+                if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&key) {
+                    paddr.mark_tried(now_ms);
+                }
             }
             paddrs
         });
@@ -60,7 +62,7 @@ impl OutboundPeerService {
         );
 
         for paddr in attempt_peers {
-            let PeerAddr { peer_id, addr, .. } = paddr;
+            let AddrInfo { peer_id, addr, .. } = paddr;
             if is_feeler {
                 self.network_state
                     .dial_feeler(&self.p2p_control, &peer_id, addr);
@@ -108,11 +110,12 @@ impl Future for OutboundPeerService {
                         let status = self.network_state.connection_status();
                         let new_outbound = status
                             .max_outbound
-                            .saturating_sub(status.non_whitelist_outbound);
+                            .saturating_sub(status.non_whitelist_outbound)
+                            as usize;
                         if !self.network_state.config.whitelist_only {
                             if new_outbound > 0 {
                                 // dial peers
-                                self.dial_peers(false, new_outbound as u32);
+                                self.dial_peers(false, new_outbound);
                             } else {
                                 // feeler peers
                                 self.dial_peers(true, FEELER_CONNECTION_COUNT);

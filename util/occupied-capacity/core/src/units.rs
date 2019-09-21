@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 )]
 pub struct Capacity(u64);
 
-#[derive(Clone, PartialEq, Debug, Eq, Copy)]
+#[derive(Clone, PartialEq, Debug, Eq, Copy, Deserialize, Serialize)]
 pub struct Ratio(pub u64, pub u64);
 
 impl Ratio {

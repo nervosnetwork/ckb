@@ -9,9 +9,11 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::Consensus;
+use crate::consensus::{
+    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+};
 use ckb_crypto::secp::Privkey;
-use ckb_dao_utils::genesis_dao_data;
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
@@ -20,20 +22,23 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, Ratio,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
-    H256, U256,
+    H160, H256, U256,
 };
+pub use error::SpecError;
+use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
 pub mod consensus;
+mod error;
 
 // Just a random secp256k1 secret key for dep group input cell's lock
 const SPECIAL_CELL_PRIVKEY: H256 =
@@ -87,6 +92,8 @@ pub struct Genesis {
     pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
     pub dep_groups: BTreeMap<String, Vec<Resource>>,
+    #[serde(default)]
+    pub satoshi_gift: SatoshiGift,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -106,6 +113,21 @@ pub struct GenesisCell {
 pub struct IssuedCell {
     pub capacity: Capacity,
     pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct SatoshiGift {
+    pub satoshi_pubkey_hash: H160,
+    pub satoshi_cell_occupied_ratio: Ratio,
+}
+
+impl Default for SatoshiGift {
+    fn default() -> Self {
+        SatoshiGift {
+            satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
+            satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -188,12 +210,15 @@ impl ChainSpec {
         let genesis_block = self.genesis.build_block()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = Consensus::new(genesis_block, self.params.epoch_reward)
-            .set_id(self.name.clone())
-            .set_cellbase_maturity(self.params.cellbase_maturity)
-            .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
-            .set_max_block_cycles(self.params.max_block_cycles)
-            .set_pow(self.pow.clone());
+        let consensus = ConsensusBuilder::new(genesis_block, self.params.epoch_reward)
+            .id(self.name.clone())
+            .cellbase_maturity(self.params.cellbase_maturity)
+            .secondary_epoch_reward(self.params.secondary_epoch_reward)
+            .max_block_cycles(self.params.max_block_cycles)
+            .pow(self.pow.clone())
+            .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
+            .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+            .build();
 
         Ok(consensus)
     }
@@ -204,7 +229,12 @@ impl Genesis {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
-        let dao = genesis_dao_data(vec![&cellbase_transaction, &dep_group_transaction])?;
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase_transaction, &dep_group_transaction],
+            &self.satoshi_gift.satoshi_pubkey_hash,
+            self.satoshi_gift.satoshi_cell_occupied_ratio,
+        )
+        .map_err(|e| e.compat())?;;
 
         let block = BlockBuilder::default()
             .version(self.version.pack())
@@ -217,7 +247,58 @@ impl Genesis {
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();
+
+        self.check_lock_scripts(&block)?;
         Ok(block)
+    }
+
+    fn check_lock_scripts(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
+        let mut data_hashes: HashSet<packed::Byte32> = HashSet::default();
+        let mut type_hashes: HashSet<packed::Byte32> = HashSet::default();
+        let genesis_cell_lock: packed::Script = self.genesis_cell.lock.clone().into();
+        for tx in block.transactions() {
+            data_hashes.extend(
+                tx.outputs_data()
+                    .into_iter()
+                    .map(|data| data.raw_data())
+                    .filter(|raw_data| !raw_data.is_empty())
+                    .map(|raw_data| packed::CellOutput::calc_data_hash(&raw_data)),
+            );
+            type_hashes.extend(
+                tx.outputs()
+                    .into_iter()
+                    .filter_map(|output| output.type_().to_opt())
+                    .map(|type_script| type_script.calc_script_hash()),
+            );
+        }
+        for lock_script in block
+            .transactions()
+            .into_iter()
+            .flat_map(|tx| tx.outputs().into_iter().map(move |output| output.lock()))
+            .filter(|lock_script| lock_script != &genesis_cell_lock)
+        {
+            match lock_script.hash_type().unpack() {
+                ScriptHashType::Data => {
+                    if !data_hashes.contains(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+                ScriptHashType::Type => {
+                    if !type_hashes.contains(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=type",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {

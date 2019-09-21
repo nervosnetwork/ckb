@@ -12,8 +12,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
+use ckb_indexer::IndexerConfig;
 use ckb_logger::Config as LogConfig;
-use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
 use ckb_network_alert::config::{
@@ -21,9 +21,8 @@ use ckb_network_alert::config::{
 };
 use ckb_resource::Resource;
 use ckb_rpc::Config as RpcConfig;
-use ckb_script::ScriptConfig;
-use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_store::StoreConfig;
+use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig};
 
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
@@ -45,11 +44,11 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub db: DBConfig,
     #[serde(default)]
-    pub indexer_db: DBConfig,
+    pub indexer: IndexerConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub tx_pool: TxPoolConfig,
-    pub script: ScriptConfig,
+    #[serde(default)]
     pub store: StoreConfig,
     pub alert_signature: Option<AlertSignatureConfig>,
     pub alert_notifier: Option<AlertNotifierConfig>,
@@ -156,7 +155,7 @@ impl CKBAppConfig {
 
         if subcommand_name == cli::CMD_RESET_DATA {
             self.db.path = self.data_dir.join("db");
-            self.indexer_db.path = self.data_dir.join("indexer_db");
+            self.indexer.db.path = self.data_dir.join("indexer_db");
             self.network.path = self.data_dir.join("network");
             self.logger.file = Some(
                 self.data_dir
@@ -174,7 +173,7 @@ impl CKBAppConfig {
             )?);
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
-        self.indexer_db.path = mkdir(self.data_dir.join("indexer_db"))?;
+        self.indexer.db.path = mkdir(self.data_dir.join("indexer_db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);
 
@@ -260,7 +259,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -307,7 +305,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: false,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -343,7 +340,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -390,7 +386,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -435,7 +430,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Assembly",
             block_assembler: "",
         };
         {

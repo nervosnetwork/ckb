@@ -1,12 +1,10 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
-use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
-use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{
         cell::{
@@ -20,16 +18,16 @@ use ckb_types::{
     prelude::*,
     U256,
 };
+use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use im::hashmap::HashMap as HamtMap;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, bool), Result<bool, FailureError>>;
+type ProcessBlockRequest = Request<(Arc<BlockView>, bool), Result<bool, Error>>;
 
 #[derive(Clone)]
 pub struct ChainController {
@@ -44,13 +42,12 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(
-        &self,
-        block: Arc<BlockView>,
-        need_verify: bool,
-    ) -> Result<bool, FailureError> {
-        Request::call(&self.process_block_sender, (block, need_verify))
-            .unwrap_or_else(|| Err(failure::err_msg("Chain service has gone")))
+    pub fn process_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
+        Request::call(&self.process_block_sender, (block, need_verify)).unwrap_or_else(|| {
+            Err(InternalErrorKind::System
+                .cause("Chain service has gone")
+                .into())
+        })
     }
 }
 
@@ -151,19 +148,13 @@ impl GlobalIndex {
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
-    notify: NotifyController,
 }
 
 impl ChainService {
-    pub fn new(
-        shared: Shared,
-        proposal_table: ProposalTable,
-        notify: NotifyController,
-    ) -> ChainService {
+    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         ChainService {
             shared,
             proposal_table,
-            notify,
         }
     }
 
@@ -216,7 +207,7 @@ impl ChainService {
         &mut self,
         block: Arc<BlockView>,
         need_verify: bool,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<bool, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
@@ -231,19 +222,15 @@ impl ChainService {
         })
     }
 
-    fn non_contextual_verify(&self, block: &BlockView) -> Result<(), FailureError> {
+    fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
         let block_verifier = BlockVerifier::new(self.shared.consensus());
         block_verifier.verify(&block).map_err(|e| {
             debug!("[process_block] verification error {:?}", e);
-            e.into()
+            e
         })
     }
 
-    fn insert_block(
-        &mut self,
-        block: Arc<BlockView>,
-        need_verify: bool,
-    ) -> Result<bool, FailureError> {
+    fn insert_block(&mut self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
         let db_txn = self.shared.store().begin_transaction();
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
@@ -272,7 +259,9 @@ impl ChainService {
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
 
         if parent_ext.verified == Some(false) {
-            Err(SharedError::InvalidParentBlock)?;
+            Err(InvalidParentError {
+                parent_hash: parent_header.hash().to_owned(),
+            })?;
         }
 
         db_txn.insert_block(&block)?;
@@ -315,9 +304,8 @@ impl ChainService {
             current_total_difficulty, cannon_total_difficulty,
         );
 
-        let new_best_block = (cannon_total_difficulty > current_total_difficulty)
-            || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.hash() < current_tip_header.hash()));
+        // is_better_than
+        let new_best_block = cannon_total_difficulty > current_total_difficulty;
 
         if new_best_block {
             debug!(
@@ -329,6 +317,7 @@ impl ChainService {
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
 
             self.rollback(&fork, &db_txn, &mut cell_set)?;
+            // update and verify chain root
             // MUST update index before reconcile_main_chain
             self.reconcile_main_chain(&db_txn, &mut fork, need_verify, &mut cell_set)?;
 
@@ -358,9 +347,6 @@ impl ChainService {
                 .finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
-            let mut tx_pool = self.shared.try_lock_tx_pool();
-            let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
-
             let new_snapshot = self.shared.new_snapshot(
                 tip_header,
                 total_difficulty,
@@ -371,16 +357,22 @@ impl ChainService {
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-            tx_pool.update_tx_pool_for_reorg(
-                fork.detached_blocks().iter(),
-                fork.attached_blocks().iter(),
-                fork.detached_proposal_id().iter(),
-                &mut txs_verify_cache,
+            if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
+                fork.detached_blocks().clone(),
+                fork.attached_blocks().clone(),
+                fork.detached_proposal_id().clone(),
                 new_snapshot,
-            );
+            ) {
+                error!("notify update_tx_pool_for_reorg error {}", e);
+            }
             for detached_block in fork.detached_blocks() {
-                self.notify
-                    .notify_new_uncle(Arc::new(detached_block.data().as_uncle()));
+                if let Err(e) = self
+                    .shared
+                    .tx_pool_controller()
+                    .notify_new_uncle(detached_block.as_uncle())
+                {
+                    error!("notify new_uncle error {}", e);
+                }
             }
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
@@ -394,8 +386,13 @@ impl ChainService {
                 block.transactions().len()
             );
             let block_ref: &BlockView = &block;
-            self.notify
-                .notify_new_uncle(Arc::new(block_ref.data().as_uncle()));
+            if let Err(e) = self
+                .shared
+                .tx_pool_controller()
+                .notify_new_uncle(block_ref.as_uncle())
+            {
+                error!("notify new_uncle error {}", e);
+            }
         }
 
         Ok(true)
@@ -416,7 +413,7 @@ impl ChainService {
         fork: &ForkChanges,
         txn: &StoreTransaction,
         cell_set: &mut HamtMap<Byte32, TransactionMeta>,
-    ) -> Result<(), FailureError> {
+    ) -> Result<(), Error> {
         for block in fork.detached_blocks().iter().rev() {
             txn.detach_block(block)?;
             detach_block_cell(txn, block, cell_set)?;
@@ -550,8 +547,8 @@ impl ChainService {
         fork: &mut ForkChanges,
         need_verify: bool,
         cell_set: &mut HamtMap<Byte32, TransactionMeta>,
-    ) -> Result<(), FailureError> {
-        let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
+    ) -> Result<(), Error> {
+        let txs_verify_cache = self.shared.txs_verify_cache();
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
@@ -559,8 +556,7 @@ impl ChainService {
             attach_block_cell(txn, b, cell_set)?;
         }
 
-        let verify_context =
-            VerifyContext::new(txn, self.shared.consensus(), self.shared.script_config());
+        let verify_context = VerifyContext::new(txn, self.shared.consensus());
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -575,7 +571,7 @@ impl ChainService {
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
                         Err(err) => {
-                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            found_error = Some(err);
                             continue;
                         }
                     };
@@ -586,6 +582,7 @@ impl ChainService {
                         let cell_provider = OverlayCellProvider::new(&block_cp, &wrapper);
                         transactions
                             .iter()
+                            .cloned()
                             .map(|x| {
                                 resolve_transaction(
                                     x,
@@ -602,7 +599,7 @@ impl ChainService {
                             match contextual_block_verifier.verify(
                                 &resolved,
                                 b,
-                                &mut txs_verify_cache,
+                                txs_verify_cache.clone(),
                             ) {
                                 Ok((cycles, txs_fees)) => {
                                     txn.attach_block(b)?;
@@ -629,7 +626,7 @@ impl ChainService {
                                     if log_enabled!(ckb_logger::Level::Trace) {
                                         trace!("block {}", b.data());
                                     }
-                                    found_error = Some(SharedError::InvalidBlock(err.to_string()));
+                                    found_error = Some(err);
                                     let mut mut_ext = ext.clone();
                                     mut_ext.verified = Some(false);
                                     txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
@@ -637,7 +634,7 @@ impl ChainService {
                             }
                         }
                         Err(err) => {
-                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            found_error = Some(err);
                             let mut mut_ext = ext.clone();
                             mut_ext.verified = Some(false);
                             txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
@@ -675,16 +672,12 @@ impl ChainService {
         let bottom = tip_number - cmp::min(tip_number, len);
 
         for number in (bottom..=tip_number).rev() {
-            let hash = self
-                .shared
-                .store()
-                .get_block_hash(number)
-                .unwrap_or_else(|| {
-                    panic!(format!(
-                        "invaild block number({}), tip={}",
-                        number, tip_number
-                    ))
-                });
+            let hash = snapshot.get_block_hash(number).unwrap_or_else(|| {
+                panic!(format!(
+                    "invaild block number({}), tip={}",
+                    number, tip_number
+                ))
+            });
             debug!("   {} => {}", number, hash);
         }
 

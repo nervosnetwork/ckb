@@ -1,14 +1,12 @@
 use crate::{Relayer, SyncSharedState};
 use ckb_chain::chain::ChainService;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
 };
-use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -46,8 +44,9 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
 pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> HeaderBuilder {
     let parent_hash = parent.hash();
     let parent_epoch = shared.store().get_block_epoch(&parent_hash).unwrap();
-    let epoch = shared
-        .next_epoch_ext(&parent_epoch, parent)
+    let snapshot = shared.snapshot();
+    let epoch = snapshot
+        .next_epoch_ext(snapshot.consensus(), &parent_epoch, parent)
         .unwrap_or(parent_epoch);
     HeaderBuilder::default()
         .parent_hash(parent_hash.to_owned())
@@ -109,17 +108,17 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .difficulty(U256::from(1000u64).pack())
             .transaction(always_success_tx)
             .build();
-        let consensus = Consensus::default()
-            .set_genesis_block(genesis)
-            .set_cellbase_maturity(0);
+        let consensus = ConsensusBuilder::default()
+            .genesis_block(genesis)
+            .cellbase_maturity(0)
+            .build();
         SharedBuilder::default()
             .consensus(consensus)
             .build()
             .unwrap()
     };
     let chain_controller = {
-        let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)
     };
 

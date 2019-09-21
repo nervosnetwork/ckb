@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -34,7 +34,6 @@ members = [
     "db",
     "resource",
     "pow",
-    "notify",
     "network",
     "util/network-alert",
     "util/dao/utils",
@@ -48,7 +47,7 @@ members = [
     "util/reward-calculator",
     "verification",
     "shared",
-    "shared/tx-pool-executor",
+    "tx-pool",
     "chain",
     "indexer",
     "sync",
@@ -58,6 +57,7 @@ members = [
     "util/app-config",
     "ckb-bin",
     "benches",
+    "error",
 ]
 
 [profile.release]

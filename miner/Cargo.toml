@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,11 +8,7 @@ edition = "2018"
 [dependencies]
 ckb-logger = { path = "../util/logger" }
 ckb-types = { path = "../util/types" }
-ckb-shared = { path = "../shared" }
-ckb-store = { path = "../store" }
 ckb-pow = { path = "../pow" }
-ckb-notify = { path = "../notify" }
-faketime = "0.2.0"
 rand = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
@@ -23,13 +19,9 @@ hyper = "0.12"
 futures = "0.1"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-stop-handler = { path = "../util/stop-handler" }
-ckb-traits = { path = "../traits" }
 failure = "0.1.5"
-ckb-verification = { path = "../verification" }
 indicatif = "0.11"
 console = "0.8.0"
-ckb-dao = { path = "../util/dao" }
-ckb-reward-calculator = { path = "../util/reward-calculator" }
 eaglesong = "0.1"
 
 [dev-dependencies]

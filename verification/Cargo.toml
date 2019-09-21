@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,7 +12,6 @@ ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 faketime = "0.2.0"
 rayon = "1.0"
-ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-traits = { path = "../traits" }
 ckb-chain-spec = { path = "../spec" }
@@ -20,10 +19,15 @@ ckb-dao = { path = "../util/dao" }
 ckb-logger = {path = "../util/logger"}
 ckb-resource = { path = "../resource" }
 ckb-reward-calculator= { path = "../util/reward-calculator" }
+failure = "0.1.5"
+ckb-error = { path = "../error" }
+enum-display-derive = "0.1.0"
+tokio = "0.1"
+futures = "0.1"
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
-ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
 ckb-hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }

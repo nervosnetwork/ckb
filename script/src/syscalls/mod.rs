@@ -195,7 +195,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn new_store() -> ChainDB {
-        ChainDB::new(RocksDB::open_tmp(COLUMNS))
+        ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
     }
 
     fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
@@ -656,16 +656,16 @@ mod tests {
             .transactions_root(data_hash.pack())
             .build();
 
-        let epoch = EpochExt::new(
-            u64::from(data[0]),
-            Capacity::bytes(100).unwrap(),
-            Capacity::bytes(100).unwrap(),
-            U256::one(),
-            Byte32::default(),
-            1234,
-            1000,
-            U256::one(),
-        );
+        let epoch = EpochExt::new_builder()
+            .number(u64::from(data[0]))
+            .base_block_reward(Capacity::bytes(100).unwrap())
+            .remainder_reward(Capacity::bytes(100).unwrap())
+            .previous_epoch_hash_rate(U256::one())
+            .last_block_hash_in_previous_epoch(Byte32::default())
+            .start_number(1234)
+            .length(1000)
+            .difficulty(U256::one())
+            .build();
 
         let mut correct_data = [0u8; 8];
         LittleEndian::write_u64(&mut correct_data, epoch.number());

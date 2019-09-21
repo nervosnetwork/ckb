@@ -1,8 +1,7 @@
 use crate::relayer::block_proposal_process::{BlockProposalProcess, Status};
-use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
+use crate::relayer::tests::helper::{build_chain, new_transaction};
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
-use std::sync::Arc;
 
 #[test]
 fn test_no_unknown() {
@@ -16,20 +15,14 @@ fn test_no_unknown() {
     {
         relayer
             .shared
+            .state()
             .mark_as_known_tx(transaction.hash().to_owned());
     }
     let content = packed::BlockProposal::new_builder()
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoUnknown));
 }
@@ -46,18 +39,11 @@ fn test_no_asked() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
-    let known = relayer.shared.already_known_tx(&transaction.hash());
+    let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert_eq!(known, false);
 }
 
@@ -74,24 +60,17 @@ fn test_ok() {
 
     // Before asked proposals
     {
-        relayer.shared.insert_inflight_proposals(proposals);
+        relayer.shared.state().insert_inflight_proposals(proposals);
     }
 
     let content = packed::BlockProposal::new_builder()
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 
-    let known = relayer.shared.already_known_tx(&transaction.hash());
+    let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert_eq!(known, true);
 }

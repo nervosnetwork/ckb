@@ -3,7 +3,6 @@ use crate::synchronizer::Synchronizer;
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
 use std::cmp::min;
@@ -32,18 +31,14 @@ impl<'a> GetBlocksProcess<'a> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hashes = self.message.block_hashes();
-        let store = self.synchronizer.shared.store();
+        let snapshot = self.synchronizer.shared.snapshot();
 
         let n_limit = min(MAX_BLOCKS_IN_TRANSIT_PER_PEER as usize, block_hashes.len());
         for block_hash in block_hashes.iter().take(n_limit) {
             debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
             let block_hash = block_hash.to_entity();
 
-            if !self
-                .synchronizer
-                .shared()
-                .contains_block_status(&block_hash, BlockStatus::BLOCK_VALID)
-            {
+            if !snapshot.contains_block_status(&block_hash, BlockStatus::BLOCK_VALID) {
                 debug!(
                     "ignoring get_block {} request from peer={} for unverified",
                     block_hash, self.peer
@@ -59,7 +54,7 @@ impl<'a> GetBlocksProcess<'a> {
                 break;
             }
 
-            if let Some(block) = store.get_block(&block_hash) {
+            if let Some(block) = snapshot.get_block(&block_hash) {
                 debug!(
                     "respond_block {} {} to peer {:?}",
                     block.number(),

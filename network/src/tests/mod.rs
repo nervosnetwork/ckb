@@ -1,3 +1,4 @@
+mod addr_manager;
 mod peer_registry;
-#[cfg(test)]
-mod sqlite_peer_store;
+mod peer_store;
+mod peer_store_db;

@@ -2,10 +2,10 @@ use crate::tests::util::{
     calculate_reward, create_always_success_out_point, create_always_success_tx, dao_data,
     start_chain, MockStore,
 };
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_shared::shared::Shared;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -55,10 +55,11 @@ pub(crate) fn gen_block(
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
-    consensus: &Consensus,
+    shared: &Shared,
     store: &MockStore,
 ) -> BlockView {
     let number = parent_header.number() + 1;
+    let consensus = shared.consensus();
     let cellbase = create_cellbase(
         parent_header,
         miner_lock,
@@ -140,9 +141,10 @@ fn finalize_reward() {
         .dao(dao)
         .build();
 
-    let consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
 
     let (chain_controller, shared, mut parent) = start_chain(Some(consensus));
 
@@ -203,7 +205,7 @@ fn finalize_reward() {
             miner_lock,
             always_success_script.clone(),
             None,
-            shared.consensus(),
+            &shared,
             &mock_store,
         );
 
@@ -215,7 +217,10 @@ fn finalize_reward() {
         blocks.push(block);
     }
 
-    let (target, reward) = shared.finalize_block_reward(&blocks[21].header()).unwrap();
+    let (target, reward) = shared
+        .snapshot()
+        .finalize_block_reward(&blocks[21].header())
+        .unwrap();
     assert_eq!(target, bob);
 
     // bob proposed 8 txs in 12, committed in 22
@@ -238,7 +243,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(bob_reward),
-        shared.consensus(),
+        &shared,
         &mock_store,
     );
 
@@ -248,7 +253,10 @@ fn finalize_reward() {
         .process_block(Arc::new(block.clone()), true)
         .expect("process block ok");
 
-    let (target, reward) = shared.finalize_block_reward(&block.header()).unwrap();
+    let (target, reward) = shared
+        .snapshot()
+        .finalize_block_reward(&block.header())
+        .unwrap();
     assert_eq!(target, alice);
 
     // alice proposed 16 txs in block 13, committed in 22, 23
@@ -272,7 +280,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(alice_reward),
-        shared.consensus(),
+        &shared,
         &mock_store,
     );
 

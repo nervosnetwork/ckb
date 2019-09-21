@@ -1,14 +1,16 @@
-use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
+use crate::utils::{
+    build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
+};
 use crate::{Net, Node, Spec, TestProtocol};
-use ckb_jsonrpc_types::{ChainInfo, Timestamp};
+use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::PeerIndex;
 use ckb_sync::NetworkProtocol;
+use ckb_types::packed::{Block, Byte32};
 use ckb_types::{
     core::BlockView,
     packed::{self, SyncMessage},
     prelude::*,
 };
-use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -40,7 +42,7 @@ impl Spec for BlockSyncFromOne {
         let ret = wait_until(10, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
-            header0 == header1 && header0.inner.number.0 == 3
+            header0 == header1 && header0.inner.number.value() == 3
         });
         assert!(
             ret,
@@ -103,7 +105,7 @@ impl Spec for BlockSyncForks {
     crate::name!("block_sync_forks");
 
     crate::setup!(
-        num_nodes: 2,
+        num_nodes: 3,
         connect_all: false,
         protocols: vec![TestProtocol::sync()],
     );
@@ -112,14 +114,17 @@ impl Spec for BlockSyncForks {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
-        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
+        let node2 = &net.nodes[2];
+        let (rpc_client0, rpc_client1, rpc_client2) =
+            (node0.rpc_client(), node1.rpc_client(), node2.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
+        assert_eq!(0, rpc_client2.get_tip_block_number());
 
         build_forks(node0, &[2, 0, 0, 0, 0, 0, 0, 0, 0]);
         build_forks(node1, &[1, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let info0: ChainInfo = rpc_client0.get_blockchain_info();
-        let info1: ChainInfo = rpc_client1.get_blockchain_info();
+        build_forks(node2, &[5, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
         let tip0 = rpc_client0.get_tip_header();
         let tip1 = rpc_client1.get_tip_header();
         assert_eq!(tip0.inner.number, tip1.inner.number);
@@ -127,35 +132,43 @@ impl Spec for BlockSyncForks {
 
         // Connect node0 and node1, so that they can sync with each other
         node0.connect(node1);
-        let ret = wait_until(10, || {
+        let ret = wait_until(5, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
             header0 == header1
         });
         assert!(
-            ret,
-            "Node0 and node1 should sync with each other until same tip chain",
+            !ret,
+            "Node0 and node1 sync but still have respective tips as first-received policy",
         );
-        for number in 1u64..tip0.inner.number.0 {
+
+        let tip2 = rpc_client2.get_tip_header();
+        assert_eq!(tip0.inner.number.value() + 1, tip2.inner.number.value());
+
+        // Connect node0 and node2, so that they can sync with each other
+        node0.connect(node2);
+        let ret = wait_until(10, || {
+            let header0 = rpc_client0.get_tip_header();
+            let header2 = rpc_client2.get_tip_header();
+            header0 == header2
+        });
+        assert!(
+            ret,
+            "Node0 and node2 should sync with each other until same tip chain",
+        );
+
+        for number in 1u64..tip2.inner.number.into() {
             let block0 = rpc_client0.get_block_by_number(number);
-            let block1 = rpc_client1.get_block_by_number(number);
+            let block2 = rpc_client2.get_block_by_number(number);
             assert_eq!(
-                block0, block1,
+                block0, block2,
                 "nodes should have same best chain after synchronizing",
             );
         }
         let info00: ChainInfo = rpc_client0.get_blockchain_info();
-        let info11: ChainInfo = rpc_client1.get_blockchain_info();
-        let medians = vec![
-            info0.median_time.0,
-            info00.median_time.0,
-            info1.median_time.0,
-            info11.median_time.0,
-        ]
-        .into_iter()
-        .collect::<HashSet<u64>>();
-        assert_eq!(info00.median_time, info11.median_time);
-        assert_eq!(medians.len(), 2);
+        let info22: ChainInfo = rpc_client2.get_blockchain_info();
+
+        assert_eq!(info00.median_time, info22.median_time);
     }
 }
 
@@ -301,7 +314,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         net.exit_ibd_mode();
 
         // By picking blocks this way, we ensure that block a and b has
-        // the same difficulty, but block a has a lower block hash. So
+        // the same difficulty, but different hash. So
         // later when we sync the header of block a with node0, node0's
         // global shared best header will be updated, but the tip will stay
         // unchanged. Then we can connect node0 with node1, node1 will provide
@@ -313,7 +326,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
             .as_advanced_builder()
             .timestamp((a.timestamp() + 1).pack())
             .build();
-        let (a, b) = if a.hash() < b.hash() { (a, b) } else { (b, a) };
+        assert_ne!(a.hash(), b.hash());
         node1.submit_block(&b.data());
 
         net.connect(node0);
@@ -329,7 +342,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
-            header0 == header1 && header0.inner.number.0 == 2
+            header0 == header1 && header0.inner.number.value() == 2
         });
         assert!(
             ret,
@@ -338,14 +351,89 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
     }
 }
 
-fn build_forks(node: &Node, offsets: &[u64]) {
+pub struct RequestUnverifiedBlocks;
+
+impl Spec for RequestUnverifiedBlocks {
+    crate::name!("request_unverified_blocks");
+
+    crate::setup!(num_nodes: 3, connect_all: false, protocols: vec![TestProtocol::sync()]);
+
+    // Case:
+    //   1. `target_node` maintains an unverified fork
+    //   2. Expect that when other peers request `target_node` for the blocks on the unverified
+    //      fork(referred to as fork-blocks), `target_node` should discard the request because
+    //     these fork-blocks are unverified yet or verified failed.
+    fn run(&self, net: Net) {
+        let target_node = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        let node2 = &net.nodes[2];
+        net.exit_ibd_mode();
+
+        let main_chain = build_forks(node1, &[0; 6]);
+        let fork_chain = build_forks(node2, &[1; 5]);
+        assert!(main_chain.len() > fork_chain.len());
+
+        // Submit `main_chain` before `fork_chain`, to make `target_node` marks `fork_chain`
+        // unverified because of delay-verify
+        main_chain.iter().for_each(|block| {
+            target_node.submit_block(block);
+        });
+        fork_chain.iter().for_each(|block| {
+            target_node.submit_block(block);
+        });
+        let main_hashes: Vec<_> = main_chain
+            .iter()
+            .map(|block| block.calc_header_hash())
+            .collect();
+        let fork_hashes: Vec<_> = fork_chain
+            .iter()
+            .map(|block| block.calc_header_hash())
+            .collect();
+
+        // Request for the blocks on `main_chain` and `fork_chain`. We should only receive the
+        // `main_chain` blocks
+        net.connect(target_node);
+        let (peer_id, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+        sync_get_blocks(&net, peer_id, &main_hashes);
+        sync_get_blocks(&net, peer_id, &fork_hashes);
+
+        let mut received = Vec::new();
+        while let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+            let message = SyncMessage::from_slice(&data).unwrap();
+            if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
+            {
+                received.push(reader.block().calc_header_hash());
+            }
+        }
+        assert!(
+            main_hashes.iter().all(|hash| received.contains(hash)),
+            "Expect receiving all of the main_chain blocks: {:?}, actual: {:?}",
+            main_hashes,
+            received,
+        );
+        assert!(
+            fork_hashes.iter().all(|hash| !received.contains(hash)),
+            "Expect not receiving any of the fork_chain blocks: {:?}, actual: {:?}",
+            fork_hashes,
+            received,
+        );
+    }
+}
+
+fn build_forks(node: &Node, offsets: &[u64]) -> Vec<Block> {
     let rpc_client = node.rpc_client();
+    let mut blocks = Vec::with_capacity(offsets.len());
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
-        template.current_time = Timestamp(template.current_time.0 + offset);
+        template.current_time = (template.current_time.value() + offset).into();
         let block = new_block_with_template(template);
         node.submit_block(&block);
+
+        blocks.push(block);
     }
+    blocks
 }
 
 fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
@@ -358,4 +446,12 @@ fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
 
 fn sync_block(net: &Net, peer_id: PeerIndex, block: &BlockView) {
     net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(block));
+}
+
+fn sync_get_blocks(net: &Net, peer_id: PeerIndex, hashes: &[Byte32]) {
+    net.send(
+        NetworkProtocol::SYNC.into(),
+        peer_id,
+        build_get_blocks(hashes),
+    );
 }

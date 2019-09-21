@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.20.0"
+version = "0.21.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,12 +10,9 @@ ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
 ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
-ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
-ckb-miner = { path = "../miner" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 jsonrpc-core = "10.1"
@@ -34,11 +31,12 @@ faketime = "0.2.0"
 sentry = "0.16.0"
 ckb-dao = { path = "../util/dao" }
 futures = "0.1"
+ckb-error = { path = "../error" }
+ckb-reward-calculator = { path = "../util/reward-calculator" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
-ckb-notify = { path = "../notify" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"

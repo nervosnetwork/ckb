@@ -1,6 +1,6 @@
 use crate::{
     BlockNumber, Byte32, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction,
-    Unsigned, Version,
+    Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -15,13 +15,13 @@ pub struct BlockTemplate {
     pub epoch: EpochNumber,
     pub parent_hash: H256,
     pub cycles_limit: Cycle,
-    pub bytes_limit: Unsigned,
-    pub uncles_count_limit: Unsigned,
+    pub bytes_limit: Uint64,
+    pub uncles_count_limit: Uint64,
     pub uncles: Vec<UncleTemplate>,
     pub transactions: Vec<TransactionTemplate>,
     pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
-    pub work_id: Unsigned,
+    pub work_id: Uint64,
     pub dao: Byte32,
 }
 
@@ -42,12 +42,12 @@ impl From<BlockTemplate> for packed::Block {
             ..
         } = block_template;
         let raw = packed::RawHeader::new_builder()
-            .version(version.0.pack())
+            .version(version.pack())
             .difficulty(difficulty.pack())
             .parent_hash(parent_hash.pack())
-            .timestamp(current_time.0.pack())
-            .number(number.0.pack())
-            .epoch(epoch.0.pack())
+            .timestamp(current_time.pack())
+            .number(number.pack())
+            .epoch(epoch.pack())
             .dao(dao.into())
             .build();
         let header = packed::Header::new_builder().raw(raw).build();
@@ -116,7 +116,7 @@ pub struct TransactionTemplate {
     pub hash: H256,
     pub required: bool,
     pub cycles: Option<Cycle>,
-    pub depends: Option<Vec<Unsigned>>,
+    pub depends: Option<Vec<Uint64>>,
     pub data: Transaction, // temporary
 }
 

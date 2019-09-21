@@ -59,7 +59,7 @@ impl Spec for IBDProcess {
             let header5 = rpc_client5.get_tip_header();
             let header6 = rpc_client6.get_tip_header();
 
-            header1.inner.number.0 == 0
+            header1.inner.number.value() == 0
                 && header1 == header6
                 && header1 == header5
                 && header1 == header4
@@ -75,7 +75,7 @@ impl Spec for IBDProcess {
         let is_node_sync = wait_until(10, || {
             let header5 = rpc_client5.get_tip_header();
             let header6 = rpc_client6.get_tip_header();
-            header5 == header6 && header5.inner.number.0 == 1
+            header5 == header6 && header5.inner.number.value() == 1
         });
 
         assert!(is_node_sync, "node 5-6 must sync with node0");

@@ -1,5 +1,6 @@
 use ckb_db::RocksDB;
 use ckb_store::{ChainDB, ChainStore, COLUMNS};
+use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
@@ -16,7 +17,7 @@ pub struct MockStore(pub Arc<ChainDB>);
 impl Default for MockStore {
     fn default() -> Self {
         let db = RocksDB::open_tmp(COLUMNS);
-        MockStore(Arc::new(ChainDB::new(db)))
+        MockStore(Arc::new(ChainDB::new(db, Default::default())))
     }
 }
 
@@ -77,7 +78,11 @@ impl CellProvider for MockStore {
 }
 
 impl HeaderChecker for MockStore {
-    fn is_valid(&self, block_hash: &Byte32) -> bool {
-        self.0.get_block_number(block_hash).is_some()
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), ckb_error::Error> {
+        if self.0.get_block_number(block_hash).is_some() {
+            Ok(())
+        } else {
+            Err(OutPointError::InvalidHeader(block_hash.clone()).into())
+        }
     }
 }
