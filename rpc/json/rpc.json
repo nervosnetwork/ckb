@@ -273,6 +273,9 @@
         "types": [
             {
                 "out_point": "OutPoint object {\"tx_hash\": <tx_hash>, \"index\": <index>}."
+            },
+            {
+                "with_data": "Boolean"
             }
         ]
     },

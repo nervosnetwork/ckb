@@ -457,6 +457,7 @@ Returns the information about a cell by out_point if it is live. If second with_
 #### Parameters
 
     out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
+    with_data - Boolean
 
 #### Examples
 
