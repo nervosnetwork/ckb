@@ -1,3 +1,57 @@
+# [v0.21.0](https://github.com/nervosnetwork/ckb/compare/v0.20.0...v0.21.0) (2019-09-21)
+
+### Breaking Changes
+
+* #1527: RPC `get_live_cell` added `with_data` argument and changed the response structure. (@TheWaWaR)
+* #1528: P2P uses molc to serialize handshake message. (@driftluo)
+* #1551: Cellbase output data must be empty. (@driftluo)
+
+    Because the ckb reward is delayed, the ownership of the cellbase of the current block is not the miner who digs out the block, so cellbase's output data must be disabled.
+
+* #1550: Headers can only be used in header deps after maturity period (@xxuejie)
+* #1518: Add `chain_root` to block header. (@jjyr)
+
+    **Attention**: We're going to revert this in the final release.
+
+* #1584: Hexilize jsonrpc numbers (@keroro520)
+
+    * feat: Return numbers in heximal format(without leading zeros)
+    * feat: Allow accept numbers in heximal format
+    * feat: Refuse numbers with redundant leading zeros
+
+    Reference: https://github.com/ethereum/wiki/wiki/JSON-RPC#hex-value-encoding
+
+* #1559: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
+* #1592: RPC returns errors on unknown request fields. (@TheWaWaR)
+
+### Features
+
+* #1510: Check system cells lock script when build genesis block (@TheWaWaR)
+* #1538: Overall bench (@zhangsoledad)
+* #1574: Keep only one version of VM by removing ScriptConfig (@xxuejie)
+* #1568: Indexer configuration (@quake)
+* #1571: `is_better_chain` uses first-received policy (@u2)
+* #1586: Script package build adjustment (@xxuejie)
+* #1558: Expose method to invoke a single script on a transaction (@xxuejie)
+
+    This can be helpful in CKB script debugger's development
+
+* #1576: Satoshi's gift (@jjyr)
+
+    This PR allows a special cell "satoshi's gift" in the genesis block. When the mainnet launching, this cell will issue 1/4 of total genesis capacity, and 60% capacity of the cell will be calculated as occupied, this affects the Nervos DAO contract interests.
+
+    Satoshi's gift cell, as the name, the lock script of this cell verifies an `H160(pubkey)` that satoshi used in Bitcoin's genesis, satoshi can use the private key to sign a tx to spent the cell on CKB.
+
+### Bug Fixes
+
+* #1533: Consensus constructor should init epoch reward from parameter. (@doitian)
+* #1534: Update secp type script hash in genesis (@doitian)
+* #1608: Fix AddrManager out of index error (@jjyr)
+
+### Improvements
+
+* #1386: Create ckb-error and use it as the global system error type (@keroro520)
+
 # [v0.20.0](https://github.com/nervosnetwork/ckb/compare/v0.19.2...v0.20.0) (2019-09-07)
 
 ### Features
@@ -20,12 +74,24 @@
 * #1548: Consensus constructor should init epoch reward from parameter. (@doitian)
 * #1555: Fix orphan block race storage (@keroro520)
 * #1562: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
+* #1590: Fix genesis DAO satoshi gift incorrect calculation (@jjyr)
+* #1588: Fix potential inconsistency (@zhangsoledad)
+
+    1. remove `ChainProvider`, it's superfluous.
+    2. fix access storage directly in many places, it has no consistency guarantee, it's potential problems
 
 ### Improvements
 
 * #1352: Conduct GCD before rational ops (@u2)
 * #1486: Use Byte32 to replace the majority of H256 (@yangby-cryptape)
 * #1520: Resolve indexer store performance issue (@quake)
+* #1485: Compact Block only includes uncle blocks hash (@u2)
+
+    The peer should already have the uncle blocks at a high probability. If the peer cannot find the uncle locally, use download uncle to get the header and proposals.
+
+* #1569: Rewrite peer store, remove the dependencies of SQLite. (@jjyr)
+* #1587: Remove global store cache (@zhangsoledad)
+* #1567: Rewrite pool as a service (@zhangsoledad)
 
 # [v0.19.2](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.2) (2019-08-24)
 
