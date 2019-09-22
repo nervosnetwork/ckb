@@ -15,7 +15,7 @@ pub struct ValidSince;
 impl Spec for ValidSince {
     crate::name!("valid_since");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         self.test_since_relative_block_number(&net.nodes[0]);
         self.test_since_absolute_block_number(&net.nodes[0]);
         self.test_since_relative_median_time(&net.nodes[0]);

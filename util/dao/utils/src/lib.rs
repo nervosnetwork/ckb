@@ -19,7 +19,7 @@ pub use crate::error::DaoError;
 pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
 
 pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
-    genesis_dao_data_with_satoshi_gift(
+    _genesis_dao_data_with_satoshi_gift(
         txs,
         &H160([0u8; 20]),
         Ratio(1, 1),
@@ -29,6 +29,20 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
 }
 
 pub fn genesis_dao_data_with_satoshi_gift(
+    txs: Vec<&TransactionView>,
+    satoshi_pubkey_hash: &H160,
+    satoshi_cell_occupied_ratio: Ratio,
+) -> Result<Byte32, Error> {
+    _genesis_dao_data_with_satoshi_gift(
+        txs,
+        satoshi_pubkey_hash,
+        satoshi_cell_occupied_ratio,
+        Capacity::zero(),
+        Capacity::zero(),
+    )
+}
+
+fn _genesis_dao_data_with_satoshi_gift(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,

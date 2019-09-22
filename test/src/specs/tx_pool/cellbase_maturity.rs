@@ -11,7 +11,7 @@ pub struct CellbaseMaturity;
 impl Spec for CellbaseMaturity {
     crate::name!("cellbase_maturity");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         info!("Generate 1 block");

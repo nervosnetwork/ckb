@@ -11,7 +11,7 @@ pub struct DifferentTxsWithSameInput;
 impl Spec for DifferentTxsWithSameInput {
     crate::name!("different_txs_with_same_input");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
 
         node0.generate_block();

@@ -210,7 +210,7 @@ pub fn test_cellbase_without_output() {
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
-    assert_error_eq(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
+    assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 
     // only output
     let cellbase_without_output = TransactionBuilder::default()
@@ -227,7 +227,7 @@ pub fn test_cellbase_without_output() {
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
-    assert_error_eq(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
+    assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 }
 
 #[test]

@@ -26,7 +26,7 @@ impl Spec for BlockSyncFromOne {
     );
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
@@ -63,7 +63,7 @@ impl Spec for BlockSyncWithUncle {
     );
 
     // Case: Sync a block with uncle
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let target = &net.nodes[0];
         let node1 = &net.nodes[1];
         net.exit_ibd_mode();
@@ -111,7 +111,7 @@ impl Spec for BlockSyncForks {
     );
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -180,7 +180,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     crate::setup!(protocols: vec![TestProtocol::sync()]);
 
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let rpc_client = node.rpc_client();
         net.exit_ibd_mode();
@@ -254,7 +254,7 @@ impl Spec for BlockSyncOrphanBlocks {
         protocols: vec![TestProtocol::sync()],
     );
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         net.exit_ibd_mode();
@@ -308,7 +308,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         protocols: vec![TestProtocol::sync()],
     );
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         net.exit_ibd_mode();
@@ -363,7 +363,7 @@ impl Spec for RequestUnverifiedBlocks {
     //   2. Expect that when other peers request `target_node` for the blocks on the unverified
     //      fork(referred to as fork-blocks), `target_node` should discard the request because
     //     these fork-blocks are unverified yet or verified failed.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let target_node = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];

@@ -663,14 +663,12 @@ fn test_orphan_rate_estimation_overflow() {
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
+        .compact_target(difficulty_to_compact(U256::from(1u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
 
-    let mut consensus = ConsensusBuilder::default()
-        .genesis_block(genesis_block)
-        .build();
+    let mut consensus = ConsensusBuilder::new(genesis_block, 1000).build();
     consensus.genesis_epoch_ext.set_length(400);
 
     // last_difficulty 1000

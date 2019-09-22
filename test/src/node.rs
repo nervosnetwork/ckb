@@ -88,14 +88,27 @@ impl Node {
         self.dep_group_tx_hash.clone()
     }
 
-    pub fn start(
-        &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
-        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
-    ) {
-        self.init_config_file(modify_chain_spec, modify_ckb_config)
-            .expect("failed to init config file");
+    pub fn export(&self, target: String) {
+        Command::new(self.binary.to_owned())
+            .args(&["export", "-C", self.working_dir(), &target])
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("failed to execute process");
+    }
 
+    pub fn import(&self, target: String) {
+        Command::new(self.binary.to_owned())
+            .args(&["import", "-C", self.working_dir(), &target])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("failed to execute process");
+    }
+
+    pub fn start(&mut self) {
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
             .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
@@ -435,11 +448,11 @@ impl Node {
         .map_err(Into::into)
     }
 
-    fn init_config_file(
+    pub fn edit_config_file(
         &mut self,
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
-    ) -> Result<(), Error> {
+    ) {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
 
@@ -456,16 +469,38 @@ impl Node {
                 &p2p_port,
                 "--force",
             ])
-            .output()?;
+            .output()
+            .unwrap_or_else(|e| {
+                panic!(
+                    "init working_dir {} command fail: {}",
+                    self.working_dir(),
+                    e
+                );
+            });
 
         if !init_output.status.success() {
-            log::error!("{}", String::from_utf8_lossy(init_output.stderr.as_slice()));
-            return Err(failure::err_msg("Fail to execute ckb init"));
+            panic!(
+                "init working_dir {} output not success: {}",
+                self.working_dir(),
+                String::from_utf8_lossy(init_output.stderr.as_slice())
+            );
         }
 
-        self.prepare_chain_spec(modify_chain_spec)?;
-        self.rewrite_spec(modify_ckb_config)?;
-        Ok(())
+        self.prepare_chain_spec(modify_chain_spec)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "prepare chain spec working_dir {} fail: {}",
+                    self.working_dir(),
+                    e,
+                );
+            });
+        self.rewrite_spec(modify_ckb_config).unwrap_or_else(|e| {
+            panic!(
+                "write chain spec working_dir {} fail: {}",
+                self.working_dir(),
+                e,
+            );
+        });
     }
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {

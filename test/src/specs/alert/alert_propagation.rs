@@ -32,7 +32,7 @@ impl Spec for AlertPropagation {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let warning1: Bytes = b"pretend we are in dangerous status".to_vec().into();
         let id1: u32 = 42;

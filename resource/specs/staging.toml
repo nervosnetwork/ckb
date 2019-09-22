@@ -84,6 +84,7 @@ max_block_cycles = 10_000_000_000
 cellbase_maturity = 10
 primary_epoch_reward_halving_interval = 8760
 epoch_duration_target = 14400
+genesis_epoch_length = 1000
 
 [pow]
 func = "Eaglesong"

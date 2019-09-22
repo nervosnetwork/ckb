@@ -8,7 +8,7 @@ impl Spec for PoolReconcile {
 
     crate::setup!(connect_all: false, num_nodes: 2);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 

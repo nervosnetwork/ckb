@@ -149,7 +149,6 @@ impl EpochExt {
         self.start_number = start_number;
     }
 
-    // Set length but keep the primary epoch rewards unchanged.
     pub fn set_length(&mut self, length: BlockNumber) {
         self.length = length;
     }

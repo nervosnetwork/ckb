@@ -16,7 +16,7 @@ pub struct GenesisIssuedCells;
 impl Spec for GenesisIssuedCells {
     crate::name!("genesis_issued_cells");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
 
         let lock_hash = Script::new_builder()

@@ -10,7 +10,7 @@ impl Spec for Discovery {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0_id = net.nodes[0].node_id();
         let node2 = &net.nodes[2];
         let rpc_client = node2.rpc_client();

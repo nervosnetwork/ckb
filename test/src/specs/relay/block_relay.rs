@@ -9,7 +9,7 @@ impl Spec for BlockRelayBasic {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
