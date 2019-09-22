@@ -9,7 +9,7 @@ impl Spec for IndexerBasic {
 
     crate::setup!(num_nodes: 2, connect_all: false);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 

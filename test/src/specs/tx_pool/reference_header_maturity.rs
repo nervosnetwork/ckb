@@ -11,7 +11,7 @@ pub struct ReferenceHeaderMaturity;
 impl Spec for ReferenceHeaderMaturity {
     crate::name!("reference_header_maturity");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         info!("Generate 1 block");

@@ -15,7 +15,7 @@ pub struct BootstrapCellbase;
 impl Spec for BootstrapCellbase {
     crate::name!("bootstrap_cellbase");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         let blk_hashes: Vec<_> = (0..=DEFAULT_TX_PROPOSAL_WINDOW.1)

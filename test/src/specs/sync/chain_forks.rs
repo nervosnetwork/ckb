@@ -23,7 +23,7 @@ impl Spec for ChainFork1 {
     //                  1    2    3    4
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 
@@ -64,7 +64,7 @@ impl Spec for ChainFork2 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
     // node2                 \ -> C -> F -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -113,7 +113,7 @@ impl Spec for ChainFork3 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -184,7 +184,7 @@ impl Spec for ChainFork4 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -253,7 +253,7 @@ impl Spec for ChainFork5 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -326,7 +326,7 @@ impl Spec for ChainFork6 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -385,7 +385,7 @@ impl Spec for ChainFork7 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -452,7 +452,7 @@ impl Spec for LongForks {
 
     // Case: Two nodes has different long forks should be able to convergence
     // based on sync mechanism
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
         net.exit_ibd_mode();
@@ -491,7 +491,7 @@ impl Spec for ForksContainSameTransactions {
     //   2. `chain0` and `chain1` both contain transaction `tx`, but `chain2` not
     //   3. Initialize node holds `chain0` as the main chain, then switch to `chain2`, finally to
     //      `chain1`. We expect `get_transaction(tx)` returns successfully.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];

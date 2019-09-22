@@ -14,7 +14,7 @@ impl Spec for TransactionRelayBasic {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
         let node0 = &net.nodes[0];
@@ -57,7 +57,7 @@ impl Spec for TransactionRelayMultiple {
 
     crate::setup!(num_nodes: 5);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         info!("Use generated block's cellbase as tx input");

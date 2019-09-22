@@ -23,7 +23,7 @@ pub struct DAOWithSatoshiCellOccupied;
 impl Spec for DAOWithSatoshiCellOccupied {
     crate::name!("dao_with_satoshi_cell_occupied");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         // try deposit then withdraw dao
         node0.generate_blocks(2);
@@ -87,7 +87,7 @@ impl SpendSatoshiCell {
 impl Spec for SpendSatoshiCell {
     crate::name!("spend_satoshi_cell");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let satoshi_cell_occupied = SATOSHI_CELL_CAPACITY
             .safe_mul_ratio(node0.consensus().satoshi_cell_occupied_ratio)
