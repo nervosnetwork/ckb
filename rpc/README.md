@@ -1,5 +1,7 @@
 # CKB JSON-RPC Protocols
 
+NOTE: This file is auto-generated. Please don't update this file directly; instead make changes to `rpc/json/rpc.json` and re-run `make gen-rpc-doc`
+
 
 *   [`Chain`](#chain)
     *   [`get_tip_block_number`](#get_tip_block_number)
