@@ -17,7 +17,7 @@ use ckb_types::{
 use log::info;
 
 const TX_2_IN_2_OUT_SIZE: usize = 589;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 13_348_732;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 13_355_176;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type

@@ -418,9 +418,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_141,
-                Capacity::shannons(500_078_694_527_592),
-                Capacity::shannons(428_659_971_429),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -449,9 +449,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_091_840,
-                Capacity::shannons(500_078_694_404_593),
-                Capacity::shannons(428_659_971_307),
+                10_000_586_990_559_680,
+                Capacity::shannons(500_079_349_527_985),
+                Capacity::shannons(429_314_308_551),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -480,9 +480,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_161,
-                Capacity::shannons(500_078_694_527_593),
-                Capacity::shannons(428_659_971_430),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -556,9 +556,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_141,
-                Capacity::shannons(500_078_694_527_592),
-                Capacity::shannons(428_659_971_429),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_500_000_000)
             )
         );

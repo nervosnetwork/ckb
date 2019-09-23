@@ -1,3 +1,5 @@
+#![allow(clippy::inconsistent_digit_grouping)]
+
 use crate::{
     OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
     OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
@@ -9,8 +11,8 @@ use ckb_resource::Resource;
 use ckb_types::{
     constants::BLOCK_VERSION,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
-        HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, HeaderView, Ratio,
+        TransactionBuilder, TransactionView, Version,
     },
     h160,
     packed::{Byte32, CellInput, Script},
@@ -20,9 +22,10 @@ use ckb_types::{
 use std::cmp;
 use std::sync::Arc;
 
-// TODO: add secondary reward for miner
-pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(600_000);
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
+// 1.344 billion per year
+pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
+// 4.2 billion per year
+pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
@@ -43,7 +46,7 @@ const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_348_732;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_355_176;
 // bytes of a typical two-in-two-out tx
 const TWO_IN_TWO_OUT_BYTES: u64 = 589;
 // count of two-in-two-out txs a block should capable to package
@@ -54,8 +57,6 @@ const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
 const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 
-// We choose 1_000 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
-// can divide DEFAULT_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
 const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
 const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
@@ -744,7 +745,7 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+    use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
 
     #[test]
     fn test_init_epoch_reward() {
