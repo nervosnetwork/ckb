@@ -1228,19 +1228,19 @@ echo '{
         "example",
         {
             "header": {
-                "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
+                "dao": "0x3b87936aa3aa000093a1100b80435301e15162a2113600000061eb7ada030000",
                 "difficulty": "0x7a1200",
                 "epoch": "0x7080018000001",
                 "nonce": "0x0",
                 "number": "0x400",
-                "parent_hash": "0x956315644ef52193db540709d3a34c7149cfb173e4eedcc64ee10aa366795439",
+                "parent_hash": "0xdaec210f16c92960a78196abc167d70bbadac6436e405e4b0a209825a55d835b",
                 "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "timestamp": "0x5cd2b117",
-                "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+                "transactions_root": "0x1fff3c593627641d06e83cc20a9abfd78a8dbd9e8c02d50a2e8b3e395f883cfe",
                 "uncles_count": "0x0",
                 "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "version": "0x0",
-                "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
+                "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
             },
             "proposals": [],
             "transactions": [
@@ -1258,7 +1258,7 @@ echo '{
                     ],
                     "outputs": [
                         {
-                            "capacity": "0x1057d731c2",
+                            "capacity": "0x1057d9eb32",
                             "lock": {
                                 "args": [],
                                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1293,7 +1293,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
+    "result": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451"
 }
 ```
 
