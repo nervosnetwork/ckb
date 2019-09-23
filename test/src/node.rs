@@ -239,7 +239,7 @@ impl Node {
     pub fn submit_block(&self, block: &Block) -> Byte32 {
         self.rpc_client()
             .submit_block("".to_owned(), block.clone().into())
-            .expect("submit_block result none")
+            .expect("submit_block failed")
     }
 
     pub fn process_block_without_verify(&self, block: &BlockView) -> Byte32 {

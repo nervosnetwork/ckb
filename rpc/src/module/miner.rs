@@ -27,7 +27,7 @@ pub trait MinerRpc {
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "transactions":[], "proposals":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "submit_block")]
-    fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
+    fn submit_block(&self, _work_id: String, _data: Block) -> Result<H256>;
 }
 
 pub(crate) struct MinerRpcImpl {
@@ -68,7 +68,7 @@ impl MinerRpc for MinerRpcImpl {
         })
     }
 
-    fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
+    fn submit_block(&self, work_id: String, data: Block) -> Result<H256> {
         // TODO: this API is intended to be used in a trusted environment, thus it should pass the
         // verifier. We use sentry to capture errors found here to discovery issues early, which
         // should be removed later.
@@ -79,10 +79,10 @@ impl MinerRpc for MinerRpcImpl {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();
-        let snapshot: &Snapshot = &self.shared.snapshot();
-        let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
 
         // Verify header
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
         HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()))
             .verify(&resolver)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
@@ -93,12 +93,12 @@ impl MinerRpc for MinerRpcImpl {
             .process_block(Arc::clone(&block), true)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        // Announce new block
+        // Announce only new block
         if is_new {
             debug!(
                 "[block_relay] announce new block {} {} {}",
-                block.header().number(),
-                block.header().hash(),
+                header.number(),
+                header.hash(),
                 unix_time_as_millis()
             );
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
@@ -112,7 +112,7 @@ impl MinerRpc for MinerRpcImpl {
             }
         }
 
-        Ok(Some(block.header().hash().unpack()))
+        Ok(header.hash().unpack())
     }
 }
 
