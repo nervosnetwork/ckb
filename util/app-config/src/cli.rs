@@ -126,7 +126,7 @@ fn reset_data() -> App<'static, 'static> {
         .arg(
             Arg::with_name(ARG_NETWORK_PEER_STORE)
                 .long(ARG_NETWORK_PEER_STORE)
-                .help("Delete only `data/network/peer_store.db`"),
+                .help("Delete only `data/network/peer_store`"),
         )
         .arg(
             Arg::with_name(ARG_NETWORK_SECRET_KEY)

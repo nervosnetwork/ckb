@@ -32,6 +32,13 @@ impl DumpPeerStoreService {
     }
 }
 
+impl Drop for DumpPeerStoreService {
+    fn drop(&mut self) {
+        debug!("dump peer store before exit");
+        self.dump_peer_store();
+    }
+}
+
 impl Future for DumpPeerStoreService {
     type Item = ();
     type Error = ();
@@ -44,7 +51,6 @@ impl Future for DumpPeerStoreService {
                 }
                 Ok(Async::Ready(None)) => {
                     warn!("ckb dump peer store service stopped");
-                    self.dump_peer_store();
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::NotReady) => {
