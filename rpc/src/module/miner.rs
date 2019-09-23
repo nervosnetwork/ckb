@@ -88,27 +88,30 @@ impl MinerRpc for MinerRpcImpl {
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Verify and insert block
-        let _is_new = self
+        let is_new = self
             .chain
             .process_block(Arc::clone(&block), true)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Announce new block
-        debug!(
-            "[block_relay] announce new block {} {} {}",
-            block.header().number(),
-            block.header().hash(),
-            unix_time_as_millis()
-        );
-        let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
-        let message = packed::RelayMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
-        if let Err(err) = self
-            .network_controller
-            .quick_broadcast(NetworkProtocol::RELAY.into(), data)
-        {
-            error!("Broadcast block failed: {:?}", err);
+        if is_new {
+            debug!(
+                "[block_relay] announce new block {} {} {}",
+                block.header().number(),
+                block.header().hash(),
+                unix_time_as_millis()
+            );
+            let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = self
+                .network_controller
+                .quick_broadcast(NetworkProtocol::RELAY.into(), data)
+            {
+                error!("Broadcast new block failed: {:?}", err);
+            }
         }
+
         Ok(Some(block.header().hash().unpack()))
     }
 }
