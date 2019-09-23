@@ -343,12 +343,15 @@ pub fn test_cellbase_with_fee() {
 pub fn test_max_block_bytes_verifier_skip_genesis() {
     let block = BlockBuilder::default().build();
     {
-        let verifier = BlockBytesVerifier::new(block.serialized_size() as u64);
+        let verifier =
+            BlockBytesVerifier::new(block.data().serialized_size_without_uncle_proposals() as u64);
         assert!(verifier.verify(&block).is_ok());
     }
 
     {
-        let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
+        let verifier = BlockBytesVerifier::new(
+            block.data().serialized_size_without_uncle_proposals() as u64 - 1,
+        );
         assert!(verifier.verify(&block).is_ok());
     }
 }
@@ -360,12 +363,15 @@ pub fn test_max_block_bytes_verifier() {
         .build();
 
     {
-        let verifier = BlockBytesVerifier::new(block.serialized_size() as u64);
+        let verifier =
+            BlockBytesVerifier::new(block.data().serialized_size_without_uncle_proposals() as u64);
         assert!(verifier.verify(&block).is_ok());
     }
 
     {
-        let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
+        let verifier = BlockBytesVerifier::new(
+            block.data().serialized_size_without_uncle_proposals() as u64 - 1,
+        );
         assert_error_eq(
             verifier.verify(&block).unwrap_err(),
             BlockErrorKind::ExceededMaximumBlockBytes,

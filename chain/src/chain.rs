@@ -613,9 +613,9 @@ impl ChainService {
                                     if b.transactions().len() > 1 {
                                         info!(
                                             "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
-                                            b.header().number(),
-                                            b.header().hash(),
-                                            b.serialized_size(),
+                                            b.number(),
+                                            b.hash(),
+                                            b.data().serialized_size_without_uncle_proposals(),
                                             self.shared.consensus().max_block_bytes(),
                                             cycles,
                                             self.shared.consensus().max_block_cycles()

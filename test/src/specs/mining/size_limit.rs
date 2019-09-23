@@ -13,7 +13,7 @@ impl Spec for TemplateSizeLimit {
         info!("Generate 1 block");
         let blank_block = node.new_block(None, None, None);
         node.submit_block(&blank_block.data());
-        let blank_block_size = blank_block.serialized_size();
+        let blank_block_size = blank_block.data().serialized_size_without_uncle_proposals();
 
         info!("Generate 6 txs");
         let mut txs_hash = Vec::new();
@@ -21,7 +21,7 @@ impl Spec for TemplateSizeLimit {
         let cellbase = &block.transactions()[0];
         let capacity = cellbase.outputs().get(0).unwrap().capacity().unpack();
         let tx = node.new_transaction_with_since_capacity(cellbase.hash(), 0, capacity);
-        let tx_size = tx.serialized_size();
+        let tx_size = tx.data().serialized_size_in_block();
         info!(
             "blank_block_size: {}, tx_size: {}",
             blank_block_size, tx_size
@@ -41,7 +41,10 @@ impl Spec for TemplateSizeLimit {
         node.generate_block();
 
         let new_block = node.new_block(None, None, None);
-        assert_eq!(new_block.serialized_size(), blank_block_size + tx_size * 6);
+        assert_eq!(
+            new_block.data().serialized_size_without_uncle_proposals(),
+            blank_block_size + tx_size * 6
+        );
         // 6 txs + 1 cellbase tx
         assert_eq!(new_block.transactions().len(), 7);
 

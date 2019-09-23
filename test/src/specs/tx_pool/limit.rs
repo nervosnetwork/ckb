@@ -85,7 +85,7 @@ impl Spec for CyclesLimit {
 
         let tx_pool_info = node.rpc_client().tx_pool_info();
         let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
-        let one_tx_size = tx.serialized_size();
+        let one_tx_size = tx.data().serialized_size_in_block();
 
         info!(
             "one_tx_cycles: {}, one_tx_size: {}",

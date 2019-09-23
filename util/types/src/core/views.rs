@@ -234,10 +234,6 @@ impl TransactionView {
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
     }
-
-    pub fn serialized_size(&self) -> usize {
-        self.data().serialized_size()
-    }
 }
 
 macro_rules! define_header_unpacked_inner_getter {
@@ -535,10 +531,6 @@ impl BlockView {
 
     pub fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
-    }
-
-    pub fn serialized_size(&self) -> usize {
-        self.data().serialized_size()
     }
 }
 
