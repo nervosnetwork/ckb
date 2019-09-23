@@ -39,7 +39,7 @@ pub enum TransactionError {
     ExceededMaximumBlockBytes,
 }
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum HeaderErrorKind {
     InvalidParent,
     Pow,
@@ -58,7 +58,7 @@ pub struct BlockError {
     kind: Context<BlockErrorKind>,
 }
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum BlockErrorKind {
     ProposalTransactionDuplicate,
 
