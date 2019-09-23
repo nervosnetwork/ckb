@@ -29,6 +29,7 @@ members = [
     "util/stop-handler",
     "util/occupied-capacity",
     "util/types",
+    "util/future-executor",
     "util/jsonrpc-types",
     "script/data-loader",
     "db",
