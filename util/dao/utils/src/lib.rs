@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_error::Error;
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, Ratio, TransactionView},
+    core::{capacity_bytes, Capacity, Ratio, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
     H160,
@@ -19,18 +19,22 @@ pub use crate::error::DaoError;
 // This is multiplied by 10**16 to make sure we have enough precision.
 pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
 
-pub const DAO_VERSION: u8 = 1;
-
-pub const DAO_SIZE: usize = 32;
-
 pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
-    genesis_dao_data_with_satoshi_gift(txs, &H160([0u8; 20]), Ratio(1, 1))
+    genesis_dao_data_with_satoshi_gift(
+        txs,
+        &H160([0u8; 20]),
+        Ratio(1, 1),
+        capacity_bytes!(1000),
+        capacity_bytes!(1000),
+    )
 }
 
 pub fn genesis_dao_data_with_satoshi_gift(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
+    initial_primary_issuance: Capacity,
+    initial_secondary_issuance: Capacity,
 ) -> Result<Byte32, Error> {
     let dead_cells = txs
         .iter()
@@ -68,8 +72,9 @@ pub fn genesis_dao_data_with_satoshi_gift(
         Ok((c, u))
     };
 
+    let initial_issuance = initial_primary_issuance.safe_add(initial_secondary_issuance)?;
     let result: Result<_, Error> = txs.into_iter().enumerate().try_fold(
-        (Capacity::zero(), Capacity::zero()),
+        (initial_issuance, Capacity::zero()),
         |(c, u), (tx_index, tx)| {
             let (tx_c, tx_u) = statistics_outputs(tx_index, tx)?;
             let c = c.safe_add(tx_c)?;
@@ -78,25 +83,33 @@ pub fn genesis_dao_data_with_satoshi_gift(
         },
     );
     let (c, u) = result?;
-    Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
-}
-
-pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity), Error> {
-    let data = dao.raw_data();
-    if data[0] != DAO_VERSION {
-        return Err(DaoError::InvalidDaoFormat.into());
+    // C cannot be zero, otherwise DAO stats calculation might result in
+    // division by zero errors.
+    if c == Capacity::zero() {
+        return Err(DaoError::ZeroC.into());
     }
-    let ar = LittleEndian::read_u64(&data[8..16]);
-    let c = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));
-    let u = Capacity::shannons(LittleEndian::read_u64(&data[24..32]));
-    Ok((ar, c, u))
+    Ok(pack_dao_data(
+        DEFAULT_ACCUMULATED_RATE,
+        c,
+        initial_secondary_issuance,
+        u,
+    ))
 }
 
-pub fn pack_dao_data(ar: u64, c: Capacity, u: Capacity) -> Byte32 {
-    let mut buf = [0u8; DAO_SIZE];
-    buf[0] = DAO_VERSION;
+pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity, Capacity), Error> {
+    let data = dao.raw_data();
+    let c = Capacity::shannons(LittleEndian::read_u64(&data[0..8]));
+    let ar = LittleEndian::read_u64(&data[8..16]);
+    let s = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));
+    let u = Capacity::shannons(LittleEndian::read_u64(&data[24..32]));
+    Ok((ar, c, s, u))
+}
+
+pub fn pack_dao_data(ar: u64, c: Capacity, s: Capacity, u: Capacity) -> Byte32 {
+    let mut buf = [0u8; 32];
+    LittleEndian::write_u64(&mut buf[0..8], c.as_u64());
     LittleEndian::write_u64(&mut buf[8..16], ar);
-    LittleEndian::write_u64(&mut buf[16..24], c.as_u64());
+    LittleEndian::write_u64(&mut buf[16..24], s.as_u64());
     LittleEndian::write_u64(&mut buf[24..32], u.as_u64());
     Byte32::from_slice(&buf).expect("impossible: fail to read array")
 }
