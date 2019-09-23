@@ -1,14 +1,15 @@
 use super::*;
 use crate::utils::is_committed;
 use crate::{Net, Spec};
-use ckb_chain_spec::{ChainSpec, IssuedCell};
+use ckb_chain_spec::{
+    build_genesis_type_id_script, ChainSpec, IssuedCell,
+    OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
 use ckb_dao_utils::extract_dao_data;
-use ckb_hash::new_blake2b;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{Capacity, DepType, Ratio},
     prelude::*,
     H160, H256,
@@ -186,23 +187,7 @@ fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
 }
 
 fn type_lock_script_code_hash() -> H256 {
-    let input = CellInput::new_cellbase_input(0);
-    // 0 => genesis cell, which contains a message and can never be spent.
-    // ....
-    // 4 => secp256k1_ripemd160_sha256_sighash_all cell
-    // define in integration.toml spec file
-    let output_index: u64 = 4;
-    let mut blake2b = new_blake2b();
-    blake2b.update(input.as_slice());
-    blake2b.update(&output_index.to_le_bytes());
-    let mut ret = [0; 32];
-    blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
-    Script::new_builder()
-        .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
-        .build()
+    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }

@@ -9,8 +9,8 @@ pub use dao_tx::{
 pub use satoshi_dao_occupied::{DAOWithSatoshiCellOccupied, SpendSatoshiCell};
 
 use crate::utils::is_committed;
-use crate::Node;
-use ckb_resource::CODE_HASH_DAO;
+use crate::{Node, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
+use ckb_chain_spec::OUTPUT_INDEX_DAO;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
@@ -19,8 +19,6 @@ use ckb_types::{
     prelude::*,
 };
 
-const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 5;
-const SYSTEM_CELL_DAO_INDEX: u32 = 2;
 const WITHDRAW_WINDOW_LEFT: u64 = 10;
 // The second witness
 const WITHDRAW_HEADER_INDEX: u64 = 1;
@@ -75,7 +73,7 @@ fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<Byte32>) {
         .build();
     // Reference to DAO type_script
     let dao_dep = CellDep::new_builder()
-        .out_point(OutPoint::new(genesis_tx.hash(), SYSTEM_CELL_DAO_INDEX))
+        .out_point(OutPoint::new(genesis_tx.hash(), OUTPUT_INDEX_DAO as u32))
         .build();
 
     (vec![always_dep, dao_dep], vec![genesis_block.hash()])
@@ -89,21 +87,21 @@ fn withdraw_dao_deps(node: &Node, withdraw_header_hash: Byte32) -> (Vec<CellDep>
     (cell_deps, header_deps)
 }
 
-fn deposit_dao_script() -> Script {
+fn deposit_dao_script(dao_type_hash: Byte32) -> Script {
     Script::new_builder()
-        .code_hash(CODE_HASH_DAO.pack())
-        .hash_type(ScriptHashType::Data.pack())
+        .code_hash(dao_type_hash)
+        .hash_type(ScriptHashType::Type.pack())
         .build()
 }
 
 // Deposit `capacity` into DAO. The target output's type script == dao-script
-fn deposit_dao_output(capacity: Capacity) -> (CellOutput, Bytes) {
+fn deposit_dao_output(capacity: Capacity, dao_type_hash: Byte32) -> (CellOutput, Bytes) {
     let always_success_script = always_success_cell().2.clone();
     let data = Bytes::from(vec![1; 10]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
         .lock(always_success_script)
-        .type_(Some(deposit_dao_script()).pack())
+        .type_(Some(deposit_dao_script(dao_type_hash)).pack())
         .build();
     (cell_output, data)
 }
@@ -126,8 +124,12 @@ fn absolute_minimal_since(node: &Node) -> BlockNumber {
 // Construct a deposit dao transaction, which consumes the tip-cellbase as the input,
 // generates the output with always-success-script as lock script, dao-script as type script
 fn deposit_dao_transaction(node: &Node) -> TransactionView {
+    let dao_type_hash = node
+        .consensus()
+        .dao_type_hash()
+        .expect("No dao system cell");
     let (input, block_hash, input_capacity) = tip_cellbase_input(node);
-    let (output, output_data) = deposit_dao_output(input_capacity);
+    let (output, output_data) = deposit_dao_output(input_capacity, dao_type_hash);
     let (cell_deps, mut header_deps) = deposit_dao_deps(node);
     header_deps.push(block_hash);
     TransactionBuilder::default()

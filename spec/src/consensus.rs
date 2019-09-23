@@ -1,3 +1,7 @@
+use crate::{
+    OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+    OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
@@ -227,8 +231,25 @@ impl ConsensusBuilder {
             satoshi_pubkey_hash,
             satoshi_cell_occupied_ratio,
         } = self;
+
+        let get_type_hash = |output_index: u64| {
+            genesis_block
+                .transaction(0)
+                .expect("Genesis must have cellbase")
+                .output(output_index as usize)
+                .and_then(|output| output.type_().to_opt())
+                .map(|type_script| type_script.calc_script_hash())
+        };
+        let dao_type_hash = get_type_hash(OUTPUT_INDEX_DAO);
+        let secp_blake160_type_hash = get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
+        let secp_ripemd160_type_hash =
+            get_type_hash(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL);
+
         Consensus {
             genesis_hash,
+            dao_type_hash,
+            secp_blake160_type_hash,
+            secp_ripemd160_type_hash,
             genesis_block,
             id,
             max_uncles_num,
@@ -329,6 +350,9 @@ pub struct Consensus {
     pub id: String,
     pub genesis_block: BlockView,
     pub genesis_hash: Byte32,
+    pub dao_type_hash: Option<Byte32>,
+    pub secp_blake160_type_hash: Option<Byte32>,
+    pub secp_ripemd160_type_hash: Option<Byte32>,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
@@ -391,6 +415,16 @@ impl Consensus {
 
     pub fn genesis_hash(&self) -> Byte32 {
         self.genesis_hash.clone()
+    }
+
+    pub fn dao_type_hash(&self) -> Option<Byte32> {
+        self.dao_type_hash.clone()
+    }
+    pub fn secp_blake160_type_hash(&self) -> Option<Byte32> {
+        self.secp_blake160_type_hash.clone()
+    }
+    pub fn secp_ripemd160_type_hash(&self) -> Option<Byte32> {
+        self.secp_ripemd160_type_hash.clone()
     }
 
     pub fn max_uncles_num(&self) -> usize {

@@ -1,5 +1,6 @@
 use crate::rpc::RpcClient;
 use crate::utils::{temp_path, wait_until};
+use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
@@ -330,7 +331,10 @@ impl Node {
         since: u64,
         capacity: Capacity,
     ) -> TransactionView {
-        let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 5);
+        let always_success_out_point = OutPoint::new(
+            self.genesis_cellbase_hash.clone(),
+            SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
+        );
         let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
@@ -384,7 +388,7 @@ impl Node {
         self.always_success_code_hash = CellOutput::calc_data_hash(
             &consensus.genesis_block().transactions()[0]
                 .outputs_data()
-                .get(5)
+                .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
                 .unwrap()
                 .raw_data(),
         );

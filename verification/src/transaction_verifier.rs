@@ -1,7 +1,6 @@
 use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
@@ -9,7 +8,7 @@ use ckb_types::{
     constants::TX_VERSION,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, Cycle, EpochNumberWithFraction, TransactionView,
+        BlockNumber, Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView,
     },
     packed::Byte32,
     prelude::*,
@@ -89,7 +88,7 @@ where
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store),
-            capacity: CapacityVerifier::new(rtx),
+            capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
@@ -273,12 +272,18 @@ impl<'a> DuplicateDepsVerifier<'a> {
 
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction,
+    // It's Option because special genesis block do not have dao system cell
+    dao_type_hash: Option<Byte32>,
 }
 
 impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        dao_type_hash: Option<Byte32>,
+    ) -> Self {
         CapacityVerifier {
             resolved_transaction,
+            dao_type_hash,
         }
     }
 
@@ -318,7 +323,11 @@ impl<'a> CapacityVerifier<'a> {
                     .cell_output
                     .type_()
                     .to_opt()
-                    .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
+                    .map(|t| {
+                        t.hash_type().unpack() == ScriptHashType::Type
+                            && &t.code_hash()
+                                == self.dao_type_hash.as_ref().expect("No dao system cell")
+                    })
                     .unwrap_or(false)
             })
     }
