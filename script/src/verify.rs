@@ -407,7 +407,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 }
 
 fn internal_error(error: ckb_vm::Error) -> Error {
-    InternalErrorKind::VM.cause(format!("{:?}", error)).into()
+    InternalErrorKind::VM.reason(format!("{:?}", error)).into()
 }
 
 #[cfg(test)]

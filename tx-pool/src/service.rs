@@ -424,7 +424,7 @@ impl TxPoolService {
         if self.block_assembler.is_none() {
             future::Either::A(future::err(
                 InternalErrorKind::System
-                    .cause("BlockAssembler disabled")
+                    .reason("BlockAssembler disabled")
                     .into(),
             ))
         } else {

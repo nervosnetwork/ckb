@@ -1,14 +1,13 @@
 use crate::{Error, ErrorKind};
-use failure::Fail;
-use std::fmt::{self, Display};
+use failure::{err_msg, Backtrace, Context, Fail};
+use std::fmt::{self, Debug, Display};
 
-#[derive(Fail, Debug)]
+#[derive(Debug)]
 pub struct InternalError {
-    kind: InternalErrorKind,
-    cause: Option<String>,
+    kind: Context<InternalErrorKind>,
 }
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum InternalErrorKind {
     /// An arithmetic overflow occurs during capacity calculation,
     /// e.g. `Capacity::safe_add`
@@ -51,27 +50,44 @@ impl From<InternalError> for Error {
 
 impl From<InternalErrorKind> for InternalError {
     fn from(kind: InternalErrorKind) -> Self {
-        Self { kind, cause: None }
+        InternalError {
+            kind: Context::new(kind),
+        }
     }
 }
 
 impl From<InternalErrorKind> for Error {
     fn from(kind: InternalErrorKind) -> Self {
-        InternalError { kind, cause: None }.into()
+        Into::<InternalError>::into(kind).into()
     }
 }
 
 impl InternalErrorKind {
-    pub fn cause<S: ToString>(self, reason: S) -> InternalError {
+    pub fn cause<F: Fail>(self, cause: F) -> InternalError {
         InternalError {
-            kind: self,
-            cause: Some(reason.to_string()),
+            kind: cause.context(self),
+        }
+    }
+
+    pub fn reason<S: Display + Debug + Sync + Send + 'static>(self, reason: S) -> InternalError {
+        InternalError {
+            kind: err_msg(reason).compat().context(self),
         }
     }
 }
 
 impl InternalError {
     pub fn kind(&self) -> &InternalErrorKind {
-        &self.kind
+        &self.kind.get_context()
+    }
+}
+
+impl Fail for InternalError {
+    fn cause(&self) -> Option<&Fail> {
+        self.kind.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.kind.backtrace()
     }
 }

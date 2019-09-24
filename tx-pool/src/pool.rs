@@ -584,7 +584,7 @@ impl TxPool {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated
-                        .cause(tx_hash)
+                        .reason(tx_hash)
                         .into())
                 }
             },
@@ -646,7 +646,7 @@ impl TxPool {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated
-                        .cause(tx_hash)
+                        .reason(tx_hash)
                         .into())
                 }
             },
