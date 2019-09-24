@@ -272,6 +272,9 @@ fn all_specs() -> SpecMap {
         Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
         Box::new(InsufficientReward),
+        Box::new(UncleInheritFromForkBlock),
+        Box::new(UncleInheritFromForkUncle),
+        Box::new(PackUnclesIntoEpochStarting),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
