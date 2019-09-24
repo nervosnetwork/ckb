@@ -64,7 +64,7 @@ impl NetworkConfig {
 
     pub fn peer_store_path(&self) -> PathBuf {
         let mut path = self.path.clone();
-        path.push("peer_store.db");
+        path.push("peer_store");
         path
     }
 

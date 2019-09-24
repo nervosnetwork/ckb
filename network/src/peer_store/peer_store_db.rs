@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use ckb_logger::debug;
-use std::fs::{create_dir_all, rename, File, OpenOptions};
+use std::fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -25,6 +25,7 @@ impl AddrManager {
 
     pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
         let addrs: Vec<_> = self.addrs_iter().collect();
+        debug!("dump {} addrs", addrs.len());
         serde_json::to_writer(w, &addrs).map_err(|err| PeerStoreError::Serde(err).into())
     }
 }
@@ -42,6 +43,7 @@ impl BanList {
 
     pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
         let banned_addrs = self.get_banned_addrs();
+        debug!("dump {} banned addrs", banned_addrs.len());
         serde_json::to_writer(w, &banned_addrs).map_err(|err| PeerStoreError::Serde(err).into())
     }
 }
@@ -82,7 +84,7 @@ impl PeerStore {
                 .append(false)
                 .open(&tmp_addr_manager)?,
         )?;
-        rename(
+        move_file(
             tmp_addr_manager,
             path.as_ref().join(DEFAULT_ADDR_MANAGER_DB),
         )?;
@@ -93,7 +95,17 @@ impl PeerStore {
                 .append(false)
                 .open(&tmp_ban_list)?,
         )?;
-        rename(tmp_ban_list, path.as_ref().join(DEFAULT_BAN_LIST_DB))?;
+        move_file(tmp_ban_list, path.as_ref().join(DEFAULT_BAN_LIST_DB))?;
         Ok(())
     }
+}
+
+/// This function use `copy` then `remove_file` as a fallback when `rename` failed,
+/// this maybe happen when src and dst on different file systems.
+fn move_file<P: AsRef<Path>>(src: P, dst: P) -> Result<(), Error> {
+    if rename(&src, &dst).is_err() {
+        copy(&src, &dst)?;
+        remove_file(&src)?;
+    }
+    Ok(())
 }
