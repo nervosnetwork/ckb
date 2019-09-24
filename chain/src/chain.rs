@@ -557,6 +557,7 @@ impl ChainService {
         }
 
         let verify_context = VerifyContext::new(txn, self.shared.consensus());
+        let future_executor = self.shared.tx_pool_controller().executor();
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -600,6 +601,7 @@ impl ChainService {
                                 &resolved,
                                 b,
                                 txs_verify_cache.clone(),
+                                &future_executor,
                             ) {
                                 Ok((cycles, txs_fees)) => {
                                     txn.attach_block(b)?;
