@@ -120,15 +120,15 @@ pub fn update_tx_pool_for_reorg(
     // pending ---> gap ----> proposed
     // try move gap to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.gap.size());
-    for id in tx_pool.gap.sorted_keys() {
-        if snapshot.proposals().contains_proposed(&id) {
-            let entry = tx_pool.gap.get(&id).expect("exists");
+    for key in tx_pool.gap.sorted_keys() {
+        if snapshot.proposals().contains_proposed(&key.id) {
+            let entry = tx_pool.gap.get(&key.id).expect("exists");
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
                 entry.transaction.to_owned(),
             ));
-            removed.push(id.clone());
+            removed.push(key.id.clone());
         }
     }
     removed.into_iter().for_each(|id| {
@@ -137,22 +137,22 @@ pub fn update_tx_pool_for_reorg(
 
     // try move pending to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.pending.size());
-    for id in tx_pool.pending.sorted_keys() {
-        let entry = tx_pool.pending.get(&id).expect("exists");
-        if snapshot.proposals().contains_proposed(&id) {
+    for key in tx_pool.pending.sorted_keys() {
+        let entry = tx_pool.pending.get(&key.id).expect("exists");
+        if snapshot.proposals().contains_proposed(&key.id) {
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
                 entry.transaction.to_owned(),
             ));
-            removed.push(id.clone());
-        } else if snapshot.proposals().contains_gap(&id) {
+            removed.push(key.id.clone());
+        } else if snapshot.proposals().contains_gap(&key.id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
                 entry.transaction.to_owned(),
             ));
-            removed.push(id.clone());
+            removed.push(key.id.clone());
         }
     }
     removed.into_iter().for_each(|id| {

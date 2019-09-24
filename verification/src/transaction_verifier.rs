@@ -146,7 +146,12 @@ impl<'a, CS: ChainStore<'a>> FeeCalculator<'a, CS> {
     }
 
     fn transaction_fee(&self) -> Result<Capacity, Error> {
-        DaoCalculator::new(&self.consensus, self.chain_store).transaction_fee(&self.transaction)
+        // skip tx fee calculation for cellbase
+        if self.transaction.is_cellbase() {
+            Ok(Capacity::zero())
+        } else {
+            DaoCalculator::new(&self.consensus, self.chain_store).transaction_fee(&self.transaction)
+        }
     }
 }
 

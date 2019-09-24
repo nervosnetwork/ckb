@@ -10,7 +10,6 @@ ckb-types = { path = "../util/types" }
 ckb-chain-spec = { path = "../spec" }
 ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-logger = { path = "../util/logger" }
 ckb-proposal-table = { path = "../util/proposal-table" }
 # DO NOT UPDATE "im", until clippy#4121 be solved

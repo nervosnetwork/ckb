@@ -141,6 +141,7 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
             vbytes,
             id: entry.transaction.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
+            ancestors_size: entry.ancestors_size,
             ancestors_vbytes,
         }
     }

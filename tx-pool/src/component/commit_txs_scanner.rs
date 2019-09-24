@@ -2,7 +2,10 @@ use crate::component::{
     entry::{TxEntry, TxModifiedEntries},
     proposed::ProposedPool,
 };
-use ckb_types::{core::Cycle, packed::ProposalShortId};
+use ckb_types::{
+    core::{Cycle, FeeRate},
+    packed::ProposalShortId,
+};
 use std::cmp::max;
 use std::collections::HashSet;
 
@@ -37,6 +40,7 @@ impl<'a> CommitTxsScanner<'a> {
         mut self,
         size_limit: usize,
         cycles_limit: Cycle,
+        min_fee_rate: FeeRate,
     ) -> (Vec<TxEntry>, usize, Cycle) {
         let mut size: usize = 0;
         let mut cycles: Cycle = 0;
@@ -58,6 +62,7 @@ impl<'a> CommitTxsScanner<'a> {
                         let tx_id = tx.transaction.proposal_short_id();
                         !self.fetched_txs.contains(&tx_id)
                             && !self.modified_entries.contains_key(&tx_id)
+                            && tx.ancestors_fee >= min_fee_rate.fee(tx.ancestors_size)
                     },
                 );
                 self.modified_entries.with_sorted_by_score_iter(|iter| {
@@ -68,7 +73,7 @@ impl<'a> CommitTxsScanner<'a> {
                         cycles_limit,
                         size,
                         cycles,
-                        |_| true,
+                        |tx| tx.ancestors_fee >= min_fee_rate.fee(tx.ancestors_size),
                     );
                 });
                 // take tx with higher scores

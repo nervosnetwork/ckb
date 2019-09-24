@@ -1,9 +1,9 @@
-use crate::component::container::SortedTxMap;
+use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus},
-        TransactionView,
+        FeeRate, TransactionView,
     },
     packed::{OutPoint, ProposalShortId},
     prelude::*,
@@ -51,26 +51,34 @@ impl PendingQueue {
         self.inner.get_ancestors(tx_short_id)
     }
 
-    pub(crate) fn sorted_keys(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.inner.sorted_keys().map(|key| &key.id)
+    pub(crate) fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+        self.inner.sorted_keys()
     }
 
     // fill proposal txs
-    pub fn fill_proposals(&self, limit: usize, proposals: &mut HashSet<ProposalShortId>) {
-        for id in self.sorted_keys() {
+    pub fn fill_proposals(
+        &self,
+        limit: usize,
+        min_fee_rate: FeeRate,
+        proposals: &mut HashSet<ProposalShortId>,
+    ) {
+        for key in self.sorted_keys() {
             if proposals.len() == limit {
                 break;
-            } else if proposals.contains(&id) {
-                // implies that ancestors are already in proposals
+            } else if proposals.contains(&key.id)
+                || key.ancestors_fee < min_fee_rate.fee(key.ancestors_size)
+            {
+                // ignore tx which already exists in proposals
+                // or fee rate is lower than min fee rate
                 continue;
             }
-            let mut ancestors = self.get_ancestors(&id).into_iter().collect::<Vec<_>>();
+            let mut ancestors = self.get_ancestors(&key.id).into_iter().collect::<Vec<_>>();
             ancestors.sort_unstable_by_key(|id| {
                 self.get(&id)
                     .map(|entry| entry.ancestors_count)
                     .expect("exists")
             });
-            ancestors.push(id.clone());
+            ancestors.push(key.id.clone());
             proposals.extend(ancestors.into_iter().take(limit - proposals.len()));
         }
     }
@@ -152,7 +160,10 @@ mod tests {
             vec![],
         ));
 
-        let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
+        let txs_sorted_by_fee_rate = pool
+            .sorted_keys()
+            .map(|key| key.id.clone())
+            .collect::<Vec<_>>();
         let expect_result = vec![
             tx2.proposal_short_id(),
             tx3.proposal_short_id(),
@@ -201,7 +212,10 @@ mod tests {
             vec![],
         ));
 
-        let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
+        let txs_sorted_by_fee_rate = pool
+            .sorted_keys()
+            .map(|key| key.id.clone())
+            .collect::<Vec<_>>();
         let expect_result = vec![
             tx4.proposal_short_id(),
             tx2.proposal_short_id(),
@@ -239,7 +253,10 @@ mod tests {
             ));
         }
 
-        let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
+        let txs_sorted_by_fee_rate = pool
+            .sorted_keys()
+            .map(|key| key.id.clone())
+            .collect::<Vec<_>>();
         // the entry with most ancestors score will win
         let expect_result = tx2_4.proposal_short_id();
         assert_eq!(txs_sorted_by_fee_rate[0], expect_result);

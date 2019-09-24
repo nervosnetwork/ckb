@@ -11,7 +11,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, FeeRate,
         HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{
@@ -153,7 +153,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared));
     (
-        Relayer::new(chain_controller, sync_shared_state),
+        Relayer::new(chain_controller, sync_shared_state, FeeRate::zero()),
         always_success_out_point,
     )
 }

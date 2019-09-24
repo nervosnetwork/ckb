@@ -498,7 +498,7 @@ fn test_package_multi_best_scores() {
 }
 
 #[test]
-fn test_package_zero_fee_txs() {
+fn test_package_low_fee_decendants() {
     let mut consensus = Consensus::default();
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
@@ -530,10 +530,10 @@ fn test_package_zero_fee_txs() {
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
         TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(0), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(0), 100, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(0), 100, vec![]),
-        TxEntry::new(tx5.clone(), 0, Capacity::shannons(0), 100, vec![]),
+        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100, vec![]),
+        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100, vec![]),
+        TxEntry::new(tx4.clone(), 0, Capacity::shannons(100), 100, vec![]),
+        TxEntry::new(tx5.clone(), 0, Capacity::shannons(100), 100, vec![]),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -543,4 +543,66 @@ fn test_package_zero_fee_txs() {
         .unwrap()
         .unwrap();
     check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx5]);
+}
+
+#[test]
+fn test_package_txs_lower_than_min_fee_rate() {
+    let mut consensus = Consensus::default();
+    consensus.genesis_epoch_ext.set_length(5);
+    let epoch = consensus.genesis_epoch_ext().clone();
+
+    let (chain_controller, shared) = start_chain(Some(consensus));
+
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+
+    let mut parent_header = genesis.to_owned();
+    let mut blocks = vec![];
+    for _i in 0..4 {
+        let block = gen_block(&parent_header, 11, &epoch);
+        chain_controller
+            .process_block(Arc::new(block.clone()))
+            .expect("process block");
+        parent_header = block.header().to_owned();
+        blocks.push(block);
+    }
+
+    let tx0 = &blocks[0].transactions()[0];
+    let tx1 = build_tx(tx0, &[0], 2);
+    let tx2 = build_tx(&tx1, &[0], 2);
+    let tx3 = build_tx(&tx2, &[0], 2);
+    let tx4 = build_tx(&tx3, &[0], 2);
+    let tx5 = build_tx(&tx4, &[0], 2);
+
+    let tx_pool = shared.tx_pool_controller();
+    let entries = vec![
+        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
+        TxEntry::new(tx2.clone(), 0, Capacity::shannons(80), 100, vec![]),
+        TxEntry::new(tx3.clone(), 0, Capacity::shannons(50), 100, vec![]),
+        TxEntry::new(tx4.clone(), 0, Capacity::shannons(20), 100, vec![]),
+        TxEntry::new(tx5.clone(), 0, Capacity::shannons(0), 100, vec![]),
+    ];
+    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+
+    let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>| {
+        assert_eq!(
+            block_template
+                .transactions
+                .iter()
+                .map(|tx| format!("{}", tx.hash))
+                .collect::<Vec<_>>(),
+            expect_txs
+                .iter()
+                .map(|tx| format!("{}", Unpack::<H256>::unpack(&tx.hash())))
+                .collect::<Vec<_>>()
+        );
+    };
+    // best scored txs
+    let block_template = tx_pool
+        .get_block_template(None, None, None)
+        .unwrap()
+        .unwrap();
+    check_txs(&block_template, vec![&tx1]);
 }

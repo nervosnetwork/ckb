@@ -23,7 +23,7 @@ use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
-        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
+        EpochNumberWithFraction, FeeRate, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
@@ -224,7 +224,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         }
         .to_delegate(),
     );
-    io.extend_with(PoolRpcImpl::new(shared.clone(), sync_shared_state).to_delegate());
+    io.extend_with(
+        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero()).to_delegate(),
+    );
     io.extend_with(
         NetworkRpcImpl {
             network_controller: network_controller.clone(),

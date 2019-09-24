@@ -82,21 +82,35 @@ impl<'a> TransactionsProcess<'a> {
             .into_iter()
             .map(|(tx, relay_cycles)| {
                 let tx_hash = tx.hash();
+                let tx_size = tx.data().serialized_size_in_block();
                 notify_txs.push(tx);
-                (tx_hash, relay_cycles)
+                (tx_hash, relay_cycles, tx_size)
             })
             .collect();
         let nc = Arc::clone(&self.nc);
         let peer_index = self.peer;
         let shared = Arc::clone(self.relayer.shared());
+        let min_fee_rate = self.relayer.min_fee_rate;
 
         let callback = Box::new(move |ret: Result<Vec<CacheEntry>, Error>| match ret {
             Ok(cache_entry_vec) => {
-                for ((tx_hash, relay_cycles), cache_entry) in relay_cycles_vec
+                for ((tx_hash, relay_cycles, tx_size), cache_entry) in relay_cycles_vec
                     .into_iter()
                     .zip(cache_entry_vec.into_iter())
                 {
                     if relay_cycles == cache_entry.cycles {
+                        if cache_entry.fee < min_fee_rate.fee(tx_size) {
+                            debug_target!(
+                                        crate::LOG_TARGET_RELAY,
+                                        "peer {} relay tx lower than min fee rate {} shannons/KB. tx: {:?}  size {} fee {}",
+                                        peer_index,
+                                        min_fee_rate,
+                                        tx_hash,
+                                        tx_size,
+                                        cache_entry.fee,
+                                    );
+                            continue;
+                        }
                         let mut cache = shared.state().tx_hashes();
                         let entry = cache.entry(peer_index).or_insert_with(HashSet::default);
                         entry.insert(tx_hash);

@@ -19,7 +19,6 @@ use ckb_types::{
     U256,
 };
 use im::hashmap::HashMap as HamtMap;
-use lru_cache::LruCache;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -50,7 +49,8 @@ impl Shared {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
 
-        let txs_verify_cache = PollLock::new(LruCache::new(tx_pool_config.max_verify_cache_size));
+        let txs_verify_cache =
+            PollLock::new(TxVerifyCache::new(tx_pool_config.max_verify_cache_size));
         let snapshot = Arc::new(Snapshot::new(
             tip_header,
             total_difficulty,

@@ -4,7 +4,12 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{
+    core::{self, FeeRate},
+    packed,
+    prelude::*,
+    H256,
+};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -23,13 +28,19 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
+    min_fee_rate: FeeRate,
 }
 
 impl PoolRpcImpl {
-    pub fn new(shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> PoolRpcImpl {
+    pub fn new(
+        shared: Shared,
+        sync_shared_state: Arc<SyncSharedState>,
+        min_fee_rate: FeeRate,
+    ) -> PoolRpcImpl {
         PoolRpcImpl {
             sync_shared_state,
             shared,
+            min_fee_rate,
         }
     }
 }
@@ -48,7 +59,13 @@ impl PoolRpc for PoolRpcImpl {
         };
 
         match submit_txs.unwrap() {
-            Ok(_) => {
+            Ok(submit_result) => {
+                let cache_entry = submit_result.get(0).expect("exists");
+                let min_fee = self.min_fee_rate.fee(tx.data().serialized_size_in_block());
+                // reject txs which fee lower than min fee rate
+                if cache_entry.fee < min_fee {
+                    return Err(RPCError::custom(RPCError::Invalid, format!("transaction fee rate lower than min_fee_rate: {} shannons/KB. hint: at least pay {} shannons fee", self.min_fee_rate, min_fee)));
+                }
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
                 let hash = tx.hash().to_owned();

@@ -1,6 +1,7 @@
 use crate::utils::assert_send_transaction_fail;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
+use ckb_types::core::FeeRate;
 use log::info;
 
 pub struct SizeLimit;
@@ -61,6 +62,7 @@ impl Spec for SizeLimit {
         Box::new(|config| {
             config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_SIZE_LIMIT;
             config.tx_pool.max_cycles = MAX_CYCLES_FOR_SIZE_LIMIT;
+            config.tx_pool.min_fee_rate = FeeRate::zero();
         })
     }
 }
@@ -123,6 +125,7 @@ impl Spec for CyclesLimit {
         Box::new(|config| {
             config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_CYCLE_LIMIT;
             config.tx_pool.max_cycles = MAX_CYCLES_FOR_CYCLE_LIMIT;
+            config.tx_pool.min_fee_rate = FeeRate::zero();
         })
     }
 }

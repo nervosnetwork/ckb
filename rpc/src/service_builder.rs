@@ -11,6 +11,7 @@ use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier 
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
+use ckb_types::core::FeeRate;
 use ckb_util::Mutex;
 use jsonrpc_core::IoHandler;
 use std::sync::Arc;
@@ -35,10 +36,16 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_pool(mut self, shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> Self {
+    pub fn enable_pool(
+        mut self,
+        shared: Shared,
+        sync_shared_state: Arc<SyncSharedState>,
+        min_fee_rate: FeeRate,
+    ) -> Self {
         if self.config.pool_enable() {
-            self.io_handler
-                .extend_with(PoolRpcImpl::new(shared, sync_shared_state).to_delegate());
+            self.io_handler.extend_with(
+                PoolRpcImpl::new(shared, sync_shared_state, min_fee_rate).to_delegate(),
+            );
         }
         self
     }
