@@ -1,7 +1,7 @@
 use crate::{
     cost_model::instruction_cycles,
     syscalls::{
-        Debugger, LoadArgs, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash,
+        Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
         LoadTxHash, LoadWitness,
     },
     type_id::TypeIdSystemScript,
@@ -17,7 +17,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
-    packed::{self, Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
+    packed::{Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
     prelude::*,
 };
 #[cfg(has_asm)]
@@ -244,8 +244,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         LoadWitness::new(self.witnesses(), group_inputs)
     }
 
-    fn build_load_args(&self, args: packed::Bytes) -> LoadArgs {
-        LoadArgs::new(args)
+    fn build_load_script(&self, script: Script) -> LoadScript {
+        LoadScript::new(script)
     }
 
     // Extracts actual script binary either in dep cells.
@@ -380,7 +380,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .syscall(Box::new(
                 self.build_load_witness(&script_group.input_indices),
             ))
-            .syscall(Box::new(self.build_load_args(script_group.script.args())))
+            .syscall(Box::new(
+                self.build_load_script(script_group.script.clone()),
+            ))
             .syscall(Box::new(self.build_load_cell_data(
                 &script_group.input_indices,
                 &script_group.output_indices,

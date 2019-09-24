@@ -1,20 +1,20 @@
 mod debugger;
-mod load_args;
 mod load_cell;
 mod load_cell_data;
 mod load_header;
 mod load_input;
+mod load_script;
 mod load_script_hash;
 mod load_tx_hash;
 mod load_witness;
 mod utils;
 
 pub use self::debugger::Debugger;
-pub use self::load_args::LoadArgs;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
 pub use self::load_input::LoadInput;
+pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx_hash::LoadTxHash;
 pub use self::load_witness::LoadWitness;
@@ -36,7 +36,7 @@ pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
 pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2072;
 pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
-pub const LOAD_ARGS_SYSCALL_NUMBER: u64 = 2075;
+pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2075;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
@@ -184,7 +184,7 @@ mod tests {
         core::{
             cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
-        packed::{Byte32, CellOutput, OutPoint, Script},
+        packed::{Byte32, CellOutput, OutPoint, Script, ScriptBuilder},
         prelude::*,
         H256, U256,
     };
@@ -971,7 +971,7 @@ mod tests {
         }
     }
 
-    fn _test_load_args(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -979,30 +979,32 @@ mod tests {
         machine.set_register(A0, addr); // addr
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
-        machine.set_register(A7, LOAD_ARGS_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A7, LOAD_SCRIPT_SYSCALL_NUMBER); // syscall number
 
-        let args = Bytes::from(data).pack();
-        let args_correct_data = args.raw_data();
+        let script = ScriptBuilder::default()
+            .args(Bytes::from(data).pack())
+            .build();
+        let script_correct_data = script.as_slice();
 
-        let mut load_args = LoadArgs::new(args);
+        let mut load_script = LoadScript::new(script.clone());
 
         prop_assert!(machine
             .memory_mut()
-            .store64(&size_addr, &(args_correct_data.len() as u64 + 20))
+            .store64(&size_addr, &(script_correct_data.len() as u64 + 20))
             .is_ok());
 
-        prop_assert!(load_args.ecall(&mut machine).is_ok());
+        prop_assert!(load_script.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         prop_assert_eq!(
             machine.memory_mut().load64(&size_addr),
-            Ok(args_correct_data.len() as u64)
+            Ok(script_correct_data.len() as u64)
         );
 
-        for (i, addr) in (addr..addr + args_correct_data.len() as u64).enumerate() {
+        for (i, addr) in (addr..addr + script_correct_data.len() as u64).enumerate() {
             prop_assert_eq!(
                 machine.memory_mut().load8(&addr),
-                Ok(u64::from(args_correct_data[i]))
+                Ok(u64::from(script_correct_data[i]))
             );
         }
         Ok(())
@@ -1010,8 +1012,8 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_args(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_args(data)?;
+        fn test_load_script(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_script(data)?;
         }
     }
 
