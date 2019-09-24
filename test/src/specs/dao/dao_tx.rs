@@ -197,18 +197,19 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
         }
 
+        // TODO: DAO script does not return ERROR_WRONG_NUMBER_OF_ARGUMENTS now
         // Withdraw DAO with not-enough witnesses. Return DAO script ERROR_WRONG_NUMBER_OF_ARGUMENTS
-        {
-            let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
-            let witness: packed::Bytes = withdraw_header_index.pack();
-            let transaction =
-                withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
-                    .as_advanced_builder()
-                    .set_witnesses(vec![witness])
-                    .build();
-            node0.generate_blocks(20);
-            assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
-        }
+        // {
+        //     let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
+        //     let witness: packed::Bytes = withdraw_header_index.pack();
+        //     let transaction =
+        //         withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
+        //             .as_advanced_builder()
+        //             .set_witnesses(vec![witness])
+        //             .build();
+        //     node0.generate_blocks(20);
+        //     assert_send_transaction_fail(node0, &transaction, "Internal(CapacityOverflow)");
+        // }
 
         // Withdraw DAO with witness has bad format. Return DAO script ERROR_ENCODING.
         {

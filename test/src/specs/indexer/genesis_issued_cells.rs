@@ -23,7 +23,7 @@ impl Spec for GenesisIssuedCells {
             .args(Bytes::from(vec![1, 2]).pack())
             .code_hash(
                 // The second output's type_id script hash
-                h256!("0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1").pack(),
+                h256!("0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e").pack(),
             )
             .hash_type(ScriptHashType::Type.pack())
             .build()
@@ -52,7 +52,7 @@ impl Spec for GenesisIssuedCells {
                     .args(Bytes::from(vec![1, 2]).pack())
                     .code_hash(
                         // The second output's type_id script hash
-                        h256!("0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1")
+                        h256!("0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e")
                             .pack(),
                     )
                     .hash_type(ScriptHashType::Type.pack())

@@ -257,14 +257,16 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .transaction
                             .witnesses()
                             .get(i)
-                            // TODO FIXME Q why get 1 ?
-                            // .and_then(|witness| witness.get(1))
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                if witness_data.raw_data().len() != 8 {
+                                // dao contract stores header deps index as u64 in the last 8 bytes of witness
+                                let witness_len = witness_data.raw_data().len();
+                                if witness_len < 8 {
                                     Err(DaoError::InvalidDaoFormat)
                                 } else {
-                                    Ok(LittleEndian::read_u64(&witness_data.raw_data()[0..8]))
+                                    Ok(LittleEndian::read_u64(
+                                        &witness_data.raw_data()[witness_len - 8..],
+                                    ))
                                 }
                             })
                             .and_then(|header_dep_index| {

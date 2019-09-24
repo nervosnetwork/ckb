@@ -886,7 +886,7 @@ mod tests {
 
         let witness = Bytes::from(data).pack();
 
-        let witness_correct_data = witness.as_slice();
+        let witness_correct_data = witness.raw_data();
 
         let witnesses = vec![witness.clone()];
         let group_inputs = vec![];
@@ -935,7 +935,7 @@ mod tests {
 
         let witness = Bytes::from(data).pack();
 
-        let witness_correct_data = witness.as_slice();
+        let witness_correct_data = witness.raw_data();
 
         let dummy_witness = Bytes::default().pack();
         let witnesses = vec![dummy_witness, witness.clone()];

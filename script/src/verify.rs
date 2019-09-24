@@ -440,8 +440,20 @@ mod tests {
         tiny_keccak::sha3_256(s.as_ref())
     }
 
-    fn open_cell_verify() -> File {
-        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
+    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate funtions
+    // I try to keep unit test code unmodified as much as possible, and may add it back in future PR.
+    // fn open_cell_verify() -> File {
+    //     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
+    // }
+
+    fn open_cell_always_success() -> File {
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/always_success"))
+            .unwrap()
+    }
+
+    fn open_cell_always_failure() -> File {
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/always_failure"))
+            .unwrap()
     }
 
     fn new_store() -> ChainDB {
@@ -523,7 +535,7 @@ mod tests {
 
     #[test]
     fn check_signature() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -583,14 +595,14 @@ mod tests {
 
         // Not enough cycles
         assert_error_eq(
-            verifier.verify(100).unwrap_err(),
+            verifier.verify(11).unwrap_err(),
             internal_error(VMInternalError::InvalidCycles),
         );
     }
 
     #[test]
     fn check_signature_referenced_via_type_hash() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -660,7 +672,7 @@ mod tests {
 
     #[test]
     fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let data = Bytes::from(buffer);
@@ -755,7 +767,7 @@ mod tests {
 
     #[test]
     fn check_invalid_signature() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_failure();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -815,13 +827,13 @@ mod tests {
 
         assert_error_eq(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(2),
+            ScriptError::ValidationFailure(-1),
         );
     }
 
     #[test]
     fn check_invalid_dep_reference() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -875,7 +887,7 @@ mod tests {
 
     #[test]
     fn check_output_contract() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -955,7 +967,7 @@ mod tests {
 
     #[test]
     fn check_invalid_output_contract() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_failure();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -1029,13 +1041,13 @@ mod tests {
 
         assert_error_eq(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(2),
+            ScriptError::ValidationFailure(-1),
         );
     }
 
     #[test]
     fn check_same_lock_and_type_script_are_executed_twice() {
-        let mut file = open_cell_verify();
+        let mut file = open_cell_always_success();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
@@ -1092,7 +1104,7 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         // Cycles can tell that both lock and type scripts are executed
-        assert_eq!(verifier.verify(100_000_000).ok(), Some(2_818_104));
+        assert_eq!(verifier.verify(100_000_000).ok(), Some(12 * 2));
     }
 
     #[test]

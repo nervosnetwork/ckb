@@ -46,9 +46,9 @@ const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_355_176;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_300_622;
 // bytes of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_BYTES: u64 = 589;
+const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
 // approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
 const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
@@ -745,12 +745,8 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
-<<<<<<< HEAD
     use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
-=======
-    use ckb_types::core::{BlockBuilder, TransactionBuilder};
     use ckb_types::packed::Bytes;
->>>>>>> refactor: change witness from `Vec<Bytes>` to `Bytes`
 
     #[test]
     fn test_init_epoch_reward() {

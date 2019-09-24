@@ -34,8 +34,7 @@ impl<'a> TypeIdSystemScript<'a> {
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating
         // the cell.
-        if self.script_group.script.args().len() != 1 || self.script_group.script.args().len() != 32
-        {
+        if self.script_group.script.args().len() != 32 {
             Err(ScriptError::ValidationFailure(ERROR_ARGS))?;
         }
 

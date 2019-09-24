@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn empty_script_hash() {
         let script = packed::Script::new_builder().build();
-        let expect = h256!("0xbd7e6000ffb8e983a6023809037e0c4cedbc983637c46d74621fd28e5f15fe4f");
+        let expect = h256!("0x77c93b0632b5b6c3ef922c5b7cea208fb0a7c427a13d50e13d3fefad17e0c590");
         assert_eq!(script.calc_script_hash(), expect.pack());
     }
 
@@ -229,14 +229,14 @@ mod tests {
         let script = packed::Script::new_builder()
             .code_hash(always_success_hash.pack())
             .build();
-        let expect = h256!("0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9");
+        let expect = h256!("0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412");
         assert_eq!(script.calc_script_hash(), expect.pack());
     }
 
     #[test]
     fn one_arg_script_hash() {
         let script = packed::Script::new_builder().args(vec![1].pack()).build();
-        let expect = h256!("0x5a2b913dfb1b79136fc72a575fd8e93ae080b504463c0066fea086482bfc3a94");
+        let expect = h256!("0x67951b34bce20cb71b7e235c1f8cda259628d99d94825bffe549c23b4dd2930f");
         assert_eq!(script.calc_script_hash(), expect.pack());
     }
 }
