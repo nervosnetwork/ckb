@@ -1,5 +1,6 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
+use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
@@ -15,8 +16,8 @@ pub struct DefectEntry {
     pub transaction: TransactionView,
     /// refs count
     pub refs_count: usize,
-    /// Cycles
-    pub cycles: Option<Cycle>,
+    /// Cycles and fee
+    pub cache_entry: Option<CacheEntry>,
     /// tx size
     pub size: usize,
 }
@@ -26,13 +27,13 @@ impl DefectEntry {
     pub fn new(
         tx: TransactionView,
         refs_count: usize,
-        cycles: Option<Cycle>,
+        cache_entry: Option<CacheEntry>,
         size: usize,
     ) -> DefectEntry {
         DefectEntry {
             transaction: tx,
             refs_count,
-            cycles,
+            cache_entry,
             size,
         }
     }

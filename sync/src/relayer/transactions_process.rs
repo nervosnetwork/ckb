@@ -2,6 +2,7 @@ use crate::relayer::Relayer;
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed,
@@ -89,12 +90,13 @@ impl<'a> TransactionsProcess<'a> {
         let peer_index = self.peer;
         let shared = Arc::clone(self.relayer.shared());
 
-        let callback = Box::new(move |ret: Result<Vec<Cycle>, Error>| match ret {
-            Ok(cycles_vec) => {
-                for ((tx_hash, relay_cycles), cycles) in
-                    relay_cycles_vec.into_iter().zip(cycles_vec.into_iter())
+        let callback = Box::new(move |ret: Result<Vec<CacheEntry>, Error>| match ret {
+            Ok(cache_entry_vec) => {
+                for ((tx_hash, relay_cycles), cache_entry) in relay_cycles_vec
+                    .into_iter()
+                    .zip(cache_entry_vec.into_iter())
                 {
-                    if relay_cycles == cycles {
+                    if relay_cycles == cache_entry.cycles {
                         let mut cache = shared.state().tx_hashes();
                         let entry = cache.entry(peer_index).or_insert_with(HashSet::default);
                         entry.insert(tx_hash);
@@ -104,7 +106,7 @@ impl<'a> TransactionsProcess<'a> {
                             "peer {} relay wrong cycles tx_hash: {} real cycles {} wrong cycles {}",
                             peer_index,
                             tx_hash,
-                            cycles,
+                            cache_entry.cycles,
                             relay_cycles,
                         );
 

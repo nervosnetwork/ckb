@@ -3,8 +3,9 @@ use crate::service::ChainReorgArgs;
 use ckb_logger::debug_target;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
-    core::{cell::get_related_dep_out_points, BlockView, Cycle, TransactionView},
+    core::{cell::get_related_dep_out_points, BlockView, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
@@ -18,14 +19,14 @@ use tokio::sync::lock::Lock;
 
 pub struct ChainReorgProcess {
     pub tx_pool: Lock<TxPool>,
-    pub txs_verify_cache: HashMap<Byte32, Cycle>,
+    pub txs_verify_cache: HashMap<Byte32, CacheEntry>,
     pub args: Option<ChainReorgArgs>,
 }
 
 impl ChainReorgProcess {
     pub fn new(
         tx_pool: Lock<TxPool>,
-        txs_verify_cache: HashMap<Byte32, Cycle>,
+        txs_verify_cache: HashMap<Byte32, CacheEntry>,
         detached_blocks: VecDeque<BlockView>,
         attached_blocks: VecDeque<BlockView>,
         detached_proposal_id: HashSet<ProposalShortId>,
@@ -45,7 +46,7 @@ impl ChainReorgProcess {
 }
 
 impl Future for ChainReorgProcess {
-    type Item = HashMap<Byte32, Cycle>;
+    type Item = HashMap<Byte32, CacheEntry>;
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -71,12 +72,12 @@ impl Future for ChainReorgProcess {
 
 pub fn update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
-    txs_verify_cache: &HashMap<Byte32, Cycle>,
+    txs_verify_cache: &HashMap<Byte32, CacheEntry>,
     detached_blocks: VecDeque<BlockView>,
     attached_blocks: VecDeque<BlockView>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
-) -> HashMap<Byte32, Cycle> {
+) -> HashMap<Byte32, CacheEntry> {
     tx_pool.snapshot = Arc::clone(&snapshot);
     let mut detached = LinkedHashSet::default();
     let mut attached = LinkedHashSet::default();
@@ -122,7 +123,11 @@ pub fn update_tx_pool_for_reorg(
     for id in tx_pool.gap.sorted_keys() {
         if snapshot.proposals().contains_proposed(&id) {
             let entry = tx_pool.gap.get(&id).expect("exists");
-            entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+            entries.push((
+                Some(CacheEntry::new(entry.cycles, entry.fee)),
+                entry.size,
+                entry.transaction.to_owned(),
+            ));
             removed.push(id.clone());
         }
     }
@@ -135,10 +140,18 @@ pub fn update_tx_pool_for_reorg(
     for id in tx_pool.pending.sorted_keys() {
         let entry = tx_pool.pending.get(&id).expect("exists");
         if snapshot.proposals().contains_proposed(&id) {
-            entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+            entries.push((
+                Some(CacheEntry::new(entry.cycles, entry.fee)),
+                entry.size,
+                entry.transaction.to_owned(),
+            ));
             removed.push(id.clone());
         } else if snapshot.proposals().contains_gap(&id) {
-            gaps.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+            gaps.push((
+                Some(CacheEntry::new(entry.cycles, entry.fee)),
+                entry.size,
+                entry.transaction.to_owned(),
+            ));
             removed.push(id.clone());
         }
     }
@@ -150,10 +163,10 @@ pub fn update_tx_pool_for_reorg(
     for entry in tx_pool.conflict.entries() {
         if snapshot.proposals().contains_proposed(entry.key()) {
             let entry = entry.remove();
-            entries.push((entry.cycles, entry.size, entry.transaction));
+            entries.push((entry.cache_entry, entry.size, entry.transaction));
         } else if snapshot.proposals().contains_gap(entry.key()) {
             let entry = entry.remove();
-            gaps.push((entry.cycles, entry.size, entry.transaction));
+            gaps.push((entry.cache_entry, entry.size, entry.transaction));
         }
     }
 

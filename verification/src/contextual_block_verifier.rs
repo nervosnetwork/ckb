@@ -13,6 +13,7 @@ use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_tx_verify_cache::{CacheEntry, TxVerifyCache};
 use ckb_types::{
     core::error::OutPointError,
     core::{
@@ -24,7 +25,6 @@ use ckb_types::{
     prelude::*,
 };
 use futures::future::{self, Future};
-use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::lock::Lock;
@@ -40,7 +40,6 @@ pub trait Switch {
     fn disable_two_phase_commit(&self) -> bool;
     fn disable_daoheader(&self) -> bool;
     fn disable_reward(&self) -> bool;
-    fn disable_txs(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
@@ -361,10 +360,10 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
 
     fn fetched_cache<K: IntoIterator<Item = Byte32> + Send + 'static>(
         &self,
-        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        txs_verify_cache: Lock<TxVerifyCache>,
         keys: K,
         executor: &Executor,
-    ) -> HashMap<Byte32, Cycle> {
+    ) -> HashMap<Byte32, CacheEntry> {
         let fetched_cache = FetchCache::new(txs_verify_cache, keys);
         let (sender, receiver) = crossbeam_channel::bounded(1);
         executor.spawn(Box::new(fetched_cache.and_then(move |cache| {
@@ -378,9 +377,9 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
 
     pub fn verify(
         &self,
-        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        txs_verify_cache: Lock<TxVerifyCache>,
         executor: &Executor,
-    ) -> Result<Cycle, Error> {
+    ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let keys: Vec<Byte32> = self
             .resolved
             .iter()
@@ -395,7 +394,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
-                if let Some(cycles) = fetched_cache.get(&tx_hash) {
+                if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
                     ContextualTransactionVerifier::new(
                         &tx,
                         self.context,
@@ -412,7 +411,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         }
                         .into()
                     })
-                    .map(|_| (tx_hash, *cycles))
+                    .map(|_| (tx_hash, *cache_entry))
                 } else {
                     TransactionVerifier::new(
                         &tx,
@@ -431,19 +430,24 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         }
                         .into()
                     })
-                    .map(|cycles| (tx_hash, cycles))
+                    .map(|cache_entry| (tx_hash, cache_entry))
                 }
             })
-            .collect::<Result<HashMap<Byte32, Cycle>, Error>>()?;
+            .collect::<Result<HashMap<Byte32, CacheEntry>, Error>>()?;
 
-        let sum: Cycle = ret.iter().map(|(_, cycles)| cycles).sum();
+        let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
+        let cache_entires = ret
+            .iter()
+            .map(|(_, cache_entry)| cache_entry)
+            .cloned()
+            .collect();
         let update = UpdateCache::new(txs_verify_cache.clone(), ret);
         executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
-            Ok(sum)
+            Ok((sum, cache_entires))
         }
     }
 }
@@ -510,10 +514,10 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        txs_verify_cache: Lock<TxVerifyCache>,
         executor: &Executor,
         switch: SW,
-    ) -> Result<Cycle, Error> {
+    ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
             .context
@@ -550,19 +554,13 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        let cycles = if !switch.disable_txs() {
-            BlockTxsVerifier::new(
-                &self.context,
-                block.number(),
-                block.epoch(),
-                parent_hash,
-                resolved,
-            )
-            .verify(txs_verify_cache, executor)?
-        } else {
-            0
-        };
-
-        Ok(cycles)
+        BlockTxsVerifier::new(
+            &self.context,
+            block.number(),
+            block.epoch(),
+            parent_hash,
+            resolved,
+        )
+        .verify(txs_verify_cache, executor)
     }
 }

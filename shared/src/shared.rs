@@ -11,8 +11,9 @@ use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_tx_pool::{
     BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
+use ckb_tx_verify_cache::TxVerifyCache;
 use ckb_types::{
-    core::{Cycle, EpochExt, HeaderView, TransactionMeta},
+    core::{EpochExt, HeaderView, TransactionMeta},
     packed::Byte32,
     prelude::*,
     U256,
@@ -26,7 +27,7 @@ use std::sync::Arc;
 pub struct Shared {
     pub(crate) store: Arc<ChainDB>,
     pub(crate) tx_pool_controller: TxPoolController,
-    pub(crate) txs_verify_cache: PollLock<LruCache<Byte32, Cycle>>,
+    pub(crate) txs_verify_cache: PollLock<TxVerifyCache>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
 }
@@ -180,7 +181,7 @@ impl Shared {
         &self.tx_pool_controller
     }
 
-    pub fn txs_verify_cache(&self) -> PollLock<LruCache<Byte32, Cycle>> {
+    pub fn txs_verify_cache(&self) -> PollLock<TxVerifyCache> {
         self.txs_verify_cache.clone()
     }
 

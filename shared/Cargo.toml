@@ -20,3 +20,4 @@ arc-swap = "0.4"
 ckb-error = { path = "../error" }
 ckb-snapshot = { path = "../util/snapshot" }
 ckb-tx-pool = { path = "../tx-pool" }
+ckb-tx-verify-cache = { path = "../util/tx-verify-cache" }

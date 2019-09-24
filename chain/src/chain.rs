@@ -1,6 +1,5 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use crate::switch::Switch;
-use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_proposal_table::ProposalTable;
@@ -14,7 +13,7 @@ use ckb_types::{
             ResolvedTransaction,
         },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, Capacity, TransactionMeta,
+        BlockExt, BlockNumber, BlockView, TransactionMeta,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
@@ -551,18 +550,6 @@ impl ChainService {
         self.find_fork_until_latest_common(fork, &mut index);
     }
 
-    fn cal_txs_fees(
-        &self,
-        resolved: &[ResolvedTransaction],
-        txn: &StoreTransaction,
-    ) -> Result<Vec<Capacity>, Error> {
-        resolved
-            .iter()
-            .skip(1)
-            .map(|tx| DaoCalculator::new(self.shared.consensus(), txn).transaction_fee(&tx))
-            .collect()
-    }
-
     // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
@@ -627,8 +614,12 @@ impl ChainService {
                                 &future_executor,
                                 switch,
                             ) {
-                                Ok(cycles) => {
-                                    let txs_fees = self.cal_txs_fees(&resolved, txn)?;
+                                Ok((cycles, cache_entries)) => {
+                                    let txs_fees = cache_entries
+                                        .into_iter()
+                                        .skip(1)
+                                        .map(|entry| entry.fee)
+                                        .collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b, cell_set)?;
                                     let mut mut_ext = ext.clone();

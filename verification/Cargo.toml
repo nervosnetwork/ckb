@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 ckb-types = { path = "../util/types" }
+ckb-tx-verify-cache = { path = "../util/tx-verify-cache" }
 ckb-store = { path = "../store" }
 ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
