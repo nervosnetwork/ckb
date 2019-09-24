@@ -15,7 +15,7 @@ proptest! {
     #[test]
     fn test_add_random_addrs(count in RANDOM_REMOVE_ADDRS..MAX_FETCHED_ADDRS) {
         fn new_addr(id: usize) -> AddrInfo{
-            let ip = Ipv4Addr::from(((127 << 24) + id) as u32);
+            let ip = Ipv4Addr::from(((225 << 24) + id) as u32);
             let addr: Multiaddr = format!("/ip4/{}/tcp/42", ip).parse().unwrap();
             let ip_addr = addr.extract_ip_addr().unwrap();
             AddrInfo::new(

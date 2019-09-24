@@ -136,10 +136,11 @@ fn test_fetch_addrs_to_feeler() {
 fn test_fetch_random_addrs() {
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.fetch_random_addrs(1).is_empty());
-    let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
+    let addr = "/ip4/225.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     let peer_id = PeerId::random();
-    let addr2 = "/ip4/127.0.0.2/tcp/42".parse::<Multiaddr>().unwrap();
+    let addr2 = "/ip4/225.0.0.2/tcp/42".parse::<Multiaddr>().unwrap();
     let peer_id2 = PeerId::random();
+    let duplicated_addr = "/ip4/225.0.0.1/tcp/41".parse::<Multiaddr>().unwrap();
     peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     // random should not return peer that we have never connected to
     assert!(peer_store.fetch_random_addrs(1).is_empty());
@@ -151,6 +152,11 @@ fn test_fetch_random_addrs() {
     // get peer addr from outbound
     peer_store
         .add_connected_peer(peer_id, addr, SessionType::Outbound)
+        .unwrap();
+    assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
+    // filter duplicated addr
+    peer_store
+        .add_connected_peer(PeerId::random(), duplicated_addr, SessionType::Outbound)
         .unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
     // get peer addrs by limit
