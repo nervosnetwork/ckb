@@ -129,7 +129,7 @@ impl Spec for WithdrawDAOWithNotMaturitySince {
             transaction.as_advanced_builder().set_inputs(inputs).build()
         };
         node0.generate_blocks(20);
-        assert_send_transaction_fail(node0, &transaction, "Script(ValidationFailure(-14))");
+        assert_send_transaction_fail(node0, &transaction, "Script(ValidationFailure(-17))");
     }
 }
 
