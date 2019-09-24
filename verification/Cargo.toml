@@ -24,6 +24,7 @@ enum-display-derive = "0.1.0"
 tokio = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
+ckb-future-executor = { path = "../util/future-executor" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

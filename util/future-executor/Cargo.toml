@@ -1,0 +1,15 @@
+[package]
+name = "ckb-future-executor"
+version = "0.22.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = "0.1"
+tokio-executor = "0.1.8"
+num_cpus = "1.10"
+futures = "0.1"
+crossbeam-channel = "0.3"
