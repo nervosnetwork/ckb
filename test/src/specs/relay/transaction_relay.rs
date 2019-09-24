@@ -1,11 +1,14 @@
-use crate::utils::wait_until;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::utils::{build_relay_tx_hashes, build_relay_txs, wait_until};
+use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
+use ckb_sync::NetworkProtocol;
 use ckb_types::{
     core::{Capacity, TransactionBuilder},
-    packed::{CellInput, OutPoint},
+    packed::{CellInput, GetRelayTransactions, OutPoint, RelayMessage},
     prelude::*,
 };
 use log::info;
+use std::thread;
+use std::time::Duration;
 
 pub struct TransactionRelayBasic;
 
@@ -135,4 +138,104 @@ impl Spec for TransactionRelayMultiple {
             )
         });
     }
+}
+
+pub struct TransactionRelayTimeoutRetry;
+
+impl Spec for TransactionRelayTimeoutRetry {
+    crate::name!("get_relay_transaction_timeout_retry");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 1,
+        protocols: vec![TestProtocol::relay(), TestProtocol::sync()],
+    );
+
+    fn run(&self, net: &mut Net) {
+        let node = net.nodes.pop().unwrap();
+        node.generate_blocks(4);
+        net.connect(&node);
+        let (pi, _, _) = net.receive();
+        let dummy_tx = TransactionBuilder::default().build();
+        info!("Sending RelayTransactionHashes to node");
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            pi,
+            build_relay_tx_hashes(&[dummy_tx.hash()]),
+        );
+        info!("Receiving GetRelayTransactions message from node");
+        assert!(
+            wait_get_relay_txs(&net),
+            "timeout to wait GetRelayTransactions"
+        );
+
+        let wait_seconds = 30;
+        info!("Waiting for {} seconds", wait_seconds);
+        // Relay protocol will retry 30 seconds later when same GetRelayTransactions received
+        // (not happend in current test case)
+        thread::sleep(Duration::from_secs(wait_seconds));
+        info!("Receiving retry GetRelayTransactions message from node");
+        assert!(
+            !wait_get_relay_txs(&net),
+            "should not receive GetRelayTransactions again"
+        );
+    }
+}
+
+pub struct RelayInvalidTransaction;
+
+impl Spec for RelayInvalidTransaction {
+    crate::name!("relay_invalid_transaction");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 1,
+        protocols: vec![TestProtocol::relay(), TestProtocol::sync()],
+    );
+
+    fn run(&self, net: &mut Net) {
+        let node = net.nodes.pop().unwrap();
+        node.generate_blocks(4);
+        net.connect(&node);
+        let (pi, _, _) = net.receive();
+        let dummy_tx = TransactionBuilder::default().build();
+        info!("Sending RelayTransactionHashes to node");
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            pi,
+            build_relay_tx_hashes(&[dummy_tx.hash()]),
+        );
+        info!("Receiving GetRelayTransactions message from node");
+        assert!(
+            wait_get_relay_txs(&net),
+            "timeout to wait GetRelayTransactions"
+        );
+
+        assert!(
+            node.rpc_client().get_banned_addresses().is_empty(),
+            "Banned addresses list should empty"
+        );
+        info!("Sending RelayTransactions to node");
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            pi,
+            build_relay_txs(&[(dummy_tx, 333)]),
+        );
+
+        thread::sleep(Duration::from_secs(2));
+        let banned_addrs = node.rpc_client().get_banned_addresses();
+        info!("Banned addresses: {:?}", banned_addrs);
+        assert_eq!(banned_addrs.len(), 1, "Net should be banned");
+    }
+}
+
+fn wait_get_relay_txs(net: &Net) -> bool {
+    wait_until(10, || {
+        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+            if let Ok(message) = RelayMessage::from_slice(&data) {
+                return message.to_enum().item_name() == GetRelayTransactions::NAME;
+            }
+        }
+        false
+    })
 }

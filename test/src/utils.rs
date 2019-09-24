@@ -5,8 +5,8 @@ use ckb_types::{
     core::{BlockNumber, BlockView, HeaderView, TransactionView},
     h256,
     packed::{
-        Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, SendBlock,
-        SendHeaders, SyncMessage,
+        Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
+        RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders, SyncMessage,
     },
     prelude::*,
     H256,
@@ -94,6 +94,26 @@ pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
         .set(get_blocks)
         .build()
         .as_bytes()
+}
+
+pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
+    let transactions = transactions.iter().map(|(tx, cycles)| {
+        RelayTransaction::new_builder()
+            .cycles(cycles.pack())
+            .transaction(tx.data())
+            .build()
+    });
+    let txs = RelayTransactions::new_builder()
+        .transactions(transactions.pack())
+        .build();
+    RelayMessage::new_builder().set(txs).build().as_bytes()
+}
+
+pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
+    let content = RelayTransactionHashes::new_builder()
+        .tx_hashes(hashes.iter().map(ToOwned::to_owned).pack())
+        .build();
+    RelayMessage::new_builder().set(content).build().as_bytes()
 }
 
 pub fn new_block_with_template(template: BlockTemplate) -> Block {
