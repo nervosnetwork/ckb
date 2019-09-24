@@ -140,10 +140,10 @@ impl Spec for TransactionRelayMultiple {
     }
 }
 
-pub struct TransactionRelayTimeoutRetry;
+pub struct TransactionRelayTimeout;
 
-impl Spec for TransactionRelayTimeoutRetry {
-    crate::name!("get_relay_transaction_timeout_retry");
+impl Spec for TransactionRelayTimeout {
+    crate::name!("get_relay_transaction_timeout");
 
     crate::setup!(
         connect_all: false,
@@ -174,7 +174,6 @@ impl Spec for TransactionRelayTimeoutRetry {
         // Relay protocol will retry 30 seconds later when same GetRelayTransactions received
         // (not happend in current test case)
         thread::sleep(Duration::from_secs(wait_seconds));
-        info!("Receiving retry GetRelayTransactions message from node");
         assert!(
             !wait_get_relay_txs(&net),
             "should not receive GetRelayTransactions again"

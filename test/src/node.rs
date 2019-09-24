@@ -6,8 +6,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_types::{
     core::{
-        self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
-        TransactionView,
+        self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
+        ScriptHashType, TransactionView,
     },
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
@@ -308,6 +308,13 @@ impl Node {
         self.rpc_client()
             .get_block_by_number(number)
             .expect("block exists")
+            .into()
+    }
+
+    pub fn get_header_by_number(&self, number: BlockNumber) -> HeaderView {
+        self.rpc_client()
+            .get_header_by_number(number)
+            .expect("header exists")
             .into()
     }
 
