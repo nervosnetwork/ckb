@@ -1204,7 +1204,64 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
+    "result": {
+        "bytes_limit": "0x22d387",
+        "cellbase": {
+            "cycles": null,
+            "data": {
+                "cell_deps": [],
+                "header_deps": [],
+                "inputs": [
+                    {
+                        "previous_output": {
+                            "index": "0xffffffff",
+                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "since": "0x1"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "0x1d1a94a200",
+                        "lock": {
+                            "args": [
+                                "0xb2e61ff569acf041b3c2c17724e2379c581eeac3"
+                            ],
+                            "code_hash": "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2",
+                            "hash_type": "type"
+                        },
+                        "type": null
+                    }
+                ],
+                "outputs_data": [
+                    "0x"
+                ],
+                "version": "0x0",
+                "witnesses": [
+                    {
+                        "data": [
+                            "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df201",
+                            "0x"
+                        ]
+                    }
+                ]
+            },
+            "hash": "0x076049e2cc6b9f1ed4bb27b2337c55071dabfaf0183b1b17a4965bd0372d8dec"
+        },
+        "current_time": "0x16d6269e84f",
+        "cycles_limit": "0x2540be400",
+        "dao": "0x004fb9e277860700b2f80165348723003d1862ec960000000028eb3d7e7a0100",
+        "difficulty": "0x100",
+        "epoch": "0x3e80001000000",
+        "number": "0x1",
+        "parent_hash": "0xd5c495b7dd4d9d066a6a4d4356bc31955ad3199e0d856f34cfbe159c46ee335b",
+        "proposals": [],
+        "transactions": [],
+        "uncles": [],
+        "uncles_count_limit": "0x2",
+        "version": "0x0",
+        "work_id": "0x0"
+    }
 }
 ```
 
