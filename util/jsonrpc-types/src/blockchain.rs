@@ -395,7 +395,6 @@ pub struct Header {
     pub number: BlockNumber,
     pub epoch: EpochNumberWithFraction,
     pub transactions_root: H256,
-    pub witnesses_root: H256,
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
@@ -422,7 +421,6 @@ impl From<packed::Header> for Header {
             number: raw.number().unpack(),
             epoch: raw.epoch().unpack(),
             transactions_root: raw.transactions_root().unpack(),
-            witnesses_root: raw.witnesses_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             difficulty: raw.difficulty().unpack(),
             uncles_hash: raw.uncles_hash().unpack(),
@@ -458,7 +456,6 @@ impl From<Header> for packed::Header {
             number,
             epoch,
             transactions_root,
-            witnesses_root,
             proposals_hash,
             difficulty,
             uncles_hash,
@@ -473,7 +470,6 @@ impl From<Header> for packed::Header {
             .number(number.pack())
             .epoch(epoch.pack())
             .transactions_root(transactions_root.pack())
-            .witnesses_root(witnesses_root.pack())
             .proposals_hash(proposals_hash.pack())
             .difficulty(difficulty.pack())
             .uncles_hash(uncles_hash.pack())

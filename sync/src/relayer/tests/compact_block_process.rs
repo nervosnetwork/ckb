@@ -381,7 +381,7 @@ fn test_send_missing_indexes() {
 
     let proposal_id = ProposalShortId::new([1u8; 10]);
 
-    let uncle = packed::BlockBuilder::default().build();
+    let uncle = BlockBuilder::default().build();
 
     // Better block including one missing transaction
     let block = BlockBuilder::default()
@@ -397,7 +397,7 @@ fn test_send_missing_indexes() {
                 .output_data(Bytes::new().pack())
                 .build(),
         )
-        .uncle(uncle.clone().as_uncle().into_view())
+        .uncle(uncle.clone().as_uncle())
         .proposal(proposal_id.clone())
         .build();
 
@@ -472,7 +472,7 @@ fn test_accept_block() {
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
-    let uncle = packed::BlockBuilder::default().build();
+    let uncle = BlockBuilder::default().build();
     let ext = packed::BlockExtBuilder::default()
         .verified(Some(true).pack())
         .build();
@@ -480,15 +480,14 @@ fn test_accept_block() {
     let block = BlockBuilder::default()
         .header(header.clone())
         .transaction(TransactionBuilder::default().build())
-        .uncle(uncle.clone().as_uncle().into_view())
+        .uncle(uncle.clone().as_uncle())
         .build();
 
-    let uncle_hash = uncle.calc_header_hash();
+    let uncle_hash = uncle.hash();
     {
-        let uncle_view = uncle.into_view();
         let db_txn = relayer.shared().shared().store().begin_transaction();
-        db_txn.insert_block(&uncle_view).unwrap();
-        db_txn.attach_block(&uncle_view).unwrap();
+        db_txn.insert_block(&uncle).unwrap();
+        db_txn.attach_block(&uncle).unwrap();
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }

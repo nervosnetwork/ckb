@@ -147,15 +147,11 @@ impl MerkleRootVerifier {
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.transactions_root() != block.calc_transactions_root() {
-            return Err((BlockErrorKind::CommitTransactionsRoot).into());
-        }
-
-        if block.witnesses_root() != block.calc_witnesses_root() {
-            return Err((BlockErrorKind::WitnessesMerkleRoot).into());
+            return Err(BlockErrorKind::TransactionsRoot.into());
         }
 
         if block.proposals_hash() != block.calc_proposals_hash() {
-            return Err((BlockErrorKind::ProposalTransactionsRoot).into());
+            return Err(BlockErrorKind::ProposalTransactionsHash.into());
         }
 
         Ok(())

@@ -86,7 +86,6 @@ struct RawHeader {
     epoch:                  Uint64,
     parent_hash:            Byte32,
     transactions_root:      Byte32,
-    witnesses_root:         Byte32,
     proposals_hash:         Byte32,
     difficulty:             Uint256,
     uncles_hash:            Byte32,

@@ -66,13 +66,10 @@ pub enum BlockErrorKind {
     CommitTransactionDuplicate,
 
     /// The merkle tree hash of proposed transactions does not match the one in header.
-    ProposalTransactionsRoot,
+    ProposalTransactionsHash,
 
     /// The merkle tree hash of committed transactions does not match the one in header.
-    CommitTransactionsRoot,
-
-    /// The merkle tree witness hash of committed transactions does not match the one in header.
-    WitnessesMerkleRoot,
+    TransactionsRoot,
 
     /// Invalid data in DAO header field is invalid
     InvalidDAO,

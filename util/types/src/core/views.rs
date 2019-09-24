@@ -265,7 +265,6 @@ impl HeaderView {
 
     define_header_packed_inner_getter!(parent_hash, Byte32);
     define_header_packed_inner_getter!(transactions_root, Byte32);
-    define_header_packed_inner_getter!(witnesses_root, Byte32);
     define_header_packed_inner_getter!(proposals_hash, Byte32);
     define_header_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -316,7 +315,6 @@ impl UncleBlockView {
 
     define_uncle_packed_inner_getter!(parent_hash, Byte32);
     define_uncle_packed_inner_getter!(transactions_root, Byte32);
-    define_uncle_packed_inner_getter!(witnesses_root, Byte32);
     define_uncle_packed_inner_getter!(proposals_hash, Byte32);
     define_uncle_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -429,7 +427,6 @@ impl BlockView {
 
     define_block_packed_inner_getter!(parent_hash, Byte32);
     define_block_packed_inner_getter!(transactions_root, Byte32);
-    define_block_packed_inner_getter!(witnesses_root, Byte32);
     define_block_packed_inner_getter!(proposals_hash, Byte32);
     define_block_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -526,10 +523,17 @@ impl BlockView {
     }
 
     pub fn calc_transactions_root(&self) -> packed::Byte32 {
+        merkle_root(&[
+            self.calc_raw_transactions_root(),
+            self.calc_witnesses_root(),
+        ])
+    }
+
+    fn calc_raw_transactions_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_hashes[..])
     }
 
-    pub fn calc_witnesses_root(&self) -> packed::Byte32 {
+    fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
     }
 }

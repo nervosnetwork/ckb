@@ -254,7 +254,7 @@ pub fn test_transaction_root() {
     let verifier = MerkleRootVerifier::new();
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::CommitTransactionsRoot,
+        BlockErrorKind::TransactionsRoot,
     );
 }
 
@@ -272,25 +272,7 @@ pub fn test_proposals_root() {
     let verifier = MerkleRootVerifier::new();
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::CommitTransactionsRoot,
-    );
-}
-
-#[test]
-pub fn test_witnesses_root() {
-    let header = HeaderBuilder::default()
-        .number(2u64.pack())
-        .witnesses_root(h256!("0x1").pack())
-        .build();
-    let block = BlockBuilder::default()
-        .header(header)
-        .proposal(ProposalShortId::zero())
-        .build_unchecked();
-
-    let verifier = MerkleRootVerifier::new();
-    assert_error_eq!(
-        verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::WitnessesMerkleRoot,
+        BlockErrorKind::TransactionsRoot,
     );
 }
 

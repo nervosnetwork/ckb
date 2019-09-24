@@ -609,7 +609,7 @@ mod tests {
 
         let consensus = Consensus::default();
         let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdraw_header.hash());
+        let result = calculator.maximum_withdraw(&out_point, &withdraw_block.hash());
         assert_eq!(result.unwrap(), Capacity::shannons(100_000_000_009_999));
     }
 

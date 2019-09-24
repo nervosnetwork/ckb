@@ -25,7 +25,6 @@ pub struct HeaderBuilder {
     pub(crate) timestamp: packed::Uint64,
     pub(crate) number: packed::Uint64,
     pub(crate) transactions_root: packed::Byte32,
-    pub(crate) witnesses_root: packed::Byte32,
     pub(crate) proposals_hash: packed::Byte32,
     pub(crate) difficulty: packed::Uint256,
     pub(crate) uncles_hash: packed::Byte32,
@@ -71,7 +70,6 @@ impl ::std::default::Default for HeaderBuilder {
             timestamp: Default::default(),
             number: Default::default(),
             transactions_root: Default::default(),
-            witnesses_root: Default::default(),
             proposals_hash: Default::default(),
             difficulty: U256::one().pack(),
             uncles_hash: Default::default(),
@@ -201,7 +199,6 @@ impl HeaderBuilder {
     def_setter_simple!(timestamp, Uint64);
     def_setter_simple!(number, Uint64);
     def_setter_simple!(transactions_root, Byte32);
-    def_setter_simple!(witnesses_root, Byte32);
     def_setter_simple!(proposals_hash, Byte32);
     def_setter_simple!(difficulty, Uint256);
     def_setter_simple!(uncles_hash, Byte32);
@@ -217,7 +214,6 @@ impl HeaderBuilder {
             timestamp,
             number,
             transactions_root,
-            witnesses_root,
             proposals_hash,
             difficulty,
             uncles_hash,
@@ -236,7 +232,6 @@ impl HeaderBuilder {
             .timestamp(timestamp)
             .number(number)
             .transactions_root(transactions_root)
-            .witnesses_root(witnesses_root)
             .proposals_hash(proposals_hash)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
@@ -256,7 +251,6 @@ impl BlockBuilder {
     def_setter_simple!(header, timestamp, Uint64);
     def_setter_simple!(header, number, Uint64);
     def_setter_simple!(header, transactions_root, Byte32);
-    def_setter_simple!(header, witnesses_root, Byte32);
     def_setter_simple!(header, proposals_hash, Byte32);
     def_setter_simple!(header, difficulty, Uint256);
     def_setter_simple!(header, uncles_hash, Byte32);
@@ -341,14 +335,14 @@ impl BlockBuilder {
         let uncles = uncles.pack();
 
         let core::HeaderView { data, hash } = if reset_header {
-            let transactions_root = merkle_root(&tx_hashes[..]);
+            let raw_transactions_root = merkle_root(&tx_hashes[..]);
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
+            let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
             let uncles_hash = uncles.calc_uncles_hash();
             let uncles_count = uncles.len() as u32;
             header
                 .transactions_root(transactions_root)
-                .witnesses_root(witnesses_root)
                 .proposals_hash(proposals_hash)
                 .uncles_hash(uncles_hash)
                 .uncles_count(uncles_count.pack())
@@ -406,7 +400,6 @@ impl packed::Header {
             .timestamp(self.raw().timestamp())
             .number(self.raw().number())
             .transactions_root(self.raw().transactions_root())
-            .witnesses_root(self.raw().witnesses_root())
             .proposals_hash(self.raw().proposals_hash())
             .difficulty(self.raw().difficulty())
             .uncles_hash(self.raw().uncles_hash())

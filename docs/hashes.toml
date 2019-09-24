@@ -2,8 +2,8 @@
 
 # Spec: ckb_dev
 [ckb_dev]
-genesis = "0xe10b8035540bf0976aa991dbcc1dfb2237a81706e6848596aca8773a69efb85c"
-cellbase = "0x50b9240d466800a6d0b2d07e10151b3a48f44c801a0f7f22e4e033419bd69b8e"
+genesis = "0x215c5f8bb0453e9a8ace35c0e4e8a42a03ad612efdd62be4b3fbb1228d44fc75"
+cellbase = "0xd74ccd561cedeaa5db9956b8285f9b8f55519bad457aa22355967c719336974b"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
@@ -45,8 +45,8 @@ index = 1
 
 # Spec: ckb_testnet
 [ckb_testnet]
-genesis = "0xe4c05d3a78535f72747be681bce1ae79e316fef05bb32cc64886977af8dacdd4"
-cellbase = "0xb3e1c449b1deec2a3bcdd56f7cf9ccbfec0a2086b03a30712213ae30132cbfed"
+genesis = "0x0fa32f89dc1413b9c9c2a66b940ac2a84cc956837ba0d5a79b59fabf2da551d8"
+cellbase = "0xf9694940fea58b35401880420d98f30abe659889306587d977ae6ab1437d2a13"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
@@ -88,8 +88,8 @@ index = 1
 
 # Spec: ckb_staging
 [ckb_staging]
-genesis = "0x44e9048a289fd74a537a79f4ef01efa8f5c15d1ec216eeb083748ec6fc6b04af"
-cellbase = "0xb8956e03a3c9f1a9659d8dbbf020f8a32ca130a43ee780748e107cd590261229"
+genesis = "0x9bd0be95ffa6c2835e82d57b959a27a089012304f5311d3fada7edd7bcee5451"
+cellbase = "0x39f69ec2f8be4b1a216a294a41649f5a11d55b641bf634af007d995b8697d4eb"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
