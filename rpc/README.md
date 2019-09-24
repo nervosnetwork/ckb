@@ -99,6 +99,7 @@ http://localhost:8114
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "difficulty": "0x7a1200",
         "epoch": "0x7080018000001",
+<<<<<<< HEAD
         "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
         "nonce": "0x0",
         "number": "0x400",
@@ -110,6 +111,19 @@ http://localhost:8114
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0",
         "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+        "hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+        "nonce": "0x0",
+        "number": "0x400",
+        "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": "0x5cd2b117",
+        "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+        "uncles_count": "0x0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0x0",
+        "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
     }
 }
 ```
@@ -211,7 +225,11 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
+<<<<<<< HEAD
     "result": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+    "result": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
 }
 ```
 
@@ -232,6 +250,7 @@ echo '{
     "method": "get_block",
     "params": [
 <<<<<<< HEAD
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
 =======
 <<<<<<< HEAD
@@ -248,6 +267,9 @@ echo '{
         "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
     ]
 }' \
 | tr -d '\n' \
@@ -264,6 +286,7 @@ http://localhost:8114
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "0x7080018000001",
+<<<<<<< HEAD
 <<<<<<< HEAD
             "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
@@ -297,11 +320,25 @@ http://localhost:8114
             "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+            "hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+            "nonce": "0x0",
+            "number": "0x400",
+            "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "0x5cd2b117",
+            "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+            "uncles_count": "0x0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0x0",
+            "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
         },
         "proposals": [],
         "transactions": [
             {
                 "cell_deps": [],
+<<<<<<< HEAD
 <<<<<<< HEAD
                 "hash": "0x389a19076c2dea3a81c7a93df5e0750e569b91a5e62930b0c3d1e58b1f292032",
 =======
@@ -311,6 +348,9 @@ http://localhost:8114
                 "hash": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+                "hash": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+>>>>>>> chore: rebase and fix test
                 "header_deps": [],
                 "inputs": [
                     {
@@ -360,6 +400,7 @@ echo '{
     "method": "get_header",
     "params": [
 <<<<<<< HEAD
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
 =======
 <<<<<<< HEAD
@@ -376,6 +417,9 @@ echo '{
         "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
     ]
 }' \
 | tr -d '\n' \
@@ -391,6 +435,7 @@ http://localhost:8114
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "difficulty": "0x7a1200",
         "epoch": "0x7080018000001",
+<<<<<<< HEAD
 <<<<<<< HEAD
         "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
@@ -412,18 +457,25 @@ http://localhost:8114
         "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
 =======
         "hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+=======
+        "hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+>>>>>>> chore: rebase and fix test
         "nonce": "0x0",
         "number": "0x400",
-        "parent_hash": "0x6087b0e6983e0c1278d9224a0cf0b1dd0ed68ea74ecf5c4a92fd22811b248a43",
+        "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "timestamp": "0x5cd2b117",
-        "transactions_root": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+        "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
         "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0",
+<<<<<<< HEAD
         "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
     }
 }
 ```
@@ -458,6 +510,7 @@ http://localhost:8114
         "difficulty": "0x7a1200",
         "epoch": "0x7080018000001",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
 <<<<<<< HEAD
@@ -490,6 +543,19 @@ http://localhost:8114
         "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+        "nonce": "0x0",
+        "number": "0x400",
+        "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": "0x5cd2b117",
+        "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+        "uncles_count": "0x0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0x0",
+        "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
     }
 }
 ```
@@ -529,6 +595,7 @@ http://localhost:8114
     "result": [
         {
 <<<<<<< HEAD
+<<<<<<< HEAD
             "block_hash": "0x490af0885bc480bf38235526ad4573cd02cf77ebbe0655570e851cd72c2e6a6a",
             "capacity": "0x2ca7071b9e",
 =======
@@ -537,6 +604,9 @@ http://localhost:8114
 =======
             "block_hash": "0x9fbe76384d0d112a932ff24b5d5ab63a34c526f08be0d415adfb0fe014f67842",
 >>>>>>> chore: rebase with develop branch
+=======
+            "block_hash": "0x12f68008cc0c50cf99b6d0674a580eb8bf2a199e1b7f5bfca56145595b987308",
+>>>>>>> chore: rebase and fix test
             "capacity": "0x1d1a94a200",
 >>>>>>> chore: rebase with develop branch
             "lock": {
@@ -558,11 +628,7 @@ http://localhost:8114
             }
         },
         {
-<<<<<<< HEAD
-            "block_hash": "0x0678df4ff71385b8ac2965f4653de69a6c475351d6e6423f93e7ec5122f28c01",
-=======
-            "block_hash": "0x877c30d8413d21d72c6b175bcb391a793dbd9e496bbb3106457dbca342f7fd62",
->>>>>>> chore: rebase with develop branch
+            "block_hash": "0x68b928a341942d229651e8f57198434502cf0e8507697023ddcbdd2aa4cea536",
             "capacity": "0x1d1a94a200",
 >>>>>>> chore: rebase with develop branch
             "lock": {
@@ -654,6 +720,7 @@ echo '{
     "method": "get_transaction",
     "params": [
 <<<<<<< HEAD
+<<<<<<< HEAD
         "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
 =======
 <<<<<<< HEAD
@@ -670,6 +737,9 @@ echo '{
         "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "0x98279653b1463fefbf14e04b4a0b80bb34fbe6bfdce0d0b6e838e2aca0542973"
+>>>>>>> chore: rebase and fix test
     ]
 }' \
 | tr -d '\n' \
@@ -693,6 +763,7 @@ http://localhost:8114
                 }
             ],
 <<<<<<< HEAD
+<<<<<<< HEAD
             "hash": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83",
 =======
 <<<<<<< HEAD
@@ -702,9 +773,11 @@ http://localhost:8114
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
 =======
             "hash": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52",
+=======
+            "hash": "0x98279653b1463fefbf14e04b4a0b80bb34fbe6bfdce0d0b6e838e2aca0542973",
+>>>>>>> chore: rebase and fix test
             "header_deps": [
-                "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
->>>>>>> chore: rebase with develop branch
+                "0x3ed784b863bc13dbff3f49f4efee16fd0f5b764af7707ab81ae738b7f8475846"
             ],
             "inputs": [
                 {
@@ -761,6 +834,7 @@ echo '{
     "method": "get_cellbase_output_capacity_details",
     "params": [
 <<<<<<< HEAD
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
 =======
 <<<<<<< HEAD
@@ -777,6 +851,9 @@ echo '{
         "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
     ]
 }' \
 | tr -d '\n' \
@@ -832,6 +909,7 @@ http://localhost:8114
             "difficulty": "0x7a1200",
             "epoch": "0x7080018000001",
 <<<<<<< HEAD
+<<<<<<< HEAD
             "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
 <<<<<<< HEAD
@@ -864,11 +942,25 @@ http://localhost:8114
             "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+            "hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+            "nonce": "0x0",
+            "number": "0x400",
+            "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "0x5cd2b117",
+            "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+            "uncles_count": "0x0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0x0",
+            "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
         },
         "proposals": [],
         "transactions": [
             {
                 "cell_deps": [],
+<<<<<<< HEAD
 <<<<<<< HEAD
                 "hash": "0x389a19076c2dea3a81c7a93df5e0750e569b91a5e62930b0c3d1e58b1f292032",
 =======
@@ -878,6 +970,9 @@ http://localhost:8114
                 "hash": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+                "hash": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+>>>>>>> chore: rebase and fix test
                 "header_deps": [],
                 "inputs": [
                     {
@@ -944,6 +1039,7 @@ echo '{
             ],
             "header_deps": [
 <<<<<<< HEAD
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
 =======
 <<<<<<< HEAD
@@ -960,6 +1056,9 @@ echo '{
                 "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+                "0x3ed784b863bc13dbff3f49f4efee16fd0f5b764af7707ab81ae738b7f8475846"
+>>>>>>> chore: rebase and fix test
             ],
             "inputs": [
                 {
@@ -1040,6 +1139,7 @@ echo '{
             ],
             "header_deps": [
 <<<<<<< HEAD
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
 =======
 <<<<<<< HEAD
@@ -1056,6 +1156,9 @@ echo '{
                 "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+                "0x3ed784b863bc13dbff3f49f4efee16fd0f5b764af7707ab81ae738b7f8475846"
+>>>>>>> chore: rebase and fix test
             ],
             "inputs": [
                 {
@@ -1095,6 +1198,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "result": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
 =======
 <<<<<<< HEAD
@@ -1103,6 +1207,9 @@ http://localhost:8114
     "result": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+    "result": "0x98279653b1463fefbf14e04b4a0b80bb34fbe6bfdce0d0b6e838e2aca0542973"
+>>>>>>> chore: rebase and fix test
 }
 ```
 
@@ -1128,6 +1235,7 @@ echo '{
             "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
         },
 <<<<<<< HEAD
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
 =======
 <<<<<<< HEAD
@@ -1144,6 +1252,9 @@ echo '{
         "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
     ]
 }' \
 | tr -d '\n' \
@@ -1233,6 +1344,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
 <<<<<<< HEAD
+<<<<<<< HEAD
         "block_hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
 <<<<<<< HEAD
@@ -1241,6 +1353,9 @@ http://localhost:8114
         "block_hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+        "block_hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+>>>>>>> chore: rebase and fix test
         "block_number": "0x400",
         "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
     }
@@ -1273,6 +1388,7 @@ http://localhost:8114
     "result": [
         {
 <<<<<<< HEAD
+<<<<<<< HEAD
             "block_hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
 =======
 <<<<<<< HEAD
@@ -1281,6 +1397,9 @@ http://localhost:8114
             "block_hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+            "block_hash": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018",
+>>>>>>> chore: rebase and fix test
             "block_number": "0x400",
             "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
         }
@@ -1580,6 +1699,7 @@ echo '{
                 "epoch": "0x7080018000001",
                 "nonce": "0x0",
                 "number": "0x400",
+<<<<<<< HEAD
                 "parent_hash": "0xa1c400509437ba0d9a0a747c547e6b69f23398a6854e36ea144816ba4172bd74",
                 "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "timestamp": "0x5cd2b117",
@@ -1588,6 +1708,16 @@ echo '{
                 "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "version": "0x0",
                 "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+                "parent_hash": "0x545d709f5b1ef4cc05b7f6ae0a57a9e9a0843880a1b4aa69be188fdd17915aab",
+                "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": "0x5cd2b117",
+                "transactions_root": "0x1e88554b1941ca5bc6890571b1cb5680d67cff0f5406b6c352d2d5dd76f2321d",
+                "uncles_count": "0x0",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "version": "0x0",
+                "witnesses_root": "0x645fac47e9bc83ba89b154cf3e098607b03b538c0d58aa6a570870a4883b0a4d"
+>>>>>>> chore: rebase and fix test
             },
             "proposals": [],
             "transactions": [
@@ -1619,11 +1749,7 @@ echo '{
                     ],
                     "version": "0x0",
                     "witnesses": [
-                        {
-                            "data": [
-                                "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
-                            ]
-                        }
+                        "0x3500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a50000000000"
                     ]
                 }
             ],
@@ -1640,7 +1766,11 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
+<<<<<<< HEAD
     "result": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+    "result": "0x530e164702746646ced19ce9d034255db4442981aaac16af07c393b58b3cb018"
+>>>>>>> chore: rebase and fix test
 }
 ```
 
@@ -1854,6 +1984,7 @@ echo '{
             ],
             "header_deps": [
 <<<<<<< HEAD
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
 =======
 <<<<<<< HEAD
@@ -1870,6 +2001,9 @@ echo '{
                 "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+                "0x3ed784b863bc13dbff3f49f4efee16fd0f5b764af7707ab81ae738b7f8475846"
+>>>>>>> chore: rebase and fix test
             ],
             "inputs": [
                 {
@@ -1909,6 +2043,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "result": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
 =======
 <<<<<<< HEAD
@@ -1917,6 +2052,9 @@ http://localhost:8114
     "result": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
 >>>>>>> chore: rebase with develop branch
 >>>>>>> chore: rebase with develop branch
+=======
+    "result": "0x98279653b1463fefbf14e04b4a0b80bb34fbe6bfdce0d0b6e838e2aca0542973"
+>>>>>>> chore: rebase and fix test
 }
 ```
 

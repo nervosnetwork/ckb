@@ -575,11 +575,11 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
     blake2b.update(&output_index.to_le_bytes());
     let mut ret = [0; 32];
     blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
+    let script_arg = Bytes::from(&ret[..]);
     packed::Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.pack())
         .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
+        .args(script_arg.pack())
         .build()
 }
 
