@@ -10,7 +10,7 @@ use crate::{
 use std::collections::HashSet;
 
 #[test]
-fn test_ban_list() {
+fn test_peer_store_persistent() {
     let now_ms = faketime::unix_time_as_millis();
     let mut peer_store = PeerStore::default();
 
