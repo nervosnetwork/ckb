@@ -46,14 +46,12 @@ impl AddrManager {
             let j = rng.gen_range(i, self.random_ids.len());
             self.swap_random_id(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
-            let is_duplicate_ip = duplicate_ips.insert(addr_info.ip_port.ip);
+            let is_unique_ip = duplicate_ips.insert(addr_info.ip_port.ip);
             // A trick to make our tests work
             // TODO remove this after fix the network tests.
             let is_test_ip =
                 addr_info.ip_port.ip.is_unspecified() || addr_info.ip_port.ip.is_loopback();
-            if (is_test_ip || !is_duplicate_ip)
-                && !addr_info.is_terrible(now_ms)
-                && filter(&addr_info)
+            if (is_test_ip || is_unique_ip) && !addr_info.is_terrible(now_ms) && filter(&addr_info)
             {
                 addr_infos.push(addr_info);
             }
