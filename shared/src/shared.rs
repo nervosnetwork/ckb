@@ -9,7 +9,7 @@ use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_tx_pool::{
-    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuiler,
+    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
 use ckb_types::{
     core::{Cycle, EpochExt, HeaderView, TransactionMeta},
@@ -61,7 +61,7 @@ impl Shared {
         ));
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
-        let tx_pool_builer = TxPoolServiceBuiler::new(
+        let tx_pool_builder = TxPoolServiceBuilder::new(
             tx_pool_config,
             Arc::clone(&snapshot),
             block_assembler_config,
@@ -69,7 +69,7 @@ impl Shared {
             Arc::clone(&snapshot_mgr),
         );
 
-        let tx_pool_controller = tx_pool_builer.start();
+        let tx_pool_controller = tx_pool_builder.start();
 
         let shared = Shared {
             store,
