@@ -23,13 +23,13 @@ impl Spec for BootstrapCellbase {
             .collect();
 
         let bootstrap_lock = packed::Script::new_builder()
-            .args(vec![Bytes::from(vec![1]), Bytes::from(vec![2])].pack())
+            .args(Bytes::from(vec![1, 2]).pack())
             .code_hash(h256!("0xa1").pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
 
         let miner = packed::Script::new_builder()
-            .args(vec![Bytes::from(vec![2]), Bytes::from(vec![1])].pack())
+            .args(Bytes::from(vec![2, 1]).pack())
             .code_hash(h256!("0xa2").pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -72,7 +72,7 @@ impl Spec for BootstrapCellbase {
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.genesis.bootstrap_lock = packed::Script::new_builder()
-                .args(vec![Bytes::from(vec![1]), Bytes::from(vec![2])].pack())
+                .args(Bytes::from(vec![1, 2]).pack())
                 .code_hash(h256!("0xa1").pack())
                 .hash_type(ScriptHashType::Data.pack())
                 .build()
@@ -84,10 +84,7 @@ impl Spec for BootstrapCellbase {
         Box::new(|config| {
             config.block_assembler = Some(BlockAssemblerConfig {
                 code_hash: h256!("0xa2"),
-                args: vec![
-                    JsonBytes::from_bytes(Bytes::from(vec![2])),
-                    JsonBytes::from_bytes(Bytes::from(vec![1])),
-                ],
+                args: JsonBytes::from_bytes(Bytes::from(vec![2, 1])),
                 hash_type: ScriptHashType::Data.into(),
             });
         })

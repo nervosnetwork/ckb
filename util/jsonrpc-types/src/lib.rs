@@ -22,7 +22,7 @@ pub use self::block_template::{
 pub use self::blockchain::{
     Block, BlockReward, BlockView, CellDep, CellInput, CellOutput, DepType, EpochView, Header,
     HeaderView, OutPoint, Script, ScriptHashType, Status, Transaction, TransactionView,
-    TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView, Witness,
+    TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};

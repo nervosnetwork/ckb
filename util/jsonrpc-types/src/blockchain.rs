@@ -50,7 +50,7 @@ impl fmt::Display for ScriptHashType {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
-    pub args: Vec<JsonBytes>,
+    pub args: JsonBytes,
     pub code_hash: H256,
     pub hash_type: ScriptHashType,
 }
@@ -64,7 +64,7 @@ impl From<Script> for packed::Script {
         } = json;
         let hash_type: core::ScriptHashType = hash_type.into();
         packed::Script::new_builder()
-            .args(args.into_iter().map(Into::into).pack())
+            .args(args.into_bytes().pack())
             .code_hash(code_hash.pack())
             .hash_type(hash_type.pack())
             .build()
@@ -75,7 +75,7 @@ impl From<packed::Script> for Script {
     fn from(input: packed::Script) -> Script {
         Script {
             code_hash: input.code_hash().unpack(),
-            args: input.args().into_iter().map(Into::into).collect(),
+            args: JsonBytes::from_bytes(input.args().unpack()),
             hash_type: input.hash_type().unpack().into(),
         }
     }
@@ -178,26 +178,6 @@ impl From<CellInput> for packed::CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Witness {
-    data: Vec<JsonBytes>,
-}
-
-impl From<packed::Witness> for Witness {
-    fn from(input: packed::Witness) -> Witness {
-        Witness {
-            data: input.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<Witness> for packed::Witness {
-    fn from(json: Witness) -> Self {
-        json.data.into_iter().map(Into::into).pack()
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum DepType {
@@ -267,7 +247,7 @@ pub struct Transaction {
     pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-    pub witnesses: Vec<Witness>,
+    pub witnesses: Vec<JsonBytes>,
     pub outputs_data: Vec<JsonBytes>,
 }
 
@@ -719,7 +699,7 @@ mod tests {
     fn mock_script(arg: Bytes) -> packed::Script {
         packed::ScriptBuilder::default()
             .code_hash(Byte32::zero())
-            .args(vec![arg].pack())
+            .args(arg.pack())
             .hash_type(core::ScriptHashType::Data.pack())
             .build()
     }
@@ -741,7 +721,7 @@ mod tests {
             .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(arg.clone())])
             .outputs_data(vec![data.pack()])
-            .witness(vec![arg.pack()].pack())
+            .witness(arg.pack())
             .build()
     }
 

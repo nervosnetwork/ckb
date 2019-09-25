@@ -46,9 +46,9 @@ const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_355_176;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_335_874;
 // bytes of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_BYTES: u64 = 589;
+const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
 // approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
 const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
@@ -746,10 +746,13 @@ fn u256_low_u64(u: U256) -> u64 {
 pub mod test {
     use super::*;
     use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
+    use ckb_types::packed::Bytes;
 
     #[test]
     fn test_init_epoch_reward() {
-        let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
+        let cellbase = TransactionBuilder::default()
+            .witness(Bytes::default())
+            .build();
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let epoch_ext = build_genesis_epoch_ext(capacity_bytes!(100), &U256::one());
         let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100), epoch_ext).build();

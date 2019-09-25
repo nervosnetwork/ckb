@@ -16,7 +16,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView, Version,
     },
-    packed::{self, ProposalShortId, Script},
+    packed::{ProposalShortId, Script},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -112,17 +112,9 @@ impl Future for BuildCellbaseProcess {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         let tip_header = self.snapshot.tip_header();
-        let cellbase_lock_args = self
-            .config
-            .args
-            .clone()
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<packed::Bytes>>();
-
         let hash_type: ScriptHashType = self.config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
-            .args(cellbase_lock_args.pack())
+            .args(self.config.args.as_bytes().pack())
             .code_hash(self.config.code_hash.pack())
             .hash_type(hash_type.pack())
             .build();

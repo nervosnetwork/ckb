@@ -13,7 +13,7 @@ pub struct TransactionBuilder {
     pub(crate) header_deps: Vec<packed::Byte32>,
     pub(crate) inputs: Vec<packed::CellInput>,
     pub(crate) outputs: Vec<packed::CellOutput>,
-    pub(crate) witnesses: Vec<packed::Witness>,
+    pub(crate) witnesses: Vec<packed::Bytes>,
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
@@ -154,7 +154,7 @@ impl TransactionBuilder {
     );
     def_setter_for_vector!(inputs, CellInput, input, inputs, set_inputs);
     def_setter_for_vector!(outputs, CellOutput, output, outputs, set_outputs);
-    def_setter_for_vector!(witnesses, Witness, witness, witnesses, set_witnesses);
+    def_setter_for_vector!(witnesses, Bytes, witness, witnesses, set_witnesses);
     def_setter_for_vector!(
         outputs_data,
         Bytes,

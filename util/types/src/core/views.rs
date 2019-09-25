@@ -159,7 +159,7 @@ impl TransactionView {
         self.data().raw().outputs_data()
     }
 
-    pub fn witnesses(&self) -> packed::WitnessVec {
+    pub fn witnesses(&self) -> packed::BytesVec {
         self.data().witnesses()
     }
 

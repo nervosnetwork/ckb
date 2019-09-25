@@ -32,11 +32,7 @@ const SIZES: &[usize] = &[2usize];
 
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
-    let args = secp_script
-        .args()
-        .into_iter()
-        .map(|bytes| JsonBytes::from_bytes(bytes.unpack()))
-        .collect();
+    let args = JsonBytes::from_bytes(secp_script.args().unpack());
     let hash_type: ScriptHashType = secp_script.hash_type().unpack();
 
     BlockAssemblerConfig {

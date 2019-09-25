@@ -4,7 +4,6 @@ use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
-    bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Capacity, CapacityResult, HeaderView, ScriptHashType,
@@ -258,13 +257,16 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .transaction
                             .witnesses()
                             .get(i)
-                            .and_then(|witness| witness.get(1))
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                if witness_data.raw_data().len() != 8 {
+                                // dao contract stores header deps index as u64 in the last 8 bytes of witness
+                                let witness_len = witness_data.raw_data().len();
+                                if witness_len < 8 {
                                     Err(DaoError::InvalidDaoFormat)
                                 } else {
-                                    Ok(LittleEndian::read_u64(&witness_data.raw_data()[0..8]))
+                                    Ok(LittleEndian::read_u64(
+                                        &witness_data.raw_data()[witness_len - 8..],
+                                    ))
                                 }
                             })
                             .and_then(|header_dep_index| {
@@ -329,13 +331,7 @@ pub fn modified_occupied_capacity(
     if let Some(tx_info) = &cell_meta.transaction_info {
         if tx_info.is_genesis()
             && tx_info.is_cellbase()
-            && cell_meta
-                .cell_output
-                .lock()
-                .args()
-                .get(0)
-                .map(|arg| arg.unpack())
-                == Some(Bytes::from(&consensus.satoshi_pubkey_hash.0[..]))
+            && cell_meta.cell_output.lock().args().raw_data() == consensus.satoshi_pubkey_hash.0[..]
         {
             return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);

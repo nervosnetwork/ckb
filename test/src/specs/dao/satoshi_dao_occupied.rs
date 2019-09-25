@@ -125,12 +125,12 @@ impl Spec for SpendSatoshiCell {
             .privkey
             .sign_recoverable(&tx_hash.unpack())
             .expect("sign");
-        let witness = vec![
-            Bytes::from(sig.serialize()).pack(),
-            Bytes::from(self.pubkey.serialize()).pack(),
-        ]
-        .pack();
-        let transaction = transaction.as_advanced_builder().witness(witness).build();
+        let mut witness = Bytes::from(sig.serialize());
+        witness.extend_from_slice(&self.pubkey.serialize());
+        let transaction = transaction
+            .as_advanced_builder()
+            .witness(witness.pack())
+            .build();
 
         node0.generate_blocks(1);
         let tx_hash = node0
@@ -176,7 +176,7 @@ impl Spec for SpendSatoshiCell {
 
 fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
     let lock = Script::new_builder()
-        .args(vec![Bytes::from(&satoshi_pubkey_hash.0[..]).pack()].pack())
+        .args(Bytes::from(&satoshi_pubkey_hash.0[..]).pack())
         .code_hash(type_lock_script_code_hash().pack())
         .hash_type(ScriptHashType::Type.pack())
         .build();

@@ -32,7 +32,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let config = BlockAssemblerConfig {
         code_hash: h256!("0x0"),
-        args: vec![],
+        args: Default::default(),
         hash_type: ScriptHashType::Data,
     };
     let (shared, table) = builder

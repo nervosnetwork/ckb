@@ -161,12 +161,7 @@ fn withdraw_dao_transaction(
     };
     let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
     header_deps.push(block_hash);
-    // Put the withdraw_header_index into the 2nd witness
-    let withdraw_dao_witness = vec![
-        Bytes::new().pack(),
-        Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack(),
-    ]
-    .pack();
+    let withdraw_dao_witness = Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack();
     TransactionBuilder::default()
         .cell_deps(cell_deps)
         .header_deps(header_deps.into_iter())

@@ -159,17 +159,17 @@ fn finalize_reward() {
 
     let ids: Vec<_> = txs.iter().map(TransactionView::proposal_short_id).collect();
     let mut blocks = Vec::with_capacity(24);
-    let bob_args: Vec<packed::Bytes> = vec![Bytes::from(b"b0b".to_vec()).pack()];
+    let bob_args: packed::Bytes = Bytes::from(b"b0b".to_vec()).pack();
 
     let bob = ScriptBuilder::default()
-        .args(bob_args.into_iter().pack())
+        .args(bob_args)
         .code_hash(always_success_script.code_hash())
         .hash_type(ScriptHashType::Data.pack())
         .build();
 
-    let alice_args: Vec<packed::Bytes> = vec![Bytes::from(b"a11ce".to_vec()).pack()];
+    let alice_args: packed::Bytes = Bytes::from(b"a11ce".to_vec()).pack();
     let alice = ScriptBuilder::default()
-        .args(alice_args.into_iter().pack())
+        .args(alice_args)
         .code_hash(always_success_script.code_hash())
         .hash_type(ScriptHashType::Data.pack())
         .build();

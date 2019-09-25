@@ -10,14 +10,14 @@ use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, Cycle, DepType, ScriptHashType, TransactionBuilder},
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, Witness},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     H256,
 };
 use log::info;
 
-const TX_2_IN_2_OUT_SIZE: usize = 589;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 13_355_176;
+const TX_2_IN_2_OUT_SIZE: usize = 557;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 13_335_874;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -71,7 +71,7 @@ impl Spec for SendSecpTxUseDepGroup {
         let tx_hash = tx.hash();
         let message = H256::from(blake2b_256(tx_hash.as_slice()));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
@@ -160,7 +160,7 @@ impl Spec for CheckTypical2In2OutTx {
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
         let lock = Script::new_builder()
-            .args(vec![self.lock_arg.clone()].pack())
+            .args(self.lock_arg.pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(hash_type.pack())
             .build();
@@ -185,7 +185,7 @@ impl Spec for CheckTypical2In2OutTx {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness: Witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = tx
             .as_advanced_builder()
             .witness(witness.clone())
@@ -249,6 +249,6 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
     BlockAssemblerConfig {
         code_hash,
         hash_type: hash_type.into(),
-        args: vec![JsonBytes::from_bytes(lock_arg.clone())],
+        args: JsonBytes::from_bytes(lock_arg),
     }
 }

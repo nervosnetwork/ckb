@@ -3,6 +3,7 @@ mod load_cell;
 mod load_cell_data;
 mod load_header;
 mod load_input;
+mod load_script;
 mod load_script_hash;
 mod load_tx_hash;
 mod load_witness;
@@ -13,6 +14,7 @@ pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
 pub use self::load_input::LoadInput;
+pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx_hash::LoadTxHash;
 pub use self::load_witness::LoadWitness;
@@ -30,6 +32,7 @@ pub const SLICE_OUT_OF_BOUND: u8 = 3;
 
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
 pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2062;
+pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2063;
 pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
 pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2072;
 pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
@@ -181,7 +184,7 @@ mod tests {
         core::{
             cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
-        packed::{Byte32, CellOutput, OutPoint, Script, Witness},
+        packed::{Byte32, CellOutput, OutPoint, Script, ScriptBuilder},
         prelude::*,
         H256, U256,
     };
@@ -764,7 +767,7 @@ mod tests {
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(vec![Bytes::from(data)].pack())
+            .args(Bytes::from(data).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let hash = script.calc_script_hash();
@@ -819,7 +822,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(vec![Bytes::from(data)].pack())
+            .args(Bytes::from(data).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let h = script.calc_script_hash();
@@ -881,9 +884,9 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness: Witness = vec![Bytes::from(data).pack()].pack();
+        let witness = Bytes::from(data).pack();
 
-        let witness_correct_data = witness.as_slice();
+        let witness_correct_data = witness.raw_data();
 
         let witnesses = vec![witness.clone()];
         let group_inputs = vec![];
@@ -930,12 +933,12 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness: Witness = vec![Bytes::from(data).pack()].pack();
+        let witness = Bytes::from(data).pack();
 
-        let witness_correct_data = witness.as_slice();
+        let witness_correct_data = witness.raw_data();
 
-        let dummy_witness = vec![];
-        let witnesses = vec![dummy_witness.pack(), witness.clone()];
+        let dummy_witness = Bytes::default().pack();
+        let witnesses = vec![dummy_witness, witness.clone()];
         let group_inputs = vec![1];
         let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
 
@@ -965,6 +968,52 @@ mod tests {
         #[test]
         fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_group_witness(data)?;
+        }
+    }
+
+    fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A7, LOAD_SCRIPT_SYSCALL_NUMBER); // syscall number
+
+        let script = ScriptBuilder::default()
+            .args(Bytes::from(data).pack())
+            .build();
+        let script_correct_data = script.as_slice();
+
+        let mut load_script = LoadScript::new(script.clone());
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(script_correct_data.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_script.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(script_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + script_correct_data.len() as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(script_correct_data[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_script(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_script(data)?;
         }
     }
 

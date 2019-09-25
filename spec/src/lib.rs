@@ -392,7 +392,7 @@ impl ChainSpec {
         outputs_data.extend(system_cells_data);
 
         let special_issued_lock = packed::Script::new_builder()
-            .args(vec![secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone()))].pack())
+            .args(secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone())).pack())
             .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -477,15 +477,7 @@ impl ChainSpec {
         let input_out_point = cellbase_tx
             .outputs()
             .into_iter()
-            .position(|output| {
-                output
-                    .lock()
-                    .args()
-                    .get(0)
-                    .map(|arg| arg.clone().unpack())
-                    .as_ref()
-                    == Some(&lock_arg)
-            })
+            .position(|output| Unpack::<Bytes>::unpack(&output.lock().args()) == lock_arg)
             .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
@@ -516,7 +508,7 @@ impl ChainSpec {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
 
         Ok(TransactionBuilder::default()
             .cell_deps(cell_deps)
@@ -583,11 +575,11 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
     blake2b.update(&output_index.to_le_bytes());
     let mut ret = [0; 32];
     blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
+    let script_arg = Bytes::from(&ret[..]);
     packed::Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.pack())
         .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
+        .args(script_arg.pack())
         .build()
 }
 

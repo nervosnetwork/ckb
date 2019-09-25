@@ -211,7 +211,7 @@ lazy_static! {
 
         let script = Script::new_builder()
             .code_hash(CellOutput::calc_data_hash(&data))
-            .args(vec![Bytes::from(PUBKEY_HASH.as_bytes()).pack()].pack())
+            .args(Bytes::from(PUBKEY_HASH.as_bytes()).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
 
@@ -432,8 +432,8 @@ pub fn create_2out_transaction(
         .into();
 
     raw.as_advanced_builder()
-        .witness(vec![witness.pack()].pack())
-        .witness(vec![witness.pack()].pack())
+        .witness(witness.pack())
+        .witness(witness.pack())
         .build()
 }
 

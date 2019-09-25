@@ -4,14 +4,7 @@ use crate::{core::Capacity, packed, prelude::*};
 
 impl packed::Script {
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
-        Capacity::bytes(
-            self.args()
-                .into_iter()
-                .map(|arg| arg.as_reader().raw_data().len())
-                .sum::<usize>()
-                + 32
-                + 1,
-        )
+        Capacity::bytes(self.args().raw_data().len() + 32 + 1)
     }
 }
 
@@ -80,21 +73,12 @@ mod tests {
     fn script_occupied_capacity() {
         let testcases = vec![
             (vec![], 32 + 1),
-            (vec![vec![]], 32 + 1),
-            (vec![vec![0u8]], 1 + 32 + 1),
-            (vec![vec![1]], 1 + 32 + 1),
-            (vec![vec![0, 0]], 2 + 32 + 1),
-            (vec![vec![0], vec![0]], 2 + 32 + 1),
+            (vec![0], 1 + 32 + 1),
+            (vec![1], 1 + 32 + 1),
+            (vec![0, 0], 2 + 32 + 1),
         ];
         for (args, ckb) in testcases.into_iter() {
-            let script = packed::Script::new_builder()
-                .args(
-                    args.into_iter()
-                        .map(|x| x.pack())
-                        .collect::<Vec<packed::Bytes>>()
-                        .pack(),
-                )
-                .build();
+            let script = packed::Script::new_builder().args(args.pack()).build();
             let expect = Capacity::bytes(ckb).unwrap();
             assert_eq!(script.occupied_capacity().unwrap(), expect);
         }
@@ -113,7 +97,7 @@ mod tests {
     #[test]
     fn min_secp256k1_cell_output_capacity() {
         let lock = packed::Script::new_builder()
-            .args(vec![vec![0u8; 20].pack()].pack())
+            .args(vec![0u8; 20].pack())
             .build();
         let output = packed::CellOutput::new_builder().lock(lock).build();
         assert_eq!(
