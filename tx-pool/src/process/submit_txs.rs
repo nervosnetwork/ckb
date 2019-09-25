@@ -226,7 +226,7 @@ fn resolve_tx<'a>(
     txs_provider: &'a TransactionsProvider<'a>,
     tx: TransactionView,
 ) -> Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error> {
-    let tx_size = tx.serialized_size();
+    let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
         Err(InternalErrorKind::TransactionPoolFull)?;
     }

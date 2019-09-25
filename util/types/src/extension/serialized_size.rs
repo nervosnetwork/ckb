@@ -1,25 +1,25 @@
 use crate::{packed, prelude::*};
 
 macro_rules! impl_serialized_size_for_entity {
-    ($entity:ident) => {
+    ($entity:ident, $func:ident) => {
         impl packed::$entity {
-            pub fn serialized_size(&self) -> usize {
-                self.as_reader().serialized_size()
+            pub fn $func(&self) -> usize {
+                self.as_reader().$func()
             }
         }
     };
 }
 
 impl<'r> packed::TransactionReader<'r> {
-    pub fn serialized_size(&self) -> usize {
+    pub fn serialized_size_in_block(&self) -> usize {
         // the offset in TransactionVec header is u32
         self.as_slice().len() + 4
     }
 }
-impl_serialized_size_for_entity!(Transaction);
+impl_serialized_size_for_entity!(Transaction, serialized_size_in_block);
 
 impl<'r> packed::BlockReader<'r> {
-    pub fn serialized_size(&self) -> usize {
+    pub fn serialized_size_without_uncle_proposals(&self) -> usize {
         let block_size = self.as_slice().len();
         // the header of ProposalShortIdVec header is u32
         let uncles_proposals_size = self
@@ -30,7 +30,7 @@ impl<'r> packed::BlockReader<'r> {
         block_size - uncles_proposals_size
     }
 }
-impl_serialized_size_for_entity!(Block);
+impl_serialized_size_for_entity!(Block, serialized_size_without_uncle_proposals);
 
 #[cfg(test)]
 mod tests {
@@ -73,8 +73,8 @@ mod tests {
             let block_with_uncles = packed::Block::new_builder()
                 .uncles(uncles.clone().pack())
                 .build();
-            let actual = block_with_uncles.serialized_size();
-            let actual_empty = block_with_empty_uncles.serialized_size();
+            let actual = block_with_uncles.serialized_size_without_uncle_proposals();
+            let actual_empty = block_with_empty_uncles.serialized_size_without_uncle_proposals();
             let expected = block_with_empty_uncles.as_slice().len();
             assert_eq!(actual, actual_empty);
             assert_eq!(actual, expected);

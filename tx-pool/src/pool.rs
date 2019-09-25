@@ -306,7 +306,7 @@ impl TxPool {
     }
 
     pub fn add_tx_to_pool(&mut self, tx: TransactionView, cycles: Cycle) -> Result<Cycle, Error> {
-        let tx_size = tx.serialized_size();
+        let tx_size = tx.data().serialized_size_in_block();
         if self.reach_size_limit(tx_size) {
             Err(InternalErrorKind::TransactionPoolFull)?;
         }
@@ -672,10 +672,10 @@ impl TxPool {
         tx: TransactionView,
     ) -> Option<(Byte32, Cycle)> {
         let mut ret = None;
-        let tx_hash = tx.hash().to_owned();
+        let tx_hash = tx.hash();
         let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
         let tx_short_id = tx.proposal_short_id();
-        let tx_size = tx.serialized_size();
+        let tx_size = tx.data().serialized_size_in_block();
         if snapshot.proposals().contains_proposed(&tx_short_id) {
             if let Ok(cycles) = self.proposed_tx_and_descendants(cached_cycles, tx_size, tx) {
                 if cached_cycles.is_none() {

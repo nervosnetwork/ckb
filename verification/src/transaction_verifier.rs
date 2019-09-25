@@ -144,7 +144,7 @@ impl<'a> SizeVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let size = self.transaction.serialized_size() as u64;
+        let size = self.transaction.data().serialized_size_in_block() as u64;
         if size <= self.block_bytes_limit {
             Ok(())
         } else {

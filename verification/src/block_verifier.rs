@@ -258,7 +258,7 @@ impl BlockBytesVerifier {
         if block.is_genesis() {
             return Ok(());
         }
-        let block_bytes = block.serialized_size() as u64;
+        let block_bytes = block.data().serialized_size_without_uncle_proposals() as u64;
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {
