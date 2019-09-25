@@ -28,7 +28,8 @@ def print_types(case):
     print("#### Parameters")
     newline(1)
     for item in case["types"]:
-        assert(len(item) == 1)
+        if len(item) != 1:
+            raise Exception("Invalid `types` format, expect one map for only one type: {}".format(item))
         for (key, val) in item.items():
             print("    {} - {}".format(key, val))
 
@@ -103,6 +104,8 @@ def main():
         cases = sort_cases_by_module(json.load(f))
 
     print("# CKB JSON-RPC Protocols")
+    newline(1)
+    print("NOTE: This file is auto-generated. Please don't update this file directly; instead make changes to `rpc/json/rpc.json` and re-run `make gen-rpc-doc`")
     newline(2)
 
     print_toc(cases)
