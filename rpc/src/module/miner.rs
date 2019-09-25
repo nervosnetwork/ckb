@@ -1,3 +1,4 @@
+use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
@@ -10,6 +11,7 @@ use faketime::unix_time_as_millis;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 #[rpc]
@@ -25,7 +27,7 @@ pub trait MinerRpc {
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "transactions":[], "proposals":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "submit_block")]
-    fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
+    fn submit_block(&self, _work_id: String, _data: Block) -> Result<H256>;
 }
 
 pub(crate) struct MinerRpcImpl {
@@ -66,7 +68,7 @@ impl MinerRpc for MinerRpcImpl {
         })
     }
 
-    fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
+    fn submit_block(&self, work_id: String, data: Block) -> Result<H256> {
         // TODO: this API is intended to be used in a trusted environment, thus it should pass the
         // verifier. We use sentry to capture errors found here to discovery issues early, which
         // should be removed later.
@@ -77,54 +79,53 @@ impl MinerRpc for MinerRpcImpl {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();
+
+        // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
         let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
-        let header_verify_ret = {
-            let header_verifier =
-                HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()));
-            header_verifier.verify(&resolver)
-        };
-        if header_verify_ret.is_ok() {
-            let ret = self.chain.process_block(Arc::clone(&block), true);
-            if ret.is_ok() {
-                debug!(
-                    "[block_relay] announce new block {} {} {}",
-                    block.header().number(),
-                    block.header().hash(),
-                    unix_time_as_millis()
-                );
-                // announce new block
+        HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()))
+            .verify(&resolver)
+            .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-                let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
-                let message = packed::RelayMessage::new_builder().set(content).build();
-                let data = message.as_slice().into();
-                if let Err(err) = self
-                    .network_controller
-                    .quick_broadcast(NetworkProtocol::RELAY.into(), data)
-                {
-                    error!("Broadcast block failed: {:?}", err);
-                }
-                Ok(Some(block.header().hash().unpack()))
-            } else {
-                error!("[{}] submit_block process_block {:?}", work_id, ret);
-                use sentry::{capture_message, with_scope, Level};
-                with_scope(
-                    |scope| scope.set_fingerprint(Some(&["ckb-rpc", "miner", "submit_block"])),
-                    || {
-                        capture_message(
-                            &format!("submit_block process_block {:?}", ret),
-                            Level::Error,
-                        )
-                    },
-                );
-                Ok(None)
-            }
-        } else {
-            error!(
-                "[{}] submit_block header verifier {:?}",
-                work_id, header_verify_ret
+        // Verify and insert block
+        let is_new = self
+            .chain
+            .process_block(Arc::clone(&block), true)
+            .map_err(|err| handle_submit_error(&work_id, &err))?;
+
+        // Announce only new block
+        if is_new {
+            debug!(
+                "[block_relay] announce new block {} {} {}",
+                header.number(),
+                header.hash(),
+                unix_time_as_millis()
             );
-            Ok(None)
+            let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = self
+                .network_controller
+                .quick_broadcast(NetworkProtocol::RELAY.into(), data)
+            {
+                error!("Broadcast new block failed: {:?}", err);
+            }
         }
+
+        Ok(header.hash().unpack())
     }
+}
+
+fn handle_submit_error<E: Debug + ToString>(work_id: &str, err: &E) -> Error {
+    error!("[{}] submit_block error: {:?}", work_id, err);
+    capture_submit_error(err);
+    RPCError::custom(RPCError::Invalid, err.to_string())
+}
+
+fn capture_submit_error<D: Debug>(err: &D) {
+    use sentry::{capture_message, with_scope, Level};
+    with_scope(
+        |scope| scope.set_fingerprint(Some(&["ckb-rpc", "miner", "submit_block"])),
+        || capture_message(&format!("submit_block {:?}", err), Level::Error),
+    );
 }
