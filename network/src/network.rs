@@ -1,6 +1,9 @@
-use crate::errors::{AddrError, Error};
+use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{types::BannedAddr, PeerStore};
+use crate::peer_store::{
+    types::{BannedAddr, MultiaddrExt},
+    PeerStore,
+};
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -30,7 +33,7 @@ use p2p::{
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::Error as P2pError,
-    multiaddr::{self, multihash::Multihash, Multiaddr},
+    multiaddr::{self, Multiaddr},
     secio::{self, PeerId},
     service::{
         DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
@@ -410,7 +413,7 @@ impl NetworkState {
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
-        mut addr: Multiaddr,
+        addr: Multiaddr,
         target: DialProtocol,
         allow_dial_to_self: bool,
     ) -> Result<(), Error> {
@@ -421,11 +424,9 @@ impl NetworkState {
             )));
         }
 
-        let peer_id_hash = Multihash::from_bytes(peer_id.as_bytes().to_vec())
-            .map_err(|_err| AddrError::InvalidPeerId)?;
-        addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+        let addr = addr.attach_p2p(peer_id)?;
         debug!("dialing {} with {:?}", addr, target);
-        p2p_control.dial(addr.clone(), target)?;
+        p2p_control.dial(addr, target)?;
         self.dialing_addrs
             .write()
             .insert(peer_id.to_owned(), Instant::now());
