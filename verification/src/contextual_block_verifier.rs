@@ -76,11 +76,13 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
 
 impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
-        match self.store.get_block_number(block_hash) {
-            Some(block_number) => {
+        match self.store.get_block_header(block_hash) {
+            Some(header) => {
                 let tip_header = self.store.get_tip_header().expect("tip should exist");
-                let tip_block_number = tip_header.number();
-                if tip_block_number < block_number + self.consensus.cellbase_maturity() {
+                let threshold =
+                    self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
+                let current = tip_header.epoch().to_rational();
+                if current < threshold {
                     Err(OutPointError::ImmatureHeader(block_hash.clone()).into())
                 } else {
                     Ok(())
@@ -375,7 +377,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number_with_fraction.clone(),
+                        self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
                         self.context.consensus,
                     )
@@ -393,7 +395,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number_with_fraction.clone(),
+                        self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
                         self.context.consensus,
                         self.context.store,

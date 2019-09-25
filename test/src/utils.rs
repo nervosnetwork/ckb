@@ -155,6 +155,11 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
         .lock()
         .send_transaction(transaction.data().into())
         .call();
+    assert!(
+        result.is_err(),
+        "expect error \"{}\" but got \"Ok(())\"",
+        message,
+    );
     let error = result.expect_err(&format!("transaction is invalid since {}", message));
     let error_string = error.to_string();
     assert!(

@@ -25,8 +25,8 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, Ratio,
-        ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, Cycle, EpochExt,
+        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
@@ -66,7 +66,7 @@ pub struct Params {
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
-    pub cellbase_maturity: BlockNumber,
+    pub cellbase_maturity: u64,
 }
 
 impl Default for Params {
@@ -79,7 +79,7 @@ impl Default for Params {
             epoch_reward: DEFAULT_EPOCH_REWARD,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             max_block_cycles: MAX_BLOCK_CYCLES,
-            cellbase_maturity: CELLBASE_MATURITY,
+            cellbase_maturity: CELLBASE_MATURITY.full_value(),
         }
     }
 }
@@ -222,7 +222,9 @@ impl ChainSpec {
         let consensus =
             ConsensusBuilder::new(genesis_block, self.params.epoch_reward, genesis_epoch_ext)
                 .id(self.name.clone())
-                .cellbase_maturity(self.params.cellbase_maturity)
+                .cellbase_maturity(EpochNumberWithFraction::from_full_value(
+                    self.params.cellbase_maturity,
+                ))
                 .secondary_epoch_reward(self.params.secondary_epoch_reward)
                 .max_block_cycles(self.params.max_block_cycles)
                 .pow(self.pow.clone())

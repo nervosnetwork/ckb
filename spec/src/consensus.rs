@@ -11,8 +11,8 @@ use ckb_resource::Resource;
 use ckb_types::{
     constants::BLOCK_VERSION,
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, HeaderView, Ratio,
-        TransactionBuilder, TransactionView, Version,
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumberWithFraction,
+        HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
     },
     h160,
     packed::{Byte32, CellInput, Script},
@@ -28,10 +28,11 @@ pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(6
 pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
-// Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
-// before they mature sufficiently to be spendable,
+// Cellbase outputs are "locked" and require 4 epoch confirmations (approximately 16 hours) before
+// they mature sufficiently to be spendable,
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
-pub(crate) const CELLBASE_MATURITY: BlockNumber = 4 * MAX_EPOCH_LENGTH;
+pub(crate) const CELLBASE_MATURITY: EpochNumberWithFraction =
+    EpochNumberWithFraction::new_unchecked(4, 0, 1);
 // TODO: should adjust this value based on CKB average block time
 const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
 
@@ -117,7 +118,7 @@ pub struct ConsensusBuilder {
     tx_proposal_window: ProposalWindow,
     proposer_reward_ratio: Ratio,
     pow: Pow,
-    cellbase_maturity: BlockNumber,
+    cellbase_maturity: EpochNumberWithFraction,
     median_time_block_count: usize,
     max_block_cycles: Cycle,
     max_block_bytes: u64,
@@ -366,7 +367,7 @@ impl ConsensusBuilder {
     }
 
     #[must_use]
-    pub fn cellbase_maturity(mut self, cellbase_maturity: BlockNumber) -> Self {
+    pub fn cellbase_maturity(mut self, cellbase_maturity: EpochNumberWithFraction) -> Self {
         self.cellbase_maturity = cellbase_maturity;
         self
     }
@@ -411,7 +412,7 @@ pub struct Consensus {
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
-    pub cellbase_maturity: BlockNumber,
+    pub cellbase_maturity: EpochNumberWithFraction,
     // This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
     // Maximum cycles that all the scripts in all the commit transactions can take
@@ -514,7 +515,7 @@ impl Consensus {
         self.pow.engine()
     }
 
-    pub fn cellbase_maturity(&self) -> BlockNumber {
+    pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
     }
 

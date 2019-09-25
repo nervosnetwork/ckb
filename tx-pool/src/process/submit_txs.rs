@@ -282,7 +282,7 @@ fn verify_rtxs(
 ) -> Result<Vec<(ResolvedTransaction, Cycle)>, Error> {
     let tip_header = snapshot.tip_header();
     let tip_number = tip_header.number();
-    let epoch_number = tip_header.epoch();
+    let epoch = tip_header.epoch();
     let consensus = snapshot.consensus();
 
     txs.into_iter()
@@ -293,7 +293,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number.clone(),
+                    epoch,
                     tip_header.hash(),
                     consensus,
                 )
@@ -304,7 +304,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number.clone(),
+                    epoch,
                     tip_header.hash(),
                     consensus,
                     snapshot,

@@ -81,7 +81,7 @@ impl EpochExt {
     // Simple Getters
     //
 
-    pub fn number(&self) -> BlockNumber {
+    pub fn number(&self) -> EpochNumber {
         self.number
     }
 
@@ -266,12 +266,18 @@ impl EpochExtBuilder {
 /// Represents an epoch number with a fraction unit, it can be
 /// used to accurately represent the position for a block within
 /// an epoch.
-#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct EpochNumberWithFraction(u64);
 
 impl fmt::Display for EpochNumberWithFraction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        write!(
+            f,
+            "Epoch {{ number: {}, index: {}, length: {} }}",
+            self.number(),
+            self.index(),
+            self.length()
+        )
     }
 }
 
@@ -323,6 +329,10 @@ impl EpochNumberWithFraction {
         debug_assert!(index < Self::INDEX_MAXIMUM_VALUE);
         debug_assert!(length < Self::LENGTH_MAXIMUM_VALUE);
         debug_assert!(length > 0);
+        Self::new_unchecked(number, index, length)
+    }
+
+    pub const fn new_unchecked(number: u64, index: u64, length: u64) -> Self {
         EpochNumberWithFraction(
             (length << Self::LENGTH_OFFSET)
                 | (index << Self::INDEX_OFFSET)
@@ -330,19 +340,19 @@ impl EpochNumberWithFraction {
         )
     }
 
-    pub fn number(&self) -> EpochNumber {
+    pub fn number(self) -> EpochNumber {
         (self.0 >> Self::NUMBER_OFFSET) & Self::NUMBER_MASK
     }
 
-    pub fn index(&self) -> u64 {
+    pub fn index(self) -> u64 {
         (self.0 >> Self::INDEX_OFFSET) & Self::INDEX_MASK
     }
 
-    pub fn length(&self) -> u64 {
+    pub fn length(self) -> u64 {
         (self.0 >> Self::LENGTH_OFFSET) & Self::LENGTH_MASK
     }
 
-    pub fn full_value(&self) -> u64 {
+    pub fn full_value(self) -> u64 {
         self.0
     }
 
@@ -360,7 +370,7 @@ impl EpochNumberWithFraction {
         }
     }
 
-    pub fn to_rational(&self) -> RationalU256 {
+    pub fn to_rational(self) -> RationalU256 {
         RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
     }
 }

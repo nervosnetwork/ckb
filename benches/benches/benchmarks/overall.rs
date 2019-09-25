@@ -12,8 +12,8 @@ use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
@@ -73,7 +73,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .build();
 
     let mut consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
