@@ -505,7 +505,7 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use crate::{types::HeaderView, types::PeerState, SyncSharedState, MAX_TIP_AGE};
-    use ckb_chain::chain::ChainService;
+    use ckb_chain::{chain::ChainService, switch::Switch};
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
     use ckb_network::{
@@ -625,7 +625,7 @@ mod tests {
         let block = gen_block(shared, &parent, &epoch, nonce);
 
         chain_controller
-            .process_block(Arc::new(block), true)
+            .process_block(Arc::new(block))
             .expect("process block ok");
     }
 
@@ -727,10 +727,10 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -746,7 +746,7 @@ mod tests {
             let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -837,7 +837,7 @@ mod tests {
             let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
             blocks.push(new_block);
@@ -875,7 +875,7 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -917,7 +917,6 @@ mod tests {
         HeaderView::new(
             HeaderBuilder::default().build(),
             U256::from(total_difficulty),
-            0,
         )
     }
 

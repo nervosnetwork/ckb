@@ -2,7 +2,7 @@
 
 # Spec: ckb_dev
 [ckb_dev]
-genesis = "0x215c5f8bb0453e9a8ace35c0e4e8a42a03ad612efdd62be4b3fbb1228d44fc75"
+genesis = "0x687b8c12428d12f8821ab8ad2b678a6da2a2b957513b8ad7c5c8f50b5ef89d5e"
 cellbase = "0xd74ccd561cedeaa5db9956b8285f9b8f55519bad457aa22355967c719336974b"
 
 [[ckb_dev.system_cells]]
@@ -45,7 +45,7 @@ index = 1
 
 # Spec: ckb_testnet
 [ckb_testnet]
-genesis = "0x0fa32f89dc1413b9c9c2a66b940ac2a84cc956837ba0d5a79b59fabf2da551d8"
+genesis = "0xee0a0b80f2e94aa54654093d59c2b785052d4cb600d7354e346a446599a984db"
 cellbase = "0xf9694940fea58b35401880420d98f30abe659889306587d977ae6ab1437d2a13"
 
 [[ckb_testnet.system_cells]]
@@ -88,7 +88,7 @@ index = 1
 
 # Spec: ckb_staging
 [ckb_staging]
-genesis = "0x9bd0be95ffa6c2835e82d57b959a27a089012304f5311d3fada7edd7bcee5451"
+genesis = "0x09f9600b905552a06a640f6c15168451eb9c29976453e1566a668fd6a3df264e"
 cellbase = "0x39f69ec2f8be4b1a216a294a41649f5a11d55b641bf634af007d995b8697d4eb"
 
 [[ckb_staging.system_cells]]

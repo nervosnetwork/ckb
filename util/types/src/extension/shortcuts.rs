@@ -124,7 +124,6 @@ impl packed::Block {
         let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
         let proposals_hash = self.as_reader().calc_proposals_hash();
         let uncles_hash = self.as_reader().calc_uncles_hash();
-        let uncles_count = self.as_reader().uncles().len() as u32;
         let raw_header = self
             .header()
             .raw()
@@ -132,7 +131,6 @@ impl packed::Block {
             .transactions_root(transactions_root)
             .proposals_hash(proposals_hash)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count.pack())
             .build();
         let header = self.header().as_builder().raw(raw_header).build();
         self.as_builder().header(header).build()

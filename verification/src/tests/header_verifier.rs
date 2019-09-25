@@ -1,19 +1,9 @@
-use crate::header_verifier::{
-    EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
-};
-use crate::{
-    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
-};
+use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier};
+use crate::{BlockErrorKind, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
-use ckb_types::{
-    constants::HEADER_VERSION,
-    core::{EpochExt, HeaderBuilder, HeaderView},
-    packed::Header,
-    prelude::*,
-    U256,
-};
+use ckb_types::{constants::HEADER_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
 use faketime::unix_time_as_millis;
 use std::sync::Arc;
 
@@ -108,69 +98,6 @@ fn test_number() {
         NumberError {
             expected: 11,
             actual: 10,
-        },
-    );
-}
-
-struct FakeHeaderResolver {
-    header: HeaderView,
-    epoch: EpochExt,
-}
-
-impl FakeHeaderResolver {
-    fn new(header: HeaderView, epoch: EpochExt) -> Self {
-        Self { header, epoch }
-    }
-}
-
-impl HeaderResolver for FakeHeaderResolver {
-    fn header(&self) -> &HeaderView {
-        &self.header
-    }
-
-    fn parent(&self) -> Option<&HeaderView> {
-        unimplemented!();
-    }
-
-    fn epoch(&self) -> Option<&EpochExt> {
-        Some(&self.epoch)
-    }
-}
-
-#[test]
-fn test_epoch_number() {
-    let header = HeaderBuilder::default().epoch(2u64.pack()).build();
-    let mut epoch = EpochExt::default();
-    epoch.set_length(1);
-    let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
-
-    assert_error_eq!(
-        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::NumberMismatch {
-            expected: 1_099_511_627_776,
-            actual: 1_099_511_627_778,
-        },
-    )
-}
-
-#[test]
-fn test_epoch_difficulty() {
-    let mut epoch = EpochExt::default();
-    epoch.set_difficulty(U256::from(1u64));
-    epoch.set_length(1);
-
-    let header = HeaderBuilder::default()
-        .epoch(epoch.number_with_fraction(0).pack())
-        .difficulty(U256::from(2u64).pack())
-        .build();
-
-    let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
-
-    assert_error_eq!(
-        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::DifficultyMismatch {
-            expected: U256::from(1u64).pack(),
-            actual: U256::from(2u64).pack(),
         },
     );
 }

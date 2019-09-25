@@ -1,6 +1,9 @@
-use super::super::contextual_block_verifier::{CommitVerifier, VerifyContext};
+use super::super::contextual_block_verifier::{TwoPhaseCommitVerifier, VerifyContext};
 use crate::CommitError;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{
+    chain::{ChainController, ChainService},
+    switch::Switch,
+};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -165,7 +168,7 @@ fn test_proposal() {
         .collect();
     let block = gen_block(&parent, vec![], proposal_ids, vec![]);
     chain_controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     parent = block.header().to_owned();
 
@@ -175,14 +178,16 @@ fn test_proposal() {
     for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         assert_error_eq!(
-            CommitVerifier::new(&context, &block).verify().unwrap_err(),
+            TwoPhaseCommitVerifier::new(&context, &block)
+                .verify()
+                .unwrap_err(),
             CommitError::Invalid,
         );
 
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -190,20 +195,20 @@ fn test_proposal() {
     //commit in proposal window
     for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(&context, &block);
+        let verifier = TwoPhaseCommitVerifier::new(&context, &block);
         assert!(verifier.verify().is_ok());
 
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
 
     //proposal expired
     let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-    let verifier = CommitVerifier::new(&context, &block);
+    let verifier = TwoPhaseCommitVerifier::new(&context, &block);
     assert!(verifier.verify().is_ok());
 }
 
@@ -244,7 +249,7 @@ fn test_uncle_proposal() {
     let uncle = gen_block(&parent, vec![], proposal_ids, vec![]);
     let block = gen_block(&parent, vec![], vec![], vec![uncle.as_uncle()]);
     chain_controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     parent = block.header().to_owned();
 
@@ -253,13 +258,13 @@ fn test_uncle_proposal() {
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(&context, &block);
+        let verifier = TwoPhaseCommitVerifier::new(&context, &block);
         assert_error_eq!(verifier.verify().unwrap_err(), CommitError::Invalid);
 
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -267,19 +272,19 @@ fn test_uncle_proposal() {
     //commit in proposal window
     for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = CommitVerifier::new(&context, &block);
+        let verifier = TwoPhaseCommitVerifier::new(&context, &block);
         assert!(verifier.verify().is_ok());
 
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
 
     //proposal expired
     let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-    let verifier = CommitVerifier::new(&context, &block);
+    let verifier = TwoPhaseCommitVerifier::new(&context, &block);
     assert!(verifier.verify().is_ok());
 }

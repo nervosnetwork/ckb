@@ -1,5 +1,5 @@
 use crate::{Relayer, SyncSharedState};
-use ckb_chain::chain::ChainService;
+use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
@@ -146,7 +146,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .transaction(cellbase)
             .build();
         chain_controller
-            .process_block(Arc::new(block), false)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 

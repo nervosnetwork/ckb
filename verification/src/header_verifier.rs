@@ -1,16 +1,12 @@
 use super::Verifier;
 use crate::{
-    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, UnknownParentError,
+    BlockErrorKind, NumberError, PowError, TimestampError, UnknownParentError,
     ALLOWED_FUTURE_BLOCKTIME,
 };
 use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_types::prelude::*;
-use ckb_types::{
-    constants::HEADER_VERSION,
-    core::{EpochExt, HeaderView},
-};
+use ckb_types::{constants::HEADER_VERSION, core::HeaderView};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -19,8 +15,6 @@ pub trait HeaderResolver {
     fn header(&self) -> &HeaderView;
     /// resolves parent header
     fn parent(&self) -> Option<&HeaderView>;
-    /// resolves header difficulty
-    fn epoch(&self) -> Option<&EpochExt>;
 }
 
 pub struct HeaderVerifier<'a, T, M> {
@@ -51,7 +45,6 @@ impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifi
         })?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(self.block_median_time_context, header).verify()?;
-        EpochVerifier::verify(target)?;
         Ok(())
     }
 }
@@ -131,36 +124,6 @@ impl<'a> NumberVerifier<'a> {
             return Err(NumberError {
                 expected: self.parent.number() + 1,
                 actual: self.header.number(),
-            }
-            .into());
-        }
-        Ok(())
-    }
-}
-
-pub struct EpochVerifier<T> {
-    phantom: PhantomData<T>,
-}
-
-impl<T: HeaderResolver> EpochVerifier<T> {
-    pub fn verify(target: &T) -> Result<(), Error> {
-        let epoch = target.epoch().ok_or_else(|| EpochError::AncestorNotFound)?;
-        let header = target.header();
-        let actual_epoch_with_fraction = header.epoch();
-        let block_number = header.number();
-        let epoch_with_fraction = epoch.number_with_fraction(block_number);
-        if actual_epoch_with_fraction != epoch_with_fraction {
-            return Err(EpochError::NumberMismatch {
-                expected: epoch_with_fraction.full_value(),
-                actual: actual_epoch_with_fraction.full_value(),
-            }
-            .into());
-        }
-        let actual_difficulty = target.header().difficulty();
-        if epoch.difficulty() != &actual_difficulty {
-            return Err(EpochError::DifficultyMismatch {
-                expected: epoch.difficulty().pack(),
-                actual: actual_difficulty.pack(),
             }
             .into());
         }

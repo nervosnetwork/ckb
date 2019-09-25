@@ -1,4 +1,4 @@
-use crate::error::BlockTransactionsError;
+use crate::error::{BlockTransactionsError, EpochError};
 use crate::txs_verify_cache::{FetchCache, UpdateCache};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{
@@ -21,6 +21,7 @@ use ckb_types::{
         HeaderView, TransactionView,
     },
     packed::{Byte32, Script},
+    prelude::*,
 };
 use futures::future::{self, Future};
 use lru_cache::LruCache;
@@ -31,6 +32,15 @@ use tokio::sync::lock::Lock;
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
+}
+
+pub trait Switch {
+    fn disable_epoch(&self) -> bool;
+    fn disable_uncles(&self) -> bool;
+    fn disable_two_phase_commit(&self) -> bool;
+    fn disable_daoheader(&self) -> bool;
+    fn disable_reward(&self) -> bool;
+    fn disable_txs(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
@@ -137,14 +147,14 @@ impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, 
     }
 }
 
-pub struct CommitVerifier<'a, CS> {
+pub struct TwoPhaseCommitVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
     block: &'a BlockView,
 }
 
-impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
     pub fn new(context: &'a VerifyContext<'a, CS>, block: &'a BlockView) -> Self {
-        CommitVerifier { context, block }
+        TwoPhaseCommitVerifier { context, block }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
@@ -440,6 +450,38 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
         .unwrap_or(parent_ext))
 }
 
+pub struct EpochVerifier<'a> {
+    epoch: &'a EpochExt,
+    block: &'a BlockView,
+}
+
+impl<'a> EpochVerifier<'a> {
+    pub fn new(epoch: &'a EpochExt, block: &'a BlockView) -> Self {
+        EpochVerifier { epoch, block }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let header = self.block.header();
+        let actual_epoch_with_fraction = header.epoch();
+        let block_number = header.number();
+        let epoch_with_fraction = self.epoch.number_with_fraction(block_number);
+        if actual_epoch_with_fraction != epoch_with_fraction {
+            Err(EpochError::NumberMismatch {
+                expected: epoch_with_fraction.full_value(),
+                actual: actual_epoch_with_fraction.full_value(),
+            })?;
+        }
+        let actual_difficulty = header.difficulty();
+        if self.epoch.difficulty() != &actual_difficulty {
+            Err(EpochError::DifficultyMismatch {
+                expected: self.epoch.difficulty().pack(),
+                actual: actual_difficulty.pack(),
+            })?;
+        }
+        Ok(())
+    }
+}
+
 pub struct ContextualBlockVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
@@ -449,12 +491,13 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         ContextualBlockVerifier { context }
     }
 
-    pub fn verify(
+    pub fn verify<SW: Switch>(
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         executor: &Executor,
+        switch: SW,
     ) -> Result<(Cycle, Vec<Capacity>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
@@ -471,21 +514,41 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             prepare_epoch_ext(&self.context, &parent)?
         };
 
-        let uncle_verifier_context = UncleVerifierContext::new(&self.context, &epoch_ext);
-        UnclesVerifier::new(uncle_verifier_context, block).verify()?;
+        if !switch.disable_epoch() {
+            EpochVerifier::new(&epoch_ext, block).verify()?;
+        }
 
-        CommitVerifier::new(&self.context, block).verify()?;
-        DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
-        let txs_fees = RewardVerifier::new(&self.context, resolved, &parent).verify()?;
+        if !switch.disable_uncles() {
+            let uncle_verifier_context = UncleVerifierContext::new(&self.context, &epoch_ext);
+            UnclesVerifier::new(uncle_verifier_context, block).verify()?;
+        }
 
-        let cycles = BlockTxsVerifier::new(
-            &self.context,
-            block.number(),
-            block.epoch(),
-            parent_hash,
-            resolved,
-        )
-        .verify(txs_verify_cache, executor)?;
+        if !switch.disable_two_phase_commit() {
+            TwoPhaseCommitVerifier::new(&self.context, block).verify()?;
+        }
+
+        if !switch.disable_daoheader() {
+            DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
+        }
+
+        let txs_fees = if !switch.disable_reward() {
+            RewardVerifier::new(&self.context, resolved, &parent).verify()?
+        } else {
+            vec![]
+        };
+
+        let cycles = if !switch.disable_txs() {
+            BlockTxsVerifier::new(
+                &self.context,
+                block.number(),
+                block.epoch(),
+                parent_hash,
+                resolved,
+            )
+            .verify(txs_verify_cache, executor)?
+        } else {
+            0
+        };
 
         Ok((cycles, txs_fees))
     }

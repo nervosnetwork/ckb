@@ -4,7 +4,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockView, EpochExt, HeaderView},
+    core::{BlockView, HeaderView},
     packed::{CellInput, Script},
 };
 use std::collections::HashSet;
@@ -161,45 +161,19 @@ impl MerkleRootVerifier {
 pub struct HeaderResolverWrapper<'a> {
     header: &'a HeaderView,
     parent: Option<HeaderView>,
-    epoch: Option<EpochExt>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CS>(header: &'a HeaderView, store: &'a CS, consensus: &'a Consensus) -> Self
+    pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
     where
         CS: ChainStore<'a>,
     {
         let parent = store.get_block_header(&header.data().raw().parent_hash());
-        let epoch = parent
-            .as_ref()
-            .and_then(|parent| {
-                store
-                    .get_block_epoch(&parent.hash())
-                    .map(|ext| (parent, ext))
-            })
-            .map(|(parent, last_epoch)| {
-                store
-                    .next_epoch_ext(consensus, &last_epoch, &parent)
-                    .unwrap_or(last_epoch)
-            });
-
-        HeaderResolverWrapper {
-            parent,
-            header,
-            epoch,
-        }
+        HeaderResolverWrapper { parent, header }
     }
 
-    pub fn build(
-        header: &'a HeaderView,
-        parent: Option<HeaderView>,
-        epoch: Option<EpochExt>,
-    ) -> Self {
-        HeaderResolverWrapper {
-            parent,
-            header,
-            epoch,
-        }
+    pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
+        HeaderResolverWrapper { parent, header }
     }
 }
 
@@ -210,10 +184,6 @@ impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
 
     fn parent(&self) -> Option<&HeaderView> {
         self.parent.as_ref()
-    }
-
-    fn epoch(&self) -> Option<&EpochExt> {
-        self.epoch.as_ref()
     }
 }
 

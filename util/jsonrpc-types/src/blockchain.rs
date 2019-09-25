@@ -398,7 +398,6 @@ pub struct Header {
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
-    pub uncles_count: Uint32,
     pub dao: Byte32,
     pub nonce: Uint64,
 }
@@ -413,7 +412,6 @@ pub struct HeaderView {
 impl From<packed::Header> for Header {
     fn from(input: packed::Header) -> Self {
         let raw = input.raw();
-        let uncles_count: u32 = raw.uncles_count().unpack();
         Self {
             version: raw.version().unpack(),
             parent_hash: raw.parent_hash().unpack(),
@@ -424,7 +422,6 @@ impl From<packed::Header> for Header {
             proposals_hash: raw.proposals_hash().unpack(),
             difficulty: raw.difficulty().unpack(),
             uncles_hash: raw.uncles_hash().unpack(),
-            uncles_count: uncles_count.into(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
         }
@@ -459,7 +456,6 @@ impl From<Header> for packed::Header {
             proposals_hash,
             difficulty,
             uncles_hash,
-            uncles_count,
             dao,
             nonce,
         } = json;
@@ -473,7 +469,6 @@ impl From<Header> for packed::Header {
             .proposals_hash(proposals_hash.pack())
             .difficulty(difficulty.pack())
             .uncles_hash(uncles_hash.pack())
-            .uncles_count(uncles_count.value().pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()

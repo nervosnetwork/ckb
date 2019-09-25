@@ -14,7 +14,7 @@ mod uncles_verifier;
 mod tests;
 
 pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper};
-pub use crate::contextual_block_verifier::{ContextualBlockVerifier, VerifyContext};
+pub use crate::contextual_block_verifier::{ContextualBlockVerifier, Switch, VerifyContext};
 pub use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, CellbaseError, CommitError, EpochError,
     HeaderError, HeaderErrorKind, InvalidParentError, NumberError, PowError, TimestampError,

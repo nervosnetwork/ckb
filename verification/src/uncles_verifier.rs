@@ -42,15 +42,7 @@ where
     // -  uncle not in main chain
     // -  uncle duplicate
     pub fn verify(&self) -> Result<(), Error> {
-        // verify uncles_count
         let uncles_count = self.block.data().uncles().len() as u32;
-        if uncles_count != self.block.uncles_count() {
-            return Err(UnclesError::MissMatchCount {
-                expected: self.block.uncles_count(),
-                actual: uncles_count,
-            }
-            .into());
-        }
 
         // verify uncles_hash
         let actual_uncles_hash = self.block.calc_uncles_hash();

@@ -134,9 +134,6 @@ pub enum UnclesError {
     #[fail(display = "OverCount(max: {}, actual: {})", max, actual)]
     OverCount { max: u32, actual: u32 },
 
-    #[fail(display = "MissMatchCount(expected: {}, actual: {})", expected, actual)]
-    MissMatchCount { expected: u32, actual: u32 },
-
     #[fail(
         display = "InvalidDepth(min: {}, max: {}, actual: {})",
         min, max, actual

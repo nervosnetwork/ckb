@@ -2,18 +2,19 @@ use super::super::block_verifier::{
     BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier, DuplicateVerifier,
     MerkleRootVerifier,
 };
-use crate::{BlockErrorKind, CellbaseError};
+use super::super::contextual_block_verifier::EpochVerifier;
+use crate::{BlockErrorKind, CellbaseError, EpochError};
 use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, HeaderBuilder, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochExt, HeaderBuilder,
+        TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
-    H256,
+    H256, U256,
 };
 
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> TransactionView {
@@ -379,4 +380,39 @@ pub fn test_max_proposals_limit_verifier() {
             BlockErrorKind::ExceededMaximumProposalsLimit,
         );
     }
+}
+
+#[test]
+fn test_epoch_number() {
+    let block = BlockBuilder::default().epoch(2u64.pack()).build();
+    let mut epoch = EpochExt::default();
+    epoch.set_length(1);
+
+    assert_error_eq!(
+        EpochVerifier::new(&epoch, &block).verify().unwrap_err(),
+        EpochError::NumberMismatch {
+            expected: 1_099_511_627_776,
+            actual: 1_099_511_627_778,
+        },
+    )
+}
+
+#[test]
+fn test_epoch_difficulty() {
+    let mut epoch = EpochExt::default();
+    epoch.set_difficulty(U256::from(1u64));
+    epoch.set_length(1);
+
+    let block = BlockBuilder::default()
+        .epoch(epoch.number_with_fraction(0).pack())
+        .difficulty(U256::from(2u64).pack())
+        .build();
+
+    assert_error_eq!(
+        EpochVerifier::new(&epoch, &block).verify().unwrap_err(),
+        EpochError::DifficultyMismatch {
+            expected: U256::from(1u64).pack(),
+            actual: U256::from(2u64).pack(),
+        },
+    );
 }

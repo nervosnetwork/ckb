@@ -1,7 +1,10 @@
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
 use crate::UnclesError;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{
+    chain::{ChainController, ChainService},
+    switch::Switch,
+};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -86,7 +89,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             .unwrap_or(parent_epoch);
         let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header();
@@ -107,7 +110,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             chain1[(i - 1) as usize].clone()
         };
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header();
@@ -130,33 +133,6 @@ fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
 }
 
 #[test]
-fn test_uncle_count() {
-    let (shared, chain1, chain2) = prepare();
-    let dummy_context = dummy_context(&shared);
-
-    // header has 0 uncle, but body has 1 uncle
-    let block = chain1
-        .last()
-        .cloned()
-        .unwrap()
-        .as_advanced_builder()
-        .uncle(chain2.last().cloned().unwrap().as_uncle())
-        .build_unchecked();
-
-    let epoch = epoch(&shared, &chain1, chain1.len() - 2);
-    let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
-    let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        UnclesError::MissMatchCount {
-            expected: 0,
-            actual: 1,
-        },
-    );
-}
-
-#[test]
 fn test_invalid_uncle_hash_case1() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
@@ -168,7 +144,6 @@ fn test_invalid_uncle_hash_case1() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .uncles_count(1u32.pack())
         .uncle(chain2.last().cloned().unwrap().as_uncle())
         .build_unchecked();
 
@@ -198,7 +173,6 @@ fn test_invalid_uncle_hash_case2() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .uncles_count(0u32.pack())
         .uncles_hash(uncles_hash.clone())
         .build_unchecked();
 
@@ -578,7 +552,7 @@ fn test_uncle_with_uncle_descendant() {
 
     for block in &chain2 {
         controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
 
@@ -591,7 +565,7 @@ fn test_uncle_with_uncle_descendant() {
         .build();
 
     controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .expect("process block ok");
 
     {

@@ -28,7 +28,6 @@ pub struct HeaderBuilder {
     pub(crate) proposals_hash: packed::Byte32,
     pub(crate) difficulty: packed::Uint256,
     pub(crate) uncles_hash: packed::Byte32,
-    pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
     // Nonce
@@ -73,7 +72,6 @@ impl ::std::default::Default for HeaderBuilder {
             proposals_hash: Default::default(),
             difficulty: U256::one().pack(),
             uncles_hash: Default::default(),
-            uncles_count: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
             nonce: Default::default(),
@@ -202,7 +200,6 @@ impl HeaderBuilder {
     def_setter_simple!(proposals_hash, Byte32);
     def_setter_simple!(difficulty, Uint256);
     def_setter_simple!(uncles_hash, Byte32);
-    def_setter_simple!(uncles_count, Uint32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
     def_setter_simple!(nonce, Uint64);
@@ -217,7 +214,6 @@ impl HeaderBuilder {
             proposals_hash,
             difficulty,
             uncles_hash,
-            uncles_count,
             epoch,
             dao,
             nonce,
@@ -235,7 +231,6 @@ impl HeaderBuilder {
             .proposals_hash(proposals_hash)
             .difficulty(difficulty)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count)
             .epoch(epoch)
             .dao(dao)
             .build();
@@ -254,7 +249,6 @@ impl BlockBuilder {
     def_setter_simple!(header, proposals_hash, Byte32);
     def_setter_simple!(header, difficulty, Uint256);
     def_setter_simple!(header, uncles_hash, Byte32);
-    def_setter_simple!(header, uncles_count, Uint32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
     def_setter_simple!(header, nonce, Uint64);
@@ -340,12 +334,10 @@ impl BlockBuilder {
             let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
             let uncles_hash = uncles.calc_uncles_hash();
-            let uncles_count = uncles.len() as u32;
             header
                 .transactions_root(transactions_root)
                 .proposals_hash(proposals_hash)
                 .uncles_hash(uncles_hash)
-                .uncles_count(uncles_count.pack())
                 .build()
         } else {
             header.build()
@@ -403,7 +395,6 @@ impl packed::Header {
             .proposals_hash(self.raw().proposals_hash())
             .difficulty(self.raw().difficulty())
             .uncles_hash(self.raw().uncles_hash())
-            .uncles_count(self.raw().uncles_count())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
             .nonce(self.nonce())

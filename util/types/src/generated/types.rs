@@ -4765,7 +4765,7 @@ impl HeaderVec {
     pub fn as_reader<'r>(&'r self) -> HeaderVecReader<'r> {
         HeaderVecReader::new_unchecked(self.as_slice())
     }
-    pub const ITEM_SIZE: usize = 232;
+    pub const ITEM_SIZE: usize = 228;
     pub fn len(&self) -> usize {
         let le = self.as_slice().as_ptr() as *const u32;
         u32::from_le(unsafe { *le }) as usize
@@ -4781,8 +4781,8 @@ impl HeaderVec {
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> Header {
-        let start = 4 + idx * 232;
-        let end = start + 232;
+        let start = 4 + idx * 228;
+        let end = start + 228;
         Header::new_unchecked(self.0.slice(start, end))
     }
 }
@@ -4806,14 +4806,14 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderVecReader<'r> {
         }
         let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
         let item_count = u32::from_le(ptr[0]) as usize;
-        let expected = 4 + 232 * item_count;
+        let expected = 4 + 228 * item_count;
         if len != expected {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), expected, len);
             Err(err)?;
         }
         for i in 0..item_count {
-            let start = 232 * i;
-            let end = start + 232;
+            let start = 228 * i;
+            let end = start + 228;
             HeaderReader::verify(&slice[start..end], _compatible)?;
         }
         Ok(())
@@ -4821,7 +4821,7 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderVecReader<'r> {
 }
 impl<'r> HeaderVecReader<'r> {
     pub const NAME: &'r str = "HeaderVecReader";
-    pub const ITEM_SIZE: usize = 232;
+    pub const ITEM_SIZE: usize = 228;
     pub fn len(&self) -> usize {
         let le = self.as_slice().as_ptr() as *const u32;
         u32::from_le(unsafe { *le }) as usize
@@ -4837,15 +4837,15 @@ impl<'r> HeaderVecReader<'r> {
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> HeaderReader<'r> {
-        let start = 4 + idx * 232;
-        let end = start + 232;
+        let start = 4 + idx * 228;
+        let end = start + 228;
         HeaderReader::new_unchecked(&self.as_slice()[start..end])
     }
 }
 impl molecule::prelude::Builder for HeaderVecBuilder {
     type Entity = HeaderVec;
     fn expected_length(&self) -> usize {
-        4 + 232 * self.0.len()
+        4 + 228 * self.0.len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.0.len() as u32).to_le_bytes();
@@ -8676,7 +8676,6 @@ impl ::std::fmt::Display for RawHeader {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "version", self.version())?;
-        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
         write!(f, ", {}: {}", "timestamp", self.timestamp())?;
         write!(f, ", {}: {}", "number", self.number())?;
         write!(f, ", {}: {}", "epoch", self.epoch())?;
@@ -8693,7 +8692,6 @@ impl<'r> ::std::fmt::Display for RawHeaderReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "version", self.version())?;
-        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
         write!(f, ", {}: {}", "timestamp", self.timestamp())?;
         write!(f, ", {}: {}", "number", self.number())?;
         write!(f, ", {}: {}", "epoch", self.epoch())?;
@@ -8709,7 +8707,6 @@ impl<'r> ::std::fmt::Display for RawHeaderReader<'r> {
 #[derive(Debug, Default)]
 pub struct RawHeaderBuilder {
     pub(crate) version: Uint32,
-    pub(crate) uncles_count: Uint32,
     pub(crate) timestamp: Uint64,
     pub(crate) number: Uint64,
     pub(crate) epoch: Uint64,
@@ -8743,7 +8740,6 @@ impl molecule::prelude::Entity for RawHeader {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .version(self.version())
-            .uncles_count(self.uncles_count())
             .timestamp(self.timestamp())
             .number(self.number())
             .epoch(self.epoch())
@@ -8765,7 +8761,7 @@ impl ::std::default::Default for RawHeader {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         RawHeader::new_unchecked(v.into())
     }
@@ -8775,41 +8771,38 @@ impl RawHeader {
     pub fn as_reader<'r>(&'r self) -> RawHeaderReader<'r> {
         RawHeaderReader::new_unchecked(self.as_slice())
     }
-    pub const TOTAL_SIZE: usize = 224;
-    pub const FIELD_COUNT: usize = 11;
-    pub const FIELDS_SIZE: [usize; 11] = [4, 4, 8, 8, 8, 32, 32, 32, 32, 32, 32];
+    pub const TOTAL_SIZE: usize = 220;
+    pub const FIELD_COUNT: usize = 10;
+    pub const FIELDS_SIZE: [usize; 10] = [4, 8, 8, 8, 32, 32, 32, 32, 32, 32];
     pub fn version(&self) -> Uint32 {
         Uint32::new_unchecked(self.0.slice(0, 4))
     }
-    pub fn uncles_count(&self) -> Uint32 {
-        Uint32::new_unchecked(self.0.slice(4, 8))
-    }
     pub fn timestamp(&self) -> Uint64 {
-        Uint64::new_unchecked(self.0.slice(8, 16))
+        Uint64::new_unchecked(self.0.slice(4, 12))
     }
     pub fn number(&self) -> Uint64 {
-        Uint64::new_unchecked(self.0.slice(16, 24))
+        Uint64::new_unchecked(self.0.slice(12, 20))
     }
     pub fn epoch(&self) -> Uint64 {
-        Uint64::new_unchecked(self.0.slice(24, 32))
+        Uint64::new_unchecked(self.0.slice(20, 28))
     }
     pub fn parent_hash(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(32, 64))
+        Byte32::new_unchecked(self.0.slice(28, 60))
     }
     pub fn transactions_root(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(64, 96))
+        Byte32::new_unchecked(self.0.slice(60, 92))
     }
     pub fn proposals_hash(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(96, 128))
+        Byte32::new_unchecked(self.0.slice(92, 124))
     }
     pub fn difficulty(&self) -> Uint256 {
-        Uint256::new_unchecked(self.0.slice(128, 160))
+        Uint256::new_unchecked(self.0.slice(124, 156))
     }
     pub fn uncles_hash(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(160, 192))
+        Byte32::new_unchecked(self.0.slice(156, 188))
     }
     pub fn dao(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(192, 224))
+        Byte32::new_unchecked(self.0.slice(188, 220))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for RawHeaderReader<'r> {
@@ -8825,71 +8818,66 @@ impl<'r> molecule::prelude::Reader<'r> for RawHeaderReader<'r> {
     }
     fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        if slice.len() != 224 {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 224, slice.len());
+        if slice.len() != 220 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 220, slice.len());
             Err(err)?;
         }
         Uint32Reader::verify(&slice[0..4], _compatible)?;
-        Uint32Reader::verify(&slice[4..8], _compatible)?;
-        Uint64Reader::verify(&slice[8..16], _compatible)?;
-        Uint64Reader::verify(&slice[16..24], _compatible)?;
-        Uint64Reader::verify(&slice[24..32], _compatible)?;
-        Byte32Reader::verify(&slice[32..64], _compatible)?;
-        Byte32Reader::verify(&slice[64..96], _compatible)?;
-        Byte32Reader::verify(&slice[96..128], _compatible)?;
-        Uint256Reader::verify(&slice[128..160], _compatible)?;
-        Byte32Reader::verify(&slice[160..192], _compatible)?;
-        Byte32Reader::verify(&slice[192..224], _compatible)?;
+        Uint64Reader::verify(&slice[4..12], _compatible)?;
+        Uint64Reader::verify(&slice[12..20], _compatible)?;
+        Uint64Reader::verify(&slice[20..28], _compatible)?;
+        Byte32Reader::verify(&slice[28..60], _compatible)?;
+        Byte32Reader::verify(&slice[60..92], _compatible)?;
+        Byte32Reader::verify(&slice[92..124], _compatible)?;
+        Uint256Reader::verify(&slice[124..156], _compatible)?;
+        Byte32Reader::verify(&slice[156..188], _compatible)?;
+        Byte32Reader::verify(&slice[188..220], _compatible)?;
         Ok(())
     }
 }
 impl<'r> RawHeaderReader<'r> {
     pub const NAME: &'r str = "RawHeaderReader";
-    pub const TOTAL_SIZE: usize = 224;
-    pub const FIELD_COUNT: usize = 11;
-    pub const FIELDS_SIZE: [usize; 11] = [4, 4, 8, 8, 8, 32, 32, 32, 32, 32, 32];
+    pub const TOTAL_SIZE: usize = 220;
+    pub const FIELD_COUNT: usize = 10;
+    pub const FIELDS_SIZE: [usize; 10] = [4, 8, 8, 8, 32, 32, 32, 32, 32, 32];
     pub fn version(&self) -> Uint32Reader<'r> {
         Uint32Reader::new_unchecked(&self.as_slice()[0..4])
     }
-    pub fn uncles_count(&self) -> Uint32Reader<'r> {
-        Uint32Reader::new_unchecked(&self.as_slice()[4..8])
-    }
     pub fn timestamp(&self) -> Uint64Reader<'r> {
-        Uint64Reader::new_unchecked(&self.as_slice()[8..16])
+        Uint64Reader::new_unchecked(&self.as_slice()[4..12])
     }
     pub fn number(&self) -> Uint64Reader<'r> {
-        Uint64Reader::new_unchecked(&self.as_slice()[16..24])
+        Uint64Reader::new_unchecked(&self.as_slice()[12..20])
     }
     pub fn epoch(&self) -> Uint64Reader<'r> {
-        Uint64Reader::new_unchecked(&self.as_slice()[24..32])
+        Uint64Reader::new_unchecked(&self.as_slice()[20..28])
     }
     pub fn parent_hash(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[32..64])
+        Byte32Reader::new_unchecked(&self.as_slice()[28..60])
     }
     pub fn transactions_root(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[64..96])
+        Byte32Reader::new_unchecked(&self.as_slice()[60..92])
     }
     pub fn proposals_hash(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[96..128])
+        Byte32Reader::new_unchecked(&self.as_slice()[92..124])
     }
     pub fn difficulty(&self) -> Uint256Reader<'r> {
-        Uint256Reader::new_unchecked(&self.as_slice()[128..160])
+        Uint256Reader::new_unchecked(&self.as_slice()[124..156])
     }
     pub fn uncles_hash(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[160..192])
+        Byte32Reader::new_unchecked(&self.as_slice()[156..188])
     }
     pub fn dao(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[192..224])
+        Byte32Reader::new_unchecked(&self.as_slice()[188..220])
     }
 }
 impl molecule::prelude::Builder for RawHeaderBuilder {
     type Entity = RawHeader;
     fn expected_length(&self) -> usize {
-        224
+        220
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         writer.write_all(self.version.as_slice())?;
-        writer.write_all(self.uncles_count.as_slice())?;
         writer.write_all(self.timestamp.as_slice())?;
         writer.write_all(self.number.as_slice())?;
         writer.write_all(self.epoch.as_slice())?;
@@ -8911,10 +8899,6 @@ impl RawHeaderBuilder {
     pub const NAME: &'static str = "RawHeaderBuilder";
     pub fn version(mut self, v: Uint32) -> Self {
         self.version = v;
-        self
-    }
-    pub fn uncles_count(mut self, v: Uint32) -> Self {
-        self.uncles_count = v;
         self
     }
     pub fn timestamp(mut self, v: Uint64) -> Self {
@@ -9033,7 +9017,7 @@ impl ::std::default::Default for Header {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         Header::new_unchecked(v.into())
     }
@@ -9043,14 +9027,14 @@ impl Header {
     pub fn as_reader<'r>(&'r self) -> HeaderReader<'r> {
         HeaderReader::new_unchecked(self.as_slice())
     }
-    pub const TOTAL_SIZE: usize = 232;
+    pub const TOTAL_SIZE: usize = 228;
     pub const FIELD_COUNT: usize = 2;
-    pub const FIELDS_SIZE: [usize; 2] = [224, 8];
+    pub const FIELDS_SIZE: [usize; 2] = [220, 8];
     pub fn raw(&self) -> RawHeader {
-        RawHeader::new_unchecked(self.0.slice(0, 224))
+        RawHeader::new_unchecked(self.0.slice(0, 220))
     }
     pub fn nonce(&self) -> Uint64 {
-        Uint64::new_unchecked(self.0.slice(224, 232))
+        Uint64::new_unchecked(self.0.slice(220, 228))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for HeaderReader<'r> {
@@ -9066,31 +9050,31 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderReader<'r> {
     }
     fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        if slice.len() != 232 {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 232, slice.len());
+        if slice.len() != 228 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 228, slice.len());
             Err(err)?;
         }
-        RawHeaderReader::verify(&slice[0..224], _compatible)?;
-        Uint64Reader::verify(&slice[224..232], _compatible)?;
+        RawHeaderReader::verify(&slice[0..220], _compatible)?;
+        Uint64Reader::verify(&slice[220..228], _compatible)?;
         Ok(())
     }
 }
 impl<'r> HeaderReader<'r> {
     pub const NAME: &'r str = "HeaderReader";
-    pub const TOTAL_SIZE: usize = 232;
+    pub const TOTAL_SIZE: usize = 228;
     pub const FIELD_COUNT: usize = 2;
-    pub const FIELDS_SIZE: [usize; 2] = [224, 8];
+    pub const FIELDS_SIZE: [usize; 2] = [220, 8];
     pub fn raw(&self) -> RawHeaderReader<'r> {
-        RawHeaderReader::new_unchecked(&self.as_slice()[0..224])
+        RawHeaderReader::new_unchecked(&self.as_slice()[0..220])
     }
     pub fn nonce(&self) -> Uint64Reader<'r> {
-        Uint64Reader::new_unchecked(&self.as_slice()[224..232])
+        Uint64Reader::new_unchecked(&self.as_slice()[220..228])
     }
 }
 impl molecule::prelude::Builder for HeaderBuilder {
     type Entity = Header;
     fn expected_length(&self) -> usize {
-        232
+        228
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         writer.write_all(self.raw.as_slice())?;
@@ -9170,7 +9154,7 @@ pub struct UncleBlockBuilder {
 impl ::std::default::Default for UncleBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            248, 0, 0, 0, 12, 0, 0, 0, 244, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            244, 0, 0, 0, 12, 0, 0, 0, 240, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9178,7 +9162,7 @@ impl ::std::default::Default for UncleBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         UncleBlock::new_unchecked(v.into())
     }
@@ -9461,7 +9445,7 @@ pub struct BlockBuilder {
 impl ::std::default::Default for Block {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            8, 1, 0, 0, 20, 0, 0, 0, 252, 0, 0, 0, 0, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            4, 1, 0, 0, 20, 0, 0, 0, 248, 0, 0, 0, 252, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9469,8 +9453,8 @@ impl ::std::default::Default for Block {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
-            0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+            0,
         ];
         Block::new_unchecked(v.into())
     }
@@ -9799,7 +9783,7 @@ pub struct HeaderViewBuilder {
 impl ::std::default::Default for HeaderView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            20, 1, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            16, 1, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9808,7 +9792,7 @@ impl ::std::default::Default for HeaderView {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         HeaderView::new_unchecked(v.into())
     }
@@ -14158,7 +14142,7 @@ pub struct CompactBlockBuilder {
 impl ::std::default::Default for CompactBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            16, 1, 0, 0, 24, 0, 0, 0, 0, 1, 0, 0, 4, 1, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 0, 0, 0, 0,
+            12, 1, 0, 0, 24, 0, 0, 0, 252, 0, 0, 0, 0, 1, 0, 0, 4, 1, 0, 0, 8, 1, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14166,8 +14150,8 @@ impl ::std::default::Default for CompactBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
         ];
         CompactBlock::new_unchecked(v.into())
     }
@@ -18926,7 +18910,7 @@ pub struct SendBlockBuilder {
 impl ::std::default::Default for SendBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            16, 1, 0, 0, 8, 0, 0, 0, 8, 1, 0, 0, 20, 0, 0, 0, 252, 0, 0, 0, 0, 1, 0, 0, 4, 1, 0, 0,
+            12, 1, 0, 0, 8, 0, 0, 0, 4, 1, 0, 0, 20, 0, 0, 0, 248, 0, 0, 0, 252, 0, 0, 0, 0, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -18934,8 +18918,8 @@ impl ::std::default::Default for SendBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
+            0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendBlock::new_unchecked(v.into())
     }
@@ -19943,7 +19927,7 @@ pub struct FilteredBlockBuilder {
 impl ::std::default::Default for FilteredBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            16, 1, 0, 0, 16, 0, 0, 0, 248, 0, 0, 0, 252, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            12, 1, 0, 0, 16, 0, 0, 0, 244, 0, 0, 0, 248, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -19951,8 +19935,8 @@ impl ::std::default::Default for FilteredBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0, 0, 0, 12, 0,
-            0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0, 0, 0, 12, 0, 0, 0, 16, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         FilteredBlock::new_unchecked(v.into())
     }

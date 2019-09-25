@@ -82,7 +82,7 @@ impl MinerRpc for MinerRpcImpl {
 
         // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
-        let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
+        let resolver = HeaderResolverWrapper::new(&header, snapshot);
         HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()))
             .verify(&resolver)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
@@ -90,7 +90,7 @@ impl MinerRpc for MinerRpcImpl {
         // Verify and insert block
         let is_new = self
             .chain
-            .process_block(Arc::clone(&block), true)
+            .process_block(Arc::clone(&block))
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Announce only new block

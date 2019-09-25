@@ -424,6 +424,7 @@ version = "0.22.0-pre"
 name = "ckb-chain"
 version = "0.22.0-pre"
 dependencies = [
+ "bitflags 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain-spec 0.22.0-pre",
  "ckb-dao 0.22.0-pre",
  "ckb-dao-utils 0.22.0-pre",

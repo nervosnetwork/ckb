@@ -80,7 +80,6 @@ table Transaction {
 
 struct RawHeader {
     version:                Uint32,
-    uncles_count:           Uint32,
     timestamp:              Uint64,
     number:                 Uint64,
     epoch:                  Uint64,

@@ -1,3 +1,4 @@
+use crate::switch::Switch;
 use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
@@ -23,11 +24,11 @@ fn test_dead_cell_in_same_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -38,31 +39,31 @@ fn test_dead_cell_in_same_block() {
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
 
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     )
@@ -79,11 +80,11 @@ fn test_dead_cell_in_different_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(100u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     let last_cell_base = &chain2.tip().transactions()[0];
@@ -93,31 +94,31 @@ fn test_dead_cell_in_different_block() {
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![3]);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, false);
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     );
@@ -134,11 +135,11 @@ fn test_invalid_out_point_index_in_same_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -150,30 +151,30 @@ fn test_invalid_out_point_index_in_same_block() {
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     )
@@ -190,11 +191,11 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -205,32 +206,32 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, true);
 
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     );
@@ -465,13 +466,13 @@ fn test_full_dead_transaction() {
 
     for block in chain1 {
         chain_controller
-            .process_block(Arc::new(block), true)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2 {
         chain_controller
-            .process_block(Arc::new(block), true)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 }

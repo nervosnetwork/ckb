@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_chain::chain::ChainController;
+use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_jsonrpc_types::{Block, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
@@ -51,7 +51,9 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
-        let ret = self.chain.process_block(Arc::clone(&block), false);
+        let ret = self
+            .chain
+            .internal_process_block(Arc::clone(&block), Switch::DISABLE_ALL);
         if ret.is_ok() {
             Ok(Some(block.hash().unpack()))
         } else {

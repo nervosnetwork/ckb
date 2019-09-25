@@ -149,17 +149,14 @@ fn bench(c: &mut Criterion) {
                         let block = raw_block.as_builder().header(header).build().into_view();
 
                         let header_view = block.header();
-                        let resolver =
-                            HeaderResolverWrapper::new(&header_view, snapshot, shared.consensus());
+                        let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
                         let header_verifier = HeaderVerifier::new(
                             snapshot,
                             Arc::clone(&shared.consensus().pow_engine()),
                         );
                         header_verifier.verify(&resolver).expect("header verified");
 
-                        chain
-                            .process_block(Arc::new(block), true)
-                            .expect("process_block");
+                        chain.process_block(Arc::new(block)).expect("process_block");
                         i -= 1;
                     }
                 },

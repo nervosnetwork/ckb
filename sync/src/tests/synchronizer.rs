@@ -4,7 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{NetworkProtocol, SyncSharedState, Synchronizer};
-use ckb_chain::chain::ChainService;
+use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -154,7 +154,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .build();
 
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block should be OK");
     }
 

@@ -608,7 +608,10 @@ impl IndexerStoreTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_chain::chain::{ChainController, ChainService};
+    use ckb_chain::{
+        chain::{ChainController, ChainService},
+        switch::Switch,
+    };
     use ckb_chain_spec::consensus::Consensus;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
@@ -760,8 +763,12 @@ mod tests {
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
 
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
@@ -798,7 +805,9 @@ mod tests {
             cells[1].cell_output.capacity().unpack()
         );
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
@@ -931,8 +940,12 @@ mod tests {
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
 
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
@@ -951,7 +964,9 @@ mod tests {
         assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
@@ -1097,8 +1112,12 @@ mod tests {
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
 
         store.sync_index_states();
 
@@ -1112,8 +1131,12 @@ mod tests {
         assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
-        chain.process_block(Arc::new(block3), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block3), Switch::DISABLE_ALL)
+            .unwrap();
 
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
@@ -1201,14 +1224,18 @@ mod tests {
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
-        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
@@ -1293,15 +1320,21 @@ mod tests {
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
-        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());

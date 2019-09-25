@@ -152,7 +152,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
         parent = block;
     }
