@@ -1,5 +1,5 @@
 use crate::{
-    multiaddr::Multiaddr,
+    multiaddr::{self, Multiaddr},
     peer_store::{types::MultiaddrExt, PeerStore, Status, ADDR_COUNT_LIMIT},
     Behaviour, PeerId, SessionType,
 };
@@ -181,6 +181,22 @@ fn test_get_random_restrict_addrs_from_same_ip() {
         .add_connected_peer(peer_id2, addr2, SessionType::Outbound)
         .unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
+}
+
+#[test]
+fn test_trim_p2p_phase() {
+    let mut peer_store: PeerStore = Default::default();
+    let peer_id = PeerId::random();
+    let addr = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", peer_id.to_base58())
+        .parse::<Multiaddr>()
+        .unwrap();
+    peer_store.add_addr(peer_id, addr).unwrap();
+    let addr = peer_store.fetch_addrs_to_attempt(1).remove(0);
+    let has_p2p_phase = addr.addr.into_iter().find(|proto| match proto {
+        multiaddr::Protocol::P2p(_) => true,
+        _ => false,
+    });
+    assert!(has_p2p_phase.is_none());
 }
 
 #[test]

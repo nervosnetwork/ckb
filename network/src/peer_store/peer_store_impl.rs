@@ -74,7 +74,7 @@ impl PeerStore {
         self.addr_manager.add(AddrInfo::new(
             peer_id,
             addr.extract_ip_addr()?,
-            addr,
+            addr.exclude_p2p(),
             0,
             score,
         ));
