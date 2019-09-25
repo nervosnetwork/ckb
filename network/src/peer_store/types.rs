@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use ipnetwork::IpNetwork;
-use p2p::multiaddr::{Multiaddr, Protocol};
+use p2p::multiaddr::{self, multihash::Multihash, Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
@@ -144,6 +144,8 @@ pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
 pub trait MultiaddrExt {
     /// extract IP from multiaddr,
     fn extract_ip_addr(&self) -> Result<IpPort, Error>;
+    fn exclude_p2p(&self) -> Multiaddr;
+    fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error>;
 }
 
 impl MultiaddrExt for Multiaddr {
@@ -162,5 +164,22 @@ impl MultiaddrExt for Multiaddr {
             ip: ip.ok_or(AddrError::MissingIP)?,
             port: port.ok_or(AddrError::MissingPort)?,
         })
+    }
+
+    fn exclude_p2p(&self) -> Multiaddr {
+        self.iter()
+            .filter_map(|proto| match proto {
+                Protocol::P2p(_) => None,
+                value => Some(value),
+            })
+            .collect::<Multiaddr>()
+    }
+
+    fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error> {
+        let mut addr = self.exclude_p2p();
+        let peer_id_hash = Multihash::from_bytes(peer_id.as_bytes().to_vec())
+            .map_err(|_err| AddrError::InvalidPeerId)?;
+        addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+        Ok(addr)
     }
 }
