@@ -656,7 +656,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
+        assert_error_eq!(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
 
     #[test]
@@ -685,7 +685,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq(
+        assert_error_eq!(
             result.unwrap_err(),
             OutPointError::Unknown(vec![op_unknown]),
         );
@@ -741,7 +741,7 @@ mod tests {
             &header_checker,
         );
 
-        assert_error_eq(
+        assert_error_eq!(
             result.unwrap_err(),
             OutPointError::InvalidHeader(invalid_block_hash),
         );
@@ -784,7 +784,7 @@ mod tests {
             let block = generate_block(vec![tx2.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_error_eq(
+            assert_error_eq!(
                 provider.err().unwrap(),
                 OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
@@ -805,7 +805,7 @@ mod tests {
             let block = generate_block(vec![tx3.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_error_eq(
+            assert_error_eq!(
                 provider.err().unwrap(),
                 OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
@@ -888,7 +888,7 @@ mod tests {
             let result2 =
                 resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
-            assert_error_eq(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
+            assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
         }
     }
 }

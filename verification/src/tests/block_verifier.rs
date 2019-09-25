@@ -110,7 +110,7 @@ pub fn test_block_without_cellbase() {
         .transaction(TransactionBuilder::default().build())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
     );
@@ -149,7 +149,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidInput,
     );
@@ -164,7 +164,7 @@ pub fn test_block_with_one_cellbase_at_last() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidPosition,
     );
@@ -177,7 +177,7 @@ pub fn test_cellbase_with_non_empty_output_data() {
         .transaction(create_cellbase_transaction_with_non_empty_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputData,
     );
@@ -190,7 +190,7 @@ pub fn test_cellbase_with_two_output() {
         .transaction(create_cellbase_transaction_with_two_output())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
     )
@@ -203,7 +203,7 @@ pub fn test_cellbase_with_two_output_data() {
         .transaction(create_cellbase_transaction_with_two_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
     )
@@ -219,7 +219,7 @@ pub fn test_block_with_duplicated_txs() {
         .build();
 
     let verifier = DuplicateVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         BlockErrorKind::CommitTransactionDuplicate,
     );
@@ -234,7 +234,7 @@ pub fn test_block_with_duplicated_proposals() {
         .build();
 
     let verifier = DuplicateVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         BlockErrorKind::ProposalTransactionDuplicate,
     );
@@ -252,7 +252,7 @@ pub fn test_transaction_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         BlockErrorKind::CommitTransactionsRoot,
     );
@@ -270,7 +270,7 @@ pub fn test_proposals_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         BlockErrorKind::CommitTransactionsRoot,
     );
@@ -288,7 +288,7 @@ pub fn test_witnesses_root() {
         .build_unchecked();
 
     let verifier = MerkleRootVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         BlockErrorKind::WitnessesMerkleRoot,
     );
@@ -303,7 +303,7 @@ pub fn test_block_with_two_cellbases() {
         .build();
 
     let verifier = CellbaseVerifier::new();
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
     );
@@ -372,7 +372,7 @@ pub fn test_max_block_bytes_verifier() {
         let verifier = BlockBytesVerifier::new(
             block.data().serialized_size_without_uncle_proposals() as u64 - 1,
         );
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(&block).unwrap_err(),
             BlockErrorKind::ExceededMaximumBlockBytes,
         );
@@ -392,7 +392,7 @@ pub fn test_max_proposals_limit_verifier() {
 
     {
         let verifier = BlockProposalsLimitVerifier::new(0);
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(&block).unwrap_err(),
             BlockErrorKind::ExceededMaximumProposalsLimit,
         );

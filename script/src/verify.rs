@@ -598,7 +598,7 @@ mod tests {
         assert!(verifier.verify(100_000_000).is_ok());
 
         // Not enough cycles
-        assert_error_eq(
+        assert_error_eq!(
             verifier
                 .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .unwrap_err(),
@@ -765,7 +765,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::MultipleMatches,
         );
@@ -831,7 +831,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -885,7 +885,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::InvalidCodeHash,
         );
@@ -1045,7 +1045,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -1233,7 +1233,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(500_000).unwrap_err(),
             ScriptError::ExceededMaximumCycles,
         );
@@ -1437,7 +1437,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-3),
         );
@@ -1517,7 +1517,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -1586,7 +1586,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-2),
         );
