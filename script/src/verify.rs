@@ -438,6 +438,8 @@ mod tests {
     use std::io::Read;
     use std::path::Path;
 
+    const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 12;
+
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
     }
@@ -597,7 +599,9 @@ mod tests {
 
         // Not enough cycles
         assert_error_eq(
-            verifier.verify(11).unwrap_err(),
+            verifier
+                .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
+                .unwrap_err(),
             internal_error(VMInternalError::InvalidCycles),
         );
     }
@@ -1106,7 +1110,10 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         // Cycles can tell that both lock and type scripts are executed
-        assert_eq!(verifier.verify(100_000_000).ok(), Some(12 * 2));
+        assert_eq!(
+            verifier.verify(100_000_000).ok(),
+            Some(ALWAYS_SUCCESS_SCRIPT_CYCLE * 2)
+        );
     }
 
     #[test]
