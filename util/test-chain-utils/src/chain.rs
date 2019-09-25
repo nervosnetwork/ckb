@@ -1,5 +1,10 @@
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_chain_spec::{
+    build_genesis_type_id_script, ChainSpec, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+    OUTPUT_INDEX_SECP256K1_DATA,
+};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_resource::Resource;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -9,7 +14,7 @@ use ckb_types::{
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     utilities::difficulty_to_compact,
-    U256,
+    H256, U256,
 };
 use faketime::unix_time_as_millis;
 use lazy_static::lazy_static;
@@ -89,4 +94,43 @@ pub fn always_success_cellbase(
 
         builder.output(output).output_data(data.pack()).build()
     }
+}
+
+fn load_spec_by_name(name: &str) -> ChainSpec {
+    // remove "ckb_" prefix
+    let base_name = &name[4..];
+    let res = Resource::bundled(format!("specs/{}.toml", base_name));
+    ChainSpec::load_from(&res).expect("load spec by name")
+}
+
+pub fn ckb_testnet_consensus() -> Consensus {
+    let name = "ckb_testnet";
+    let spec = load_spec_by_name(name);
+    spec.build_consensus().unwrap()
+}
+
+pub fn type_lock_script_code_hash() -> H256 {
+    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
+        .calc_script_hash()
+        .unpack()
+}
+
+pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Bytes) {
+    let genesis_block = consensus.genesis_block();
+    let tx = genesis_block.transactions()[0].clone();
+    let (cell_output, data) = tx
+        .output_with_data(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL as usize)
+        .unwrap();
+
+    (cell_output, data)
+}
+
+pub fn secp256k1_data_cell(consensus: Consensus) -> (CellOutput, Bytes) {
+    let genesis_block = consensus.genesis_block();
+    let tx = genesis_block.transactions()[0].clone();
+    let (cell_output, data) = tx
+        .output_with_data(OUTPUT_INDEX_SECP256K1_DATA as usize)
+        .unwrap();
+
+    (cell_output, data)
 }

@@ -859,6 +859,7 @@ name = "ckb-script"
 version = "0.23.0-pre"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-chain-spec 0.23.0-pre",
  "ckb-crypto 0.23.0-pre",
  "ckb-db 0.23.0-pre",
  "ckb-error 0.23.0-pre",
@@ -992,6 +993,7 @@ dependencies = [
  "ckb-dao-utils 0.23.0-pre",
  "ckb-db 0.23.0-pre",
  "ckb-error 0.23.0-pre",
+ "ckb-resource 0.23.0-pre",
  "ckb-store 0.23.0-pre",
  "ckb-traits 0.23.0-pre",
  "ckb-types 0.23.0-pre",
