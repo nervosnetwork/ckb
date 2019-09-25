@@ -186,6 +186,7 @@ mod tests {
         },
         packed::{Byte32, CellOutput, OutPoint, Script, ScriptBuilder},
         prelude::*,
+        utilities::DIFF_TWO,
         H256, U256,
     };
     use ckb_vm::machine::DefaultCoreMachine;
@@ -667,7 +668,7 @@ mod tests {
             .last_block_hash_in_previous_epoch(Byte32::default())
             .start_number(1234)
             .length(1000)
-            .difficulty(U256::one())
+            .compact_target(DIFF_TWO)
             .build();
 
         let mut correct_data = [0u8; 8];

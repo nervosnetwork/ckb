@@ -4,7 +4,8 @@ use crate::{
     core::{self, BlockNumber},
     packed,
     prelude::*,
-    utilities::merkle_root,
+    utilities::{compact_to_difficulty, merkle_root},
+    U256,
 };
 
 impl packed::Byte32 {
@@ -97,6 +98,18 @@ impl packed::Transaction {
 
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.calc_tx_hash())
+    }
+}
+
+impl packed::RawHeader {
+    pub fn difficulty(&self) -> U256 {
+        compact_to_difficulty(self.compact_target().unpack())
+    }
+}
+
+impl packed::Header {
+    pub fn difficulty(&self) -> U256 {
+        self.raw().difficulty()
     }
 }
 

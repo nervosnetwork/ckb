@@ -526,6 +526,7 @@ mod tests {
         packed::{
             Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
         },
+        utilities::difficulty_to_compact,
         U256,
     };
     use ckb_util::Mutex;
@@ -601,7 +602,7 @@ mod tests {
             .timestamp(now.pack())
             .epoch(epoch.number_with_fraction(number).pack())
             .number(number.pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .nonce(nonce.pack())
             .dao(dao)
             .build()
@@ -1166,14 +1167,14 @@ mod tests {
 
         let consensus = Consensus::default();
         let block = BlockBuilder::default()
-            .difficulty(U256::from(2u64).pack())
+            .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
             .transaction(consensus.genesis_block().transactions()[0].clone())
             .build();
         let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
         let (chain_controller, shared) = start_chain(Some(consensus));
 
-        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(2u64));
+        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 

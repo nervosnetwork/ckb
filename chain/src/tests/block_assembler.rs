@@ -98,7 +98,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .timestamp((parent_header.timestamp() + 10).pack())
         .number(number.pack())
         .epoch(epoch.number().pack())
-        .difficulty(epoch.difficulty().clone().pack())
+        .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)
         .build();

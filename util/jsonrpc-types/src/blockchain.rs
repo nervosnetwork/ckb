@@ -3,7 +3,7 @@ use crate::{
     BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId,
     Timestamp, Uint32, Uint64, Version,
 };
-use ckb_types::{core, packed, prelude::*, H256, U256};
+use ckb_types::{core, packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
@@ -390,13 +390,13 @@ impl TxStatus {
 #[serde(deny_unknown_fields)]
 pub struct Header {
     pub version: Version,
+    pub compact_target: u32,
     pub parent_hash: H256,
     pub timestamp: Timestamp,
     pub number: BlockNumber,
     pub epoch: EpochNumberWithFraction,
     pub transactions_root: H256,
     pub proposals_hash: H256,
-    pub difficulty: U256,
     pub uncles_hash: H256,
     pub dao: Byte32,
     pub nonce: Uint64,
@@ -420,7 +420,7 @@ impl From<packed::Header> for Header {
             epoch: raw.epoch().unpack(),
             transactions_root: raw.transactions_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
-            difficulty: raw.difficulty().unpack(),
+            compact_target: raw.compact_target().unpack(),
             uncles_hash: raw.uncles_hash().unpack(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
@@ -454,7 +454,7 @@ impl From<Header> for packed::Header {
             epoch,
             transactions_root,
             proposals_hash,
-            difficulty,
+            compact_target,
             uncles_hash,
             dao,
             nonce,
@@ -467,7 +467,7 @@ impl From<Header> for packed::Header {
             .epoch(epoch.pack())
             .transactions_root(transactions_root.pack())
             .proposals_hash(proposals_hash.pack())
-            .difficulty(difficulty.pack())
+            .compact_target(compact_target.pack())
             .uncles_hash(uncles_hash.pack())
             .dao(dao.into())
             .build();
@@ -646,7 +646,7 @@ pub struct EpochView {
     pub number: EpochNumber,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
-    pub difficulty: U256,
+    pub compact_target: u32,
 }
 
 impl EpochView {
@@ -655,7 +655,7 @@ impl EpochView {
             number: ext.number().unpack(),
             start_number: ext.start_number().unpack(),
             length: ext.length().unpack(),
-            difficulty: ext.difficulty().unpack(),
+            compact_target: ext.compact_target().unpack(),
         }
     }
 }

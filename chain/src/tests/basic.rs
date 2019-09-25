@@ -20,6 +20,7 @@ use ckb_types::{
         TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
+    utilities::difficulty_to_compact,
     U256,
 };
 use std::sync::Arc;
@@ -82,7 +83,7 @@ fn test_genesis_transaction_spend() {
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
         .transaction(always_success_tx)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .build();
 
@@ -368,7 +369,7 @@ fn test_genesis_transaction_fetch() {
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .build();
 
     let consensus = ConsensusBuilder::default()
@@ -507,7 +508,7 @@ fn prepare_context_chain(
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .timestamp((parent.timestamp() + timestep).pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
@@ -547,7 +548,7 @@ fn prepare_context_chain(
             .uncles(uncles)
             .number((parent.number() + 1).pack())
             .timestamp((parent.timestamp() + timestep).pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
@@ -571,7 +572,7 @@ fn test_epoch_hash_rate_dampening() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -662,7 +663,7 @@ fn test_orphan_rate_estimation_overflow() {
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -699,10 +700,10 @@ fn test_orphan_rate_estimation_overflow() {
         // max((400 + 150) * 1000 / 798000, 1)  last_epoch_hash_rate 1
         // 14400 * 40 / (41 * 480)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(29u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(29u64)),
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
     }
 }
@@ -715,7 +716,7 @@ fn test_next_epoch_ext() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -764,10 +765,10 @@ fn test_next_epoch_ext() {
         // (51 * 14400) / ((1 + 1/20) * 604)
         // (40 * 51 * 14400) / (41 * 604)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(1186u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(1186u64)),
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
 
         let consensus = shared.consensus();
@@ -820,10 +821,10 @@ fn test_next_epoch_ext() {
         // Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) * C_i+1,m
         // 50 * 14400 * 9587 / ((133 + 9587) * 800)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(887u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(887u64)), // 887
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
     }
 
@@ -855,10 +856,10 @@ fn test_next_epoch_ext() {
         // (400 + 150) * 1000 / 7980  last_epoch_hash_rate 68
         // 1801 * 68 * 14400 / (2200 * 480)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(1670u64),
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(1670u64)),
             "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target()
         );
     }
 }

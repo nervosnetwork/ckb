@@ -14,7 +14,8 @@ use ckb_types::{
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
-    H256, U256,
+    utilities::DIFF_TWO,
+    H256,
 };
 
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> TransactionView {
@@ -400,19 +401,19 @@ fn test_epoch_number() {
 #[test]
 fn test_epoch_difficulty() {
     let mut epoch = EpochExt::default();
-    epoch.set_difficulty(U256::from(1u64));
+    epoch.set_compact_target(DIFF_TWO);
     epoch.set_length(1);
 
     let block = BlockBuilder::default()
         .epoch(epoch.number_with_fraction(0).pack())
-        .difficulty(U256::from(2u64).pack())
+        .compact_target(0x200c_30c3u32.pack())
         .build();
 
     assert_error_eq!(
         EpochVerifier::new(&epoch, &block).verify().unwrap_err(),
-        EpochError::DifficultyMismatch {
-            expected: U256::from(1u64).pack(),
-            actual: U256::from(2u64).pack(),
+        EpochError::TargetMismatch {
+            expected: DIFF_TWO,
+            actual: 0x200c_30c3u32,
         },
     );
 }

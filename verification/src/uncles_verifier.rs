@@ -80,8 +80,8 @@ where
 
         let mut included: HashMap<Byte32, BlockNumber> = HashMap::default();
         for uncle in self.block.uncles().into_iter() {
-            if &uncle.difficulty() != self.provider.epoch().difficulty() {
-                return Err((UnclesError::UnmatchedDifficulty).into());
+            if uncle.compact_target() != self.provider.epoch().compact_target() {
+                return Err(UnclesError::InvalidTarget.into());
             }
 
             if self.provider.epoch().number() != uncle.epoch().number() {

@@ -17,6 +17,7 @@ use ckb_types::{
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
+    utilities::difficulty_to_compact,
     U256,
 };
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -66,7 +67,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)

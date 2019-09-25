@@ -94,7 +94,7 @@ impl Pack<packed::EpochExt> for core::EpochExt {
             .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch().clone())
             .start_number(self.start_number().pack())
             .length(self.length().pack())
-            .difficulty(self.difficulty().pack())
+            .compact_target(self.compact_target().pack())
             .build()
     }
 }
@@ -109,7 +109,7 @@ impl<'r> Unpack<core::EpochExt> for packed::EpochExtReader<'r> {
             last_block_hash_in_previous_epoch: self.last_block_hash_in_previous_epoch().to_entity(),
             start_number: self.start_number().unpack(),
             length: self.length().unpack(),
-            difficulty: self.difficulty().unpack(),
+            compact_target: self.compact_target().unpack(),
         }
     }
 }

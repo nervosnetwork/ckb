@@ -80,7 +80,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .number((parent.header().number() + 1).pack())
         .timestamp((parent.header().timestamp() + 1).pack())
         .epoch(epoch.number_with_fraction(parent_number + 1).pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .transaction(inherit_cellbase(&snapshot, parent_number))
 }

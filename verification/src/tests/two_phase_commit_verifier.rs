@@ -17,7 +17,6 @@ use ckb_types::{
     },
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
-    U256,
 };
 use std::sync::Arc;
 
@@ -30,13 +29,13 @@ fn gen_block(
     let now = 1 + parent_header.timestamp();
     let number = parent_header.number() + 1;
     let nonce = parent_header.nonce() + 1;
-    let difficulty = parent_header.difficulty() + U256::from(1u64);
+    let compact_target = parent_header.compact_target() - 1;
     let cellbase = create_cellbase(number);
     let header = HeaderBuilder::default()
         .parent_hash(parent_header.hash())
         .timestamp(now.pack())
         .number(number.pack())
-        .difficulty(difficulty.pack())
+        .compact_target(compact_target.pack())
         .nonce(nonce.pack())
         .build();
 

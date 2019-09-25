@@ -16,7 +16,6 @@ use ckb_types::{
     },
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
-    U256,
 };
 use faketime;
 use rand::random;
@@ -33,7 +32,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .timestamp(now.pack())
         .epoch(epoch.number_with_fraction(number).pack())
         .number(number.pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .build()
 }
@@ -214,18 +213,18 @@ fn test_double_inclusion() {
     );
 }
 
-// Uncle.difficulty != block.difficulty
+// Uncle.compact_target != block.compact_target
 #[test]
-fn test_invalid_difficulty() {
+fn test_invalid_target() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
     let epoch = epoch(&shared, &chain1, 17);
-    let invalid_difficulty = epoch.difficulty() + U256::one();
+    let invalid_target = epoch.compact_target() + 1;
 
     let uncle = chain2[16]
         .clone()
         .as_advanced_builder()
-        .difficulty(invalid_difficulty.pack())
+        .compact_target(invalid_target.pack())
         .build()
         .as_uncle();
     let block = chain2[18]
@@ -236,10 +235,7 @@ fn test_invalid_difficulty() {
 
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedDifficulty,
-    );
+    assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::InvalidTarget);
 }
 // Uncle.epoch != block.epoch
 #[test]
@@ -253,7 +249,7 @@ fn test_invalid_epoch() {
     let uncle = chain2[uncle_number]
         .clone()
         .as_advanced_builder()
-        .difficulty(chain1[block_number].difficulty().pack())
+        .compact_target(chain1[block_number].compact_target().pack())
         .build()
         .as_uncle();
     let block = chain1[block_number]

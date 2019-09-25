@@ -7,14 +7,14 @@ use ckb_types::{
     },
     packed::{Byte32, CellInput, Script},
     prelude::*,
-    u256, U256,
+    utilities::DIFF_TWO,
 };
 use criterion::{criterion_group, Criterion};
 use faketime::unix_time_as_millis;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 
-const GENESIS_DIFFICULTY: U256 = u256!("0x1000000");
+const GENESIS_TARGET: u32 = 0x2001_0000;
 const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 const MIN_BLOCK_INTERVAL: u64 = 8;
 
@@ -69,7 +69,7 @@ fn gen_empty_block(parent: &HeaderView) -> BlockView {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .uncles(uncles)
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .timestamp((parent.timestamp() + MIN_BLOCK_INTERVAL * 1000).pack())
         .build()
 }
@@ -82,7 +82,7 @@ fn bench(c: &mut Criterion) {
                 || {
                     let now = unix_time_as_millis();
                     let header = HeaderBuilder::default()
-                        .difficulty(GENESIS_DIFFICULTY.pack())
+                        .compact_target(GENESIS_TARGET.pack())
                         .timestamp(now.pack())
                         .build();
 
@@ -94,14 +94,14 @@ fn bench(c: &mut Criterion) {
                         .build();
                     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
                     let genesis_block = BlockBuilder::default()
-                        .difficulty(U256::one().pack())
+                        .compact_target(DIFF_TWO.pack())
                         .dao(dao)
                         .transaction(cellbase)
                         .header(header)
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, &U256::one());
+                    let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO);
                     let consensus = ConsensusBuilder::new(
                         genesis_block.clone(),
                         DEFAULT_EPOCH_REWARD,

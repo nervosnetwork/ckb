@@ -30,7 +30,7 @@ use ckb_types::{
     },
     h256, packed,
     prelude::*,
-    H160, H256, U256,
+    H160, H256,
 };
 pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ pub struct Genesis {
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: u64,
-    pub difficulty: U256,
+    pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
     pub nonce: u64,
@@ -215,7 +215,7 @@ impl ChainSpec {
 
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
         let genesis_epoch_ext =
-            build_genesis_epoch_ext(self.params.epoch_reward, &self.genesis.difficulty);
+            build_genesis_epoch_ext(self.params.epoch_reward, self.genesis.compact_target);
         let genesis_block = self.build_block(&genesis_epoch_ext)?;
         self.verify_genesis_hash(&genesis_block)?;
 
@@ -252,7 +252,7 @@ impl ChainSpec {
             .version(self.genesis.version.pack())
             .parent_hash(self.genesis.parent_hash.pack())
             .timestamp(self.genesis.timestamp.pack())
-            .difficulty(self.genesis.difficulty.pack())
+            .compact_target(self.genesis.compact_target.pack())
             .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
             .nonce(self.genesis.nonce.pack())

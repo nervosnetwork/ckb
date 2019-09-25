@@ -21,6 +21,7 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
     prelude::*,
+    utilities::difficulty_to_compact,
     H160, H256, U256,
 };
 use lazy_static::lazy_static;
@@ -60,7 +61,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
 
     let genesis_block = BlockBuilder::default()
         .dao(dao)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -184,7 +185,7 @@ pub fn gen_always_success_block(
         .parent_hash(p_block.hash())
         .number(number.pack())
         .timestamp(timestamp.pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .epoch(epoch.number_with_fraction(number).pack())
         .nonce(random::<u64>().pack())
         .dao(dao)
@@ -274,7 +275,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -391,7 +392,7 @@ pub fn gen_secp_block(
         .parent_hash(p_block.hash())
         .number(number.pack())
         .timestamp(timestamp.pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .epoch(epoch.number_with_fraction(number).pack())
         .nonce(random::<u64>().pack())
         .dao(dao)

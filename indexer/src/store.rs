@@ -621,6 +621,7 @@ mod tests {
             TransactionBuilder,
         },
         packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
+        utilities::{difficulty_to_compact, DIFF_TWO},
         U256,
     };
     use std::sync::Arc;
@@ -690,7 +691,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -722,7 +723,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -756,7 +757,7 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -867,7 +868,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -899,7 +900,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -933,7 +934,7 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -1029,7 +1030,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1061,7 +1062,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -1093,7 +1094,7 @@ mod tests {
         let block2_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -1105,7 +1106,7 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(21u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(22u64)).pack())
                     .number(3.pack())
                     .parent_hash(block2_fork.header().hash().to_owned())
                     .build(),
@@ -1207,7 +1208,7 @@ mod tests {
             .transaction(tx13)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1217,7 +1218,7 @@ mod tests {
         let block1_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1292,7 +1293,7 @@ mod tests {
             .transaction(tx12)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1303,7 +1304,7 @@ mod tests {
             .transaction(tx21)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.hash())
                     .build(),
@@ -1313,7 +1314,7 @@ mod tests {
         let block1_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),

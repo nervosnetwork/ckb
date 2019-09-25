@@ -21,7 +21,6 @@ use ckb_types::{
         HeaderView, TransactionView,
     },
     packed::{Byte32, Script},
-    prelude::*,
 };
 use futures::future::{self, Future};
 use lru_cache::LruCache;
@@ -466,17 +465,19 @@ impl<'a> EpochVerifier<'a> {
         let block_number = header.number();
         let epoch_with_fraction = self.epoch.number_with_fraction(block_number);
         if actual_epoch_with_fraction != epoch_with_fraction {
-            Err(EpochError::NumberMismatch {
+            return Err(EpochError::NumberMismatch {
                 expected: epoch_with_fraction.full_value(),
                 actual: actual_epoch_with_fraction.full_value(),
-            })?;
+            }
+            .into());
         }
-        let actual_difficulty = header.difficulty();
-        if self.epoch.difficulty() != &actual_difficulty {
-            Err(EpochError::DifficultyMismatch {
-                expected: self.epoch.difficulty().pack(),
-                actual: actual_difficulty.pack(),
-            })?;
+        let actual_compact_target = header.compact_target();
+        if self.epoch.compact_target() != actual_compact_target {
+            return Err(EpochError::TargetMismatch {
+                expected: self.epoch.compact_target(),
+                actual: actual_compact_target,
+            }
+            .into());
         }
         Ok(())
     }

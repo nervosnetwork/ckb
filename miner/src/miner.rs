@@ -7,7 +7,7 @@ use ckb_pow::PowEngine;
 use ckb_types::{
     packed::{Byte32, Header},
     prelude::*,
-    utilities::difficulty_to_target,
+    utilities::compact_to_target,
 };
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -74,7 +74,7 @@ impl Miner {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
                         let pow_hash= work.block.header().calc_pow_hash();
-                        let target = difficulty_to_target(&work.block.header().raw().difficulty().unpack());
+                        let (target, _,) = compact_to_target(work.block.header().raw().compact_target().unpack());
                         self.works.insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
                     },

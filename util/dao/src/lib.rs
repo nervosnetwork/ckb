@@ -351,7 +351,9 @@ mod tests {
             capacity_bytes, cell::CellMetaBuilder, BlockBuilder, BlockNumber, EpochExt,
             HeaderBuilder, TransactionBuilder,
         },
-        h256, H256, U256,
+        h256,
+        utilities::DIFF_TWO,
+        H256, U256,
     };
 
     fn new_store() -> ChainDB {
@@ -378,7 +380,7 @@ mod tests {
             .last_block_hash_in_previous_epoch(h256!("0x1").pack())
             .start_number(epoch_start.unwrap_or_else(|| parent.number() - 1000))
             .length(2091)
-            .difficulty(U256::one())
+            .compact_target(DIFF_TWO)
             .build();
         let epoch_hash = h256!("0x123455").pack();
 

@@ -1,5 +1,5 @@
 use ckb_error::Error;
-use ckb_types::packed::{Byte32, Uint256};
+use ckb_types::packed::Byte32;
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -146,8 +146,8 @@ pub enum UnclesError {
     #[fail(display = "InvalidNumber")]
     InvalidNumber,
 
-    #[fail(display = "UnmatchedDifficulty")]
-    UnmatchedDifficulty,
+    #[fail(display = "InvalidTarget")]
+    InvalidTarget,
 
     #[fail(display = "InvalidDifficultyEpoch")]
     InvalidDifficultyEpoch,
@@ -205,10 +205,10 @@ pub struct NumberError {
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
     #[fail(
-        display = "DifficultyMismatch(expected: {}, actual: {})",
+        display = "TargetMismatch(expected: {:x}, actual: {:x})",
         expected, actual
     )]
-    DifficultyMismatch { expected: Uint256, actual: Uint256 },
+    TargetMismatch { expected: u32, actual: u32 },
 
     #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },

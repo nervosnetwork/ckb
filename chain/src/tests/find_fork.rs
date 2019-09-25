@@ -352,7 +352,7 @@ fn repeatedly_switch_fork() {
     let new_block1 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .uncle(uncle)
         .build();
@@ -365,7 +365,7 @@ fn repeatedly_switch_fork() {
     let new_block2 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(2u64.pack())
         .build();
     parent = new_block2.clone();
@@ -375,7 +375,7 @@ fn repeatedly_switch_fork() {
     let new_block3 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(2u64.pack())
         .build();
     chain_service
@@ -387,7 +387,7 @@ fn repeatedly_switch_fork() {
     let new_block4 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .build();
     chain_service
@@ -398,7 +398,7 @@ fn repeatedly_switch_fork() {
     let new_block5 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .build();
     chain_service

@@ -18,7 +18,7 @@ use ckb_types::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
-    U256,
+    utilities::DIFF_TWO,
 };
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ pub(crate) fn gen_block(
         .parent_hash(parent_header.hash().to_owned())
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .epoch(epoch.number_with_fraction(number).pack())
         .dao(dao)
         .transactions(txs)
@@ -149,7 +149,7 @@ fn finalize_reward() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(tx.clone())
-        .difficulty(U256::one().pack())
+        .compact_target(DIFF_TWO.pack())
         .dao(dao)
         .build();
 

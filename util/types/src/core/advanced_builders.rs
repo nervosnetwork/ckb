@@ -1,6 +1,10 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use crate::{constants, core, packed, prelude::*, utilities::merkle_root, U256};
+use crate::{
+    constants, core, packed,
+    prelude::*,
+    utilities::{merkle_root, DIFF_TWO},
+};
 
 /*
  * Definitions
@@ -26,7 +30,7 @@ pub struct HeaderBuilder {
     pub(crate) number: packed::Uint64,
     pub(crate) transactions_root: packed::Byte32,
     pub(crate) proposals_hash: packed::Byte32,
-    pub(crate) difficulty: packed::Uint256,
+    pub(crate) compact_target: packed::Uint32,
     pub(crate) uncles_hash: packed::Byte32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
@@ -70,7 +74,7 @@ impl ::std::default::Default for HeaderBuilder {
             number: Default::default(),
             transactions_root: Default::default(),
             proposals_hash: Default::default(),
-            difficulty: U256::one().pack(),
+            compact_target: DIFF_TWO.pack(),
             uncles_hash: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
@@ -198,7 +202,7 @@ impl HeaderBuilder {
     def_setter_simple!(number, Uint64);
     def_setter_simple!(transactions_root, Byte32);
     def_setter_simple!(proposals_hash, Byte32);
-    def_setter_simple!(difficulty, Uint256);
+    def_setter_simple!(compact_target, Uint32);
     def_setter_simple!(uncles_hash, Byte32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
@@ -212,15 +216,15 @@ impl HeaderBuilder {
             number,
             transactions_root,
             proposals_hash,
-            difficulty,
+            compact_target,
             uncles_hash,
             epoch,
             dao,
             nonce,
         } = self;
         debug_assert!(
-            Unpack::<U256>::unpack(&difficulty) > U256::zero(),
-            "[HeaderBuilder] difficulty should greater than zero"
+            Unpack::<u32>::unpack(&compact_target) > 0,
+            "[HeaderBuilder] compact_target should greater than zero"
         );
         let raw = packed::RawHeader::new_builder()
             .version(version)
@@ -229,7 +233,7 @@ impl HeaderBuilder {
             .number(number)
             .transactions_root(transactions_root)
             .proposals_hash(proposals_hash)
-            .difficulty(difficulty)
+            .compact_target(compact_target)
             .uncles_hash(uncles_hash)
             .epoch(epoch)
             .dao(dao)
@@ -247,7 +251,7 @@ impl BlockBuilder {
     def_setter_simple!(header, number, Uint64);
     def_setter_simple!(header, transactions_root, Byte32);
     def_setter_simple!(header, proposals_hash, Byte32);
-    def_setter_simple!(header, difficulty, Uint256);
+    def_setter_simple!(header, compact_target, Uint32);
     def_setter_simple!(header, uncles_hash, Byte32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
@@ -393,7 +397,7 @@ impl packed::Header {
             .number(self.raw().number())
             .transactions_root(self.raw().transactions_root())
             .proposals_hash(self.raw().proposals_hash())
-            .difficulty(self.raw().difficulty())
+            .compact_target(self.raw().compact_target())
             .uncles_hash(self.raw().uncles_hash())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
