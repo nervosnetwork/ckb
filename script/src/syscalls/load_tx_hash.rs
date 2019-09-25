@@ -1,4 +1,7 @@
-use crate::syscalls::{utils::store_data, LOAD_TX_HASH_SYSCALL_NUMBER, SUCCESS};
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{utils::store_data, LOAD_TX_HASH_SYSCALL_NUMBER, SUCCESS},
+};
 use ckb_types::{packed::Byte32, prelude::*};
 use ckb_vm::{
     registers::{A0, A7},
@@ -27,10 +30,10 @@ impl<Mac: SupportMachine> Syscalls<Mac> for LoadTxHash {
         }
 
         let data = self.tx_hash.as_slice();
-        store_data(machine, data)?;
+        let wrote_size = store_data(machine, data)?;
 
+        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 10)?;
         Ok(true)
     }
 }

@@ -1,4 +1,5 @@
 use crate::{
+    cost_model::transferred_byte_cycles,
     syscalls::{
         utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND,
         LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER, LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND,
@@ -111,7 +112,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             0,
         )?;
 
-        machine.add_cycles(cell.data_bytes * 10)?;
+        machine.add_cycles(transferred_byte_cycles(memory_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
     }
@@ -133,7 +134,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             .0;
 
         let wrote_size = store_data(machine, &data)?;
-        machine.add_cycles(wrote_size * 10)?;
+        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
     }

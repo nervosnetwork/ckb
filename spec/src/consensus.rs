@@ -46,7 +46,7 @@ const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_335_874;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_126_531;
 // bytes of a typical two-in-two-out tx
 const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package

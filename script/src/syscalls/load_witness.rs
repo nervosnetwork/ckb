@@ -1,6 +1,9 @@
-use crate::syscalls::{
-    utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
-    SUCCESS,
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{
+        utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
+        SUCCESS,
+    },
 };
 use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
@@ -54,10 +57,10 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
         }
         let witness = witness.unwrap();
         let data = witness.raw_data();
+        let wrote_size = store_data(machine, &data)?;
 
-        store_data(machine, &data)?;
+        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 10)?;
         Ok(true)
     }
 }

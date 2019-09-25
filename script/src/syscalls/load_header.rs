@@ -1,9 +1,12 @@
-use crate::syscalls::{
-    utils::{store_data, store_u64},
-    HeaderField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-    LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
-};
 use crate::DataLoader;
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{
+        utils::{store_data, store_u64},
+        HeaderField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+        LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
+    },
+};
 use ckb_types::{
     core::{cell::CellMeta, HeaderView},
     packed::Byte32Vec,
@@ -101,8 +104,8 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
         header: &HeaderView,
     ) -> Result<(u8, u64), VMError> {
         let data = header.data().as_bytes();
-        store_data(machine, &data)?;
-        Ok((SUCCESS, data.len() as u64))
+        let wrote_size = store_data(machine, &data)?;
+        Ok((SUCCESS, wrote_size))
     }
 
     fn load_by_field<Mac: SupportMachine>(
@@ -155,7 +158,7 @@ impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<
             self.load_full(machine, &header)?
         };
 
-        machine.add_cycles(len * 10)?;
+        machine.add_cycles(transferred_byte_cycles(len))?;
         machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }
