@@ -45,7 +45,7 @@ impl ChainController {
     pub fn process_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
         Request::call(&self.process_block_sender, (block, need_verify)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
-                .cause("Chain service has gone")
+                .reason("Chain service has gone")
                 .into())
         })
     }

@@ -10,7 +10,7 @@ pub use internal::{InternalError, InternalErrorKind};
 use std::fmt::{self, Display};
 pub use util::assert_error_eq;
 
-#[derive(Fail, Debug, Clone, Copy, Eq, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum ErrorKind {
     OutPoint,
     Transaction,

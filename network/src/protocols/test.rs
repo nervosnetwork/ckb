@@ -163,7 +163,9 @@ fn net_service_start(name: String) -> Node {
     let disc_meta = MetaBuilder::default()
         .id(DISCOVERY_PROTOCOL_ID.into())
         .service_handle(move || {
-            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
+            ProtocolHandle::Both(Box::new(
+                DiscoveryProtocol::new(disc_sender.clone()).global_ip_only(false),
+            ))
         })
         .build();
 
@@ -216,18 +218,11 @@ fn net_service_start(name: String) -> Node {
     let peer_id = network_state.local_peer_id().clone();
 
     let mut listen_addr = p2p_service
-        .listen("/ip4/0.0.0.0/tcp/0".parse().unwrap())
+        .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
         .unwrap();
     listen_addr.push(Protocol::P2p(
         Multihash::from_bytes(peer_id.into_bytes()).expect("Invalid peer id"),
     ));
-
-    // On windows, it must replace `0.0.0.0` to `1270.0.1`
-    #[cfg(windows)]
-    let listen_addr = format!("{}", listen_addr)
-        .replace("0.0.0.0", "127.0.0.1")
-        .parse()
-        .unwrap();
 
     let control = p2p_service.control().clone();
 

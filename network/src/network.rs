@@ -829,7 +829,10 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
+                ProtocolHandle::Both(Box::new(
+                    DiscoveryProtocol::new(disc_sender.clone())
+                        .global_ip_only(!config.discovery_local_address),
+                ))
             })
             .build();
 

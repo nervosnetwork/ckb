@@ -39,6 +39,13 @@ impl DiscoveryProtocol {
             event_sender,
         }
     }
+
+    pub fn global_ip_only(mut self, global_ip_only: bool) -> Self {
+        self.discovery = self
+            .discovery
+            .map(move |protocol| protocol.global_ip_only(global_ip_only));
+        self
+    }
 }
 
 impl ServiceProtocol for DiscoveryProtocol {

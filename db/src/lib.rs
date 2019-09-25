@@ -4,6 +4,7 @@
 //! which provides key-value store interface
 
 use ckb_error::{Error, InternalErrorKind};
+use std::fmt::{Debug, Display};
 use std::result;
 
 pub mod config;
@@ -22,6 +23,6 @@ pub use rocksdb::{DBPinnableSlice, DBVector, Error as DBError};
 pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;
 
-fn internal_error<S: ToString>(cause: S) -> Error {
-    InternalErrorKind::Database.cause(cause).into()
+fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Error {
+    InternalErrorKind::Database.reason(reason).into()
 }
