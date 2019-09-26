@@ -28,7 +28,7 @@ pub fn test_empty() {
     let transaction = TransactionBuilder::default().build();
     let verifier = EmptyVerifier::new(&transaction);
 
-    assert_error_eq(verifier.verify().unwrap_err(), TransactionError::Empty);
+    assert_error_eq!(verifier.verify().unwrap_err(), TransactionError::Empty);
 }
 
 #[test]
@@ -38,7 +38,7 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&transaction);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::MismatchedVersion,
     );
@@ -58,7 +58,7 @@ pub fn test_exceeded_maximum_block_bytes() {
         .build();
     let verifier = SizeVerifier::new(&transaction, 100);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::ExceededMaximumBlockBytes,
     );
@@ -91,7 +91,7 @@ pub fn test_capacity_outofbound() {
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
     let verifier = CapacityVerifier::new(&rtx, Some(dao_type_hash));
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::InsufficientCellCapacity,
     );
@@ -148,12 +148,22 @@ pub fn test_inputs_cellbase_maturity() {
         let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
         let current = current_epoch.to_rational();
         if current < threshold {
-            assert_error_eq(
+            assert_error_eq!(
                 verifier.verify().unwrap_err(),
                 TransactionError::CellbaseImmaturity,
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
             );
         } else {
-            assert!(verifier.verify().is_ok());
+            assert!(
+                verifier.verify().is_ok(),
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
+            );
         }
         {
             let number = current_epoch.number();
@@ -191,7 +201,13 @@ fn test_ignore_genesis_cellbase_maturity() {
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
     while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
         let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
-        assert!(verifier.verify().is_ok());
+        assert!(
+            verifier.verify().is_ok(),
+            "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+            base_epoch,
+            current_epoch,
+            cellbase_maturity
+        );
         {
             let number = current_epoch.number();
             let length = current_epoch.length();
@@ -237,12 +253,22 @@ pub fn test_deps_cellbase_maturity() {
         let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
         let current = current_epoch.to_rational();
         if current < threshold {
-            assert_error_eq(
+            assert_error_eq!(
                 verifier.verify().unwrap_err(),
                 TransactionError::CellbaseImmaturity,
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity,
             );
         } else {
-            assert!(verifier.verify().is_ok());
+            assert!(
+                verifier.verify().is_ok(),
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
+            );
         }
         {
             let number = current_epoch.number();
@@ -298,7 +324,7 @@ pub fn test_capacity_invalid() {
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
     let verifier = CapacityVerifier::new(&rtx, Some(dao_type_hash));
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::OutputsSumOverflow,
     );
@@ -314,7 +340,7 @@ pub fn test_duplicate_deps() {
 
     let verifier = DuplicateDepsVerifier::new(&transaction);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::DuplicateDeps,
     );
@@ -406,7 +432,7 @@ fn test_invalid_since_verify() {
     );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
         TransactionError::InvalidSince,
     );
@@ -444,7 +470,7 @@ fn test_fraction_epoch_since_verify() {
         parent_hash.as_ref().to_owned(),
     )
     .verify();
-    assert_error_eq(result.unwrap_err(), TransactionError::Immature);
+    assert_error_eq!(result.unwrap_err(), TransactionError::Immature);
 
     let result = SinceVerifier::new(
         &rtx,
@@ -467,7 +493,7 @@ pub fn test_absolute_block_number_lock() {
     );
     let median_time_context = MockMedianTime::new(vec![0; 11]);
 
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
         TransactionError::Immature,
     );
@@ -485,7 +511,7 @@ pub fn test_absolute_epoch_number_lock() {
     );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
         TransactionError::Immature,
     );
@@ -503,7 +529,7 @@ pub fn test_relative_timestamp_lock() {
     );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature,
     );
@@ -526,7 +552,7 @@ pub fn test_relative_epoch() {
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
 
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature,
     );
@@ -555,7 +581,7 @@ pub fn test_since_both() {
     let median_time_context =
         MockMedianTime::new(vec![0, 100_000, 1_124_000, 2_000_000, 3_000_000]);
 
-    assert_error_eq(
+    assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature,
     );
@@ -574,7 +600,7 @@ pub fn test_outputs_data_length_mismatch() {
         .build();
     let verifier = OutputsDataVerifier::new(&transaction);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::OutputsDataLengthMismatch,
     );

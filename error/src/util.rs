@@ -1,17 +1,24 @@
-use crate::Error;
-
 /// Compare two errors
 ///
 /// Used for testing only
-pub fn assert_error_eq<L, R>(l: L, r: R)
-where
-    L: Into<Error>,
-    R: Into<Error>,
-{
-    assert_eq!(
-        Into::<Error>::into(l).to_string(),
-        Into::<Error>::into(r).to_string(),
-    );
+#[macro_export]
+macro_rules! assert_error_eq {
+    ($left:expr, $right:expr) => {
+        assert_eq!(
+            Into::<$crate::Error>::into($left).to_string(),
+            Into::<$crate::Error>::into($right).to_string(),
+        );
+    };
+    ($left:expr, $right:expr,) => {
+        $crate::assert_error_eq!($left, $right);
+    };
+    ($left:expr, $right:expr, $($arg:tt)+) => {
+        assert_eq!(
+            Into::<$crate::Error>::into($left).to_string(),
+            Into::<$crate::Error>::into($right).to_string(),
+            $($arg)+
+        );
+    }
 }
 
 #[macro_export]

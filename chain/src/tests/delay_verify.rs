@@ -57,7 +57,7 @@ fn test_dead_cell_in_same_block() {
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
             .process_block(
@@ -112,7 +112,7 @@ fn test_dead_cell_in_different_block() {
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
             .process_block(
@@ -168,7 +168,7 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
         chain_controller
             .process_block(
@@ -225,7 +225,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
             .process_block(

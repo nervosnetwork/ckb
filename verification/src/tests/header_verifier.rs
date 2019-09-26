@@ -30,7 +30,7 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&header);
 
-    assert_error_eq(verifier.verify().unwrap_err(), BlockErrorKind::Version);
+    assert_error_eq!(verifier.verify().unwrap_err(), BlockErrorKind::Version);
 }
 
 #[cfg(not(disable_faketime))]
@@ -65,7 +65,7 @@ fn test_timestamp_too_old() {
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
-    assert_error_eq(
+    assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
         TimestampError::BlockTimeTooOld {
             min,
@@ -88,7 +88,7 @@ fn test_timestamp_too_new() {
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
-    assert_error_eq(
+    assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
         TimestampError::BlockTimeTooNew {
             max,
@@ -103,7 +103,7 @@ fn test_number() {
     let header = HeaderBuilder::default().number(10u64.pack()).build();
 
     let verifier = NumberVerifier::new(&parent, &header);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         NumberError {
             expected: 11,
@@ -144,7 +144,7 @@ fn test_epoch_number() {
     epoch.set_length(1);
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
-    assert_error_eq(
+    assert_error_eq!(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
         EpochError::NumberMismatch {
             expected: 1_099_511_627_776,
@@ -166,7 +166,7 @@ fn test_epoch_difficulty() {
 
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
-    assert_error_eq(
+    assert_error_eq!(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
         EpochError::DifficultyMismatch {
             expected: U256::from(1u64).pack(),
@@ -189,5 +189,5 @@ fn test_pow_verifier() {
     let fake_pow_engine: Arc<dyn PowEngine> = Arc::new(FakePowEngine);
     let verifier = PowVerifier::new(&header, &fake_pow_engine);
 
-    assert_error_eq(verifier.verify().unwrap_err(), PowError::InvalidNonce);
+    assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }

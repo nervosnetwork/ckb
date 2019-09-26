@@ -459,7 +459,7 @@
             }
         ],
         "result": {
-            "cycles": "0xc"
+            "cycles": "0x219"
         }
     },
     {
@@ -713,7 +713,7 @@
             "orphan": "0x0",
             "pending": "0x1",
             "proposed": "0x0",
-            "total_tx_cycles": "0xc",
+            "total_tx_cycles": "0x219",
             "total_tx_size": "0x112"
         }
     },

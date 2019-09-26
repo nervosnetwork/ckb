@@ -775,7 +775,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "cycles": "0xc"
+        "cycles": "0x219"
     }
 }
 ```
@@ -1624,7 +1624,7 @@ http://localhost:8114
         "orphan": "0x0",
         "pending": "0x1",
         "proposed": "0x0",
-        "total_tx_cycles": "0xc",
+        "total_tx_cycles": "0x219",
         "total_tx_size": "0x112"
     }
 }

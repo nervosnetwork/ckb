@@ -1,5 +1,5 @@
 use crate::{
-    cost_model::instruction_cycles,
+    cost_model::{instruction_cycles, transferred_byte_cycles},
     syscalls::{
         Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
         LoadTxHash, LoadWitness,
@@ -393,8 +393,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let mut machine = AsmMachine::new(default_machine, None);
         #[cfg(not(has_asm))]
         let mut machine = TraceMachine::new(default_machine);
-        machine
+        let bytes = machine
             .load_program(&program, &[])
+            .map_err(internal_error)?;
+        machine
+            .machine
+            .add_cycles(transferred_byte_cycles(bytes))
             .map_err(internal_error)?;
         let code = machine.run().map_err(internal_error)?;
         if code == 0 {
@@ -438,7 +442,7 @@ mod tests {
     use std::io::Read;
     use std::path::Path;
 
-    const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 12;
+    const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
@@ -534,7 +538,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
-        assert!(verifier.verify(100).is_ok());
+        assert!(verifier.verify(600).is_ok());
     }
 
     #[test]
@@ -598,7 +602,7 @@ mod tests {
         assert!(verifier.verify(100_000_000).is_ok());
 
         // Not enough cycles
-        assert_error_eq(
+        assert_error_eq!(
             verifier
                 .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .unwrap_err(),
@@ -765,7 +769,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::MultipleMatches,
         );
@@ -831,7 +835,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -885,7 +889,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::InvalidCodeHash,
         );
@@ -1045,7 +1049,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -1233,7 +1237,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(500_000).unwrap_err(),
             ScriptError::ExceededMaximumCycles,
         );
@@ -1437,7 +1441,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-3),
         );
@@ -1517,7 +1521,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-1),
         );
@@ -1586,7 +1590,7 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert_error_eq(
+        assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-2),
         );

@@ -26,6 +26,5 @@ pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result
 pub fn store_u64<Mac: SupportMachine>(machine: &mut Mac, v: u64) -> Result<u64, VMError> {
     let mut buffer = [0u8; std::mem::size_of::<u64>()];
     LittleEndian::write_u64(&mut buffer, v);
-    store_data(machine, &buffer)?;
-    Ok(buffer.len() as u64)
+    store_data(machine, &buffer)
 }
