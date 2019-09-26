@@ -193,7 +193,6 @@ impl Future for PackageTxsProcess {
                     &proposals,
                 )?;
 
-                let proposals = guard.get_proposals(self.proposals_limit as usize);
                 let (entries, size, cycles) = CommitTxsScanner::new(guard.proposed())
                     .txs_to_commit(txs_size_limit, self.max_block_cycles);
                 if !entries.is_empty() {
