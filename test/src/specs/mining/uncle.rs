@@ -19,7 +19,7 @@ impl Spec for UncleInheritFromForkBlock {
     // Case: A uncle inherited from a fork-block in side fork is invalid, because that breaks
     //       the uncle rule "B1's parent is either B2's ancestor or embedded in B2 or its ancestors
     //       as an uncle"
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let target_node = &net.nodes[0];
         let feed_node = &net.nodes[1];
 
@@ -70,7 +70,7 @@ impl Spec for UncleInheritFromForkUncle {
     // Case: A uncle inherited from a fork-uncle in side fork is invalid, because that breaks
     //       the uncle rule "B1's parent is either B2's ancestor or embedded in B2 or its ancestors
     //       as an uncle"
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let target_node = &net.nodes[0];
         let feed_node = &net.nodes[1];
         net.exit_ibd_mode();
@@ -134,7 +134,7 @@ impl Spec for PackUnclesIntoEpochStarting {
     crate::name!("pack_uncles_into_epoch_starting");
 
     // Case: Miner should not add uncles into the epoch starting
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let uncle = construct_uncle(node);
         let next_epoch_start = {
@@ -155,7 +155,7 @@ impl Spec for PackUnclesIntoEpochStarting {
 
         info!("(3) Expect the next mining block(CURRENT_EPOCH_END) contains the target uncle");
         let block = node.new_block(None, None, None);
-        assert_eq!(1, block.uncles_count());
+        assert_eq!(1, block.uncles().into_iter().count());
 
         // Clear the uncles in the next block, we don't want to pack the target `uncle` now.
         info!("(4) Submit the next block with empty uncles");
@@ -164,7 +164,7 @@ impl Spec for PackUnclesIntoEpochStarting {
 
         info!("(5) Expect the next mining block(NEXT_EPOCH_START) not contains the target uncle");
         let block = node.new_block(None, None, None);
-        assert_eq!(0, block.uncles_count());
+        assert_eq!(0, block.uncles().into_iter().count());
     }
 }
 
@@ -188,7 +188,7 @@ fn construct_uncle(node: &Node) -> BlockView {
 fn until_no_uncles_left(node: &Node) {
     loop {
         let block = node.new_block(None, None, None);
-        if block.uncles_count() == 0 {
+        if block.uncles().into_iter().count() == 0 {
             break;
         }
         node.submit_block(&block.data());
