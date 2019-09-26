@@ -147,10 +147,10 @@ impl BlockAssembler {
                     .pack(),
             )
             .build();
-        let occupied = block.as_slice().len();
+        let serialized_size = block.serialized_size_without_uncle_proposals();
         let bytes_limit = bytes_limit as usize;
         bytes_limit
-            .checked_sub(occupied)
+            .checked_sub(serialized_size)
             .ok_or_else(|| Error::InvalidParams(format!("bytes_limit {}", bytes_limit)).into())
     }
 
