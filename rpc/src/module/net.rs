@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{BannedAddr, Node, NodeAddress, Timestamp};
-use ckb_network::NetworkController;
+use ckb_network::{MultiaddrExt, NetworkController};
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -65,24 +65,32 @@ impl NetworkRpc for NetworkRpcImpl {
                 let mut addresses: HashMap<_, _> = peer
                     .listened_addrs
                     .iter()
-                    .map(|addr| {
-                        (
-                            addr,
-                            NodeAddress {
-                                address: addr.to_string(),
-                                score: 1.into(),
-                            },
-                        )
+                    .filter_map(|addr| {
+                        if let Ok((ip_addr, addr)) = addr.extract_ip_addr().and_then(|ip_addr| {
+                            addr.attach_p2p(&peer_id).map(|addr| (ip_addr, addr))
+                        }) {
+                            Some((
+                                ip_addr,
+                                NodeAddress {
+                                    address: addr.to_string(),
+                                    score: 1.into(),
+                                },
+                            ))
+                        } else {
+                            None
+                        }
                     })
                     .collect();
                 if peer.is_outbound() {
-                    addresses.insert(
-                        &peer.connected_addr,
-                        NodeAddress {
-                            address: peer.connected_addr.to_string(),
-                            score: u64::from(std::u8::MAX).into(),
-                        },
-                    );
+                    if let Ok(ip_addr) = peer.connected_addr.extract_ip_addr() {
+                        addresses.insert(
+                            ip_addr,
+                            NodeAddress {
+                                address: peer.connected_addr.to_string(),
+                                score: u64::from(std::u8::MAX).into(),
+                            },
+                        );
+                    }
                 }
                 let addresses = addresses.values().cloned().collect();
                 Node {
