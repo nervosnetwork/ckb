@@ -69,6 +69,7 @@ impl PendingQueue {
         &self,
         limit: usize,
         min_fee_rate: FeeRate,
+        exclusion: &HashSet<ProposalShortId>,
         proposals: &mut HashSet<ProposalShortId>,
     ) {
         for key in self.keys_sorted_by_fee() {

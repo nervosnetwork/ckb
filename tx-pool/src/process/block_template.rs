@@ -189,7 +189,13 @@ impl Future for PackageTxsProcess {
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.tx_pool.poll_lock() {
             Async::Ready(guard) => {
-                let proposals = guard.get_proposals(self.proposals_limit as usize);
+                let uncle_proposals = self
+                    .uncles
+                    .iter()
+                    .flat_map(|u| u.data().proposals().into_iter())
+                    .collect();
+                let proposals =
+                    guard.get_proposals(self.proposals_limit as usize, &uncle_proposals);
 
                 let txs_size_limit = BlockAssembler::calculate_txs_size_limit(
                     self.bytes_limit,

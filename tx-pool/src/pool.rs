@@ -705,12 +705,17 @@ impl TxPool {
         ret
     }
 
-    pub fn get_proposals(&self, limit: usize) -> HashSet<ProposalShortId> {
+    pub fn get_proposals(
+        &self,
+        limit: usize,
+        exclusion: &HashSet<ProposalShortId>,
+    ) -> HashSet<ProposalShortId> {
         let min_fee_rate = self.config.min_fee_rate;
         let mut proposals = HashSet::with_capacity(limit);
         self.pending
-            .fill_proposals(limit, min_fee_rate, &mut proposals);
-        self.gap.fill_proposals(limit, min_fee_rate, &mut proposals);
+            .fill_proposals(limit, min_fee_rate, exclusion, &mut proposals);
+        self.gap
+            .fill_proposals(limit, min_fee_rate, exclusion, &mut proposals);
         proposals
     }
 
