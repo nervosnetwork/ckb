@@ -1,3 +1,12 @@
+# [v0.21.2](https://github.com/nervosnetwork/ckb/compare/v0.21.0...v0.21.2) (2019-09-26)
+
+### Bug Fixes
+
+* #1623: Default executor misused (@zhangsoledad)
+* #1619: Peer store persistent (@jjyr)
+* #1629: Fix peer store `fetch_random` return empty (@jjyr)
+* #1644: Fix duplicate p2p phase in `get_peers` (@jjyr)
+
 # [v0.21.0](https://github.com/nervosnetwork/ckb/compare/v0.20.0...v0.21.0) (2019-09-21)
 
 ### Breaking Changes
