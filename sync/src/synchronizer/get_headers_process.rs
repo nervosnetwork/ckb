@@ -13,7 +13,7 @@ pub struct GetHeadersProcess<'a> {
     message: packed::GetHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> GetHeadersProcess<'a> {
@@ -21,7 +21,7 @@ impl<'a> GetHeadersProcess<'a> {
         message: packed::GetHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,
@@ -55,9 +55,9 @@ impl<'a> GetHeadersProcess<'a> {
                 " getheaders locator size {} from peer={}",
                 locator_size, self.peer
             );
-            Err(err_msg(
+            return Err(err_msg(
                 "locator size is greater than MAX_LOCATOR_SIZE".to_owned(),
-            ))?;
+            ));
         }
 
         if let Some(block_number) =

@@ -10,7 +10,7 @@ use std::cmp::min;
 pub struct GetBlocksProcess<'a> {
     message: packed::GetBlocksReader<'a>,
     synchronizer: &'a Synchronizer,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
     peer: PeerIndex,
 }
 
@@ -19,7 +19,7 @@ impl<'a> GetBlocksProcess<'a> {
         message: packed::GetBlocksReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         GetBlocksProcess {
             peer,

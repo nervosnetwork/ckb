@@ -214,7 +214,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             for proposal_txs_id in proposal_txs_ids.iter() {
                 error_target!(crate::LOG_TARGET, "    {:?}", proposal_txs_id);
             }
-            Err(CommitError::Invalid)?;
+            return Err((CommitError::Invalid).into());
         }
         Ok(())
     }
@@ -243,7 +243,7 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
         let cellbase = &self.resolved[0];
         let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
         if cellbase.transaction.outputs_capacity()? != block_reward.total {
-            Err(CellbaseError::InvalidRewardAmount)?;
+            return Err((CellbaseError::InvalidRewardAmount).into());
         }
         if cellbase
             .transaction
@@ -253,7 +253,7 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
             .lock()
             != target_lock
         {
-            Err(CellbaseError::InvalidRewardTarget)?;
+            return Err((CellbaseError::InvalidRewardTarget).into());
         }
         let txs_fees = self
             .resolved
@@ -304,7 +304,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
             })?;
 
         if dao != self.header.dao() {
-            Err(BlockErrorKind::InvalidDAO)?;
+            return Err((BlockErrorKind::InvalidDAO).into());
         }
         Ok(())
     }
@@ -418,7 +418,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {
-            Err(BlockErrorKind::ExceededMaximumCycles)?
+            Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
             Ok(sum)
         }

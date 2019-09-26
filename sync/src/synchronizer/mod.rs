@@ -57,7 +57,7 @@ impl Synchronizer {
 
     fn try_process<'r>(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) -> Result<(), FailureError> {
@@ -75,20 +75,20 @@ impl Synchronizer {
                 if reader.check_data() {
                     BlockProcess::new(reader, self, peer, nc).execute()?;
                 } else {
-                    Err(err_msg("SendBlock: invalid data"))?;
+                    return Err(err_msg("SendBlock: invalid data"));
                 }
             }
             packed::SyncMessageUnionReader::InIBD(_) => {
                 InIBDProcess::new(self, peer, nc).execute()?;
             }
-            _ => Err(err_msg("Unexpected sync message"))?,
+            _ => return Err(err_msg("Unexpected sync message")),
         }
         Ok(())
     }
 
     fn process<'r>(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) {
@@ -141,7 +141,7 @@ impl Synchronizer {
         BlockFetcher::new(self.clone(), peer).fetch()
     }
 
-    fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
+    fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
         let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
             .map(|peer| (peer.is_outbound(), peer.is_whitelist))
@@ -178,7 +178,7 @@ impl Synchronizer {
     //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
-    pub fn eviction(&self, nc: &CKBProtocolContext) {
+    pub fn eviction(&self, nc: &dyn CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let snapshot = self.shared.snapshot();
         let is_initial_header_sync = self.shared.state().is_initial_header_sync();
@@ -266,7 +266,7 @@ impl Synchronizer {
         }
     }
 
-    fn start_sync_headers(&self, nc: &CKBProtocolContext) {
+    fn start_sync_headers(&self, nc: &dyn CKBProtocolContext) {
         let now = unix_time_as_millis();
         let snapshot = self.shared.snapshot();
         let ibd = snapshot.is_initial_block_download();
@@ -331,7 +331,7 @@ impl Synchronizer {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
+    fn find_blocks_to_fetch(&self, nc: &dyn CKBProtocolContext) {
         let peers: Vec<PeerIndex> = {
             self.peers()
                 .state
@@ -359,7 +359,7 @@ impl Synchronizer {
     fn send_getblocks(
         &self,
         v_fetch: Vec<packed::Byte32>,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
     ) {
         let content = packed::GetBlocks::new_builder()
@@ -424,7 +424,7 @@ impl CKBProtocolHandler for Synchronizer {
 
     fn connected(
         &mut self,
-        nc: Arc<CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         _version: &str,
     ) {
@@ -432,7 +432,7 @@ impl CKBProtocolHandler for Synchronizer {
         self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         let sync_state = self.shared().state();
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);

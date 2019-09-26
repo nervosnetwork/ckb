@@ -67,7 +67,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.version() != HEADER_VERSION {
-            Err(BlockErrorKind::Version)?;
+            return Err(BlockErrorKind::Version.into());
         }
         Ok(())
     }
@@ -98,17 +98,19 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             .block_median_time_context
             .block_median_time(&self.header.data().raw().parent_hash());
         if self.header.timestamp() <= min {
-            Err(TimestampError::BlockTimeTooOld {
+            return Err(TimestampError::BlockTimeTooOld {
                 min,
                 actual: self.header.timestamp(),
-            })?;
+            }
+            .into());
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
         if self.header.timestamp() > max {
-            Err(TimestampError::BlockTimeTooNew {
+            return Err(TimestampError::BlockTimeTooNew {
                 max,
                 actual: self.header.timestamp(),
-            })?;
+            }
+            .into());
         }
         Ok(())
     }
@@ -126,10 +128,11 @@ impl<'a> NumberVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.number() != self.parent.number() + 1 {
-            Err(NumberError {
+            return Err(NumberError {
                 expected: self.parent.number() + 1,
                 actual: self.header.number(),
-            })?;
+            }
+            .into());
         }
         Ok(())
     }
@@ -147,17 +150,19 @@ impl<T: HeaderResolver> EpochVerifier<T> {
         let block_number = header.number();
         let epoch_with_fraction = epoch.number_with_fraction(block_number);
         if actual_epoch_with_fraction != epoch_with_fraction {
-            Err(EpochError::NumberMismatch {
+            return Err(EpochError::NumberMismatch {
                 expected: epoch_with_fraction.full_value(),
                 actual: actual_epoch_with_fraction.full_value(),
-            })?;
+            }
+            .into());
         }
         let actual_difficulty = target.header().difficulty();
         if epoch.difficulty() != &actual_difficulty {
-            Err(EpochError::DifficultyMismatch {
+            return Err(EpochError::DifficultyMismatch {
                 expected: epoch.difficulty().pack(),
                 actual: actual_difficulty.pack(),
-            })?;
+            }
+            .into());
         }
         Ok(())
     }

@@ -642,7 +642,9 @@ pub mod test {
             }
 
             let consensus = spec.build_consensus();
-            assert!(consensus.is_ok(), "{}", consensus.unwrap_err());
+            if let Err(err) = consensus {
+                panic!("{}", err);
+            }
             let consensus = consensus.unwrap();
             let block = consensus.genesis_block();
             let cellbase = block.transaction(0).unwrap();

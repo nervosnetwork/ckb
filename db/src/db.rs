@@ -100,10 +100,10 @@ impl RocksDB {
             || required_version.minor != version.minor
             || required_version.patch < version.patch
         {
-            Err(internal_error(format!(
+            return Err(internal_error(format!(
                 "the database version is not matched, require {} but it's {}",
                 required_version, version
-            )))?;
+            )));
         } else if required_version.patch > version.patch {
             warn!(
                 "Migrating the data from {} to {} ...",

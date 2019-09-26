@@ -40,7 +40,7 @@ impl<'a> ChainStore<'a> for ChainDB {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
         self.db
             .iter(col, from_key, direction)
             .expect("db operation should be ok")

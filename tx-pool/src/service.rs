@@ -60,7 +60,7 @@ pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub type SubmitTxsResult = Result<Vec<Cycle>, Error>;
-type NotifyTxsCallback = Option<Box<FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
+type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 

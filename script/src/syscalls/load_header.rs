@@ -147,8 +147,8 @@ impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let header = self.fetch_header(source, index as usize);
-        if header.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(header.unwrap_err()));
+        if let Err(err) = header {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(true);
         }
         let header = header.unwrap();

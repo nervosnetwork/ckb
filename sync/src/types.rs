@@ -1144,7 +1144,7 @@ impl SyncSnapshot {
 
     pub fn send_getheaders_to_peer(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         header: &core::HeaderView,
     ) {

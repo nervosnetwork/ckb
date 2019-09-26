@@ -19,7 +19,7 @@ pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
     snapshot: SyncSnapshot,
 }
 
@@ -105,7 +105,7 @@ impl<'a> HeadersProcess<'a> {
         message: packed::SendHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         let snapshot = synchronizer.shared().snapshot();
         HeadersProcess {

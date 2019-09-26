@@ -395,7 +395,7 @@ fn is_hex(hex: String) -> Result<(), String> {
     } else if tmp[..2] == b"0x"[..] {
         for byte in &tmp[2..] {
             match byte {
-                b'A'...b'F' | b'a'...b'f' | b'0'...b'9' => continue,
+                b'A'..=b'F' | b'a'..=b'f' | b'0'..=b'9' => continue,
                 invalid_char => {
                     return Err(format!("Hex has invalid char: {}", invalid_char));
                 }

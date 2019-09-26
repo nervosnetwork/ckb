@@ -259,9 +259,10 @@ impl ChainService {
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
 
         if parent_ext.verified == Some(false) {
-            Err(InvalidParentError {
+            return Err(InvalidParentError {
                 parent_hash: parent_header.hash().to_owned(),
-            })?;
+            }
+            .into());
         }
 
         db_txn.insert_block(&block)?;
@@ -657,7 +658,7 @@ impl ChainService {
         }
 
         if let Some(err) = found_error {
-            Err(err)?
+            Err(err)
         } else {
             Ok(())
         }

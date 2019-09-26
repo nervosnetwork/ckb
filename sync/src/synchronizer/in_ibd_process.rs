@@ -6,14 +6,14 @@ use failure::Error as FailureError;
 pub struct InIBDProcess<'a> {
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> InIBDProcess<'a> {
     pub fn new(
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         InIBDProcess {
             nc,

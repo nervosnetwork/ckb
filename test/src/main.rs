@@ -188,7 +188,7 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 fn all_specs() -> SpecMap {
-    let specs: Vec<Box<Spec>> = vec![
+    let specs: Vec<Box<dyn Spec>> = vec![
         Box::new(BlockRelayBasic),
         Box::new(BlockSyncFromOne),
         Box::new(BlockSyncForks),

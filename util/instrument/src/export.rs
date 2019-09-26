@@ -39,7 +39,7 @@ impl Export {
         format!("{}.{}", self.shared.consensus().id, self.format)
     }
 
-    pub fn execute(self) -> Result<(), Box<Error>> {
+    pub fn execute(self) -> Result<(), Box<dyn Error>> {
         fs::create_dir_all(&self.target)?;
         match self.format {
             Format::Json => self.write_to_json(),
@@ -48,7 +48,7 @@ impl Export {
     }
 
     #[cfg(not(feature = "progress_bar"))]
-    pub fn write_to_json(self) -> Result<(), Box<Error>> {
+    pub fn write_to_json(self) -> Result<(), Box<dyn Error>> {
         let f = fs::OpenOptions::new()
             .create_new(true)
             .read(true)
@@ -66,7 +66,7 @@ impl Export {
     }
 
     #[cfg(feature = "progress_bar")]
-    pub fn write_to_json(self) -> Result<(), Box<Error>> {
+    pub fn write_to_json(self) -> Result<(), Box<dyn Error>> {
         let f = fs::OpenOptions::new()
             .create_new(true)
             .read(true)
