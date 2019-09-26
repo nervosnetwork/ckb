@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.21.0"
+version = "0.21.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -29,6 +29,7 @@ members = [
     "util/stop-handler",
     "util/occupied-capacity",
     "util/types",
+    "util/future-executor",
     "util/jsonrpc-types",
     "script/data-loader",
     "db",

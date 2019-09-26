@@ -1,5 +1,5 @@
 [package]
-name = "ckb-error"
+name = "ckb-future-executor"
 version = "0.21.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
@@ -8,6 +8,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-failure = "0.1.5"
-ckb-occupied-capacity = { path = "../util/occupied-capacity" }
-enum-display-derive = "0.1.0"
+tokio = "0.1"
+tokio-executor = "0.1.8"
+num_cpus = "1.10"
+futures = "0.1"
+crossbeam-channel = "0.3"

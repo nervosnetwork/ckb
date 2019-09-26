@@ -8,7 +8,8 @@ use crate::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
-use ckb_logger::{debug_target, error_target};
+use ckb_future_executor::Executor;
+use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
@@ -25,7 +26,6 @@ use futures::future::{self, Future};
 use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use tokio::executor::{DefaultExecutor, Executor};
 use tokio::sync::lock::Lock;
 
 pub struct VerifyContext<'a, CS> {
@@ -338,30 +338,30 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         &self,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         keys: K,
+        executor: &Executor,
     ) -> HashMap<Byte32, Cycle> {
         let fetched_cache = FetchCache::new(txs_verify_cache, keys);
         let (sender, receiver) = crossbeam_channel::bounded(1);
-        if let Err(e) =
-            DefaultExecutor::current().spawn(Box::new(fetched_cache.and_then(move |cache| {
-                if let Err(e) = sender.send(cache) {
-                    error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
-                };
-                future::ok(())
-            })))
-        {
-            debug_target!(crate::LOG_TARGET, "fetched_cache error {:?}", e);
-            return HashMap::new();
-        }
+        executor.spawn(Box::new(fetched_cache.and_then(move |cache| {
+            if let Err(e) = sender.send(cache) {
+                error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
+            };
+            future::ok(())
+        })));
         receiver.recv().expect("fetched cache no exception")
     }
 
-    pub fn verify(&self, txs_verify_cache: Lock<LruCache<Byte32, Cycle>>) -> Result<Cycle, Error> {
+    pub fn verify(
+        &self,
+        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        executor: &Executor,
+    ) -> Result<Cycle, Error> {
         let keys: Vec<Byte32> = self
             .resolved
             .iter()
             .map(|rtx| rtx.transaction.hash())
             .collect();
-        let fetched_cache = self.fetched_cache(txs_verify_cache.clone(), keys);
+        let fetched_cache = self.fetched_cache(txs_verify_cache.clone(), keys, executor);
 
         // make verifiers orthogonal
         let ret = self
@@ -413,10 +413,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
 
         let sum: Cycle = ret.iter().map(|(_, cycles)| cycles).sum();
         let update = UpdateCache::new(txs_verify_cache.clone(), ret);
-        // Error when default executor is not set
-        if let Err(e) = DefaultExecutor::current().spawn(Box::new(update)) {
-            debug_target!(crate::LOG_TARGET, "update cache error {:?}", e);
-        }
+        executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles)?
@@ -455,6 +452,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        executor: &Executor,
     ) -> Result<(Cycle, Vec<Capacity>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
@@ -485,7 +483,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             parent_hash,
             resolved,
         )
-        .verify(txs_verify_cache)?;
+        .verify(txs_verify_cache, executor)?;
 
         Ok((cycles, txs_fees))
     }

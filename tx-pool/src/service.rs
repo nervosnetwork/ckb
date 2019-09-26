@@ -11,6 +11,7 @@ use crate::process::{
     UpdateBlockTemplateCache, UpdateCache, VerifyTxsProcess,
 };
 use ckb_error::{Error, InternalErrorKind};
+use ckb_future_executor::{new_executor, Executor};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
@@ -27,7 +28,6 @@ use futures::sync::{mpsc, oneshot};
 use lru_cache::LruCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{atomic::AtomicU64, Arc};
-use std::thread;
 use tokio::sync::lock::Lock;
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 512;
@@ -92,10 +92,21 @@ pub enum Message {
 #[derive(Clone)]
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
+    executor: Executor,
     stop: StopHandler<()>,
 }
 
+impl Drop for TxPoolController {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
+
 impl TxPoolController {
+    pub fn executor(&self) -> &Executor {
+        &self.executor
+    }
+
     pub fn get_block_template(
         &self,
         bytes_limit: Option<u64>,
@@ -218,12 +229,6 @@ impl TxPoolController {
     }
 }
 
-impl Drop for TxPoolController {
-    fn drop(&mut self) {
-        self.stop.try_send();
-    }
-}
-
 pub struct TxPoolServiceBuiler {
     service: Option<TxPoolService>,
 }
@@ -252,30 +257,29 @@ impl TxPoolServiceBuiler {
     }
 
     pub fn start(mut self) -> TxPoolController {
-        let (signal_sender, signal_receiver) = oneshot::channel();
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (signal_sender, signal_receiver) = oneshot::channel();
 
-        let thread_builder = thread::Builder::new().name("TX-POOL".to_string());
         let service = self.service.take().expect("tx pool service start once");
+        let server = move |executor: Executor| {
+            receiver
+                .for_each(move |message| {
+                    let service_clone = service.clone();
+                    executor.spawn(service_clone.process(message));
+                    future::ok(())
+                })
+                .select2(signal_receiver)
+                .map(|_| ())
+                .map_err(|_| ())
+        };
 
-        let thread = thread_builder
-            .spawn(move || {
-                let server = receiver
-                    .for_each(move |message| {
-                        let service_clone = service.clone();
-                        tokio::spawn(service_clone.process(message))
-                    })
-                    .select2(signal_receiver)
-                    .map(|_| ())
-                    .map_err(|_| ());
-                tokio::run(server);
-            })
-            .expect("Start TX-POOL failed");;
-
-
+        let (executor, thread) = new_executor(server);
         let stop = StopHandler::new(SignalSender::Future(signal_sender), thread);
-
-        TxPoolController { sender, stop }
+        TxPoolController {
+            sender,
+            executor,
+            stop,
+        }
     }
 }
 
