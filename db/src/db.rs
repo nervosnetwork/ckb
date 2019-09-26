@@ -311,7 +311,7 @@ mod tests {
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.1.0");
         let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
-        assert_error_eq(
+        assert_error_eq!(
             r.err().unwrap(),
             internal_error("the database version is not matched, require 0.2.0 but it's 0.1.0"),
         );

@@ -228,7 +228,7 @@ fn test_transaction_conflict_in_same_block() {
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
             .process_block(Arc::new(chain.blocks()[3].clone()), true)
@@ -265,7 +265,7 @@ fn test_transaction_conflict_in_different_blocks() {
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
             .process_block(Arc::new(chain.blocks()[4].clone()), true)
@@ -299,7 +299,7 @@ fn test_invalid_out_point_index_in_same_block() {
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
             .process_block(Arc::new(chain.blocks()[3].clone()), true)
@@ -335,7 +335,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
             .process_block(Arc::new(chain.blocks()[4].clone()), true)

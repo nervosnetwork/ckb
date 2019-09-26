@@ -8,7 +8,6 @@ pub mod util;
 use failure::{Backtrace, Context, Fail};
 pub use internal::{InternalError, InternalErrorKind};
 use std::fmt::{self, Display};
-pub use util::assert_error_eq;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum ErrorKind {
