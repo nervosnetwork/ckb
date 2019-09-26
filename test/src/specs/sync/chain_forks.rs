@@ -1,5 +1,5 @@
 use crate::utils::is_committed;
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
@@ -554,6 +554,63 @@ impl Spec for ForksContainSameTransactions {
     }
 }
 
+pub struct ForksContainSameUncle;
+
+impl Spec for ForksContainSameUncle {
+    crate::name!("forks_contain_same_uncle");
+
+    crate::setup!(
+         num_nodes: 2,
+         connect_all: false,
+         protocols: vec![TestProtocol::sync()],
+    );
+
+    // Case: Two nodes maintain two different forks, but contains a same uncle block, should be
+    //       able to sync with each other.
+    //
+    // Consider the forks-graph: fork-A add block-U as uncle into block-A, fork-B add block-U
+    // as uncle into block-B as well. We expect that different nodes maintains fork-A and fork-B
+    // can sync with each other.
+    //
+    //                     /-> A(U)
+    // genesis -> 1 -> 2 ->
+    //             \       \-> B(U)
+    //              \-> U
+    //
+    fn run(&self, net: &mut Net) {
+        let node_a = &net.nodes[0];
+        let node_b = &net.nodes[1];
+        net.exit_ibd_mode();
+
+        info!("(1) Construct an uncle before fork point");
+        let uncle = construct_uncle(node_a);
+        node_a.generate_block();
+        node_b.generate_block();
+
+        info!("(2) Add `uncle` into different forks in node_a and node_b");
+        node_a.submit_block(&uncle.data());
+        node_b.submit_block(&uncle.data());
+        let block_a = node_a
+            .new_block_builder(None, None, None)
+            .set_uncles(vec![uncle.as_uncle()])
+            .build();
+        let block_b = node_b
+            .new_block_builder(None, None, None)
+            .set_uncles(vec![uncle.as_uncle()])
+            .timestamp((block_a.timestamp() + 2).pack())
+            .build();
+        node_a.submit_block(&block_a.data());
+        node_b.submit_block(&block_b.data());
+
+        info!("(3) Make node_b's fork longer(to help check whether is synchronized)");
+        node_b.generate_block();
+
+        info!("(4) Connect node_a and node_b, expect that they sync into convergence");
+        node_a.connect(node_b);
+        net.waiting_for_sync(node_b.get_tip_block_number());
+    }
+}
+
 fn modify_block_transaction<F>(
     block: BlockView,
     transaction_index: usize,
@@ -576,4 +633,14 @@ fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
         .get_transaction(tx_hash)
         .expect("node should contains transaction");
     is_committed(&tx_status);
+}
+
+// Convenient way to construct an uncle block
+fn construct_uncle(node: &Node) -> BlockView {
+    let block = node.new_block(None, None, None);
+    let timestamp = block.timestamp() + 10;
+    block
+        .as_advanced_builder()
+        .timestamp(timestamp.pack())
+        .build()
 }
