@@ -32,6 +32,8 @@ impl Spec for SizeLimit {
             one_tx_cycles, one_tx_size
         );
 
+        assert!(MAX_MEM_SIZE_FOR_SIZE_LIMIT as u64 > one_tx_size * 2);
+
         let max_tx_num = (MAX_MEM_SIZE_FOR_SIZE_LIMIT as u64) / one_tx_size;
 
         assert!(one_tx_cycles * max_tx_num < MAX_CYCLES_FOR_SIZE_LIMIT);
@@ -65,7 +67,7 @@ impl Spec for SizeLimit {
 
 pub struct CyclesLimit;
 
-const MAX_CYCLES_FOR_CYCLE_LIMIT: u64 = 600;
+const MAX_CYCLES_FOR_CYCLE_LIMIT: u64 = 6000;
 const MAX_MEM_SIZE_FOR_CYCLE_LIMIT: usize = 20_000_000;
 
 impl Spec for CyclesLimit {
@@ -91,6 +93,8 @@ impl Spec for CyclesLimit {
             "one_tx_cycles: {}, one_tx_size: {}",
             one_tx_cycles, one_tx_size
         );
+
+        assert!(MAX_CYCLES_FOR_CYCLE_LIMIT > one_tx_cycles * 2);
 
         let max_tx_num = MAX_CYCLES_FOR_CYCLE_LIMIT / one_tx_cycles;
 
