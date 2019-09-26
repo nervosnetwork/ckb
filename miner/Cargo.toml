@@ -29,5 +29,4 @@ proptest = "0.9"
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-pow = { path = "../pow" }
 ckb-dao-utils = { path = "../util/dao/utils" }
