@@ -27,9 +27,6 @@ ckb-error = {path = "../error"}
 ckb-tx-pool = { path = "../tx-pool" }
 
 [dev-dependencies]
-ckb-db = { path = "../db" }
-env_logger = "0.6"
-crossbeam-channel = "0.3"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"
 ckb-dao = { path = "../util/dao" }

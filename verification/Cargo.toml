@@ -27,9 +27,7 @@ crossbeam-channel = "0.3"
 ckb-future-executor = { path = "../util/future-executor" }
 
 [dev-dependencies]
-ckb-db = { path = "../db" }
 ckb-chain = { path = "../chain" }
-ckb-hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"

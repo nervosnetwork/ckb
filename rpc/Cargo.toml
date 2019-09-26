@@ -35,7 +35,6 @@ ckb-error = { path = "../error" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 
 [dev-dependencies]
-ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
