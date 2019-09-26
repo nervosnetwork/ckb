@@ -15,8 +15,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     h160, h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
@@ -66,7 +66,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
         .build();
 
     let mut consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
@@ -271,7 +271,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .build();
 
     let mut consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);

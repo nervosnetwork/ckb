@@ -13,7 +13,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
+        TransactionView,
     },
     packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
     U256,
@@ -49,7 +50,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .transaction(tx)
             .build();
         ConsensusBuilder::default()
-            .cellbase_maturity(0)
+            .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
             .genesis_block(genesis_block)
             .build()
     });

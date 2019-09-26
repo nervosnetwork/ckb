@@ -35,7 +35,11 @@ where
         consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(
+                &rtx,
+                epoch_number_with_fraction,
+                consensus.cellbase_maturity(),
+            ),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
@@ -84,7 +88,11 @@ where
             version: VersionVerifier::new(&rtx.transaction),
             size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(&rtx.transaction),
-            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(
+                &rtx,
+                epoch_number_with_fraction,
+                consensus.cellbase_maturity(),
+            ),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store),
@@ -192,19 +200,19 @@ impl<'a> EmptyVerifier<'a> {
 
 pub struct MaturityVerifier<'a> {
     transaction: &'a ResolvedTransaction,
-    block_number: BlockNumber,
-    cellbase_maturity: BlockNumber,
+    epoch: EpochNumberWithFraction,
+    cellbase_maturity: EpochNumberWithFraction,
 }
 
 impl<'a> MaturityVerifier<'a> {
     pub fn new(
         transaction: &'a ResolvedTransaction,
-        block_number: BlockNumber,
-        cellbase_maturity: BlockNumber,
+        epoch: EpochNumberWithFraction,
+        cellbase_maturity: EpochNumberWithFraction,
     ) -> Self {
         MaturityVerifier {
             transaction,
-            block_number,
+            epoch,
             cellbase_maturity,
         }
     }
@@ -214,9 +222,12 @@ impl<'a> MaturityVerifier<'a> {
             meta.transaction_info
                 .as_ref()
                 .map(|info| {
-                    info.block_number > 0
-                        && info.is_cellbase()
-                        && self.block_number < info.block_number + self.cellbase_maturity
+                    info.block_number > 0 && info.is_cellbase() && {
+                        let threshold =
+                            self.cellbase_maturity.to_rational() + info.block_epoch.to_rational();
+                        let current = self.epoch.to_rational();
+                        current < threshold
+                    }
                 })
                 .unwrap_or(false)
         };

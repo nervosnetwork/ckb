@@ -14,7 +14,7 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
+    core::{cell::resolve_transaction, BlockBuilder, EpochNumberWithFraction, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
     U256,
 };
@@ -96,7 +96,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
     let consensus = ConsensusBuilder::default()
         .genesis_block(block.clone())
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build();
     let (shared, table) = SharedBuilder::default()
         .consensus(consensus)

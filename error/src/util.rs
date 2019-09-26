@@ -16,7 +16,7 @@ macro_rules! assert_error_eq {
         assert_eq!(
             Into::<$crate::Error>::into($left).to_string(),
             Into::<$crate::Error>::into($right).to_string(),
-            $($arg)+,
+            $($arg)+
         );
     }
 }

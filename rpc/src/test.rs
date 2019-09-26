@@ -22,8 +22,8 @@ use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
-        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
+        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
@@ -81,7 +81,7 @@ fn always_success_consensus() -> Consensus {
     ConsensusBuilder::default()
         .genesis_block(genesis)
         .epoch_reward(Capacity::shannons(EPOCH_REWARD))
-        .cellbase_maturity(CELLBASE_MATURITY)
+        .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
         .build()
 }
 

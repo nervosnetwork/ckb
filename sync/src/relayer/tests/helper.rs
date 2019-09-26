@@ -11,8 +11,8 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
+        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
@@ -110,7 +110,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .build();
         let consensus = ConsensusBuilder::default()
             .genesis_block(genesis)
-            .cellbase_maturity(0)
+            .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
             .build();
         SharedBuilder::default()
             .consensus(consensus)

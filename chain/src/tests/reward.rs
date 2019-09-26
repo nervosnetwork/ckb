@@ -10,8 +10,8 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView,
+        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
@@ -142,7 +142,7 @@ fn finalize_reward() {
         .build();
 
     let consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
 

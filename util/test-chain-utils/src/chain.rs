@@ -3,7 +3,8 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
@@ -60,7 +61,7 @@ pub fn always_success_consensus() -> Consensus {
         .build();
     ConsensusBuilder::default()
         .genesis_block(genesis)
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build()
 }
 

@@ -128,6 +128,8 @@ pub fn test_inputs_cellbase_maturity() {
     let output = CellOutput::new_builder()
         .capacity(capacity_bytes!(50).pack())
         .build();
+    let base_epoch = EpochNumberWithFraction::new(10, 0, 10);
+    let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -135,27 +137,45 @@ pub fn test_inputs_cellbase_maturity() {
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(
-                    30,
-                    EpochNumberWithFraction::new(0, 0, 10),
-                    0,
-                ))
+                .transaction_info(MockMedianTime::get_transaction_info(30, base_epoch, 0))
                 .build(),
         ],
     };
 
-    let tip_number = 70;
-    let cellbase_maturity = 100;
-    let verifier1 = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
-
-    assert_error_eq!(
-        verifier1.verify().unwrap_err(),
-        TransactionError::CellbaseImmaturity,
-    );
-
-    let tip_number = 130;
-    let verifier2 = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
-    assert!(verifier2.verify().is_ok());
+    let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
+    let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
+    while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
+        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        let current = current_epoch.to_rational();
+        if current < threshold {
+            assert_error_eq!(
+                verifier.verify().unwrap_err(),
+                TransactionError::CellbaseImmaturity,
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
+            );
+        } else {
+            assert!(
+                verifier.verify().is_ok(),
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
+            );
+        }
+        {
+            let number = current_epoch.number();
+            let length = current_epoch.length();
+            let index = current_epoch.index();
+            current_epoch = if index == length {
+                EpochNumberWithFraction::new(number + 1, 0, length)
+            } else {
+                EpochNumberWithFraction::new(number, index + 1, length)
+            };
+        }
+    }
 }
 
 #[test]
@@ -164,6 +184,8 @@ fn test_ignore_genesis_cellbase_maturity() {
     let output = CellOutput::new_builder()
         .capacity(capacity_bytes!(50).pack())
         .build();
+    let base_epoch = EpochNumberWithFraction::new(0, 0, 10);
+    let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
     // Transaction use genesis cellbase
     let rtx = ResolvedTransaction {
         transaction,
@@ -171,18 +193,32 @@ fn test_ignore_genesis_cellbase_maturity() {
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(
-                    0,
-                    EpochNumberWithFraction::new(0, 0, 10),
-                    0,
-                ))
+                .transaction_info(MockMedianTime::get_transaction_info(0, base_epoch, 0))
                 .build(),
         ],
     };
-    let tip_number = 70;
-    let cellbase_maturity = 100;
-    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
-    assert!(verifier.verify().is_ok());
+
+    let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
+    while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
+        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        assert!(
+            verifier.verify().is_ok(),
+            "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+            base_epoch,
+            current_epoch,
+            cellbase_maturity
+        );
+        {
+            let number = current_epoch.number();
+            let length = current_epoch.length();
+            let index = current_epoch.index();
+            current_epoch = if index == length {
+                EpochNumberWithFraction::new(number + 1, 0, length)
+            } else {
+                EpochNumberWithFraction::new(number, index + 1, length)
+            };
+        }
+    }
 }
 
 // deps immature verify
@@ -193,41 +229,58 @@ pub fn test_deps_cellbase_maturity() {
         .capacity(capacity_bytes!(50).pack())
         .build();
 
+    let base_epoch = EpochNumberWithFraction::new(0, 0, 10);
+    let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
+
     // The 1st dep is cellbase, the 2nd one is not.
     let rtx = ResolvedTransaction {
         transaction,
         resolved_cell_deps: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(
-                    30,
-                    EpochNumberWithFraction::new(0, 0, 10),
-                    0,
-                ))
+                .transaction_info(MockMedianTime::get_transaction_info(30, base_epoch, 0))
                 .build(),
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(
-                    40,
-                    EpochNumberWithFraction::new(0, 0, 10),
-                    1,
-                ))
+                .transaction_info(MockMedianTime::get_transaction_info(40, base_epoch, 1))
                 .build(),
         ],
         resolved_inputs: Vec::new(),
         resolved_dep_groups: vec![],
     };
 
-    let tip_number = 70;
-    let cellbase_maturity = 100;
-    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        TransactionError::CellbaseImmaturity,
-    );
-
-    let tip_number = 130;
-    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
-    assert!(verifier.verify().is_ok());
+    let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
+    let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
+    while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
+        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        let current = current_epoch.to_rational();
+        if current < threshold {
+            assert_error_eq!(
+                verifier.verify().unwrap_err(),
+                TransactionError::CellbaseImmaturity,
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity,
+            );
+        } else {
+            assert!(
+                verifier.verify().is_ok(),
+                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
+                base_epoch,
+                current_epoch,
+                cellbase_maturity
+            );
+        }
+        {
+            let number = current_epoch.number();
+            let length = current_epoch.length();
+            let index = current_epoch.index();
+            current_epoch = if index == length {
+                EpochNumberWithFraction::new(number + 1, 0, length)
+            } else {
+                EpochNumberWithFraction::new(number, index + 1, length)
+            };
+        }
+    }
 }
 
 #[test]

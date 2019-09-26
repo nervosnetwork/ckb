@@ -168,9 +168,12 @@ impl CellProvider for Snapshot {
 
 impl HeaderChecker for Snapshot {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
-        match self.get_block_number(block_hash) {
-            Some(block_number) => {
-                if self.tip_number() < block_number + self.consensus.cellbase_maturity() {
+        match self.get_block_header(block_hash) {
+            Some(header) => {
+                let threshold =
+                    self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
+                let current = self.tip_header().epoch().to_rational();
+                if current < threshold {
                     Err(OutPointError::ImmatureHeader(block_hash.clone()).into())
                 } else {
                     Ok(())
