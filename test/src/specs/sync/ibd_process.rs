@@ -123,7 +123,8 @@ impl Spec for IBDProcessWithWhiteList {
         node0.connect(node3);
         node0.connect(node4);
 
-        // will never connect
+        // will never connect, protect node default is 4, see
+        // https://github.com/nervosnetwork/ckb/blob/da8897dbc8382293bdf8fadea380a0b79c1efa92/sync/src/lib.rs#L57
         node0.connect_uncheck(node5);
 
         let rpc_client0 = node0.rpc_client();
