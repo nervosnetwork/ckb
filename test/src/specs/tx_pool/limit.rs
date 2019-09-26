@@ -65,7 +65,7 @@ impl Spec for SizeLimit {
 
 pub struct CyclesLimit;
 
-const MAX_CYCLES_FOR_CYCLE_LIMIT: u64 = 100;
+const MAX_CYCLES_FOR_CYCLE_LIMIT: u64 = 600;
 const MAX_MEM_SIZE_FOR_CYCLE_LIMIT: usize = 20_000_000;
 
 impl Spec for CyclesLimit {
