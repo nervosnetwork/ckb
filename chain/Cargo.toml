@@ -21,6 +21,7 @@ ckb-proposal-table = { path = "../util/proposal-table" }
 # https://github.com/rust-lang/rust-clippy/issues/4121
 im = "~12.3"
 ckb-error = { path = "../error" }
+bitflags = "1.0"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

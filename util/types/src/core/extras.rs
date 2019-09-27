@@ -70,7 +70,7 @@ pub struct EpochExt {
     pub(crate) last_block_hash_in_previous_epoch: packed::Byte32,
     pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
-    pub(crate) difficulty: U256,
+    pub(crate) compact_target: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -109,8 +109,8 @@ impl EpochExt {
         self.length
     }
 
-    pub fn difficulty(&self) -> &U256 {
-        &self.difficulty
+    pub fn compact_target(&self) -> u32 {
+        self.compact_target
     }
 
     //
@@ -148,8 +148,8 @@ impl EpochExt {
         self.length = length;
     }
 
-    pub fn set_difficulty(&mut self, difficulty: U256) {
-        self.difficulty = difficulty;
+    pub fn set_compact_target(&mut self, compact_target: u32) {
+        self.compact_target = compact_target;
     }
 
     //
@@ -248,8 +248,8 @@ impl EpochExtBuilder {
         self
     }
 
-    pub fn difficulty(mut self, difficulty: U256) -> Self {
-        self.0.set_difficulty(difficulty);
+    pub fn compact_target(mut self, compact_target: u32) -> Self {
+        self.0.set_compact_target(compact_target);
         self
     }
 

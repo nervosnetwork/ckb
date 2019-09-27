@@ -40,13 +40,13 @@ fn test_accept_block() {
         )
         .output_data(Bytes::new().pack())
         .build();
-    let uncle = packed::BlockBuilder::default()
+    let uncle = BlockBuilder::default()
         .proposals(vec![tx3.proposal_short_id()].pack())
         .build();
 
     let block = BlockBuilder::default()
         .transactions(vec![tx1.clone(), tx2.clone()])
-        .uncle(uncle.clone().as_uncle().into_view())
+        .uncle(uncle.clone().as_uncle())
         .build();
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
 
@@ -70,7 +70,7 @@ fn test_accept_block() {
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .transactions(vec![tx2.data()].pack())
-        .uncles(vec![uncle.clone().as_uncle()].pack())
+        .uncles(vec![uncle.clone().as_uncle().data()].pack())
         .build();
 
     let mock_protocal_context = MockProtocalContext::default();

@@ -8,6 +8,7 @@ use ckb_types::{
     },
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
+    utilities::difficulty_to_compact,
     U256,
 };
 use faketime::unix_time_as_millis;
@@ -55,7 +56,7 @@ pub fn always_success_consensus() -> Consensus {
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();

@@ -62,9 +62,7 @@ fn profile_block_process(
             snapshot.get_block(&block_hash).unwrap()
         };
         tx_count += block.transactions().len().saturating_sub(1);
-        chain_controller
-            .process_block(Arc::new(block), true)
-            .unwrap();
+        chain_controller.process_block(Arc::new(block)).unwrap();
     }
     tx_count
 }

@@ -28,7 +28,7 @@ use ckb_types::{
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
-    H256, U256,
+    H256,
 };
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
@@ -46,7 +46,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
-const GENESIS_DIFFICULTY: u64 = 1000;
+const GENESIS_TARGET: u32 = 0x2001_0000;
 const EPOCH_REWARD: u64 = 125_000_000_000_000;
 const CELLBASE_MATURITY: u64 = 0;
 const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
@@ -74,7 +74,7 @@ fn always_success_consensus() -> Consensus {
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
-        .difficulty(U256::from(GENESIS_DIFFICULTY).pack())
+        .compact_target(GENESIS_TARGET.pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -133,7 +133,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .number((parent.number() + 1).pack())
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .build()
 }
@@ -152,7 +152,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
         parent = block;
     }

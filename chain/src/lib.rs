@@ -4,8 +4,8 @@
 //!
 //! - [Chain](chain::chain::Chain) represent a struct which
 
-pub mod chain;
-
 mod cell;
+pub mod chain;
+pub mod switch;
 #[cfg(test)]
 mod tests;

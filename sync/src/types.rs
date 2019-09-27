@@ -438,17 +438,15 @@ impl Peers {
 pub struct HeaderView {
     inner: core::HeaderView,
     total_difficulty: U256,
-    total_uncles_count: u64,
     // pointer to the index of some further predecessor of this block
     skip_hash: Option<Byte32>,
 }
 
 impl HeaderView {
-    pub fn new(inner: core::HeaderView, total_difficulty: U256, total_uncles_count: u64) -> Self {
+    pub fn new(inner: core::HeaderView, total_difficulty: U256) -> Self {
         HeaderView {
             inner,
             total_difficulty,
-            total_uncles_count,
             skip_hash: None,
         }
     }
@@ -467,10 +465,6 @@ impl HeaderView {
 
     pub fn timestamp(&self) -> u64 {
         self.inner.timestamp()
-    }
-
-    pub fn total_uncles_count(&self) -> u64 {
-        self.total_uncles_count
     }
 
     pub fn total_difficulty(&self) -> &U256 {
@@ -557,26 +551,6 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
     }
 }
 
-#[derive(Default)]
-pub struct EpochIndices {
-    epoch: HashMap<Byte32, EpochExt>,
-    indices: HashMap<Byte32, Byte32>,
-}
-
-impl EpochIndices {
-    pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<&EpochExt> {
-        self.indices.get(hash).and_then(|h| self.epoch.get(h))
-    }
-
-    fn insert_index(&mut self, block_hash: Byte32, epoch_hash: Byte32) -> Option<Byte32> {
-        self.indices.insert(block_hash, epoch_hash)
-    }
-
-    fn insert_epoch(&mut self, hash: Byte32, epoch: EpochExt) -> Option<EpochExt> {
-        self.epoch.insert(hash, epoch)
-    }
-}
-
 // <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>)>
 type PendingCompactBlockMap = HashMap<
     Byte32,
@@ -605,7 +579,6 @@ pub struct SyncState {
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
-    epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<Byte32, HeaderView>>,
     block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
     tx_filter: Mutex<Filter<Byte32>>,
@@ -632,23 +605,14 @@ pub struct SyncState {
 
 impl SyncSharedState {
     pub fn new(shared: Shared) -> SyncSharedState {
-        let (total_difficulty, header, total_uncles_count) = {
+        let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
-            let tip_header = snapshot.tip_header();
-            let block_ext = snapshot
-                .get_block_ext(&tip_header.hash())
-                .expect("tip block_ext must exist");
             (
                 snapshot.total_difficulty().to_owned(),
                 snapshot.tip_header().to_owned(),
-                block_ext.total_uncles_count,
             )
         };
-        let shared_best_header = RwLock::new(HeaderView::new(
-            header,
-            total_difficulty,
-            total_uncles_count,
-        ));
+        let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
 
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
@@ -656,7 +620,6 @@ impl SyncSharedState {
             ibd_finished: AtomicBool::new(false),
             shared_best_header,
             header_map: RwLock::new(HashMap::new()),
-            epoch_map: RwLock::new(EpochIndices::default()),
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
@@ -768,12 +731,6 @@ impl SyncState {
 
     pub fn remove_header_view(&self, hash: &Byte32) {
         self.header_map.write().remove(hash);
-    }
-
-    pub fn insert_epoch(&self, header: &core::HeaderView, epoch: EpochExt) {
-        let mut epoch_map = self.epoch_map.write();
-        epoch_map.insert_index(header.hash(), epoch.last_block_hash_in_previous_epoch());
-        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch(), epoch);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -930,17 +887,14 @@ impl SyncSnapshot {
     // Update the shared_best_header if need
     // Update the peer's best_known_header
     // Update the header_map
-    // Update the epoch_map
     // Update the block_status_map
-    pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView, epoch: EpochExt) {
+    pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
         let parent_view = self
             .get_header_view(&header.data().raw().parent_hash())
             .expect("parent should be verified");
         let mut header_view = {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
-            let total_uncles_count =
-                parent_view.total_uncles_count() + u64::from(header.uncles_count());
-            HeaderView::new(header.clone(), total_difficulty, total_uncles_count)
+            HeaderView::new(header.clone(), total_difficulty)
         };
 
         // Update shared_best_header if the arrived header has greater difficulty
@@ -955,7 +909,6 @@ impl SyncSnapshot {
             .header_map
             .write()
             .insert(header.hash(), header_view);
-        self.state.insert_epoch(header, epoch);
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
     }
@@ -963,13 +916,9 @@ impl SyncSnapshot {
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
         self.state.header_map.read().get(hash).cloned().or_else(|| {
             self.store.get_block_header(hash).and_then(|header| {
-                self.store.get_block_ext(&hash).map(|block_ext| {
-                    HeaderView::new(
-                        header,
-                        block_ext.total_difficulty,
-                        block_ext.total_uncles_count,
-                    )
-                })
+                self.store
+                    .get_block_ext(&hash)
+                    .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
             })
         })
     }
@@ -985,29 +934,7 @@ impl SyncSnapshot {
     }
 
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
-        self.state
-            .epoch_map
-            .read()
-            .get_epoch_ext(hash)
-            .cloned()
-            .or_else(|| self.store.get_block_epoch(&hash))
-    }
-
-    pub fn next_epoch_ext(
-        &self,
-        last_epoch: &EpochExt,
-        header: &core::HeaderView,
-    ) -> Option<EpochExt> {
-        let consensus = self.consensus();
-        consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.get_header(hash),
-            |hash| {
-                self.get_header_view(hash)
-                    .map(|view| view.total_uncles_count())
-            },
-        )
+        self.store.get_block_epoch(&hash)
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
@@ -1288,7 +1215,7 @@ impl SyncSnapshot {
         peer: PeerIndex,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
-        let ret = chain.process_block(Arc::clone(&block), true);
+        let ret = chain.process_block(Arc::clone(&block));
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
             self.state
@@ -1315,15 +1242,7 @@ impl SyncSnapshot {
         header: &'a core::HeaderView,
         parent: core::HeaderView,
     ) -> HeaderResolverWrapper<'a> {
-        let epoch = self
-            .get_epoch_ext(&parent.hash())
-            .map(|ext| ext)
-            .map(|last_epoch| {
-                self.next_epoch_ext(&last_epoch, &parent)
-                    .unwrap_or(last_epoch)
-            });
-
-        HeaderResolverWrapper::build(header, Some(parent), epoch)
+        HeaderResolverWrapper::build(header, Some(parent))
     }
 }
 
@@ -1356,7 +1275,7 @@ mod tests {
             hashes.insert(number, header.hash());
             parent_hash = Some(header.hash());
 
-            let mut view = HeaderView::new(header, U256::zero(), 0);
+            let mut view = HeaderView::new(header, U256::zero());
             view.build_skip(|hash| header_map.get(hash).cloned());
             header_map.insert(view.hash().clone(), view);
         }

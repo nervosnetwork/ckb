@@ -4,7 +4,8 @@ use crate::{
     core::{self, BlockNumber},
     packed,
     prelude::*,
-    utilities::merkle_root,
+    utilities::{compact_to_difficulty, merkle_root},
+    U256,
 };
 
 impl packed::Byte32 {
@@ -100,6 +101,18 @@ impl packed::Transaction {
     }
 }
 
+impl packed::RawHeader {
+    pub fn difficulty(&self) -> U256 {
+        compact_to_difficulty(self.compact_target().unpack())
+    }
+}
+
+impl packed::Header {
+    pub fn difficulty(&self) -> U256 {
+        self.raw().difficulty()
+    }
+}
+
 impl packed::Block {
     pub fn as_uncle(&self) -> packed::UncleBlock {
         packed::UncleBlock::new_builder()
@@ -119,20 +132,18 @@ impl packed::Block {
         tx_hashes: &[packed::Byte32],
         tx_witness_hashes: &[packed::Byte32],
     ) -> packed::Block {
-        let transactions_root = merkle_root(tx_hashes);
+        let raw_transactions_root = merkle_root(tx_hashes);
         let witnesses_root = merkle_root(tx_witness_hashes);
+        let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
         let proposals_hash = self.as_reader().calc_proposals_hash();
         let uncles_hash = self.as_reader().calc_uncles_hash();
-        let uncles_count = self.as_reader().uncles().len() as u32;
         let raw_header = self
             .header()
             .raw()
             .as_builder()
             .transactions_root(transactions_root)
-            .witnesses_root(witnesses_root)
             .proposals_hash(proposals_hash)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count.pack())
             .build();
         let header = self.header().as_builder().raw(raw_header).build();
         self.as_builder().header(header).build()

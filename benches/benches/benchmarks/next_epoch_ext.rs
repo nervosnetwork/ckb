@@ -1,17 +1,20 @@
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
-    core::{capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, HeaderView, TransactionBuilder},
+    core::{
+        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderBuilder, HeaderView,
+        TransactionBuilder,
+    },
     packed::{Byte32, CellInput, Script},
     prelude::*,
-    u256, U256,
+    utilities::DIFF_TWO,
 };
 use criterion::{criterion_group, Criterion};
 use faketime::unix_time_as_millis;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 
-const GENESIS_DIFFICULTY: U256 = u256!("0x1000000");
+const GENESIS_TARGET: u32 = 0x2001_0000;
 const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 const MIN_BLOCK_INTERVAL: u64 = 8;
 
@@ -28,17 +31,17 @@ pub struct FakeStore {
 }
 
 impl FakeStore {
-    fn insert(&mut self, header: HeaderView) {
+    fn insert(&mut self, block: BlockView) {
         let before_total_uncles_count = self
             .total_uncles_count
-            .get(&header.parent_hash())
+            .get(&block.parent_hash())
             .cloned()
             .unwrap_or(0u64);
         self.total_uncles_count.insert(
-            header.hash(),
-            before_total_uncles_count + u64::from(header.uncles_count()),
+            block.hash(),
+            before_total_uncles_count + block.uncles().data().len() as u64,
         );
-        self.headers.insert(header.hash(), header);
+        self.headers.insert(block.hash(), block.header());
     }
 
     pub(crate) fn get_block_header(&self, hash: &Byte32) -> Option<HeaderView> {
@@ -50,14 +53,23 @@ impl FakeStore {
     }
 }
 
-fn gen_empty_header(parent: &HeaderView) -> HeaderView {
+fn gen_empty_block(parent: &HeaderView) -> BlockView {
     let mut rng = thread_rng();
+    let nonce: u64 = rng.gen();
     let uncles_count: u32 = rng.gen_range(0, 2);
-    HeaderBuilder::default()
+    let uncles: Vec<_> = (0..uncles_count)
+        .map(|_| {
+            BlockBuilder::default()
+                .nonce(nonce.pack())
+                .build()
+                .as_uncle()
+        })
+        .collect();
+    BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
-        .uncles_count(uncles_count.pack())
+        .uncles(uncles)
+        .compact_target(parent.compact_target().pack())
         .timestamp((parent.timestamp() + MIN_BLOCK_INTERVAL * 1000).pack())
         .build()
 }
@@ -70,7 +82,7 @@ fn bench(c: &mut Criterion) {
                 || {
                     let now = unix_time_as_millis();
                     let header = HeaderBuilder::default()
-                        .difficulty(GENESIS_DIFFICULTY.pack())
+                        .compact_target(GENESIS_TARGET.pack())
                         .timestamp(now.pack())
                         .build();
 
@@ -82,25 +94,29 @@ fn bench(c: &mut Criterion) {
                         .build();
                     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
                     let genesis_block = BlockBuilder::default()
-                        .difficulty(U256::one().pack())
+                        .compact_target(DIFF_TWO.pack())
                         .dao(dao)
                         .transaction(cellbase)
                         .header(header)
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, &U256::one());
-                    let consensus =
-                        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD, epoch_ext)
-                            .build();
+                    let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO);
+                    let consensus = ConsensusBuilder::new(
+                        genesis_block.clone(),
+                        DEFAULT_EPOCH_REWARD,
+                        epoch_ext,
+                    )
+                    .build();
                     let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
 
                     let mut store = FakeStore::default();
 
-                    store.insert(parent.clone());
+                    store.insert(genesis_block);
                     for _ in 1..genesis_epoch_ext.length() {
-                        parent = gen_empty_header(&parent);
-                        store.insert(parent.clone());
+                        let block = gen_empty_block(&parent);
+                        parent = block.header();
+                        store.insert(block);
                     }
 
                     (consensus, genesis_epoch_ext, parent, store)

@@ -1,7 +1,7 @@
 use super::{Worker, WorkerMessage};
 use ckb_logger::{debug, error};
 use ckb_pow::pow_message;
-use ckb_types::{packed::Byte32, prelude::*};
+use ckb_types::{packed::Byte32, U256};
 use crossbeam_channel::{Receiver, Sender};
 use eaglesong::eaglesong;
 use indicatif::ProgressBar;
@@ -17,7 +17,7 @@ pub struct EaglesongSimpleConfig {
 pub struct EaglesongSimple {
     start: bool,
     pow_hash: Option<Byte32>,
-    target: Byte32,
+    target: U256,
     nonce_tx: Sender<(Byte32, u64)>,
     worker_rx: Receiver<WorkerMessage>,
     nonces_found: u64,
@@ -28,7 +28,7 @@ impl EaglesongSimple {
         Self {
             start: true,
             pow_hash: None,
-            target: Byte32::zero(),
+            target: U256::zero(),
             nonce_tx,
             worker_rx,
             nonces_found: 0,
@@ -57,7 +57,7 @@ impl EaglesongSimple {
         let input = pow_message(&pow_hash, nonce);
         let mut output = [0u8; 32];
         eaglesong(&input, &mut output);
-        if output.pack() < self.target {
+        if U256::from_big_endian(&output[..]).expect("bound checked") <= self.target {
             debug!(
                 "send new found nonce, pow_hash {}, nonce {:?}",
                 pow_hash, nonce

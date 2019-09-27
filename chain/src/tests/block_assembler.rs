@@ -1,5 +1,5 @@
-use crate::chain::ChainController;
 use crate::chain::ChainService;
+use crate::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -74,7 +74,7 @@ fn test_get_block_template() {
     let block = block.as_advanced_builder().build();
     let header = block.header();
 
-    let resolver = HeaderResolverWrapper::new(&header, shared.store(), shared.consensus());
+    let resolver = HeaderResolverWrapper::new(&header, shared.store());
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
         let header_verifier = HeaderVerifier::new(snapshot, Pow::Dummy.engine());
@@ -98,7 +98,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .timestamp((parent_header.timestamp() + 10).pack())
         .number(number.pack())
         .epoch(epoch.number().pack())
-        .difficulty(epoch.difficulty().clone().pack())
+        .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)
         .build();
@@ -139,7 +139,7 @@ fn test_block_template_timestamp() {
     let block = gen_block(&genesis, 0, &epoch);
 
     chain_controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     let tx_pool = shared.tx_pool_controller();
 
@@ -184,13 +184,13 @@ fn test_prepare_uncles() {
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
     chain_controller
-        .process_block(Arc::new(block0_1.clone()), false)
+        .internal_process_block(Arc::new(block0_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .process_block(Arc::new(block0_0.clone()), false)
+        .internal_process_block(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .process_block(Arc::new(block1_1.clone()), false)
+        .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let tx_pool = shared.tx_pool_controller();
@@ -210,7 +210,7 @@ fn test_prepare_uncles() {
 
     let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
     chain_controller
-        .process_block(Arc::new(block2_1.clone()), false)
+        .internal_process_block(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let block_template = tx_pool
@@ -228,7 +228,7 @@ fn test_prepare_uncles() {
 
     let block3_1 = gen_block(&block2_1.header(), 10, &epoch);
     chain_controller
-        .process_block(Arc::new(block3_1.clone()), false)
+        .internal_process_block(Arc::new(block3_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = tx_pool
@@ -298,7 +298,7 @@ fn test_package_basic() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -409,7 +409,7 @@ fn test_package_multi_best_scores() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -513,7 +513,7 @@ fn test_package_zero_fee_txs() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);

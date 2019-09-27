@@ -1,5 +1,8 @@
-use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
+use crate::{
+    chain::{ChainService, ForkChanges},
+    switch::Switch,
+};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -32,31 +35,31 @@ fn test_find_fork_case1() {
     let mut fork1 = MockChain::new(parent.clone(), shared.consensus());
     let mut fork2 = MockChain::new(parent.clone(), shared.consensus());
     for _ in 0..4 {
-        fork1.gen_empty_block_with_difficulty(100u64, &mock_store);
+        fork1.gen_empty_block_with_diff(100u64, &mock_store);
     }
 
     for _ in 0..3 {
-        fork2.gen_empty_block_with_difficulty(90u64, &mock_store);
+        fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     // fork2 total_difficulty 270
     for blk in fork2.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     let tip_number = { shared.snapshot().tip_number() };
 
     // fork2 total_difficulty 470
-    fork2.gen_empty_block_with_difficulty(200u64, &mock_store);
+    fork2.gen_empty_block_with_diff(200u64, &mock_store);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -103,32 +106,32 @@ fn test_find_fork_case2() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
 
     for _ in 0..4 {
-        fork1.gen_empty_block_with_difficulty(100u64, &mock_store);
+        fork1.gen_empty_block_with_diff(100u64, &mock_store);
     }
 
     let mut fork2 = MockChain::new(fork1.blocks()[0].header().to_owned(), shared.consensus());
     for _ in 0..2 {
-        fork2.gen_empty_block_with_difficulty(90u64, &mock_store);
+        fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     // fork2 total_difficulty 280
     for blk in fork2.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     let tip_number = { shared.snapshot().tip_number() };
 
     // fork2 total_difficulty 570
-    fork2.gen_empty_block(200u64, &mock_store);
+    fork2.gen_empty_block_with_inc_diff(200u64, &mock_store);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -177,31 +180,31 @@ fn test_find_fork_case3() {
     let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
 
     for _ in 0..3 {
-        fork1.gen_empty_block_with_difficulty(80u64, &mock_store)
+        fork1.gen_empty_block_with_diff(80u64, &mock_store)
     }
 
     for _ in 0..5 {
-        fork2.gen_empty_block_with_difficulty(40u64, &mock_store)
+        fork2.gen_empty_block_with_diff(40u64, &mock_store)
     }
 
     // fork1 total_difficulty 240
     for blk in fork1.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     // fork2 total_difficulty 200
     for blk in fork2.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     let tip_number = { shared.snapshot().tip_number() };
 
     // fork2 total_difficulty 300
-    fork2.gen_empty_block_with_difficulty(100u64, &mock_store);
+    fork2.gen_empty_block_with_diff(100u64, &mock_store);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -249,31 +252,31 @@ fn test_find_fork_case4() {
     let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
 
     for _ in 0..5 {
-        fork1.gen_empty_block_with_difficulty(40u64, &mock_store);
+        fork1.gen_empty_block_with_diff(40u64, &mock_store);
     }
 
     for _ in 0..2 {
-        fork2.gen_empty_block_with_difficulty(80u64, &mock_store);
+        fork2.gen_empty_block_with_diff(80u64, &mock_store);
     }
 
     // fork1 total_difficulty 200
     for blk in fork1.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     // fork2 total_difficulty 160
     for blk in fork2.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     let tip_number = { shared.snapshot().tip_number() };
 
     // fork2 total_difficulty 260
-    fork2.gen_empty_block_with_difficulty(100u64, &mock_store);
+    fork2.gen_empty_block_with_diff(100u64, &mock_store);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -333,13 +336,13 @@ fn repeatedly_switch_fork() {
 
     for blk in fork1.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
     for blk in fork2.blocks() {
         chain_service
-            .process_block(Arc::new(blk.clone()), false)
+            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -349,12 +352,12 @@ fn repeatedly_switch_fork() {
     let new_block1 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .uncle(uncle)
         .build();
     chain_service
-        .process_block(Arc::new(new_block1.clone()), false)
+        .process_block(Arc::new(new_block1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     //switch fork2
@@ -362,21 +365,21 @@ fn repeatedly_switch_fork() {
     let new_block2 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(2u64.pack())
         .build();
     parent = new_block2.clone();
     chain_service
-        .process_block(Arc::new(new_block2), false)
+        .process_block(Arc::new(new_block2), Switch::DISABLE_ALL)
         .unwrap();
     let new_block3 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(2u64.pack())
         .build();
     chain_service
-        .process_block(Arc::new(new_block3), false)
+        .process_block(Arc::new(new_block3), Switch::DISABLE_ALL)
         .unwrap();
 
     //switch fork1
@@ -384,21 +387,21 @@ fn repeatedly_switch_fork() {
     let new_block4 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .build();
     chain_service
-        .process_block(Arc::new(new_block4.clone()), false)
+        .process_block(Arc::new(new_block4.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     parent = new_block4.clone();
     let new_block5 = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty(parent.difficulty().pack())
+        .compact_target(parent.compact_target().pack())
         .nonce(1u64.pack())
         .build();
     chain_service
-        .process_block(Arc::new(new_block5), false)
+        .process_block(Arc::new(new_block5), Switch::DISABLE_ALL)
         .unwrap();
 }

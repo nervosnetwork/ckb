@@ -21,6 +21,7 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
     prelude::*,
+    utilities::difficulty_to_compact,
     H160, H256, U256,
 };
 use lazy_static::lazy_static;
@@ -60,7 +61,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
 
     let genesis_block = BlockBuilder::default()
         .dao(dao)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -120,10 +121,9 @@ pub fn gen_always_success_block(
     let tx = create_always_success_tx();
     let always_success_out_point = OutPoint::new(tx.hash(), 0);
     let (_, _, always_success_script) = always_success_cell();
-    let (number, timestamp, difficulty) = (
+    let (number, timestamp) = (
         p_block.header().number() + 1,
         p_block.header().timestamp() + 10000,
-        p_block.header().difficulty() + U256::from(1u64),
     );
     let cellbase = create_always_success_cellbase(shared, &p_block.header());
 
@@ -168,6 +168,16 @@ pub fn gen_always_success_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
+    let last_epoch = shared
+        .store()
+        .get_block_epoch_index(&p_block.hash())
+        .and_then(|index| shared.store().get_epoch_ext(&index))
+        .unwrap();
+    let epoch = shared
+        .store()
+        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
+        .unwrap_or(last_epoch);
+
     let block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
@@ -175,7 +185,8 @@ pub fn gen_always_success_block(
         .parent_hash(p_block.hash())
         .number(number.pack())
         .timestamp(timestamp.pack())
-        .difficulty(difficulty.pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .nonce(random::<u64>().pack())
         .dao(dao)
         .build();
@@ -264,7 +275,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -322,10 +333,9 @@ pub fn gen_secp_block(
             .build(),
     ];
     let (_, _, secp_script) = secp_cell();
-    let (number, timestamp, difficulty) = (
+    let (number, timestamp) = (
         p_block.header().number() + 1,
         p_block.header().timestamp() + 10000,
-        p_block.header().difficulty() + U256::from(1u64),
     );
     let cellbase = create_secp_cellbase(shared, &p_block.header());
     let snapshot = shared.snapshot();
@@ -365,6 +375,16 @@ pub fn gen_secp_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
+    let last_epoch = shared
+        .store()
+        .get_block_epoch_index(&p_block.hash())
+        .and_then(|index| shared.store().get_epoch_ext(&index))
+        .unwrap();
+    let epoch = shared
+        .store()
+        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
+        .unwrap_or(last_epoch);
+
     let block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
@@ -372,7 +392,8 @@ pub fn gen_secp_block(
         .parent_hash(p_block.hash())
         .number(number.pack())
         .timestamp(timestamp.pack())
-        .difficulty(difficulty.pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .nonce(random::<u64>().pack())
         .dao(dao)
         .build();

@@ -5,6 +5,7 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -17,7 +18,7 @@ use ckb_types::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
-    U256,
+    utilities::DIFF_TWO,
 };
 use std::sync::Arc;
 
@@ -73,11 +74,22 @@ pub(crate) fn gen_block(
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
 
+    let last_epoch = store
+        .0
+        .get_block_epoch_index(&parent_header.hash())
+        .and_then(|index| store.0.get_epoch_ext(&index))
+        .unwrap();
+    let epoch = store
+        .0
+        .next_epoch_ext(shared.consensus(), &last_epoch, &parent_header)
+        .unwrap_or(last_epoch);
+
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
-        .difficulty(parent_header.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .dao(dao)
         .transactions(txs)
         .uncles(uncles)
@@ -137,7 +149,7 @@ fn finalize_reward() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(tx.clone())
-        .difficulty(U256::one().pack())
+        .compact_target(DIFF_TWO.pack())
         .dao(dao)
         .build();
 
@@ -212,7 +224,7 @@ fn finalize_reward() {
         parent = block.header().clone();
 
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
         blocks.push(block);
     }
@@ -250,7 +262,7 @@ fn finalize_reward() {
     parent = block.header().clone();
 
     chain_controller
-        .process_block(Arc::new(block.clone()), true)
+        .process_block(Arc::new(block.clone()))
         .expect("process block ok");
 
     let (target, reward) = shared
@@ -285,6 +297,6 @@ fn finalize_reward() {
     );
 
     chain_controller
-        .process_block(Arc::new(block.clone()), true)
+        .process_block(Arc::new(block.clone()))
         .expect("process block ok");
 }

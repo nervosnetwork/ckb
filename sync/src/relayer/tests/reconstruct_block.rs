@@ -3,9 +3,8 @@ use crate::relayer::ReconstructionError;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{Capacity, TransactionView},
-    packed,
-    packed::{BlockBuilder, CompactBlockBuilder},
+    core::{BlockBuilder, Capacity, TransactionView},
+    packed::{self, CompactBlockBuilder},
 };
 use std::collections::HashSet;
 
@@ -67,6 +66,14 @@ fn test_reconstruct_transactions_and_uncles() {
     let prepare: Vec<TransactionView> = (0..20)
         .map(|i| new_transaction(&relayer, i, &always_success_out_point))
         .collect();
+    let uncle = BlockBuilder::default().build();
+
+    let block = BlockBuilder::default()
+        .transactions(prepare.clone())
+        .uncles(vec![uncle.clone().as_uncle()])
+        .build();
+
+    let uncle_hash = uncle.hash();
 
     let (short_transactions, prefilled) = {
         let short_transactions: Vec<TransactionView> = prepare.iter().step_by(2).cloned().collect();
@@ -80,20 +87,12 @@ fn test_reconstruct_transactions_and_uncles() {
         (short_transactions, prefilled)
     };
 
-    let uncle = packed::BlockBuilder::default().build();
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
         .verified(Some(true).pack())
         .build();
 
-    let block = BlockBuilder::default()
-        .transactions(prepare.into_iter().map(|v| v.data()).pack())
-        .uncles(vec![uncle.clone().as_uncle()].pack())
-        .build();
-
-    let hash = block.calc_header_hash();
-
-    let compact = packed::CompactBlock::build_from_block(&block.into_view(), &prefilled);
+    let compact = packed::CompactBlock::build_from_block(&block, &prefilled);
 
     // Should reconstruct block successfully with pool txs
     let (pool_transactions, short_transactions) = short_transactions.split_at(2);
@@ -111,11 +110,9 @@ fn test_reconstruct_transactions_and_uncles() {
         .unwrap();
 
     {
-        let uncle_view = uncle.into_view();
         let db_txn = relayer.shared().shared().store().begin_transaction();
-        db_txn.insert_block(&uncle_view).unwrap();
-        db_txn.attach_block(&uncle_view).unwrap();
-        db_txn.insert_block_ext(&hash, &ext.unpack()).unwrap();
+        db_txn.insert_block(&uncle).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
 
@@ -134,26 +131,24 @@ fn test_reconstruct_transactions_and_uncles() {
 fn test_reconstruct_invalid_uncles() {
     let (relayer, _) = build_chain(5);
 
-    let uncle = packed::BlockBuilder::default().build();
+    let uncle = BlockBuilder::default().build();
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
         .verified(Some(false).pack())
         .build();
 
     let block = BlockBuilder::default()
-        .uncles(vec![uncle.clone().as_uncle()].pack())
+        .uncles(vec![uncle.clone().as_uncle()])
         .build();
 
-    let hash = block.calc_header_hash();
-
-    let compact = packed::CompactBlock::build_from_block(&block.into_view(), &Default::default());
+    let uncle_hash = uncle.hash();
+    let compact = packed::CompactBlock::build_from_block(&block, &Default::default());
 
     {
-        let uncle_view = uncle.into_view();
         let db_txn = relayer.shared().shared().store().begin_transaction();
-        db_txn.insert_block(&uncle_view).unwrap();
-        db_txn.attach_block(&uncle_view).unwrap();
-        db_txn.insert_block_ext(&hash, &ext.unpack()).unwrap();
+        db_txn.insert_block(&uncle).unwrap();
+        db_txn.attach_block(&uncle).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
 

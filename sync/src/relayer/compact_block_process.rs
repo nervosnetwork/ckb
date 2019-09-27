@@ -12,7 +12,7 @@ use ckb_types::{
     packed,
     prelude::*,
 };
-use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -168,8 +168,7 @@ impl<'a> CompactBlockProcess<'a> {
                 CompactBlockVerifier::verify(&compact_block)?;
 
                 // Header has been verified ok, update state
-                let epoch = resolver.epoch().expect("epoch verified").clone();
-                snapshot.insert_valid_header(self.peer, &header, epoch);
+                snapshot.insert_valid_header(self.peer, &header);
             }
 
             // Request proposal

@@ -18,3 +18,4 @@ bit-vec = "0.5.1"
 failure = "0.1.5"
 ckb-error = { path = "../../error" }
 ckb-rational = { path = "../rational" }
+proptest = "0.9"

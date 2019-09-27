@@ -1,5 +1,5 @@
 use crate::{Relayer, SyncSharedState};
-use ckb_chain::chain::ChainService;
+use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
@@ -18,6 +18,7 @@ use ckb_types::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
         Script,
     },
+    utilities::difficulty_to_compact,
     U256,
 };
 use faketime::{self, unix_time_as_millis};
@@ -53,7 +54,7 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
         .number((parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
 }
 
 pub(crate) fn new_transaction(
@@ -105,7 +106,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let (shared, table) = {
         let genesis = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
-            .difficulty(U256::from(1000u64).pack())
+            .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
             .transaction(always_success_tx)
             .build();
         let consensus = ConsensusBuilder::default()
@@ -146,7 +147,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .transaction(cellbase)
             .build();
         chain_controller
-            .process_block(Arc::new(block), false)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 

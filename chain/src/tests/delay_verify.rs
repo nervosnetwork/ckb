@@ -1,3 +1,4 @@
+use crate::switch::Switch;
 use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
@@ -8,7 +9,6 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{BlockBuilder, BlockView},
     packed::OutPoint,
-    U256,
 };
 use std::sync::Arc;
 
@@ -23,11 +23,11 @@ fn test_dead_cell_in_same_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -38,31 +38,31 @@ fn test_dead_cell_in_same_block() {
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
 
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     )
@@ -79,11 +79,11 @@ fn test_dead_cell_in_different_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(100u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     let last_cell_base = &chain2.tip().transactions()[0];
@@ -93,31 +93,31 @@ fn test_dead_cell_in_different_block() {
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![3]);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, false);
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     );
@@ -134,11 +134,11 @@ fn test_invalid_out_point_index_in_same_block() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -150,30 +150,30 @@ fn test_invalid_out_point_index_in_same_block() {
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     )
@@ -190,11 +190,11 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
+        chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -205,32 +205,32 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
-    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, true);
 
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mock_store);
+        chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
-            .process_block(
+            .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true,
+                Switch::DISABLE_EPOCH,
             )
             .unwrap_err(),
     );
@@ -257,12 +257,12 @@ fn test_full_dead_transaction() {
         false,
     );
 
-    let difficulty = parent.difficulty().to_owned();
+    let compact_target = parent.compact_target();
 
     let block = BlockBuilder::default()
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .difficulty((difficulty + U256::from(100u64)).pack())
+        .compact_target((compact_target - 1).pack())
         .dao(dao)
         .transaction(cellbase_tx)
         .build();
@@ -275,7 +275,7 @@ fn test_full_dead_transaction() {
 
     parent = block.header().to_owned();
     for i in 2..switch_fork_number {
-        let difficulty = parent.difficulty().to_owned();
+        let compact_target = parent.compact_target();
         let new_block = if i == proposal_number {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -288,7 +288,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .proposals(vec![tx1.proposal_short_id()])
@@ -308,7 +308,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -324,7 +324,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -339,7 +339,7 @@ fn test_full_dead_transaction() {
     let tx3 = create_multi_outputs_transaction(&tx2, vec![0], 1, vec![3]);
 
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().to_owned();
+        let compact_target = parent.compact_target();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -352,7 +352,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
@@ -373,7 +373,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -390,7 +390,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(100u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -402,7 +402,7 @@ fn test_full_dead_transaction() {
 
     parent = chain2.last().unwrap().header().clone();
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().to_owned();
+        let compact_target = parent.compact_target();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -415,7 +415,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(101u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
                 .transactions(transactions)
@@ -436,7 +436,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(101u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -453,7 +453,7 @@ fn test_full_dead_transaction() {
             BlockBuilder::default()
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
-                .difficulty((difficulty + U256::from(101u64)).pack())
+                .compact_target((compact_target - 1).pack())
                 .dao(dao)
                 .transactions(transactions)
                 .build()
@@ -465,13 +465,13 @@ fn test_full_dead_transaction() {
 
     for block in chain1 {
         chain_controller
-            .process_block(Arc::new(block), true)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
     for block in chain2 {
         chain_controller
-            .process_block(Arc::new(block), true)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 }

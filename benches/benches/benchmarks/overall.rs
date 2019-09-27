@@ -17,6 +17,7 @@ use ckb_types::{
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
+    utilities::difficulty_to_compact,
     U256,
 };
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -66,7 +67,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -149,17 +150,14 @@ fn bench(c: &mut Criterion) {
                         let block = raw_block.as_builder().header(header).build().into_view();
 
                         let header_view = block.header();
-                        let resolver =
-                            HeaderResolverWrapper::new(&header_view, snapshot, shared.consensus());
+                        let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
                         let header_verifier = HeaderVerifier::new(
                             snapshot,
                             Arc::clone(&shared.consensus().pow_engine()),
                         );
                         header_verifier.verify(&resolver).expect("header verified");
 
-                        chain
-                            .process_block(Arc::new(block), true)
-                            .expect("process_block");
+                        chain.process_block(Arc::new(block)).expect("process_block");
                         i -= 1;
                     }
                 },
