@@ -53,6 +53,17 @@ impl Net {
         self.setup.num_nodes as u32
     }
 
+    pub fn node_id(&self) -> String {
+        self.controller
+            .as_ref()
+            .map(|(control, _)| control.node_id())
+            .expect("uninitialized controller")
+    }
+
+    pub fn p2p_port(&self) -> u16 {
+        self.start_port
+    }
+
     fn test_protocols(&self) -> &[TestProtocol] {
         &self.setup.protocols
     }
@@ -61,7 +72,7 @@ impl Net {
         self.controller.as_ref().expect("uninitialized controller")
     }
 
-    fn init_controller(&self, node: &Node) {
+    pub fn init_controller(&self, node: &Node) {
         assert!(
             !self.test_protocols().is_empty(),
             "Net cannot connect the node with empty setup::test_protocols"

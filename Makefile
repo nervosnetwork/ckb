@@ -21,7 +21,7 @@ setup-ckb-test:
 
 integration: setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build
-	cd test && cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
+	cd test && RUST_BACKTRACE=1 cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-windows:
 	cp -f Cargo.lock test/Cargo.lock

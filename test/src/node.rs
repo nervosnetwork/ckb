@@ -130,6 +130,10 @@ impl Node {
         }
     }
 
+    pub fn stop(&mut self) {
+        drop(self.guard.take())
+    }
+
     pub fn connect(&self, outbound_peer: &Node) {
         let node_info = outbound_peer.rpc_client().local_node_info();
 
@@ -450,6 +454,7 @@ impl Node {
                 &rpc_port,
                 "--p2p-port",
                 &p2p_port,
+                "--force",
             ])
             .output()?;
 

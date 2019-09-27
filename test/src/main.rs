@@ -261,6 +261,9 @@ fn all_specs() -> SpecMap {
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),
         Box::new(IBDProcess),
+        Box::new(WhitelistOnSessionLimit),
+        Box::new(IBDProcessWithWhiteList),
+        Box::new(MalformedMessageWithWhitelist),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
