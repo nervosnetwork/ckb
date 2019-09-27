@@ -249,15 +249,27 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
         }
     }
 
-    pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
+    #[allow(clippy::int_plus_one)]
+    pub fn verify(&self) -> Result<(), Error> {
         let cellbase = &self.resolved[0];
-        let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
+        let no_finalization_target =
+            (self.parent.number() + 1) <= self.context.consensus.finalization_delay_length();
 
+        let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
         let output = CellOutput::new_builder()
             .capacity(block_reward.total.pack())
             .lock(target_lock.clone())
             .build();
         let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
+
+        if no_finalization_target || insufficient_reward_to_create_cell {
+            let ret = if cellbase.transaction.outputs().is_empty() {
+                Ok(())
+            } else {
+                Err((CellbaseError::InvalidRewardTarget).into())
+            };
+            return ret;
+        }
 
         if !insufficient_reward_to_create_cell {
             if cellbase.transaction.outputs_capacity()? != block_reward.total {
@@ -275,16 +287,7 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
             }
         }
 
-        let txs_fees = self
-            .resolved
-            .iter()
-            .skip(1)
-            .map(|tx| {
-                DaoCalculator::new(self.context.consensus, self.context.store).transaction_fee(&tx)
-            })
-            .collect::<Result<Vec<Capacity>, Error>>()?;
-
-        Ok(txs_fees)
+        Ok(())
     }
 }
 
@@ -510,7 +513,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         executor: &Executor,
         switch: SW,
-    ) -> Result<(Cycle, Vec<Capacity>), Error> {
+    ) -> Result<Cycle, Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
             .context
@@ -543,11 +546,9 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
         }
 
-        let txs_fees = if !switch.disable_reward() {
-            RewardVerifier::new(&self.context, resolved, &parent).verify()?
-        } else {
-            vec![]
-        };
+        if !switch.disable_reward() {
+            RewardVerifier::new(&self.context, resolved, &parent).verify()?;
+        }
 
         let cycles = if !switch.disable_txs() {
             BlockTxsVerifier::new(
@@ -562,6 +563,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             0
         };
 
-        Ok((cycles, txs_fees))
+        Ok(cycles)
     }
 }

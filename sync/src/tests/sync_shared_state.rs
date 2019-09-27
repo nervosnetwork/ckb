@@ -42,7 +42,8 @@ fn test_insert_invalid_block() {
         let snapshot = shared.snapshot();
         let tip_number = snapshot.tip_number();
         let tip_hash = snapshot.tip_hash();
-        let invalid_cellbase = always_success_cellbase(tip_number, Capacity::zero());
+        let invalid_cellbase =
+            always_success_cellbase(tip_number, Capacity::zero(), snapshot.consensus());
         let next_block = inherit_block(shared.shared(), &tip_hash)
             .transaction(invalid_cellbase)
             .build();

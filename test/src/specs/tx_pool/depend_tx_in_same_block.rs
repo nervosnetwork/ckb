@@ -1,4 +1,4 @@
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{core::TransactionView, packed::ProposalShortId};
 use log::info;
 
@@ -11,7 +11,7 @@ impl Spec for DepentTxInSameBlock {
         let node0 = &net.nodes[0];
 
         info!("Generate 2 tx in same block");
-        node0.generate_block();
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
         let tx_hash_1 = tx.hash();

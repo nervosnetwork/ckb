@@ -2,7 +2,7 @@ use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, clear_messages, wait_until,
 };
-use crate::{Net, Spec, TestProtocol};
+use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_dao::DaoCalculator;
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
@@ -102,6 +102,7 @@ impl Spec for CompactBlockPrefilled {
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
@@ -148,6 +149,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
         node.submit_block(
             &node
@@ -159,7 +161,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         node.generate_blocks(3);
 
         // Net consume and ignore the recent blocks
-        (0..4).for_each(|_| {
+        (0..(DEFAULT_TX_PROPOSAL_WINDOW.1 + 6)).for_each(|_| {
             net.receive();
         });
 
@@ -204,6 +206,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Build the target transaction
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
@@ -256,6 +259,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         let node1 = &net.nodes[1];
         net.connect(node1);
         let _ = net.receive();
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash().clone());
         node0.submit_block(
@@ -322,6 +326,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction_spend_tip_cellbase();
         node.submit_block(

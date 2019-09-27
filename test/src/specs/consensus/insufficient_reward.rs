@@ -1,6 +1,10 @@
 use crate::{Net, Spec};
 use ckb_chain_spec::ChainSpec;
-use ckb_types::core::{BlockView, Capacity};
+use ckb_types::{
+    core::{capacity_bytes, BlockView, Capacity},
+    packed::CellOutput,
+    prelude::*,
+};
 use log::info;
 use std::convert::Into;
 
@@ -28,7 +32,29 @@ impl Spec for InsufficientReward {
         let blk: BlockView = node.rpc_client().get_block(hash).unwrap().into();
         let cellbase = &blk.transactions()[0];
 
-        assert!(cellbase.outputs().is_empty())
+        assert_eq!(blk.number(), 101);
+        assert!(cellbase.outputs().is_empty());
+
+        let output = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(Default::default())
+            .build();
+
+        let new_builder = node.new_block_builder(None, None, None);
+        let template = new_builder.clone().build();
+        let cellbase = template.transactions()[0]
+            .as_advanced_builder()
+            .output(output)
+            .build();
+        let new_block = new_builder.clone().set_transactions(vec![cellbase]).build();
+
+        let result = node
+            .rpc_client()
+            .submit_block("".to_owned(), new_block.data().into());
+        assert!(result
+            .expect_err("invalid block submit failed")
+            .to_string()
+            .contains("Block(Cellbase(InvalidOutputQuantity))"));
     }
 
     // export data

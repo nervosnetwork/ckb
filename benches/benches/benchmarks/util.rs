@@ -100,17 +100,24 @@ pub fn create_always_success_tx() -> TransactionView {
 pub fn create_always_success_cellbase(shared: &Shared, parent: &HeaderView) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let capacity = calculate_reward(shared, parent);
-    TransactionBuilder::default()
+
+    let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .output(
-            CellOutput::new_builder()
-                .capacity(capacity.pack())
-                .lock(always_success_script.clone())
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
-        .witness(always_success_script.clone().into_witness())
-        .build()
+        .witness(always_success_script.clone().into_witness());
+
+    if (parent.number() + 1) <= shared.consensus().finalization_delay_length() {
+        builder.build()
+    } else {
+        builder
+            .output(
+                CellOutput::new_builder()
+                    .capacity(capacity.pack())
+                    .lock(always_success_script.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    }
 }
 
 pub fn gen_always_success_block(
@@ -305,17 +312,24 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
 pub fn create_secp_cellbase(shared: &Shared, parent: &HeaderView) -> TransactionView {
     let (_, _, secp_script) = secp_cell();
     let capacity = calculate_reward(shared, parent);
-    TransactionBuilder::default()
+
+    let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .output(
-            CellOutput::new_builder()
-                .capacity(capacity.pack())
-                .lock(secp_script.clone())
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
-        .witness(secp_script.clone().into_witness())
-        .build()
+        .witness(secp_script.clone().into_witness());
+
+    if (parent.number() + 1) <= shared.consensus().finalization_delay_length() {
+        builder.build()
+    } else {
+        builder
+            .output(
+                CellOutput::new_builder()
+                    .capacity(capacity.pack())
+                    .lock(secp_script.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    }
 }
 
 pub fn gen_secp_block(
