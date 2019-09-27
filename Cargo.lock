@@ -370,7 +370,7 @@ dependencies = [
  "ckb-jsonrpc-types 0.22.0-pre",
  "ckb-shared 0.22.0-pre",
  "ckb-store 0.22.0-pre",
- "ckb-system-scripts 0.4.0-alpha.5+single-bytes (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.4.0-alpha.6+compress-header (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-test-chain-utils 0.22.0-pre",
  "ckb-tx-pool 0.22.0-pre",
  "ckb-types 0.22.0-pre",
@@ -788,7 +788,7 @@ dependencies = [
 name = "ckb-resource"
 version = "0.22.0-pre"
 dependencies = [
- "ckb-system-scripts 0.4.0-alpha.5+single-bytes (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.4.0-alpha.6+compress-header (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-types 0.22.0-pre",
  "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-system-scripts"
-version = "0.4.0-alpha.5+single-bytes"
+version = "0.4.0-alpha.6+compress-header"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "blake2b-rs 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3986,7 +3986,7 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)" = "e8493056968583b0193c1bb04d6f7684586f3726992d6c573261941a895dbd68"
-"checksum ckb-system-scripts 0.4.0-alpha.5+single-bytes (registry+https://github.com/rust-lang/crates.io-index)" = "300358fa9e7bd5bc200bf09c4dd0d713efd3d7d019346d8285b106db01b23b57"
+"checksum ckb-system-scripts 0.4.0-alpha.6+compress-header (registry+https://github.com/rust-lang/crates.io-index)" = "d10720a27b92cdfbf669a9e56f90b157ba92f038f63a6ae85331439b3c7c8883"
 "checksum ckb-vm 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b95ed9373dd7af32ec8c7d450b5fd5d1b4c7f1ce49ba1bf0f59956b00d588224"
 "checksum ckb-vm-definitions 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)" = "55c0c2211e4174e54d5e73a353cd8834c5cd2395dfaeb6b88f05ab435b5a761b"
 "checksum clang-sys 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)" = "81de550971c976f176130da4b2978d3b524eaa0fd9ac31f3ceb5ae1231fb4853"
