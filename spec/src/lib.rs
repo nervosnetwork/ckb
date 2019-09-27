@@ -10,8 +10,8 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
-    build_genesis_dao_data, Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO,
-    SATOSHI_PUBKEY_HASH,
+    build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
 };
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -221,10 +221,16 @@ impl ChainSpec {
     }
 
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
+        let genesis_epoch_ext = build_genesis_epoch_ext(
+            self.params.initial_primary_epoch_reward,
+            self.genesis.compact_target,
+            self.params.genesis_epoch_length,
+            self.params.epoch_duration_target,
+        );
         let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = ConsensusBuilder::new(genesis_block, self.params.genesis_epoch_length)
+        let consensus = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
             .id(self.name.clone())
             .cellbase_maturity(EpochNumberWithFraction::from_full_value(
                 self.params.cellbase_maturity,

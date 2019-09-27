@@ -16,7 +16,7 @@ use ckb_types::{
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
         TransactionView,
     },
-    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::{difficulty_to_compact, DIFF_TWO},
     U256,
 };
@@ -42,13 +42,32 @@ pub(crate) fn create_always_success_out_point() -> OutPoint {
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
     let builder = SharedBuilder::default();
+    let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();
         let dao = genesis_dao_data(vec![&tx]).unwrap();
+        // create genesis block with N txs
+        let transactions: Vec<TransactionView> = (0..10u64)
+            .map(|i| {
+                let data = Bytes::from(i.to_le_bytes().to_vec());
+                TransactionBuilder::default()
+                    .input(CellInput::new(OutPoint::null(), 0))
+                    .output(
+                        CellOutput::new_builder()
+                            .capacity(capacity_bytes!(50_000).pack())
+                            .lock(always_success_script.clone())
+                            .build(),
+                    )
+                    .output_data(data.pack())
+                    .build()
+            })
+            .collect();
+
         let genesis_block = BlockBuilder::default()
             .dao(dao)
             .compact_target(DIFF_TWO.pack())
             .transaction(tx)
+            .transactions(transactions)
             .build();
         ConsensusBuilder::default()
             .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
@@ -87,6 +106,7 @@ pub(crate) fn calculate_reward(
         .unwrap()
 }
 
+#[allow(clippy::int_plus_one)]
 pub(crate) fn create_cellbase(
     store: &MockStore,
     consensus: &Consensus,
@@ -94,17 +114,23 @@ pub(crate) fn create_cellbase(
 ) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let capacity = calculate_reward(store, consensus, parent);
-    TransactionBuilder::default()
+    let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .output(
-            CellOutputBuilder::default()
-                .capacity(capacity.pack())
-                .lock(always_success_script.clone())
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
-        .witness(always_success_script.clone().into_witness())
-        .build()
+        .witness(always_success_script.clone().into_witness());
+
+    if (parent.number() + 1) <= consensus.finalization_delay_length() {
+        builder.build()
+    } else {
+        builder
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity.pack())
+                    .lock(always_success_script.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    }
 }
 
 // more flexible mock function for make non-full-dead-cell test case

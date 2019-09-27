@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 
+#[allow(clippy::int_plus_one)]
 pub(crate) fn create_cellbase(
     parent: &HeaderView,
     miner_lock: Script,
@@ -34,17 +35,23 @@ pub(crate) fn create_cellbase(
 ) -> TransactionView {
     let number = parent.number() + 1;
     let capacity = calculate_reward(store, consensus, parent);
-    TransactionBuilder::default()
+    let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(
-            CellOutputBuilder::default()
-                .capacity(reward.unwrap_or(capacity).pack())
-                .lock(reward_lock)
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
-        .witness(miner_lock.into_witness())
-        .build()
+        .witness(miner_lock.into_witness());
+
+    if (parent.number() + 1) <= consensus.finalization_delay_length() {
+        builder.build()
+    } else {
+        builder
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(reward.unwrap_or(capacity).pack())
+                    .lock(reward_lock)
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -1,4 +1,4 @@
-use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     core::{
@@ -101,7 +101,9 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let consensus = ConsensusBuilder::new(genesis_block.clone(), 1000)
+                    let epoch_ext =
+                        build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO, 1000, 14400);
+                    let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)
                         .initial_primary_epoch_reward(DEFAULT_EPOCH_REWARD)
                         .build();
                     let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();

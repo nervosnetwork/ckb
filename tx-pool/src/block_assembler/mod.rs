@@ -175,9 +175,11 @@ impl BlockAssembler {
                 .lock(target_lock)
                 .build();
 
+            let no_finalization_target =
+                candidate_number <= snapshot.consensus().finalization_delay_length();
             let tx_builder = TransactionBuilder::default().input(input).witness(witness);
             let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
-            if insufficient_reward_to_create_cell {
+            if no_finalization_target || insufficient_reward_to_create_cell {
                 tx_builder.build()
             } else {
                 tx_builder

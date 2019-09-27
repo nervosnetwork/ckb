@@ -1,4 +1,4 @@
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::Unpack;
 use log::info;
 
@@ -9,6 +9,7 @@ impl Spec for TemplateSizeLimit {
 
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Generate 1 block");
         let blank_block = node.new_block(None, None, None);

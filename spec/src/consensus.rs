@@ -18,7 +18,7 @@ use ckb_types::{
     packed::{Byte32, CellInput, Script},
     prelude::*,
     u256,
-    utilities::{difficulty_to_compact, DIFF_TWO},
+    utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
     H160, H256, U256,
 };
 use std::cmp;
@@ -112,7 +112,6 @@ impl ProposalWindow {
 
 pub struct ConsensusBuilder {
     inner: Consensus,
-    genesis_epoch_length: BlockNumber,
 }
 
 // Dummy consensus, difficulty can not be zero
@@ -124,16 +123,51 @@ impl Default for ConsensusBuilder {
             .input(input)
             .witness(witness)
             .build();
-        let dao =
-            genesis_dao_data(vec![&cellbase]).expect("dummy genesis dao data calculation error!");
+
+        let epoch_ext = build_genesis_epoch_ext(
+            INITIAL_PRIMARY_EPOCH_REWARD,
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
+        );
+
+        let dao = genesis_dao_data(vec![&cellbase]).expect("genesis dao data calculation error!");
+
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())
             .dao(dao)
             .transaction(cellbase)
             .build();
 
-        ConsensusBuilder::new(genesis_block, GENESIS_EPOCH_LENGTH)
+        ConsensusBuilder::new(genesis_block, epoch_ext)
+            .initial_primary_epoch_reward(INITIAL_PRIMARY_EPOCH_REWARD)
     }
+}
+
+pub fn build_genesis_epoch_ext(
+    epoch_reward: Capacity,
+    compact_target: u32,
+    genesis_epoch_length: BlockNumber,
+    epoch_duration_target: u64,
+) -> EpochExt {
+    let block_reward = Capacity::shannons(epoch_reward.as_u64() / genesis_epoch_length);
+    let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % genesis_epoch_length);
+
+    let genesis_orphan_count = genesis_epoch_length / 40;
+    let genesis_hash_rate = compact_to_difficulty(compact_target)
+        * (genesis_epoch_length + genesis_orphan_count)
+        / epoch_duration_target;
+
+    EpochExt::new_builder()
+        .number(0)
+        .base_block_reward(block_reward)
+        .remainder_reward(remainder_reward)
+        .previous_epoch_hash_rate(genesis_hash_rate)
+        .last_block_hash_in_previous_epoch(Byte32::zero())
+        .start_number(0)
+        .length(genesis_epoch_length)
+        .compact_target(compact_target)
+        .build()
 }
 
 pub fn build_genesis_dao_data(
@@ -146,9 +180,7 @@ pub fn build_genesis_dao_data(
 }
 
 impl ConsensusBuilder {
-    pub fn new(genesis_block: BlockView, genesis_epoch_length: BlockNumber) -> Self {
-        let genesis_epoch_ext = EpochExt::new_builder().build();
-
+    pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
         ConsensusBuilder {
             inner: Consensus {
                 genesis_hash: genesis_block.header().hash(),
@@ -177,34 +209,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
             },
-            genesis_epoch_length,
         }
-    }
-
-    fn build_genesis_epoch_ext(&self) -> EpochExt {
-        let genesis_header = self.inner.genesis_block.header();
-        let block_reward = Capacity::shannons(
-            self.inner.initial_primary_epoch_reward.as_u64() / self.genesis_epoch_length,
-        );
-        let remainder_reward = Capacity::shannons(
-            self.inner.initial_primary_epoch_reward.as_u64() % self.genesis_epoch_length,
-        );
-
-        let genesis_orphan_count = self.genesis_epoch_length / 40;
-        let genesis_hash_rate = genesis_header.difficulty()
-            * (self.genesis_epoch_length + genesis_orphan_count)
-            / self.inner.epoch_duration_target();
-
-        EpochExt::new_builder()
-            .number(0)
-            .base_block_reward(block_reward)
-            .remainder_reward(remainder_reward)
-            .previous_epoch_hash_rate(genesis_hash_rate)
-            .last_block_hash_in_previous_epoch(Byte32::zero())
-            .start_number(0)
-            .length(self.genesis_epoch_length)
-            .compact_target(genesis_header.compact_target())
-            .build()
     }
 
     fn get_type_hash(&self, output_index: u64) -> Option<Byte32> {
@@ -254,13 +259,15 @@ impl ConsensusBuilder {
             "genesis block must contain the witness for cellbase"
         );
 
-        self.inner.genesis_hash = self.inner.genesis_block.hash();
         self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
         self.inner.secp_blake160_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
         self.inner.secp_ripemd160_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL);
-        self.inner.genesis_epoch_ext = self.build_genesis_epoch_ext();
+        self.inner
+            .genesis_epoch_ext
+            .set_compact_target(self.inner.genesis_block.compact_target());
+        self.inner.genesis_hash = self.inner.genesis_block.hash();
         self.inner
     }
 
@@ -713,8 +720,14 @@ pub mod test {
         let cellbase = TransactionBuilder::default()
             .witness(Bytes::default())
             .build();
+        let epoch_ext = build_genesis_epoch_ext(
+            capacity_bytes!(100),
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
+        );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = ConsensusBuilder::new(genesis, GENESIS_EPOCH_LENGTH)
+        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
             .initial_primary_epoch_reward(capacity_bytes!(100))
             .build();
         assert_eq!(capacity_bytes!(100), consensus.initial_primary_epoch_reward);
@@ -725,8 +738,14 @@ pub mod test {
         let cellbase = TransactionBuilder::default()
             .witness(Bytes::default())
             .build();
+        let epoch_ext = build_genesis_epoch_ext(
+            capacity_bytes!(100),
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
+        );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = ConsensusBuilder::new(genesis.clone(), GENESIS_EPOCH_LENGTH)
+        let consensus = ConsensusBuilder::new(genesis.clone(), epoch_ext)
             .initial_primary_epoch_reward(capacity_bytes!(100))
             .build();
         let genesis_epoch = consensus.genesis_epoch_ext();

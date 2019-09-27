@@ -560,16 +560,22 @@ mod tests {
             .snapshot()
             .finalize_block_reward(parent_header)
             .unwrap();
-        TransactionBuilder::default()
+
+        let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.pack())
-                    .build(),
-            )
-            .output_data(Bytes::new().pack())
-            .witness(Script::default().into_witness())
-            .build()
+            .witness(Script::default().into_witness());
+        if number <= shared.consensus().finalization_delay_length() {
+            builder.build()
+        } else {
+            builder
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(reward.total.pack())
+                        .build(),
+                )
+                .output_data(Bytes::new().pack())
+                .build()
+        }
     }
 
     fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {

@@ -119,17 +119,23 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
         let (_, reward) = snapshot.finalize_block_reward(&block.header()).unwrap();
 
-        let cellbase = TransactionBuilder::default()
+        let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.pack())
-                    .lock(always_success_script.to_owned())
-                    .build(),
-            )
-            .output_data(Bytes::default().pack())
-            .witness(always_success_script.to_owned().into_witness())
-            .build();
+            .witness(always_success_script.to_owned().into_witness());
+
+        let cellbase = if number <= snapshot.consensus().finalization_delay_length() {
+            builder.build()
+        } else {
+            builder
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(reward.total.pack())
+                        .lock(always_success_script.to_owned())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build()
+        };
 
         let dao = {
             let resolved_cellbase = resolve_transaction(

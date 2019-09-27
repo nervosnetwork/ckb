@@ -1,6 +1,6 @@
 use super::*;
 use crate::utils::is_committed;
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::{
     build_genesis_type_id_script, ChainSpec, IssuedCell,
     OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
@@ -26,7 +26,7 @@ impl Spec for DAOWithSatoshiCellOccupied {
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         // try deposit then withdraw dao
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
             ensure_committed(node0, &transaction)
@@ -138,8 +138,7 @@ impl Spec for SpendSatoshiCell {
             .send_transaction(transaction.data().into());
         node0.generate_blocks(3);
         // cellbase occupied capacity minus satoshi cell
-        let cellbase_used_capacity =
-            Capacity::bytes(CELLBASE_USED_BYTES * node0.spec().genesis.system_cells.len()).unwrap();
+        let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
         let tx_status = node0
             .rpc_client()
             .get_transaction(tx_hash.clone())

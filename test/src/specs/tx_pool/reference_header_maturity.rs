@@ -14,8 +14,8 @@ impl Spec for ReferenceHeaderMaturity {
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
-        info!("Generate 1 block");
-        node.generate_block();
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW + 2 block");
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Use generated block's cellbase as tx input");
         let base_block = node.get_tip_block();
 

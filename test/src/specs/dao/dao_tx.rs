@@ -1,6 +1,6 @@
 use super::*;
 use crate::utils::assert_send_transaction_fail;
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     bytes::Bytes,
     core::Capacity,
@@ -15,7 +15,7 @@ impl Spec for DepositDAO {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Deposit DAO
         {
@@ -48,7 +48,7 @@ impl Spec for WithdrawDAO {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -66,7 +66,7 @@ impl Spec for WithdrawAndDepositDAOWithinSameTx {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let mut deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -108,7 +108,7 @@ impl Spec for WithdrawDAOWithNotMaturitySince {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let not_maturity = |node: &Node, previous_output: OutPoint| {
             let not_maturity_since = node.get_tip_block_number();
@@ -140,7 +140,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -179,7 +179,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);

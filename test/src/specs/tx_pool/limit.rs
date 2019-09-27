@@ -14,8 +14,8 @@ impl Spec for SizeLimit {
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
-        info!("Generate 1 block on node");
-        node.generate_block();
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();
@@ -76,8 +76,8 @@ impl Spec for CyclesLimit {
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
-        info!("Generate 1 block on node");
-        node.generate_block();
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();

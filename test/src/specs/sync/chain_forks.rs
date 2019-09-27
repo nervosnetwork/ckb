@@ -1,5 +1,5 @@
 use crate::utils::is_committed;
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
@@ -118,13 +118,13 @@ impl Spec for ChainFork3 {
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW.1 + 2 blocks (A, B) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -132,7 +132,7 @@ impl Spec for ChainFork3 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -158,7 +158,7 @@ impl Spec for ChainFork3 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -168,7 +168,7 @@ impl Spec for ChainFork3 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -190,12 +190,12 @@ impl Spec for ChainFork4 {
         let node2 = &net.nodes[2];
 
         info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -203,7 +203,7 @@ impl Spec for ChainFork4 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -227,7 +227,7 @@ impl Spec for ChainFork4 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -237,7 +237,7 @@ impl Spec for ChainFork4 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -258,8 +258,8 @@ impl Spec for ChainFork5 {
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 1 block (A) on node0");
-        node0.generate_blocks(1);
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW +2 block (A) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Generate 1 block (B) on node0, proposal spent A cellbase transaction");
         let transaction = node0.new_transaction_spend_tip_cellbase();
         node0.submit_transaction(&transaction);
@@ -267,7 +267,7 @@ impl Spec for ChainFork5 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -275,7 +275,7 @@ impl Spec for ChainFork5 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -295,12 +295,12 @@ impl Spec for ChainFork5 {
             }
         };
         node1.submit_block(&block.data());
-        assert_eq!(4, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = block.as_advanced_builder().transaction(transaction).build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(16, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -310,7 +310,7 @@ impl Spec for ChainFork5 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 5);
     }
 }
 
@@ -390,13 +390,13 @@ impl Spec for ChainFork7 {
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        info!("Generate 12 blocks (A, B) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -404,7 +404,7 @@ impl Spec for ChainFork7 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -429,7 +429,7 @@ impl Spec for ChainFork7 {
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -439,7 +439,7 @@ impl Spec for ChainFork7 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -498,6 +498,8 @@ impl Spec for ForksContainSameTransactions {
         let node2 = &net.nodes[2];
         let target_node = &net.nodes[3];
 
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+
         let transaction = node0.new_transaction_spend_tip_cellbase();
 
         // Build `chain0`, contain the target `transaction`, with length = 41
@@ -513,13 +515,13 @@ impl Spec for ForksContainSameTransactions {
             sleep(Duration::from_millis(1));
             node1.generate_blocks(30);
             node1.submit_transaction(&transaction);
-            node1.generate_blocks(30);
+            node1.generate_blocks(40);
         }
 
         // Build `chain2`, all the blocks are empty, with length = 51
         {
             sleep(Duration::from_millis(1));
-            node2.generate_blocks(50);
+            node2.generate_blocks(60);
         }
 
         let (rpc_client0, rpc_client1, rpc_client2) =
@@ -534,19 +536,19 @@ impl Spec for ForksContainSameTransactions {
 
         // `target_node` holds `chain0` as the main chain
         target_node.connect(node0);
-        target_node.waiting_for_sync(node0, 41);
+        target_node.waiting_for_sync(node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 43);
         target_node.disconnect(node0);
         is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
-        target_node.waiting_for_sync(node2, 51);
+        target_node.waiting_for_sync(node2, 61);
         target_node.disconnect(node2);
         is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
-        target_node.waiting_for_sync(node1, 61);
+        target_node.waiting_for_sync(node1, 71);
         target_node.disconnect(node1);
         is_transaction_existed(target_node, transaction.hash());
     }
