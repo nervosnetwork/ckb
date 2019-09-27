@@ -69,10 +69,7 @@ pub fn compact_to_target(compact: u32) -> (U256, bool) {
         ret <<= 8 * (exponent - 3);
     }
 
-    let overflow = !mantissa.is_zero()
-        && ((exponent > 34) // > (256 ** 31)
-            || (mantissa > U256::from(0xffu32) && exponent > 33)
-            || (mantissa > U256::from(0xffffu32) && exponent > 32));
+    let overflow = !mantissa.is_zero() && (exponent > 32);
     (ret, overflow)
 }
 
@@ -211,6 +208,10 @@ mod tests {
     fn test_compact_overflowing2() {
         _test_compact_overflowing(U256::max_value());
 
+        let (_, overflow) = compact_to_target(0x21000001);
+        assert_eq!(overflow, true, "should overflow");
+        let (_, overflow) = compact_to_target(0x22000001);
+        assert_eq!(overflow, true, "should overflow");
         let (_, overflow) = compact_to_target(0x23000001);
         assert_eq!(overflow, true, "should overflow");
     }
