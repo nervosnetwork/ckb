@@ -196,7 +196,7 @@ impl<'a> SubmitTxsExecutor<'a> {
 
         for ((rtx, cycles), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter()) {
             if self.tx_pool.reach_cycles_limit(cycles) {
-                Err(InternalErrorKind::TransactionPoolFull)?;
+                return Err(InternalErrorKind::TransactionPoolFull.into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
@@ -228,7 +228,7 @@ fn resolve_tx<'a>(
 ) -> Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error> {
     let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
-        Err(InternalErrorKind::TransactionPoolFull)?;
+        return Err(InternalErrorKind::TransactionPoolFull.into());
     }
 
     let short_id = tx.proposal_short_id();

@@ -55,7 +55,7 @@ macro_rules! impl_std_str_fromstr {
             fn from_str(input: &str) -> Result<Self, Self::Err> {
                 let len = input.as_bytes().len();
                 if len != $bytes_size * 2 {
-                    Err(FromStrError::InvalidLength(len))?;
+                    return Err(FromStrError::InvalidLength(len));
                 }
                 let mut ret = Self::default();
                 for (idx, chr) in input.bytes().enumerate() {
@@ -65,7 +65,7 @@ macro_rules! impl_std_str_fromstr {
                         DICT_HEX_LO[usize::from(chr)]
                     };
                     if val == DICT_HEX_ERROR {
-                        Err(FromStrError::InvalidCharacter { chr, idx })?;
+                        return Err(FromStrError::InvalidCharacter { chr, idx });
                     }
                     ret.0[idx / 2] |= val;
                 }
@@ -89,7 +89,7 @@ macro_rules! impl_from_trimmed_str {
                     if len == 1 {
                         Ok(Self::default())
                     } else {
-                        Err(FromStrError::InvalidCharacter { chr: b'0', idx: 0 })?
+                        Err(FromStrError::InvalidCharacter { chr: b'0', idx: 0 })
                     }
                 } else {
                     let mut ret = Self::default();
@@ -103,7 +103,7 @@ macro_rules! impl_from_trimmed_str {
                             DICT_HEX_LO[usize::from(chr)]
                         };
                         if val == DICT_HEX_ERROR {
-                            Err(FromStrError::InvalidCharacter { chr, idx })?;
+                            return Err(FromStrError::InvalidCharacter { chr, idx });
                         }
                         idx += 1;
                         ret.0[unit_idx] |= val;

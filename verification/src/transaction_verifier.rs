@@ -132,7 +132,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.version() != TX_VERSION {
-            Err(TransactionError::MismatchedVersion)?;
+            return Err((TransactionError::MismatchedVersion).into());
         }
         Ok(())
     }
@@ -156,7 +156,7 @@ impl<'a> SizeVerifier<'a> {
         if size <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(TransactionError::ExceededMaximumBlockBytes)?
+            Err(TransactionError::ExceededMaximumBlockBytes.into())
         }
     }
 }
@@ -191,7 +191,7 @@ impl<'a> EmptyVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.is_empty() {
-            Err(TransactionError::Empty)?
+            Err(TransactionError::Empty.into())
         } else {
             Ok(())
         }
@@ -246,7 +246,7 @@ impl<'a> MaturityVerifier<'a> {
         };
 
         if input_immature_spend() || dep_immature_spend() {
-            Err(TransactionError::CellbaseImmaturity)?
+            Err(TransactionError::CellbaseImmaturity.into())
         } else {
             Ok(())
         }
@@ -276,7 +276,7 @@ impl<'a> DuplicateDepsVerifier<'a> {
         {
             Ok(())
         } else {
-            Err(TransactionError::DuplicateDeps)?
+            Err(TransactionError::DuplicateDeps.into())
         }
     }
 }
@@ -308,7 +308,7 @@ impl<'a> CapacityVerifier<'a> {
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
             if inputs_total < outputs_total {
-                Err(TransactionError::OutputsSumOverflow)?;
+                return Err((TransactionError::OutputsSumOverflow).into());
             }
         }
 
@@ -318,7 +318,7 @@ impl<'a> CapacityVerifier<'a> {
             .outputs_with_data_iter()
         {
             if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
-                Err(TransactionError::InsufficientCellCapacity)?;
+                return Err((TransactionError::InsufficientCellCapacity).into());
             }
         }
 
@@ -446,22 +446,22 @@ where
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < block_number {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
                     if self.epoch_number_with_fraction < epoch_number_with_fraction {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
                     let tip_timestamp = self.block_median_time(&self.parent_hash);
                     if tip_timestamp < timestamp {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSince)?;
+                    return Err((TransactionError::InvalidSince).into());
                 }
             }
         }
@@ -471,13 +471,13 @@ where
     fn verify_relative_lock(&self, since: Since, cell_meta: &CellMeta) -> Result<(), Error> {
         if since.is_relative() {
             let info = match cell_meta.transaction_info {
-                Some(ref transaction_info) => transaction_info,
-                None => Err(TransactionError::Immature)?,
-            };
+                Some(ref transaction_info) => Ok(transaction_info),
+                None => Err(TransactionError::Immature),
+            }?;
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < info.block_number + block_number {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
@@ -485,7 +485,7 @@ where
                     let b =
                         info.block_epoch.to_rational() + epoch_number_with_fraction.to_rational();
                     if a < b {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
@@ -496,11 +496,11 @@ where
                     let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSince)?;
+                    return Err((TransactionError::InvalidSince).into());
                 }
             }
         }
@@ -522,7 +522,7 @@ where
             let since = Since(since);
             // check remain flags
             if !since.flags_is_valid() {
-                Err(TransactionError::InvalidSince)?;
+                return Err((TransactionError::InvalidSince).into());
             }
 
             // verify time lock
@@ -544,7 +544,7 @@ impl<'a> OutputsDataVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
-            Err(TransactionError::OutputsDataLengthMismatch)?;
+            return Err(TransactionError::OutputsDataLengthMismatch);
         }
         Ok(())
     }

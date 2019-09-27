@@ -255,19 +255,19 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(data.to_owned())
                 } else {
-                    Err(ScriptError::InvalidCodeHash)?
+                    Err(ScriptError::InvalidCodeHash.into())
                 }
             }
             ScriptHashType::Type => {
                 if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash())
                 {
                     if *multiple {
-                        Err(ScriptError::MultipleMatches)?
+                        Err(ScriptError::MultipleMatches.into())
                     } else {
                         Ok(data.to_owned())
                     }
                 } else {
-                    Err(ScriptError::InvalidCodeHash)?
+                    Err(ScriptError::InvalidCodeHash.into())
                 }
             }
         }
@@ -292,7 +292,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .checked_add(cycle)
                 .ok_or(ScriptError::ExceededMaximumCycles)?;
             if current_cycles > max_cycles {
-                Err(ScriptError::ExceededMaximumCycles)?;
+                return Err(ScriptError::ExceededMaximumCycles.into());
             }
             cycles = current_cycles;
         }
@@ -404,7 +404,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
-            Err(ScriptError::ValidationFailure(code))?
+            Err(ScriptError::ValidationFailure(code).into())
         }
     }
 }

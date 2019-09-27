@@ -269,7 +269,7 @@ impl From<Context<HeaderErrorKind>> for HeaderError {
 }
 
 impl Fail for HeaderError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner().cause()
     }
 
@@ -299,7 +299,7 @@ impl From<Context<BlockErrorKind>> for BlockError {
 }
 
 impl Fail for BlockError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner().cause()
     }
 

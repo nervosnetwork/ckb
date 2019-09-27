@@ -10,7 +10,7 @@ macro_rules! impl_methods {
             #[inline]
             pub fn from_slice(input: &[u8]) -> Result<Self, FromSliceError> {
                 if input.len() != $bytes_size {
-                    Err(FromSliceError::InvalidLength(input.len()))?
+                    Err(FromSliceError::InvalidLength(input.len()))
                 } else {
                     let mut ret = Self::default();
                     ret.0[..].copy_from_slice(input);

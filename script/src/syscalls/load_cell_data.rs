@@ -83,8 +83,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         let source = Source::parse_from_u64(machine.registers()[A5].to_u64())?;
 
         let cell = self.fetch_cell(source, index as usize);
-        if cell.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
+        if let Err(err) = cell {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(());
         }
         let cell = cell.unwrap();
@@ -122,8 +122,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let cell = self.fetch_cell(source, index as usize);
-        if cell.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
+        if let Err(err) = cell {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(());
         }
         let cell = cell.unwrap();

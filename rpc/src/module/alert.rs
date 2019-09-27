@@ -43,13 +43,13 @@ impl AlertRpc for AlertRpcImpl {
         let now_ms = faketime::unix_time_as_millis();
         let notice_until: u64 = alert.raw().notice_until().unpack();
         if notice_until < now_ms {
-            Err(RPCError::custom(
+            return Err(RPCError::custom(
                 RPCError::Invalid,
                 format!(
                     "expired alert, notice_until: {} server: {}",
                     notice_until, now_ms
                 ),
-            ))?;
+            ));
         }
 
         let result = self.verifier.verify_signatures(&alert);

@@ -29,19 +29,19 @@ pub struct TypeIdSystemScript<'a> {
 impl<'a> TypeIdSystemScript<'a> {
     pub fn verify(&self) -> Result<Cycle, Error> {
         if self.max_cycles < TYPE_ID_CYCLES {
-            Err(ScriptError::ExceededMaximumCycles)?;
+            return Err(ScriptError::ExceededMaximumCycles.into());
         }
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating
         // the cell.
         if self.script_group.script.args().len() != 32 {
-            Err(ScriptError::ValidationFailure(ERROR_ARGS))?;
+            return Err(ScriptError::ValidationFailure(ERROR_ARGS).into());
         }
 
         // There could be at most one input cell and one
         // output cell with current TYPE_ID script.
         if self.script_group.input_indices.len() > 1 || self.script_group.output_indices.len() > 1 {
-            Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS))?;
+            return Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS).into());
         }
 
         // If there's only one output cell with current
@@ -72,7 +72,7 @@ impl<'a> TypeIdSystemScript<'a> {
             blake2b.finalize(&mut ret);
 
             if ret[..] != self.script_group.script.args().raw_data()[..] {
-                Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH))?;
+                return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH).into());
             }
         }
         Ok(TYPE_ID_CYCLES)

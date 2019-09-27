@@ -56,20 +56,20 @@ impl CellbaseVerifier {
 
         // empty checked, block must contain cellbase
         if cellbase_len != 1 {
-            Err(CellbaseError::InvalidQuantity)?;
+            return Err((CellbaseError::InvalidQuantity).into());
         }
 
         let cellbase_transaction = &block.transactions()[0];
 
         if !cellbase_transaction.is_cellbase() {
-            Err(CellbaseError::InvalidPosition)?;
+            return Err((CellbaseError::InvalidPosition).into());
         }
 
         // cellbase outputs/outputs_data len must eq 1
         if cellbase_transaction.outputs().len() != 1
             || cellbase_transaction.outputs_data().len() != 1
         {
-            Err(CellbaseError::InvalidQuantity)?;
+            return Err((CellbaseError::InvalidQuantity).into());
         }
 
         // cellbase output data must empty
@@ -78,7 +78,7 @@ impl CellbaseVerifier {
             .get_unchecked(0)
             .is_empty()
         {
-            Err(CellbaseError::InvalidOutputData)?;
+            return Err((CellbaseError::InvalidOutputData).into());
         }
 
         if cellbase_transaction
@@ -87,7 +87,7 @@ impl CellbaseVerifier {
             .and_then(Script::from_witness)
             .is_none()
         {
-            Err(CellbaseError::InvalidWitness)?;
+            return Err((CellbaseError::InvalidWitness).into());
         }
 
         if cellbase_transaction
@@ -95,7 +95,7 @@ impl CellbaseVerifier {
             .into_iter()
             .any(|output| output.type_().is_some())
         {
-            Err(CellbaseError::InvalidTypeScript)?;
+            return Err((CellbaseError::InvalidTypeScript).into());
         }
 
         let cellbase_input = &cellbase_transaction
@@ -103,7 +103,7 @@ impl CellbaseVerifier {
             .get(0)
             .expect("cellbase should have input");
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
-            Err(CellbaseError::InvalidInput)?;
+            return Err((CellbaseError::InvalidInput).into());
         }
 
         Ok(())
@@ -121,7 +121,7 @@ impl DuplicateVerifier {
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let mut seen = HashSet::with_capacity(block.transactions().len());
         if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
-            Err(BlockErrorKind::CommitTransactionDuplicate)?;
+            return Err((BlockErrorKind::CommitTransactionDuplicate).into());
         }
 
         let mut seen = HashSet::with_capacity(block.data().proposals().len());
@@ -131,7 +131,7 @@ impl DuplicateVerifier {
             .into_iter()
             .all(|id| seen.insert(id))
         {
-            Err(BlockErrorKind::ProposalTransactionDuplicate)?;
+            return Err((BlockErrorKind::ProposalTransactionDuplicate).into());
         }
         Ok(())
     }
@@ -147,15 +147,15 @@ impl MerkleRootVerifier {
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.transactions_root() != block.calc_transactions_root() {
-            Err(BlockErrorKind::CommitTransactionsRoot)?;
+            return Err((BlockErrorKind::CommitTransactionsRoot).into());
         }
 
         if block.witnesses_root() != block.calc_witnesses_root() {
-            Err(BlockErrorKind::WitnessesMerkleRoot)?;
+            return Err((BlockErrorKind::WitnessesMerkleRoot).into());
         }
 
         if block.proposals_hash() != block.calc_proposals_hash() {
-            Err(BlockErrorKind::ProposalTransactionsRoot)?;
+            return Err((BlockErrorKind::ProposalTransactionsRoot).into());
         }
 
         Ok(())
@@ -238,7 +238,7 @@ impl BlockProposalsLimitVerifier {
         if proposals_len <= self.block_proposals_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::ExceededMaximumProposalsLimit)?
+            Err(BlockErrorKind::ExceededMaximumProposalsLimit.into())
         }
     }
 }
@@ -262,7 +262,7 @@ impl BlockBytesVerifier {
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::ExceededMaximumBlockBytes)?
+            Err(BlockErrorKind::ExceededMaximumBlockBytes.into())
         }
     }
 }

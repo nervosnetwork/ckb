@@ -50,7 +50,7 @@ impl Signature {
 
     pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
         if data.len() != 65 {
-            Err(Error::InvalidSignature)?;
+            return Err(Error::InvalidSignature);
         }
         let mut sig = [0u8; 65];
         sig[..].copy_from_slice(data);

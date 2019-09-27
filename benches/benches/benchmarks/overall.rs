@@ -134,7 +134,7 @@ fn bench(c: &mut Criterion) {
                         let txs = gen_txs_from_block(&block);
                         let tx_pool = shared.tx_pool_controller();
                         if !txs.is_empty() {
-                            tx_pool.submit_txs(txs).unwrap().expect("submit_txs");;
+                            tx_pool.submit_txs(txs).unwrap().expect("submit_txs");
                         }
                         let block_template = tx_pool
                             .get_block_template(None, None, None)

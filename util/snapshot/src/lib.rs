@@ -129,7 +129,7 @@ impl<'a> ChainStore<'a> for Snapshot {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
         self.store.get_iter(col, from_key, direction)
     }
 

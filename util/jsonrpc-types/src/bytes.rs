@@ -165,20 +165,11 @@ mod test {
 
         let testcases = vec![
             (ErrorKind::InvalidValue, "1234"),
-            (
-                ErrorKind::InvalidValue,
-                "测试非 ASCII 字符不会 panic",
-            ),
+            (ErrorKind::InvalidValue, "测试非 ASCII 字符不会 panic"),
             (ErrorKind::InvalidLength, "0x0"),
-            (
-                ErrorKind::InvalidLength,
-                "0x测试非 ASCII 字符不会 panic~",
-            ),
+            (ErrorKind::InvalidLength, "0x测试非 ASCII 字符不会 panic~"),
             (ErrorKind::InvalidCharacter, "0x0z"),
-            (
-                ErrorKind::InvalidCharacter,
-                "0x测试非 ASCII 字符不会 panic",
-            ),
+            (ErrorKind::InvalidCharacter, "0x测试非 ASCII 字符不会 panic"),
         ];
 
         for (kind, input) in testcases.into_iter() {

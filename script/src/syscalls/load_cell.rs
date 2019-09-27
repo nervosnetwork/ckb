@@ -160,8 +160,8 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let cell = self.fetch_cell(source, index as usize);
-        if cell.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
+        if let Err(err) = cell {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(true);
         }
         let cell = cell.unwrap();

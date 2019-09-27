@@ -84,7 +84,7 @@ impl Relayer {
                 if reader.check_data() {
                     TransactionsProcess::new(reader, self, nc, peer).execute()?;
                 } else {
-                    Err(err_msg("RelayTransactions: invalid data"))?;
+                    return Err(err_msg("RelayTransactions: invalid data"));
                 }
             }
             packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
@@ -100,7 +100,7 @@ impl Relayer {
                 if reader.check_data() {
                     BlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
                 } else {
-                    Err(err_msg("BlockTransactions: invalid data"))?;
+                    return Err(err_msg("BlockTransactions: invalid data"));
                 }
             }
             packed::RelayMessageUnionReader::GetBlockProposal(reader) => {
@@ -109,7 +109,7 @@ impl Relayer {
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
                 BlockProposalProcess::new(reader, self).execute()?;
             }
-            packed::RelayMessageUnionReader::NotSet => Err(err_msg("invalid data"))?,
+            packed::RelayMessageUnionReader::NotSet => return Err(err_msg("invalid data")),
         }
         Ok(())
     }
@@ -131,7 +131,7 @@ impl Relayer {
 
     pub fn request_proposal_txs(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block_hash: Byte32,
         mut proposals: Vec<packed::ProposalShortId>,
@@ -173,7 +173,7 @@ impl Relayer {
     pub fn accept_block(
         &self,
         snapshot: &SyncSnapshot,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: core::BlockView,
     ) {
@@ -391,7 +391,7 @@ impl Relayer {
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
+    fn prune_tx_proposal_request(&self, nc: &dyn CKBProtocolContext) {
         let get_block_proposals = self.shared().state().clear_get_block_proposals();
         let tx_pool = self.shared.shared().tx_pool_controller();
 
@@ -434,7 +434,7 @@ impl Relayer {
     }
 
     // Ask for relay transaction by hash from all peers
-    pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
+    pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         let state = self.shared().state();
         for (peer, peer_state) in state.peers().state.write().iter_mut() {
             let tx_hashes = peer_state
@@ -473,7 +473,7 @@ impl Relayer {
     }
 
     // Send bulk of tx hashes to selected peers
-    pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
+    pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
         {
             let peer_tx_hashes = self.shared.state().take_tx_hashes();

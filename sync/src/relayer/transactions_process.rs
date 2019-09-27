@@ -27,7 +27,7 @@ impl<'a> TransactionsProcess<'a> {
     pub fn new(
         message: packed::RelayTransactionsReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         TransactionsProcess {
