@@ -250,6 +250,7 @@ fn all_specs() -> SpecMap {
         Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),
         Box::new(SendLowFeeRateTx),
+        Box::new(FeeEstimate),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),

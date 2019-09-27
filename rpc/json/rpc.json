@@ -560,6 +560,17 @@
         ]
     },
     {
+        "description": "Estimate a fee rate (capacity/KB) for a transaction that to be committed in expect blocks.\n\nThis method estimate fee rate by sample transactions that collected from p2p network\nexpected_confirm_blocks must be between 3 and 1000\nan error will return if samples is not enough",
+        "method": "estimate_fee_rate",
+        "module": "experiment",
+        "params": [
+            "0xa"
+        ],
+        "result": {
+            "fee_rate": "0x7d0"
+        }
+    },
+    {
         "description": "Send new transaction into transaction pool\n\nIf <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.",
         "method": "send_transaction",
         "module": "pool",
