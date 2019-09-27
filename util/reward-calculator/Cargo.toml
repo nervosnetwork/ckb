@@ -14,7 +14,5 @@ ckb-chain-spec = {path = "../../spec"}
 ckb-error = { path = "../../error" }
 
 [dev-dependencies]
-ckb-chain-spec = { path = "../../spec" }
 ckb-db = { path = "../../db" }
-ckb-script = { path = "../../script" }
 ckb-occupied-capacity = { path = "../occupied-capacity" }
