@@ -390,7 +390,7 @@ impl TxStatus {
 #[serde(deny_unknown_fields)]
 pub struct Header {
     pub version: Version,
-    pub compact_target: u32,
+    pub compact_target: Uint32,
     pub parent_hash: H256,
     pub timestamp: Timestamp,
     pub number: BlockNumber,
@@ -646,7 +646,7 @@ pub struct EpochView {
     pub number: EpochNumber,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
-    pub compact_target: u32,
+    pub compact_target: Uint32,
 }
 
 impl EpochView {
