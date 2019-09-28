@@ -96,7 +96,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "compact_target": 503853350,
+        "compact_target": "0x1e083126",
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "epoch": "0x7080018000001",
         "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -136,7 +136,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "compact_target": 503853350,
+        "compact_target": "0x1e083126",
         "length": "0x708",
         "number": "0x1",
         "start_number": "0x3e8"
@@ -173,7 +173,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "compact_target": 536936448,
+        "compact_target": "0x20010000",
         "length": "0x3e8",
         "number": "0x0",
         "start_number": "0x0"
@@ -243,7 +243,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "header": {
-            "compact_target": 503853350,
+            "compact_target": "0x1e083126",
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "epoch": "0x7080018000001",
             "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -322,7 +322,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "compact_target": 503853350,
+        "compact_target": "0x1e083126",
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "epoch": "0x7080018000001",
         "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -364,7 +364,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "compact_target": 503853350,
+        "compact_target": "0x1e083126",
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "epoch": "0x7080018000001",
         "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -642,7 +642,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "header": {
-            "compact_target": 503853350,
+            "compact_target": "0x1e083126",
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "epoch": "0x7080018000001",
             "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -1269,7 +1269,7 @@ echo '{
         "example",
         {
             "header": {
-                "compact_target": 503853350,
+                "compact_target": "0x1e083126",
                 "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
                 "epoch": "0x7080018000001",
                 "nonce": "0x0",

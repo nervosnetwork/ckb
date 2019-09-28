@@ -270,7 +270,7 @@ impl Future for BlockTemplateBuilder {
         Ok(Async::Ready((
             BlockTemplate {
                 version: version.into(),
-                compact_target: self.current_epoch.compact_target(),
+                compact_target: self.current_epoch.compact_target().into(),
                 current_time: current_time.into(),
                 number: candidate_number.into(),
                 epoch: self
