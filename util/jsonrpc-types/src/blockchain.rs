@@ -1,7 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    Timestamp, Uint32, Uint64, Version,
+    BlockNumber, Byte32, Capacity, CompactTarget, EpochNumber, EpochNumberWithFraction,
+    ProposalShortId, Timestamp, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
@@ -390,7 +390,7 @@ impl TxStatus {
 #[serde(deny_unknown_fields)]
 pub struct Header {
     pub version: Version,
-    pub compact_target: u32,
+    pub compact_target: CompactTarget,
     pub parent_hash: H256,
     pub timestamp: Timestamp,
     pub number: BlockNumber,
@@ -686,6 +686,7 @@ mod tests {
     use super::*;
     use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
     use proptest::{collection::size_range, prelude::*};
+    use regex::Regex;
 
     fn mock_script(arg: Bytes) -> packed::Script {
         packed::ScriptBuilder::default()
@@ -735,11 +736,18 @@ mod tests {
         let block = mock_full_block(data, arg);
         let json_block: BlockView = block.clone().into();
         let encoded = serde_json::to_string(&json_block).unwrap();
+        hex_format_check(&encoded);
         let decode: BlockView = serde_json::from_str(&encoded).unwrap();
         let decode_block: core::BlockView = decode.into();
         prop_assert_eq!(decode_block.data(), block.data());
         prop_assert_eq!(decode_block, block);
         Ok(())
+    }
+
+    fn hex_format_check(json: &str) {
+        let re = Regex::new("\"compact_target\":\"(?P<compact_target>.*?\")").unwrap();
+        let caps = re.captures(json).unwrap();
+        assert!(&caps["compact_target"].starts_with("0x"));
     }
 
     proptest! {

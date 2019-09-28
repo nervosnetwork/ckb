@@ -12,7 +12,7 @@
         "module": "chain",
         "params": [],
         "result": {
-            "compact_target": 503853350,
+            "compact_target": "0x1e083126",
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "epoch": "0x7080018000001",
             "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -80,7 +80,7 @@
         ],
         "result": {
             "header": {
-                "compact_target": 503853350,
+                "compact_target": "0x1e083126",
                 "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
                 "epoch": "0x7080018000001",
                 "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -144,7 +144,7 @@
             "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953"
         ],
         "result": {
-            "compact_target": 503853350,
+            "compact_target": "0x1e083126",
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "epoch": "0x7080018000001",
             "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -166,7 +166,7 @@
             "0x400"
         ],
         "result": {
-            "compact_target": 503853350,
+            "compact_target": "0x1e083126",
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "epoch": "0x7080018000001",
             "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -718,7 +718,7 @@
         ],
         "result": {
             "header": {
-                "compact_target": 503853350,
+                "compact_target": "0x1e083126",
                 "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
                 "epoch": "0x7080018000001",
                 "hash": "0x806b570b61df8196346faeb570fdb33fbdf833613c9a9c519f06b7f6ebed2953",
@@ -1035,7 +1035,7 @@
             "example",
             {
                 "header": {
-                    "compact_target": 503853350,
+                    "compact_target": "0x1e083126",
                     "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
                     "epoch": "0x7080018000001",
                     "nonce": "0x0",
