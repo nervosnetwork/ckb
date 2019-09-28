@@ -1,6 +1,6 @@
 use crate::{
     BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
-    Transaction, Uint64, Version,
+    Transaction, Uint32, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::convert::From;
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockTemplate {
     pub version: Version,
-    pub compact_target: u32,
+    pub compact_target: Uint32,
     pub current_time: Timestamp,
     pub number: BlockNumber,
     pub epoch: EpochNumberWithFraction,
