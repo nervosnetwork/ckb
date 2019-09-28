@@ -16,8 +16,8 @@ use ckb_types::{
 };
 use log::info;
 
-const TX_2_IN_2_OUT_SIZE: usize = 557;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 3_132_087;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 1_707_042;
+const TWO_IN_TWO_OUT_BYTES: usize = 492;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -189,12 +189,12 @@ impl Spec for CheckTypical2In2OutTx {
         let tx = tx
             .as_advanced_builder()
             .witness(witness.clone())
-            .witness(witness.clone())
+            .witness(Default::default())
             .build();
         info!("Check 2 in 2 out tx size");
         let serialized_size = tx.data().as_slice().len();
         assert_eq!(
-            serialized_size, TX_2_IN_2_OUT_SIZE,
+            serialized_size, TWO_IN_TWO_OUT_BYTES,
             "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
         );
 
@@ -205,7 +205,7 @@ impl Spec for CheckTypical2In2OutTx {
             .cycles
             .into();
         assert_eq!(
-            cycles, TX_2_IN_2_OUT_CYCLES,
+            cycles, TWO_IN_TWO_OUT_CYCLES,
             "2 in 2 out tx cycles changed, PLEASE UPDATE consensus"
         );
 

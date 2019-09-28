@@ -8,7 +8,7 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x6072326337959933b88ea60eb7316efd58fb2456364c03f9fbb13edbd1ad32b1"
+hash = "0xf4d5fcc97b36f6688c5ad4febc9f8ed83e2cc6620c81fbf350bbc90a6cc2c3e0"
 
 [genesis.genesis_cell]
 message = "rylai-v10"
