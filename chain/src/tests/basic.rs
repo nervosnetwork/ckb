@@ -127,9 +127,9 @@ fn test_transaction_spend_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
-    let last_cell_base_hash = last_cell_base.hash().to_owned();
-    let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];;
+    let last_cellbase_hash = last_cellbase.hash().to_owned();
+    let tx1 = create_multi_outputs_transaction(&last_cellbase, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx2_hash = tx2.hash().to_owned();
@@ -171,11 +171,11 @@ fn test_transaction_spend_in_same_block() {
             .expect("process block ok");
     }
 
-    // assert last_cell_base_hash is full dead
+    // assert last_cellbase_hash is full dead
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(last_cell_base_hash, 0), false),
+            .cell(&OutPoint::new(last_cellbase_hash, 0), false),
         CellStatus::Unknown
     );
 
@@ -216,8 +216,8 @@ fn test_transaction_conflict_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];;
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     let tx3 = create_transaction(&tx1_hash, 3);
@@ -250,8 +250,8 @@ fn test_transaction_conflict_in_different_blocks() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
-    let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];;
+    let tx1 = create_multi_outputs_transaction(&last_cellbase, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
@@ -287,8 +287,8 @@ fn test_invalid_out_point_index_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];;
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
@@ -321,8 +321,8 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
