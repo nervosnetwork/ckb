@@ -295,6 +295,7 @@ fn all_specs() -> SpecMap {
         Box::new(SubmitTransactionWhenItsParentInGap),
         Box::new(SubmitTransactionWhenItsParentInProposed),
         Box::new(ProposeTransactionButParentNot),
+        Box::new(ProposalExpireRuleForCommittingAndExpiredAtOneTime),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
