@@ -30,7 +30,7 @@ fn repeat_process_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block_with_nonce(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
     assert!(chain_controller
@@ -319,7 +319,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block_with_nonce(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
 
     let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
@@ -330,7 +330,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
-    chain.gen_empty_block_with_nonce(100, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     // commit tx1 and tx2 in N+2 block
     chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     // commit tx3 in N+3 block

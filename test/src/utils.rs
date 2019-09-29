@@ -99,7 +99,7 @@ pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
 pub fn new_block_with_template(template: BlockTemplate) -> Block {
     Block::from(template)
         .as_advanced_builder()
-        .nonce(rand::random::<u64>().pack())
+        .nonce(rand::random::<u128>().pack())
         .build()
         .data()
 }

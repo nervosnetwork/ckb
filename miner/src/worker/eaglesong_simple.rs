@@ -18,13 +18,13 @@ pub struct EaglesongSimple {
     start: bool,
     pow_hash: Option<Byte32>,
     target: U256,
-    nonce_tx: Sender<(Byte32, u64)>,
+    nonce_tx: Sender<(Byte32, u128)>,
     worker_rx: Receiver<WorkerMessage>,
-    nonces_found: u64,
+    nonces_found: u128,
 }
 
 impl EaglesongSimple {
-    pub fn new(nonce_tx: Sender<(Byte32, u64)>, worker_rx: Receiver<WorkerMessage>) -> Self {
+    pub fn new(nonce_tx: Sender<(Byte32, u128)>, worker_rx: Receiver<WorkerMessage>) -> Self {
         Self {
             start: true,
             pow_hash: None,
@@ -52,7 +52,7 @@ impl EaglesongSimple {
         }
     }
 
-    fn solve(&mut self, pow_hash: &Byte32, nonce: u64) {
+    fn solve(&mut self, pow_hash: &Byte32, nonce: u128) {
         debug!("solve, pow_hash {}, nonce {:?}", pow_hash, nonce);
         let input = pow_message(&pow_hash, nonce);
         let mut output = [0u8; 32];
@@ -73,7 +73,7 @@ impl EaglesongSimple {
 const STATE_UPDATE_DURATION_MILLIS: u128 = 500;
 
 impl Worker for EaglesongSimple {
-    fn run<G: FnMut() -> u64>(&mut self, mut rng: G, progress_bar: ProgressBar) {
+    fn run<G: FnMut() -> u128>(&mut self, mut rng: G, progress_bar: ProgressBar) {
         let mut state_update_counter = 0usize;
         let mut start = Instant::now();
         loop {
