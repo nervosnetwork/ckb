@@ -76,17 +76,17 @@ impl<'a> Visitor<'a> for Uint128Visitor {
     {
         if !value.starts_with("0x") {
             return Err(Error::custom(format!(
-                "Invalid uint64 {}: without `0x` prefix",
+                "Invalid uint128 {}: without `0x` prefix",
                 value
             )));
         }
 
         let number = u128::from_str_radix(&value[2..], 16)
             .map(Uint128)
-            .map_err(|e| Error::custom(format!("Invalid uint64 {}: {}", value, e)))?;
+            .map_err(|e| Error::custom(format!("Invalid uint128 {}: {}", value, e)))?;
         if number.to_string() != value {
             return Err(Error::custom(format!(
-                "Invalid uint64 {}: with redundant leading zeros, expected: {}",
+                "Invalid uint128 {}: with redundant leading zeros, expected: {}",
                 value,
                 number.to_string(),
             )));
