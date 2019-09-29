@@ -1232,10 +1232,10 @@ http://localhost:8114
             },
             "hash": "0x076049e2cc6b9f1ed4bb27b2337c55071dabfaf0183b1b17a4965bd0372d8dec"
         },
+        "compact_target": "0x100",
         "current_time": "0x16d6269e84f",
         "cycles_limit": "0x2540be400",
         "dao": "0x004fb9e277860700b2f80165348723003d1862ec960000000028eb3d7e7a0100",
-        "difficulty": "0x100",
         "epoch": "0x3e80001000000",
         "number": "0x1",
         "parent_hash": "0xd5c495b7dd4d9d066a6a4d4356bc31955ad3199e0d856f34cfbe159c46ee335b",
