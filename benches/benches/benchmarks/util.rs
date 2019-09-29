@@ -194,7 +194,7 @@ pub fn gen_always_success_block(
         .timestamp(timestamp.pack())
         .compact_target(epoch.compact_target().pack())
         .epoch(epoch.number_with_fraction(number).pack())
-        .nonce(random::<u64>().pack())
+        .nonce(random::<u128>().pack())
         .dao(dao)
         .build();
 
@@ -408,7 +408,7 @@ pub fn gen_secp_block(
         .timestamp(timestamp.pack())
         .compact_target(epoch.compact_target().pack())
         .epoch(epoch.number_with_fraction(number).pack())
-        .nonce(random::<u64>().pack())
+        .nonce(random::<u128>().pack())
         .dao(dao)
         .build();
 

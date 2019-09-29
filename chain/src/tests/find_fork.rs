@@ -327,11 +327,11 @@ fn repeatedly_switch_fork() {
     let mut chain_service = ChainService::new(shared, table);
 
     for _ in 0..2 {
-        fork1.gen_empty_block_with_nonce(1u64, &mock_store);
+        fork1.gen_empty_block_with_nonce(1u128, &mock_store);
     }
 
     for _ in 0..2 {
-        fork2.gen_empty_block_with_nonce(2u64, &mock_store);
+        fork2.gen_empty_block_with_nonce(2u128, &mock_store);
     }
 
     for blk in fork1.blocks() {
@@ -353,7 +353,7 @@ fn repeatedly_switch_fork() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
-        .nonce(1u64.pack())
+        .nonce(1u128.pack())
         .uncle(uncle)
         .build();
     chain_service
@@ -366,7 +366,7 @@ fn repeatedly_switch_fork() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
-        .nonce(2u64.pack())
+        .nonce(2u128.pack())
         .build();
     parent = new_block2.clone();
     chain_service
@@ -376,7 +376,7 @@ fn repeatedly_switch_fork() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
-        .nonce(2u64.pack())
+        .nonce(2u128.pack())
         .build();
     chain_service
         .process_block(Arc::new(new_block3), Switch::DISABLE_ALL)
@@ -388,7 +388,7 @@ fn repeatedly_switch_fork() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
-        .nonce(1u64.pack())
+        .nonce(1u128.pack())
         .build();
     chain_service
         .process_block(Arc::new(new_block4.clone()), Switch::DISABLE_ALL)
@@ -399,7 +399,7 @@ fn repeatedly_switch_fork() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
-        .nonce(1u64.pack())
+        .nonce(1u128.pack())
         .build();
     chain_service
         .process_block(Arc::new(new_block5), Switch::DISABLE_ALL)

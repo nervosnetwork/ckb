@@ -24,7 +24,7 @@ pub struct Dummy {
     delay: Delay,
     start: bool,
     pow_hash: Option<Byte32>,
-    nonce_tx: Sender<(Byte32, u64)>,
+    nonce_tx: Sender<(Byte32, u128)>,
     worker_rx: Receiver<WorkerMessage>,
 }
 
@@ -70,7 +70,7 @@ impl Delay {
 impl Dummy {
     pub fn new(
         config: &DummyConfig,
-        nonce_tx: Sender<(Byte32, u64)>,
+        nonce_tx: Sender<(Byte32, u128)>,
         worker_rx: Receiver<WorkerMessage>,
     ) -> Self {
         Self {
@@ -96,7 +96,7 @@ impl Dummy {
         }
     }
 
-    fn solve(&self, pow_hash: &Byte32, nonce: u64) {
+    fn solve(&self, pow_hash: &Byte32, nonce: u128) {
         thread::sleep(self.delay.duration());
         if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {
             error!("nonce_tx send error {:?}", err);
@@ -105,7 +105,7 @@ impl Dummy {
 }
 
 impl Worker for Dummy {
-    fn run<G: FnMut() -> u64>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
+    fn run<G: FnMut() -> u128>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
         let mut current = self.pow_hash.clone();
         loop {
             self.poll_worker_message();

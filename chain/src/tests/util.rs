@@ -303,7 +303,7 @@ impl<'a> MockChain<'a> {
         self.commit_block(store, new_block)
     }
 
-    pub fn gen_empty_block_with_nonce(&mut self, nonce: u64, store: &MockStore) {
+    pub fn gen_empty_block_with_nonce(&mut self, nonce: u128, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);

@@ -99,7 +99,7 @@ pub struct Genesis {
     pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
-    pub nonce: u64,
+    pub nonce: u64, // u128 is not supported by https://github.com/alexcrichton/toml-rs
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: Vec<SystemCell>,
@@ -267,7 +267,7 @@ impl ChainSpec {
             .compact_target(self.genesis.compact_target.pack())
             .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
-            .nonce(self.genesis.nonce.pack())
+            .nonce(u128::from(self.genesis.nonce).pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();
