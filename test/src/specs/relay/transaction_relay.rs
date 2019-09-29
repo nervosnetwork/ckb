@@ -1,5 +1,5 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     core::{Capacity, TransactionBuilder},
     packed::{CellInput, OutPoint},
@@ -14,7 +14,7 @@ impl Spec for TransactionRelayBasic {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
         let node0 = &net.nodes[0];
@@ -22,7 +22,7 @@ impl Spec for TransactionRelayBasic {
         let node2 = &net.nodes[2];
 
         info!("Generate new transaction on node1");
-        node1.generate_block();
+        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");
@@ -57,9 +57,10 @@ impl Spec for TransactionRelayMultiple {
 
     crate::setup!(num_nodes: 5);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Use generated block's cellbase as tx input");
         let reward: Capacity = block.transactions()[0]
             .outputs()

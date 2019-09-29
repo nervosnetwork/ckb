@@ -85,6 +85,11 @@ impl EpochExt {
         self.number
     }
 
+    pub fn primary_reward(&self) -> Capacity {
+        Capacity::shannons(
+            self.base_block_reward.as_u64() * self.length + self.remainder_reward.as_u64(),
+        )
+    }
     pub fn base_block_reward(&self) -> &Capacity {
         &self.base_block_reward
     }
@@ -146,6 +151,12 @@ impl EpochExt {
 
     pub fn set_length(&mut self, length: BlockNumber) {
         self.length = length;
+    }
+
+    pub fn set_primary_reward(&mut self, primary_reward: Capacity) {
+        let primary_reward_u64 = primary_reward.as_u64();
+        self.base_block_reward = Capacity::shannons(primary_reward_u64 / self.length);
+        self.remainder_reward = Capacity::shannons(primary_reward_u64 % self.length);
     }
 
     pub fn set_compact_target(&mut self, compact_target: u32) {

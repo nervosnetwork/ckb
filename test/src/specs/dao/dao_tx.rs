@@ -1,6 +1,6 @@
 use super::*;
 use crate::utils::assert_send_transaction_fail;
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     bytes::Bytes,
     core::Capacity,
@@ -13,9 +13,9 @@ pub struct DepositDAO;
 impl Spec for DepositDAO {
     crate::name!("deposit_dao");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Deposit DAO
         {
@@ -46,9 +46,9 @@ pub struct WithdrawDAO;
 impl Spec for WithdrawDAO {
     crate::name!("withdraw_dao");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -64,9 +64,9 @@ pub struct WithdrawAndDepositDAOWithinSameTx;
 impl Spec for WithdrawAndDepositDAOWithinSameTx {
     crate::name!("withdraw_and_deposit_dao_within_same_tx");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let mut deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -106,9 +106,9 @@ pub struct WithdrawDAOWithNotMaturitySince;
 impl Spec for WithdrawDAOWithNotMaturitySince {
     crate::name!("withdraw_dao_with_not_maturity_since");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let not_maturity = |node: &Node, previous_output: OutPoint| {
             let not_maturity_since = node.get_tip_block_number();
@@ -138,9 +138,9 @@ pub struct WithdrawDAOWithOverflowCapacity;
 impl Spec for WithdrawDAOWithOverflowCapacity {
     crate::name!("withdraw_dao_with_overflow_capacity");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -177,9 +177,9 @@ pub struct WithdrawDAOWithInvalidWitness;
 impl Spec for WithdrawDAOWithInvalidWitness {
     crate::name!("withdraw_dao_with_invalid_witness");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);

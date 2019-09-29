@@ -19,7 +19,10 @@ setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
 	rm -rf test/target && ln -snf ../target/ test/target
 
-integration: setup-ckb-test ## Run integration tests in "test" dir.
+submodule_init:
+	git submodule update --init
+
+integration: submodule_init setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build
 	cd test && RUST_BACKTRACE=1 cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 

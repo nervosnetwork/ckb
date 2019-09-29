@@ -226,11 +226,6 @@ impl TransactionView {
         self.data().is_cellbase()
     }
 
-    pub fn is_empty(&self) -> bool {
-        let raw = self.data().raw();
-        raw.inputs().is_empty() || raw.outputs().is_empty()
-    }
-
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
     }

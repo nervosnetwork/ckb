@@ -27,8 +27,7 @@ impl Spec for ChainContainsInvalidBlock {
     //   3. `good_node` mines a new block B[i]', i < `CN.length`.
     //   4. `fresh_node` synchronizes from `bad_node` and `good_node`. We expect
     //      that `fresh_node` synchronizes the valid chain.
-    fn run(&self, net: Net) {
-        let mut net = net;
+    fn run(&self, net: &mut Net) {
         let bad_node = net.nodes.pop().unwrap();
         let good_node = net.nodes.pop().unwrap();
         let fresh_node = net.nodes.pop().unwrap();
@@ -90,9 +89,7 @@ impl Spec for ForkContainsInvalidBlock {
         protocols: vec![TestProtocol::sync()],
     );
 
-    fn run(&self, net: Net) {
-        let mut net = net;
-
+    fn run(&self, net: &mut Net) {
         // Build bad forks
         let invalid_number = 4;
         let bad_chain: Vec<BlockView> = {

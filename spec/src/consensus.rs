@@ -4,15 +4,15 @@ use crate::{
     OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
     OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
 };
-use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
+use ckb_dao_utils::{genesis_dao_data, genesis_dao_data_with_satoshi_gift};
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_types::{
     constants::BLOCK_VERSION,
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumberWithFraction,
-        HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
+        EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
     },
     h160,
     packed::{Byte32, CellInput, Script},
@@ -24,10 +24,9 @@ use ckb_types::{
 use std::cmp;
 use std::sync::Arc;
 
-// 1.344 billion per year
+// TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
-// 4.2 billion per year
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
+pub(crate) const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 epoch confirmations (approximately 16 hours) before
@@ -41,9 +40,12 @@ const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
 // dampening factor
 const TAU: u64 = 2;
 
+// We choose 1_000 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
+// can divide INITIAL_PRIMARY_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
+pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+
 // o_ideal = 1/40 = 2.5%
 const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("40"));
-const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 40;
 
 const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
@@ -55,12 +57,12 @@ const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
 // approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
 const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
-const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
+pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
-const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
-
-const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
+const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
+    4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
 const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
@@ -109,29 +111,10 @@ impl ProposalWindow {
 }
 
 pub struct ConsensusBuilder {
-    id: String,
-    genesis_block: BlockView,
-    genesis_hash: Byte32,
-    epoch_reward: Capacity,
-    secondary_epoch_reward: Capacity,
-    max_uncles_num: usize,
-    orphan_rate_target: RationalU256,
-    epoch_duration_target: u64,
-    tx_proposal_window: ProposalWindow,
-    proposer_reward_ratio: Ratio,
-    pow: Pow,
-    cellbase_maturity: EpochNumberWithFraction,
-    median_time_block_count: usize,
-    max_block_cycles: Cycle,
-    max_block_bytes: u64,
-    block_version: Version,
-    max_block_proposals_limit: u64,
-    genesis_epoch_ext: EpochExt,
-    satoshi_pubkey_hash: H160,
-    satoshi_cell_occupied_ratio: Ratio,
+    inner: Consensus,
 }
 
-// genesis difficulty should not be zero
+// Dummy consensus, difficulty can not be zero
 impl Default for ConsensusBuilder {
     fn default() -> Self {
         let input = CellInput::new_cellbase_input(0);
@@ -140,33 +123,40 @@ impl Default for ConsensusBuilder {
             .input(input)
             .witness(witness)
             .build();
-        let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO);
 
-        let dao = build_genesis_dao_data(
-            vec![&cellbase],
-            &SATOSHI_PUBKEY_HASH,
-            SATOSHI_CELL_OCCUPIED_RATIO,
-            &epoch_ext,
-            TX_PROPOSAL_WINDOW,
-            DEFAULT_SECONDARY_EPOCH_REWARD,
+        let epoch_ext = build_genesis_epoch_ext(
+            INITIAL_PRIMARY_EPOCH_REWARD,
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
         );
+
+        let dao = genesis_dao_data(vec![&cellbase]).expect("genesis dao data calculation error!");
+
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())
             .dao(dao)
             .transaction(cellbase)
             .build();
 
-        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD, epoch_ext)
+        ConsensusBuilder::new(genesis_block, epoch_ext)
+            .initial_primary_epoch_reward(INITIAL_PRIMARY_EPOCH_REWARD)
     }
 }
 
-pub fn build_genesis_epoch_ext(epoch_reward: Capacity, compact_target: u32) -> EpochExt {
-    let block_reward = Capacity::shannons(epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
-    let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % GENESIS_EPOCH_LENGTH);
+pub fn build_genesis_epoch_ext(
+    epoch_reward: Capacity,
+    compact_target: u32,
+    genesis_epoch_length: BlockNumber,
+    epoch_duration_target: u64,
+) -> EpochExt {
+    let block_reward = Capacity::shannons(epoch_reward.as_u64() / genesis_epoch_length);
+    let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % genesis_epoch_length);
 
+    let genesis_orphan_count = genesis_epoch_length / 40;
     let genesis_hash_rate = compact_to_difficulty(compact_target)
-        * (GENESIS_EPOCH_LENGTH + GENESIS_ORPHAN_COUNT)
-        / EPOCH_DURATION_TARGET;
+        * (genesis_epoch_length + genesis_orphan_count)
+        / epoch_duration_target;
 
     EpochExt::new_builder()
         .number(0)
@@ -175,7 +165,7 @@ pub fn build_genesis_epoch_ext(epoch_reward: Capacity, compact_target: u32) -> E
         .previous_epoch_hash_rate(genesis_hash_rate)
         .last_block_hash_in_previous_epoch(Byte32::zero())
         .start_number(0)
-        .length(GENESIS_EPOCH_LENGTH)
+        .length(genesis_epoch_length)
         .compact_target(compact_target)
         .build()
 }
@@ -184,153 +174,64 @@ pub fn build_genesis_dao_data(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
-    genesis_epoch_ext: &EpochExt,
-    tx_proposal_window: ProposalWindow,
-    secondary_epoch_reward: Capacity,
 ) -> Byte32 {
-    // Genesis block has special issuance rule, hence we only add up
-    // issuance from block 1 up to the length of proposal window here.
-    let initial_primary_issuance = genesis_epoch_ext
-        .block_reward(0)
-        .and_then(|c| {
-            c.safe_mul(tx_proposal_window.farthest())
-                .map_err(Into::into)
-        })
-        .expect("initial primary issuance calculation overflow!");
-    let initial_secondary_issuance = genesis_epoch_ext
-        .secondary_block_issuance(0, secondary_epoch_reward)
-        .and_then(|c| {
-            c.safe_mul(tx_proposal_window.farthest())
-                .map_err(Into::into)
-        })
-        .expect("initial primary issuance calculation overflow!");
-
-    genesis_dao_data_with_satoshi_gift(
-        txs,
-        satoshi_pubkey_hash,
-        satoshi_cell_occupied_ratio,
-        initial_primary_issuance,
-        initial_secondary_issuance,
-    )
-    .expect("genesis dao data calculation error!")
+    genesis_dao_data_with_satoshi_gift(txs, satoshi_pubkey_hash, satoshi_cell_occupied_ratio)
+        .expect("genesis dao data calculation error!")
 }
 
 impl ConsensusBuilder {
-    pub fn new(
-        genesis_block: BlockView,
-        epoch_reward: Capacity,
-        genesis_epoch_ext: EpochExt,
-    ) -> Self {
+    pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
+        ConsensusBuilder {
+            inner: Consensus {
+                genesis_hash: genesis_block.header().hash(),
+                genesis_block,
+                id: "main".to_owned(),
+                max_uncles_num: MAX_UNCLE_NUM,
+                initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
+                orphan_rate_target: ORPHAN_RATE_TARGET,
+                epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
+                secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
+                tx_proposal_window: TX_PROPOSAL_WINDOW,
+                pow: Pow::Dummy,
+                cellbase_maturity: CELLBASE_MATURITY,
+                median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
+                max_block_cycles: MAX_BLOCK_CYCLES,
+                max_block_bytes: MAX_BLOCK_BYTES,
+                dao_type_hash: None,
+                secp_blake160_type_hash: None,
+                secp_ripemd160_type_hash: None,
+                genesis_epoch_ext,
+                block_version: BLOCK_VERSION,
+                proposer_reward_ratio: PROPOSER_REWARD_RATIO,
+                max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
+                satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
+                satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
+                primary_epoch_reward_halving_interval:
+                    DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+            },
+        }
+    }
+
+    fn get_type_hash(&self, output_index: u64) -> Option<Byte32> {
+        self.inner
+            .genesis_block
+            .transaction(0)
+            .expect("Genesis must have cellbase")
+            .output(output_index as usize)
+            .and_then(|output| output.type_().to_opt())
+            .map(|type_script| type_script.calc_script_hash())
+    }
+
+    pub fn build(mut self) -> Consensus {
         debug_assert!(
-            genesis_block.difficulty() > U256::zero(),
+            self.inner.genesis_block.difficulty() > U256::zero(),
             "genesis difficulty should greater than zero"
         );
-
         debug_assert!(
-            !genesis_block.transactions().is_empty()
-                && !genesis_block.transactions()[0].witnesses().is_empty(),
-            "genesis block must contain the witness for cellbase"
-        );
-
-        let genesis_header = genesis_block.header();
-
-        ConsensusBuilder {
-            genesis_hash: genesis_header.hash(),
-            genesis_block,
-            id: "main".to_owned(),
-            max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward,
-            orphan_rate_target: ORPHAN_RATE_TARGET,
-            epoch_duration_target: EPOCH_DURATION_TARGET,
-            secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
-            tx_proposal_window: TX_PROPOSAL_WINDOW,
-            pow: Pow::Dummy,
-            cellbase_maturity: CELLBASE_MATURITY,
-            median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
-            max_block_cycles: MAX_BLOCK_CYCLES,
-            max_block_bytes: MAX_BLOCK_BYTES,
-            genesis_epoch_ext,
-            block_version: BLOCK_VERSION,
-            proposer_reward_ratio: PROPOSER_REWARD_RATIO,
-            max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
-            satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
-            satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
-        }
-    }
-
-    pub fn build(self) -> Consensus {
-        let ConsensusBuilder {
-            genesis_hash,
-            genesis_block,
-            id,
-            max_uncles_num,
-            epoch_reward,
-            orphan_rate_target,
-            epoch_duration_target,
-            secondary_epoch_reward,
-            tx_proposal_window,
-            pow,
-            cellbase_maturity,
-            median_time_block_count,
-            max_block_cycles,
-            max_block_bytes,
-            genesis_epoch_ext,
-            block_version,
-            proposer_reward_ratio,
-            max_block_proposals_limit,
-            satoshi_pubkey_hash,
-            satoshi_cell_occupied_ratio,
-        } = self;
-
-        let get_type_hash = |output_index: u64| {
-            genesis_block
-                .transaction(0)
-                .expect("Genesis must have cellbase")
-                .output(output_index as usize)
-                .and_then(|output| output.type_().to_opt())
-                .map(|type_script| type_script.calc_script_hash())
-        };
-        let dao_type_hash = get_type_hash(OUTPUT_INDEX_DAO);
-        let secp_blake160_type_hash = get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
-        let secp_ripemd160_type_hash =
-            get_type_hash(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL);
-
-        Consensus {
-            genesis_hash,
-            dao_type_hash,
-            secp_blake160_type_hash,
-            secp_ripemd160_type_hash,
-            genesis_block,
-            id,
-            max_uncles_num,
-            epoch_reward,
-            orphan_rate_target,
-            epoch_duration_target,
-            secondary_epoch_reward,
-            tx_proposal_window,
-            pow,
-            cellbase_maturity,
-            median_time_block_count,
-            max_block_cycles,
-            max_block_bytes,
-            genesis_epoch_ext,
-            block_version,
-            proposer_reward_ratio,
-            max_block_proposals_limit,
-            satoshi_pubkey_hash,
-            satoshi_cell_occupied_ratio,
-        }
-    }
-
-    pub fn id(mut self, id: String) -> Self {
-        self.id = id;
-        self
-    }
-
-    pub fn genesis_block(mut self, genesis_block: BlockView) -> Self {
-        debug_assert!(
-            !genesis_block.data().transactions().is_empty()
-                && !genesis_block
+            !self.inner.genesis_block.data().transactions().is_empty()
+                && !self
+                    .inner
+                    .genesis_block
                     .data()
                     .transactions()
                     .get(0)
@@ -339,58 +240,100 @@ impl ConsensusBuilder {
                     .is_empty(),
             "genesis block must contain the witness for cellbase"
         );
-        self.genesis_epoch_ext
-            .set_compact_target(genesis_block.compact_target());
-        self.genesis_hash = genesis_block.hash();
-        self.genesis_block = genesis_block;
+
+        debug_assert!(
+            self.inner.initial_primary_epoch_reward != Capacity::zero(),
+            "initial_primary_epoch_reward must be non-zero"
+        );
+
+        debug_assert!(
+            self.inner.epoch_duration_target() != 0,
+            "epoch_duration_target must be non-zero"
+        );
+
+        debug_assert!(
+            !self.inner.genesis_block.transactions().is_empty()
+                && !self.inner.genesis_block.transactions()[0]
+                    .witnesses()
+                    .is_empty(),
+            "genesis block must contain the witness for cellbase"
+        );
+
+        self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
+        self.inner.secp_blake160_type_hash =
+            self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
+        self.inner.secp_ripemd160_type_hash =
+            self.get_type_hash(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL);
+        self.inner
+            .genesis_epoch_ext
+            .set_compact_target(self.inner.genesis_block.compact_target());
+        self.inner.genesis_hash = self.inner.genesis_block.hash();
+        self.inner
+    }
+
+    pub fn id(mut self, id: String) -> Self {
+        self.inner.id = id;
         self
     }
 
-    pub fn genesis_epoch_ext(mut self, genesis_epoch_ext: EpochExt) -> Self {
-        self.genesis_epoch_ext = genesis_epoch_ext;
+    pub fn genesis_block(mut self, genesis_block: BlockView) -> Self {
+        self.inner.genesis_block = genesis_block;
         self
     }
 
-    pub fn epoch_reward(mut self, epoch_reward: Capacity) -> Self {
-        self.epoch_reward = epoch_reward;
+    #[must_use]
+    pub fn initial_primary_epoch_reward(mut self, initial_primary_epoch_reward: Capacity) -> Self {
+        self.inner.initial_primary_epoch_reward = initial_primary_epoch_reward;
         self
     }
 
     #[must_use]
     pub fn secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
-        self.secondary_epoch_reward = secondary_epoch_reward;
+        self.inner.secondary_epoch_reward = secondary_epoch_reward;
         self
     }
 
     #[must_use]
     pub fn max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
-        self.max_block_cycles = max_block_cycles;
+        self.inner.max_block_cycles = max_block_cycles;
         self
     }
 
     #[must_use]
     pub fn cellbase_maturity(mut self, cellbase_maturity: EpochNumberWithFraction) -> Self {
-        self.cellbase_maturity = cellbase_maturity;
+        self.inner.cellbase_maturity = cellbase_maturity;
         self
     }
 
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
-        self.tx_proposal_window = proposal_window;
+        self.inner.tx_proposal_window = proposal_window;
         self
     }
 
     pub fn pow(mut self, pow: Pow) -> Self {
-        self.pow = pow;
+        self.inner.pow = pow;
         self
     }
 
     pub fn satoshi_pubkey_hash(mut self, pubkey_hash: H160) -> Self {
-        self.satoshi_pubkey_hash = pubkey_hash;
+        self.inner.satoshi_pubkey_hash = pubkey_hash;
         self
     }
 
     pub fn satoshi_cell_occupied_ratio(mut self, ratio: Ratio) -> Self {
-        self.satoshi_cell_occupied_ratio = ratio;
+        self.inner.satoshi_cell_occupied_ratio = ratio;
+        self
+    }
+
+    #[must_use]
+    pub fn primary_epoch_reward_halving_interval(mut self, halving_interval: u64) -> Self {
+        self.inner.primary_epoch_reward_halving_interval = halving_interval;
+        self
+    }
+
+    #[must_use]
+    pub fn epoch_duration_target(mut self, target: u64) -> Self {
+        self.inner.epoch_duration_target = target;
         self
     }
 }
@@ -403,7 +346,7 @@ pub struct Consensus {
     pub dao_type_hash: Option<Byte32>,
     pub secp_blake160_type_hash: Option<Byte32>,
     pub secp_ripemd160_type_hash: Option<Byte32>,
-    pub epoch_reward: Capacity,
+    pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
     pub orphan_rate_target: RationalU256,
@@ -431,6 +374,9 @@ pub struct Consensus {
     // Ratio of satoshi cell occupied of capacity,
     // only affects genesis cellbase's satoshi lock cells.
     pub satoshi_cell_occupied_ratio: Ratio,
+    // Primary reward is cut in half every halving_interval epoch
+    // which will occur approximately every 4 years.
+    pub primary_epoch_reward_halving_interval: EpochNumber,
 }
 
 // genesis difficulty should not be zero
@@ -485,8 +431,17 @@ impl Consensus {
         self.genesis_block.difficulty()
     }
 
-    pub fn epoch_reward(&self) -> Capacity {
-        self.epoch_reward
+    pub fn initial_primary_epoch_reward(&self) -> Capacity {
+        self.initial_primary_epoch_reward
+    }
+
+    pub fn primary_epoch_reward(&self, epoch_number: u64) -> Capacity {
+        let halvings = epoch_number / self.primary_epoch_reward_halving_interval();
+        Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halvings)
+    }
+
+    pub fn primary_epoch_reward_halving_interval(&self) -> EpochNumber {
+        self.primary_epoch_reward_halving_interval
     }
 
     pub fn epoch_duration_target(&self) -> u64 {
@@ -697,8 +652,9 @@ impl Consensus {
             "next_epoch_diff should greater than one"
         );
 
-        let block_reward = Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
-        let remainder_reward = Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
+        let primary_epoch_reward = self.primary_epoch_reward_of_next_epoch(last_epoch).as_u64();
+        let block_reward = Capacity::shannons(primary_epoch_reward / next_epoch_length);
+        let remainder_reward = Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
         let epoch_ext = EpochExt::new_builder()
             .number(last_epoch.number() + 1)
@@ -738,6 +694,14 @@ impl Consensus {
             })
             .expect("Can not find secp script")
     }
+
+    fn primary_epoch_reward_of_next_epoch(&self, epoch: &EpochExt) -> Capacity {
+        if (epoch.number() + 1) % self.primary_epoch_reward_halving_interval() != 0 {
+            epoch.primary_reward()
+        } else {
+            self.primary_epoch_reward(epoch.number() + 1)
+        }
+    }
 }
 
 // most simple and efficient way for now
@@ -748,7 +712,7 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
+    use ckb_types::core::{capacity_bytes, BlockBuilder, HeaderBuilder, TransactionBuilder};
     use ckb_types::packed::Bytes;
 
     #[test]
@@ -756,9 +720,146 @@ pub mod test {
         let cellbase = TransactionBuilder::default()
             .witness(Bytes::default())
             .build();
+        let epoch_ext = build_genesis_epoch_ext(
+            capacity_bytes!(100),
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
+        );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let epoch_ext = build_genesis_epoch_ext(capacity_bytes!(100), DIFF_TWO);
-        let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100), epoch_ext).build();
-        assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
+        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
+            .initial_primary_epoch_reward(capacity_bytes!(100))
+            .build();
+        assert_eq!(capacity_bytes!(100), consensus.initial_primary_epoch_reward);
+    }
+
+    #[test]
+    fn test_halving_epoch_reward() {
+        let cellbase = TransactionBuilder::default()
+            .witness(Bytes::default())
+            .build();
+        let epoch_ext = build_genesis_epoch_ext(
+            capacity_bytes!(100),
+            DIFF_TWO,
+            GENESIS_EPOCH_LENGTH,
+            DEFAULT_EPOCH_DURATION_TARGET,
+        );
+        let genesis = BlockBuilder::default().transaction(cellbase).build();
+        let consensus = ConsensusBuilder::new(genesis.clone(), epoch_ext)
+            .initial_primary_epoch_reward(capacity_bytes!(100))
+            .build();
+        let genesis_epoch = consensus.genesis_epoch_ext();
+
+        let get_block_header = |_hash: &Byte32| Some(genesis.header().clone());
+        let total_uncles_count = |_hash: &Byte32| Some(0);
+        let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
+
+        let initial_primary_epoch_reward = genesis_epoch.primary_reward();
+
+        {
+            let epoch = consensus
+                .next_epoch_ext(
+                    &consensus.genesis_epoch_ext(),
+                    &header(genesis_epoch.length() - 1),
+                    get_block_header,
+                    total_uncles_count,
+                )
+                .expect("test: get next epoch");
+
+            assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
+        }
+
+        let first_halving_epoch_number = consensus.primary_epoch_reward_halving_interval();
+
+        // first_halving_epoch_number - 2
+        let epoch = genesis_epoch
+            .clone()
+            .into_builder()
+            .number(first_halving_epoch_number - 2)
+            .build();
+
+        // first_halving_epoch_number - 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+        assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
+
+        // first_halving_epoch_number
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 2,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_halving_epoch_number + 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 2,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_halving_epoch_number * 4 - 2
+        let epoch = genesis_epoch
+            .clone()
+            .into_builder()
+            .number(first_halving_epoch_number * 4 - 2)
+            .base_block_reward(Capacity::shannons(
+                initial_primary_epoch_reward.as_u64() / 8 / genesis_epoch.length(),
+            ))
+            .remainder_reward(Capacity::shannons(
+                initial_primary_epoch_reward.as_u64() / 8 % genesis_epoch.length(),
+            ))
+            .build();
+
+        // first_halving_epoch_number * 4 - 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 8,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_halving_epoch_number * 4
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 16,
+            epoch.primary_reward().as_u64()
+        );
     }
 }

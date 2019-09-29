@@ -17,7 +17,7 @@ use ckb_types::{
 use log::info;
 
 const TX_2_IN_2_OUT_SIZE: usize = 557;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 3_132_087;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 3_116_503;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -42,7 +42,7 @@ impl Spec for SendSecpTxUseDepGroup {
         self.name
     }
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         info!("Generate 20 block on node");
@@ -134,7 +134,7 @@ impl CheckTypical2In2OutTx {
 impl Spec for CheckTypical2In2OutTx {
     crate::name!("check_typical_2_in_2_out_tx");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let hash_type = ScriptHashType::Type;
 
         let node = &net.nodes[0];

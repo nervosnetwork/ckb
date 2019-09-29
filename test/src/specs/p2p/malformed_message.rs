@@ -14,7 +14,7 @@ impl Spec for MalformedMessage {
 
     crate::setup!(protocols: vec![TestProtocol::sync()]);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Run malformed message");
         info!("Connect node0");
         let node0 = &net.nodes[0];
@@ -57,7 +57,7 @@ impl Spec for MalformedMessageWithWhitelist {
 
     crate::setup!(num_nodes: 2, protocols: vec![TestProtocol::sync()]);
 
-    fn run(&self, mut net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Run malformed message with whitelist");
         let node1 = net.nodes.pop().unwrap();
         net.exit_ibd_mode();
@@ -77,12 +77,13 @@ impl Spec for MalformedMessageWithWhitelist {
 
         node0.stop();
 
-        node0.start(
+        node0.edit_config_file(
             Box::new(|_| ()),
             Box::new(move |config| {
                 config.network.whitelist_peers = vec![net_listen.parse().unwrap()]
             }),
         );
+        node0.start();
 
         net.connect(&node0);
 

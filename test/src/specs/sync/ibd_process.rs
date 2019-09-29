@@ -10,7 +10,7 @@ impl Spec for IBDProcess {
 
     crate::setup!(num_nodes: 7, connect_all: false);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Running IBD process");
 
         let node0 = &net.nodes[0];
@@ -89,7 +89,7 @@ impl Spec for IBDProcessWithWhiteList {
 
     crate::setup!(num_nodes: 7, connect_all: false);
 
-    fn run(&self, mut net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Running IBD process with whitelist");
 
         {
@@ -102,12 +102,13 @@ impl Spec for IBDProcessWithWhiteList {
             net.nodes[0].stop();
 
             // whitelist will be connected on outbound on node start
-            net.nodes[0].start(
+            net.nodes[0].edit_config_file(
                 Box::new(|_| ()),
                 Box::new(move |config| {
                     config.network.whitelist_peers = vec![node6_listen.parse().unwrap()]
                 }),
             );
+            net.nodes[0].start();
         }
 
         let node0 = &net.nodes[0];

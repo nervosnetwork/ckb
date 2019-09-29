@@ -80,7 +80,7 @@ fn always_success_consensus() -> Consensus {
         .build();
     ConsensusBuilder::default()
         .genesis_block(genesis)
-        .epoch_reward(Capacity::shannons(EPOCH_REWARD))
+        .initial_primary_epoch_reward(Capacity::shannons(EPOCH_REWARD))
         .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
         .build()
 }
@@ -111,10 +111,10 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
             .unwrap_or(last_epoch)
     };
     let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
-    let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
+    let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     // We store a cellbase for constructing a new transaction later
-    if parent.number() == 0 {
+    if parent.number() > shared.consensus().finalization_delay_length() {
         UNSPENT.with(|unspent| {
             *unspent.borrow_mut() = cellbase.hash().unpack();
         });
@@ -287,7 +287,7 @@ fn construct_transaction() -> TransactionView {
     let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()).pack(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000).pack())
+        .capacity(capacity_bytes!(100).pack())
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -377,7 +377,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
         | "get_transactions_by_lock_hash" => {
-            vec![always_success_script_hash, json!("0x0"), json!("0x2")]
+            vec![always_success_script_hash, json!("0xa"), json!("0xe")]
         }
         "get_live_cell" => vec![always_success_out_point, json!(true)],
         "set_ban" => vec![

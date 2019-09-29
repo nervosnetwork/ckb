@@ -13,7 +13,6 @@ pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
-use ckb_instrument::Format;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::{info_target, LoggerInitGuard};
 use clap::{value_t, ArgMatches, ErrorKind};
@@ -162,13 +161,11 @@ impl Setup {
     pub fn import<'m>(self, matches: &ArgMatches<'m>) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let format = value_t!(matches.value_of(cli::ARG_FORMAT), Format)?;
         let source = value_t!(matches.value_of(cli::ARG_SOURCE), PathBuf)?;
 
         Ok(ImportArgs {
             config,
             consensus,
-            format,
             source,
         })
     }
@@ -176,13 +173,11 @@ impl Setup {
     pub fn export<'m>(self, matches: &ArgMatches<'m>) -> Result<ExportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let format = value_t!(matches.value_of(cli::ARG_FORMAT), Format)?;
         let target = value_t!(matches.value_of(cli::ARG_TARGET), PathBuf)?;
 
         Ok(ExportArgs {
             config,
             consensus,
-            format,
             target,
         })
     }

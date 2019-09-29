@@ -336,7 +336,6 @@ dependencies = [
  "ckb-chain-spec 0.22.0-pre",
  "ckb-db 0.22.0-pre",
  "ckb-indexer 0.22.0-pre",
- "ckb-instrument 0.22.0-pre",
  "ckb-jsonrpc-types 0.22.0-pre",
  "ckb-logger 0.22.0-pre",
  "ckb-miner 0.22.0-pre",
