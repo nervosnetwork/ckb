@@ -64,6 +64,8 @@ pub const MAX_LOCATOR_SIZE: usize = 101;
 
 pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s
 
+pub const RETRY_ASK_TX_TIMEOUT_INCREASE: Duration = Duration::from_secs(30);
+
 // ban time
 // 5 minutes
 pub const BAD_MESSAGE_BAN_TIME: Duration = Duration::from_secs(5 * 60);

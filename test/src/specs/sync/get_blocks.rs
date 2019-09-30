@@ -1,6 +1,7 @@
-use crate::utils::{build_headers, wait_get_blocks};
+use super::utils::wait_get_blocks;
+use crate::utils::build_headers;
 use crate::{Net, Spec, TestProtocol};
-use ckb_sync::NetworkProtocol;
+use ckb_sync::{NetworkProtocol, BLOCK_DOWNLOAD_TIMEOUT};
 use ckb_types::core::HeaderView;
 use log::info;
 use std::thread;
@@ -17,7 +18,7 @@ impl Spec for GetBlocksTimeout {
         protocols: vec![TestProtocol::sync()],
     );
 
-    fn run(&self, mut net: Net) {
+    fn run(&self, net: &mut Net) {
         let node1 = net.nodes.pop().unwrap();
         let node2 = net.nodes.pop().unwrap();
         node1.generate_blocks(1);
@@ -33,12 +34,23 @@ impl Spec for GetBlocksTimeout {
         net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
         info!("Receive GetBlocks from node1");
         assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks");
-        for _ in 0..2 {
-            assert!(!wait_get_blocks(10, &net), "should not receive GetBlocks");
-        }
-        thread::sleep(Duration::from_secs(12));
-        // After about 32 seconds later
-        info!("After 32 seconds receive GetBlocks again from node1");
+        let block_download_timeout_secs = BLOCK_DOWNLOAD_TIMEOUT / 1000;
+        let wait_get_blocks_secs = 20;
+        assert!(
+            block_download_timeout_secs > wait_get_blocks_secs,
+            "BLOCK_DOWNLOAD_TIMEOUT should greater than 20 seconds"
+        );
+        assert!(
+            !wait_get_blocks(wait_get_blocks_secs, &net),
+            "should not receive GetBlocks"
+        );
+        let sleep_secs = block_download_timeout_secs - wait_get_blocks_secs + 2;
+        thread::sleep(Duration::from_secs(sleep_secs));
+        // After about block_download_timeout_secs seconds later
+        info!(
+            "After {} seconds receive GetBlocks again from node1",
+            block_download_timeout_secs + 2
+        );
         assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks");
     }
 }

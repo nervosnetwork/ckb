@@ -5,6 +5,7 @@ mod ibd_process;
 mod invalid_block;
 mod invalid_locator_size;
 mod sync_timeout;
+mod utils;
 
 pub use block_sync::*;
 pub use chain_forks::*;

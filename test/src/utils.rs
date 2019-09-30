@@ -139,17 +139,6 @@ where
     false
 }
 
-pub fn wait_get_blocks(secs: u64, net: &Net) -> bool {
-    wait_until(secs, || {
-        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(1)) {
-            if let Ok(message) = SyncMessage::from_slice(&data) {
-                return message.to_enum().item_name() == GetBlocks::NAME;
-            }
-        }
-        false
-    })
-}
-
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
     while let Ok(_) = net.receive_timeout(Duration::new(3, 0)) {}
