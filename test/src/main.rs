@@ -205,6 +205,7 @@ fn all_specs() -> SpecMap {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
+        Box::new(GetBlocksTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),
         Box::new(ChainFork1),
@@ -236,6 +237,8 @@ fn all_specs() -> SpecMap {
         Box::new(TransactionRelayBasic),
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
+        Box::new(RelayInvalidTransaction),
+        Box::new(TransactionRelayTimeout),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),

@@ -3,7 +3,7 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
-use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error};
@@ -164,9 +164,10 @@ impl PeerState {
             return None;
         }
 
-        // Retry ask tx 30 seconds later
+        // Retry ask tx `RETRY_ASK_TX_TIMEOUT_INCREASE` later
+        //  NOTE: last_ask_timeout is some when other peer already asked for this tx_hash
         let next_ask_timeout = last_ask_timeout
-            .map(|time| cmp::max(time + Duration::from_secs(30), Instant::now()))
+            .map(|time| cmp::max(time + RETRY_ASK_TX_TIMEOUT_INCREASE, Instant::now()))
             .unwrap_or_else(Instant::now);
         self.tx_ask_for_map
             .entry(next_ask_timeout)

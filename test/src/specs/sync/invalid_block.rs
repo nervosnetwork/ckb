@@ -1,3 +1,4 @@
+use super::utils::wait_get_blocks;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
@@ -119,7 +120,7 @@ impl Spec for ForkContainsInvalidBlock {
         let (pi, _, _) = net.receive();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header().clone()).collect();
         net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
-        assert!(wait_get_blocks(&net), "timeout to wait GetBlocks",);
+        assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks",);
 
         // Build good chain (good_chain.len < bad_chain.len)
         good_node.generate_blocks(invalid_number + 2);
@@ -175,15 +176,4 @@ impl Spec for ForkContainsInvalidBlock {
             "request an invalid fork via GetBlock should be failed"
         );
     }
-}
-
-fn wait_get_blocks(net: &Net) -> bool {
-    wait_until(10, || {
-        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
-            if let Ok(message) = SyncMessage::from_slice(&data) {
-                return message.to_enum().item_name() == packed::GetBlocks::NAME;
-            }
-        }
-        false
-    })
 }
