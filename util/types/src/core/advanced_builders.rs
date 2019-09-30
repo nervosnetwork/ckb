@@ -35,7 +35,7 @@ pub struct HeaderBuilder {
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
     // Nonce
-    pub(crate) nonce: packed::Uint64,
+    pub(crate) nonce: packed::Uint128,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -206,7 +206,7 @@ impl HeaderBuilder {
     def_setter_simple!(uncles_hash, Byte32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
-    def_setter_simple!(nonce, Uint64);
+    def_setter_simple!(nonce, Uint128);
 
     pub fn build(self) -> core::HeaderView {
         let Self {
@@ -255,7 +255,7 @@ impl BlockBuilder {
     def_setter_simple!(header, uncles_hash, Byte32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
-    def_setter_simple!(header, nonce, Uint64);
+    def_setter_simple!(header, nonce, Uint128);
     def_setter_for_view_vector!(uncles, UncleBlockView, uncle, uncles, set_uncles);
     def_setter_for_view_vector!(
         transactions,

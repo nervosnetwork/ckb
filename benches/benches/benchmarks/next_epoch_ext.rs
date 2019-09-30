@@ -55,7 +55,7 @@ impl FakeStore {
 
 fn gen_empty_block(parent: &HeaderView) -> BlockView {
     let mut rng = thread_rng();
-    let nonce: u64 = rng.gen();
+    let nonce: u128 = rng.gen();
     let uncles_count: u32 = rng.gen_range(0, 2);
     let uncles: Vec<_> = (0..uncles_count)
         .map(|_| {

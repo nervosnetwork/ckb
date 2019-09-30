@@ -30,6 +30,12 @@ impl Pack<packed::Uint64> for u64 {
     }
 }
 
+impl Pack<packed::Uint128> for u128 {
+    fn pack(&self) -> packed::Uint128 {
+        packed::Uint128::new_unchecked(Bytes::from(&self.to_le_bytes()[..]))
+    }
+}
+
 impl Pack<packed::Uint32> for usize {
     fn pack(&self) -> packed::Uint32 {
         (*self as u32).pack()
@@ -53,6 +59,15 @@ impl<'r> Unpack<u64> for packed::Uint64Reader<'r> {
     }
 }
 impl_conversion_for_entity_unpack!(u64, Uint64);
+
+impl<'r> Unpack<u128> for packed::Uint128Reader<'r> {
+    #[allow(clippy::cast_ptr_alignment)]
+    fn unpack(&self) -> u128 {
+        let le = self.as_slice().as_ptr() as *const u128;
+        u128::from_le(unsafe { *le })
+    }
+}
+impl_conversion_for_entity_unpack!(u128, Uint128);
 
 impl<'r> Unpack<usize> for packed::Uint32Reader<'r> {
     fn unpack(&self) -> usize {

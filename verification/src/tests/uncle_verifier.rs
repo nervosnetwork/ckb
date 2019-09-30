@@ -21,7 +21,7 @@ use faketime;
 use rand::random;
 use std::sync::Arc;
 
-fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
+fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> BlockView {
     let now = parent_header.timestamp() + 1;
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);

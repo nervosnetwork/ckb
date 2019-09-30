@@ -1,7 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{
     BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    Timestamp, Uint32, Uint64, Version,
+    Timestamp, Uint128, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
@@ -399,7 +399,7 @@ pub struct Header {
     pub proposals_hash: H256,
     pub uncles_hash: H256,
     pub dao: Byte32,
-    pub nonce: Uint64,
+    pub nonce: Uint128,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

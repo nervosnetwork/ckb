@@ -270,7 +270,7 @@ impl HeaderView {
         self.data().raw().difficulty()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().nonce().unpack()
     }
 
@@ -323,7 +323,7 @@ impl UncleBlockView {
         self.header().difficulty()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
     }
 
@@ -434,7 +434,7 @@ impl BlockView {
         self.data().header().raw().dao()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
     }
 

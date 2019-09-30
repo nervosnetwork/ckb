@@ -145,7 +145,7 @@ fn bench(c: &mut Criterion) {
                         let raw_header = raw_block.header().raw();
                         let header = Header::new_builder()
                             .raw(raw_header)
-                            .nonce(random::<u64>().pack())
+                            .nonce(random::<u128>().pack())
                             .build();
                         let block = raw_block.as_builder().header(header).build().into_view();
 

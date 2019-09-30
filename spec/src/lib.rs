@@ -30,7 +30,7 @@ use ckb_types::{
     },
     h256, packed,
     prelude::*,
-    H160, H256,
+    H160, H256, U128,
 };
 pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ pub struct Genesis {
     pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
-    pub nonce: u64,
+    pub nonce: U128,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: Vec<SystemCell>,
@@ -267,7 +267,7 @@ impl ChainSpec {
             .compact_target(self.genesis.compact_target.pack())
             .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
-            .nonce(self.genesis.nonce.pack())
+            .nonce(u128::from_le_bytes(self.genesis.nonce.to_le_bytes()).pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();

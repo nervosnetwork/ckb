@@ -12,6 +12,7 @@ mod pool;
 mod primitive;
 mod proposal_short_id;
 mod sync;
+mod uint128;
 mod uint32;
 mod uint64;
 
@@ -34,6 +35,7 @@ pub use self::net::{BannedAddr, Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;
+pub use self::uint128::Uint128;
 pub use self::uint32::Uint32;
 pub use self::uint64::Uint64;
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
