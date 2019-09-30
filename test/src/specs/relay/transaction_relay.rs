@@ -1,6 +1,6 @@
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, wait_until};
 use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_sync::NetworkProtocol;
+use ckb_sync::{NetworkProtocol, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_types::{
     core::{Capacity, TransactionBuilder},
     packed::{CellInput, GetRelayTransactions, OutPoint, RelayMessage},
@@ -169,9 +169,9 @@ impl Spec for TransactionRelayTimeout {
             "timeout to wait GetRelayTransactions"
         );
 
-        let wait_seconds = 30;
+        let wait_seconds = RETRY_ASK_TX_TIMEOUT_INCREASE.as_secs();
         info!("Waiting for {} seconds", wait_seconds);
-        // Relay protocol will retry 30 seconds later when same GetRelayTransactions received
+        // Relay protocol will retry 30 seconds later when same GetRelayTransactions received from other peer
         // (not happend in current test case)
         thread::sleep(Duration::from_secs(wait_seconds));
         assert!(
@@ -221,7 +221,7 @@ impl Spec for RelayInvalidTransaction {
             build_relay_txs(&[(dummy_tx, 333)]),
         );
 
-        thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_secs(5));
         let banned_addrs = node.rpc_client().get_banned_addresses();
         info!("Banned addresses: {:?}", banned_addrs);
         assert_eq!(banned_addrs.len(), 1, "Net should be banned");

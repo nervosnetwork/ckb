@@ -1,4 +1,5 @@
-use crate::utils::{build_block, build_get_blocks, build_headers, wait_get_blocks, wait_until};
+use super::utils::wait_get_blocks;
+use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
