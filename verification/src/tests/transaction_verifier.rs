@@ -594,6 +594,31 @@ pub fn test_since_both() {
 }
 
 #[test]
+fn test_since_overflow() {
+    // use max value for each flag
+    for flag in &[
+        0b0000_0000u64, // absolute & block
+        0b1000_0000u64, // relative & block
+        0b0010_0000u64, // absolute & epoch
+        0b1010_0000u64, // relative & epoch
+        0b0100_0000u64, // absolute & time
+        0b1100_0000u64, // relative & time
+    ] {
+        let tx = create_tx_with_lock((flag << 56) + 0xffff_ffff_ffffu64);
+        let rtx = create_resolve_tx_with_transaction_info(
+            &tx,
+            MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+        );
+
+        let median_time_context = MockMedianTime::new(vec![0; 11]);
+        assert_error_eq!(
+            verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+            TransactionError::Immature,
+        );
+    }
+}
+
+#[test]
 pub fn test_outputs_data_length_mismatch() {
     let transaction = TransactionBuilder::default()
         .output(Default::default())
