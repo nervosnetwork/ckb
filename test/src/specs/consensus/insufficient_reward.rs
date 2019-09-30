@@ -17,7 +17,8 @@ impl Spec for InsufficientReward {
         let node = &net.nodes[0];
         let data_path = net
             .vendor_dir()
-            .join("consensus/insufficient_reward.json")
+            .join("consensus")
+            .join("insufficient_reward.json")
             .to_string_lossy()
             .to_string();
         info!("import {}", data_path);
