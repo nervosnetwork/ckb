@@ -216,6 +216,7 @@ fn all_specs() -> SpecMap {
         Box::new(ChainFork7),
         Box::new(LongForks),
         Box::new(ForksContainSameTransactions),
+        Box::new(ForksContainSameUncle),
         Box::new(DepositDAO),
         // pick from https://github.com/nervosnetwork/ckb/pull/1626
         // TODO: add NervosDAO tests back when we have a way to build longer
@@ -272,6 +273,9 @@ fn all_specs() -> SpecMap {
         Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
         Box::new(InsufficientReward),
+        Box::new(UncleInheritFromForkBlock),
+        Box::new(UncleInheritFromForkUncle),
+        Box::new(PackUnclesIntoEpochStarting),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
