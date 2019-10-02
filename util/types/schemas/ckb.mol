@@ -109,6 +109,11 @@ table Block {
     proposals:              ProposalShortIdVec,
 }
 
+table CellbaseWitness {
+    lock:    Script,
+    message: Bytes,
+}
+
 /* Types for Storage */
 
 table HeaderView {

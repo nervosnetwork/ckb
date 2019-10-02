@@ -61,6 +61,7 @@ impl Spec for BootstrapCellbase {
                 code_hash: h256!("0xa2"),
                 args: JsonBytes::from_bytes(Bytes::from(vec![2, 1])),
                 hash_type: ScriptHashType::Data.into(),
+                message: Default::default(),
             });
         })
     }

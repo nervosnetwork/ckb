@@ -16,7 +16,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView, Version,
     },
-    packed::{ProposalShortId, Script},
+    packed::{CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -118,8 +118,13 @@ impl Future for BuildCellbaseProcess {
             .code_hash(self.config.code_hash.pack())
             .hash_type(hash_type.pack())
             .build();
+        let cellbase_witness = CellbaseWitness::new_builder()
+            .lock(cellbase_lock)
+            .message(self.config.message.as_bytes().pack())
+            .build();
 
-        let cellbase = BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_lock)?;
+        let cellbase =
+            BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_witness)?;
 
         Ok(Async::Ready(cellbase))
     }

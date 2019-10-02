@@ -40,6 +40,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         code_hash: secp_script.code_hash().unpack(),
         hash_type: hash_type.into(),
         args,
+        message: Default::default(),
     }
 }
 

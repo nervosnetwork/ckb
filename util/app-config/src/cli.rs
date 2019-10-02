@@ -32,6 +32,7 @@ pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
 pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
+pub const ARG_BA_MESSAGE: &str = "ba-message";
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
@@ -360,6 +361,14 @@ fn init() -> App<'static, 'static> {
                 .multiple(true),
         )
         .arg(
+            Arg::with_name(ARG_BA_MESSAGE)
+                .long(ARG_BA_MESSAGE)
+                .value_name("message")
+                .validator(is_hex)
+                .requires(GROUP_BA)
+                .help("Sets message in [block_assembler]"),
+        )
+        .arg(
             Arg::with_name("export-specs")
                 .long("export-specs")
                 .hidden(true),
@@ -399,6 +408,50 @@ fn is_hex(hex: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ba_message_requires_ba_arg_or_ba_code_hash() {
+        let ok_ba_arg = basic_app().get_matches_from_safe(&[
+            "ckb",
+            "init",
+            "--ba-message",
+            "0x00",
+            "--ba-arg",
+            "0x00",
+        ]);
+        let ok_ba_code_hash = basic_app().get_matches_from_safe(&[
+            "ckb",
+            "init",
+            "--ba-message",
+            "0x00",
+            "--ba-code-hash",
+            "0x00",
+        ]);
+        let err = basic_app().get_matches_from_safe(&["ckb", "init", "--ba-message", "0x00"]);
+
+        assert!(
+            ok_ba_arg.is_ok(),
+            "--ba-message is ok with --ba-arg, but gets error: {:?}",
+            ok_ba_arg.err()
+        );
+        assert!(
+            ok_ba_code_hash.is_ok(),
+            "--ba-message is ok with --ba-code-hash, but gets error: {:?}",
+            ok_ba_code_hash.err()
+        );
+        assert!(
+            err.is_err(),
+            "--ba-message requires --ba-arg or --ba-code-hash"
+        );
+
+        let err = err.err().unwrap();
+        assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind);
+        assert!(err
+            .message
+            .contains("The following required arguments were not provided"));
+        assert!(err.message.contains("--ba-arg"));
+        assert!(err.message.contains("--ba-code-hash"));
+    }
 
     #[test]
     fn ba_arg_and_ba_code_hash() {

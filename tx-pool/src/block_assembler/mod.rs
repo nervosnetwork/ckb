@@ -15,7 +15,7 @@ use ckb_types::{
         BlockNumber, Capacity, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{self, Byte32, CellInput, CellOutput, ProposalShortId, Script, Transaction},
+    packed::{self, Byte32, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Transaction},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -161,20 +161,20 @@ impl BlockAssembler {
     pub(crate) fn build_cellbase(
         snapshot: &Snapshot,
         tip: &HeaderView,
-        lock: Script,
+        cellbase_witness: CellbaseWitness,
     ) -> Result<TransactionView, FailureError> {
         let candidate_number = tip.number() + 1;
 
         let tx = {
             let (target_lock, block_reward) =
                 RewardCalculator::new(snapshot.consensus(), snapshot).block_reward(tip)?;
-            let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
                 .capacity(block_reward.total.pack())
                 .lock(target_lock)
                 .build();
 
+            let witness = cellbase_witness.as_bytes().pack();
             let no_finalization_target =
                 candidate_number <= snapshot.consensus().finalization_delay_length();
             let tx_builder = TransactionBuilder::default().input(input).witness(witness);

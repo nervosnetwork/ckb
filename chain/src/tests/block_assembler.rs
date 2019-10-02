@@ -34,6 +34,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         code_hash: h256!("0x0"),
         args: Default::default(),
         hash_type: ScriptHashType::Data,
+        message: Default::default(),
     };
     let (shared, table) = builder
         .block_assembler_config(Some(config))
