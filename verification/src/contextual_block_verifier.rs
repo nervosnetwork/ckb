@@ -433,7 +433,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                     .map(|cache_entry| (tx_hash, cache_entry))
                 }
             })
-            .collect::<Result<HashMap<Byte32, CacheEntry>, Error>>()?;
+            .collect::<Result<Vec<(Byte32, CacheEntry)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
         let cache_entires = ret
@@ -441,7 +441,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .map(|(_, cache_entry)| cache_entry)
             .cloned()
             .collect();
-        let update = UpdateCache::new(txs_verify_cache.clone(), ret);
+        let update = UpdateCache::new(txs_verify_cache.clone(), ret.into_iter().collect());
         executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {

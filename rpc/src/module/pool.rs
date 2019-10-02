@@ -10,6 +10,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use ckb_verification::TransactionError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -56,16 +57,10 @@ impl PoolRpc for PoolRpcImpl {
         if let Err(e) = submit_txs {
             error!("send submit_txs request error {}", e);
             return Err(Error::internal_error());
-        };
+        }
 
         match submit_txs.unwrap() {
-            Ok(submit_result) => {
-                let cache_entry = submit_result.get(0).expect("exists");
-                let min_fee = self.min_fee_rate.fee(tx.data().serialized_size_in_block());
-                // reject txs which fee lower than min fee rate
-                if cache_entry.fee < min_fee {
-                    return Err(RPCError::custom(RPCError::Invalid, format!("transaction fee rate lower than min_fee_rate: {} shannons/KB. hint: at least pay {} shannons fee", self.min_fee_rate, min_fee)));
-                }
+            Ok(_) => {
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
                 let hash = tx.hash().to_owned();
@@ -77,7 +72,20 @@ impl PoolRpc for PoolRpcImpl {
                     .insert(hash.clone());
                 Ok(hash.unpack())
             }
-            Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
+            Err(e) => {
+                if let Some(e) = e.downcast_ref::<TransactionError>() {
+                    if e == &TransactionError::LowFeeRate {
+                        return Err(RPCError::custom(
+                            RPCError::Invalid,
+                            format!(
+                                "transaction fee rate lower than min_fee_rate: {} shannons/KB",
+                                self.min_fee_rate
+                            ),
+                        ));
+                    }
+                }
+                Err(RPCError::custom(RPCError::Invalid, e.to_string()))
+            }
         }
     }
 

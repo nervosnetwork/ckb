@@ -563,8 +563,8 @@ fn test_package_txs_lower_than_min_fee_rate() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()))
-            .expect("process block");
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .unwrap();
         parent_header = block.header().to_owned();
         blocks.push(block);
     }

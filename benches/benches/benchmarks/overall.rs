@@ -8,12 +8,12 @@ use ckb_shared::{
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_tx_pool::BlockAssemblerConfig;
+use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, FeeRate,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
@@ -80,9 +80,13 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
+    let mut tx_pool_config = TxPoolConfig::default();
+    tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
+
     let (shared, table) = SharedBuilder::default()
         .consensus(consensus.clone())
         .block_assembler_config(Some(block_assembler_config()))
+        .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
     let chain_service = ChainService::new(shared.clone(), table);

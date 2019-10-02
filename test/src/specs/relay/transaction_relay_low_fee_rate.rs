@@ -1,5 +1,5 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_jsonrpc_types::Status;
 use ckb_types::{
@@ -16,7 +16,7 @@ impl Spec for TransactionRelayLowFeeRate {
 
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net:&mut Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
         let node0 = &net.nodes[0];
@@ -24,7 +24,7 @@ impl Spec for TransactionRelayLowFeeRate {
         let node2 = &net.nodes[2];
 
         info!("Generate new transaction on node1");
-        node1.generate_block();
+        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let hash = node1.generate_transaction();
         // confirm tx
         node1.generate_blocks(20);
@@ -81,7 +81,7 @@ impl Spec for TransactionRelayLowFeeRate {
         info!("Waiting for relay");
         let rpc_client = node0.rpc_client();
         let ret = wait_until(10, || rpc_client.get_transaction(hash.pack()).is_some());
-        assert!(ret, "Transaction should be broadcast to node0");
+        assert!(!ret, "Transaction should not be boradcast to node0");
 
         let rpc_client = node2.rpc_client();
         let ret = wait_until(1, || rpc_client.get_transaction(hash.pack()).is_some());

@@ -12,7 +12,7 @@ use ckb_types::{
     },
     packed::Byte32,
 };
-use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
+use ckb_verification::{ContextualTransactionVerifier, TransactionError, TransactionVerifier};
 use futures::future::Future;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -199,6 +199,12 @@ impl<'a> SubmitTxsExecutor<'a> {
         {
             if self.tx_pool.reach_cycles_limit(cache_entry.cycles) {
                 return Err(InternalErrorKind::TransactionPoolFull.into());
+            }
+
+            let min_fee = self.tx_pool.config.min_fee_rate.fee(tx_size);
+            // reject txs which fee lower than min fee rate
+            if fee < min_fee {
+                return Err(TransactionError::LowFeeRate.into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
