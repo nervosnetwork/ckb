@@ -35,4 +35,5 @@ pub struct BlockAssemblerConfig {
     pub code_hash: H256,
     pub hash_type: ScriptHashType,
     pub args: JsonBytes,
+    pub message: JsonBytes,
 }

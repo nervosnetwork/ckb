@@ -7,7 +7,8 @@ use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockReward, Capacity, HeaderView},
-    packed::{Byte32, ProposalShortId, Script},
+    packed::{Byte32, CellbaseWitness, ProposalShortId, Script},
+    prelude::*,
 };
 use std::cmp;
 use std::collections::HashSet;
@@ -39,15 +40,17 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             .and_then(|hash| self.store.get_block_header(&hash))
             .expect("block hash checked before involving get_ancestor");
 
-        let target_lock = Script::from_witness(
-            store
+        let target_lock = CellbaseWitness::from_slice(
+            &store
                 .get_cellbase(&target.hash())
                 .expect("target cellbase exist")
                 .witnesses()
                 .get(0)
-                .expect("target witness exist"),
+                .expect("target witness exist")
+                .raw_data(),
         )
-        .expect("cellbase loaded from store should has non-empty witness");
+        .expect("cellbase loaded from store should has non-empty witness")
+        .lock();
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;

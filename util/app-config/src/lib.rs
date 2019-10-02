@@ -224,6 +224,7 @@ impl Setup {
             .value_of(cli::ARG_BA_HASH_TYPE)
             .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
             .unwrap();
+        let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
         Ok(InitArgs {
             interactive,
@@ -238,6 +239,7 @@ impl Setup {
             block_assembler_code_hash,
             block_assembler_args,
             block_assembler_hash_type,
+            block_assembler_message,
         })
     }
 
