@@ -250,5 +250,6 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         code_hash,
         hash_type: hash_type.into(),
         args: JsonBytes::from_bytes(lock_arg),
+        message: Default::default(),
     }
 }

@@ -440,6 +440,7 @@ impl Node {
             code_hash: self.always_success_code_hash.unpack(),
             args: Default::default(),
             hash_type: ScriptHashType::Data.into(),
+            message: Default::default(),
         });
 
         if ::std::env::var("CI").is_ok() {

@@ -5,7 +5,8 @@ use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockView, HeaderView},
-    packed::{CellInput, Script},
+    packed::{CellInput, CellbaseWitness},
+    prelude::*,
 };
 use std::collections::HashSet;
 
@@ -86,7 +87,7 @@ impl CellbaseVerifier {
         if cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(Script::from_witness)
+            .and_then(|witness| CellbaseWitness::from_slice(&witness.raw_data()).ok())
             .is_none()
         {
             return Err((CellbaseError::InvalidWitness).into());
