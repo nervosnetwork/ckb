@@ -347,3 +347,11 @@ table Identify {
     name:                       Bytes,          // Network Name
     client_version:             Bytes,
 }
+
+/* Types for Contract */
+
+table WitnessArgs {
+    lock:                       Bytes,          // Lock args
+    type_:                      Bytes,          // Type args
+    extra:                      Bytes,
+}

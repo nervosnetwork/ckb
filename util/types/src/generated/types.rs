@@ -22201,3 +22201,310 @@ impl IdentifyBuilder {
         self
     }
 }
+#[derive(Clone)]
+pub struct WitnessArgs(molecule::bytes::Bytes);
+#[derive(Clone, Copy)]
+pub struct WitnessArgsReader<'r>(&'r [u8]);
+impl ::std::fmt::Debug for WitnessArgs {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Debug for WitnessArgsReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl ::std::fmt::Display for WitnessArgs {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "lock", self.lock())?;
+        write!(f, ", {}: {}", "type_", self.type_())?;
+        write!(f, ", {}: {}", "extra", self.extra())?;
+        let (_, count, _) = Self::field_offsets(&self);
+        if count != 3 {
+            write!(f, ", ..")?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> ::std::fmt::Display for WitnessArgsReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "lock", self.lock())?;
+        write!(f, ", {}: {}", "type_", self.type_())?;
+        write!(f, ", {}: {}", "extra", self.extra())?;
+        let (_, count, _) = Self::field_offsets(&self);
+        if count != 3 {
+            write!(f, ", ..")?;
+        }
+        write!(f, " }}")
+    }
+}
+#[derive(Debug, Default)]
+pub struct WitnessArgsBuilder {
+    pub(crate) lock: Bytes,
+    pub(crate) type_: Bytes,
+    pub(crate) extra: Bytes,
+}
+impl ::std::default::Default for WitnessArgs {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            28, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        WitnessArgs::new_unchecked(v.into())
+    }
+}
+impl molecule::prelude::Entity for WitnessArgs {
+    type Builder = WitnessArgsBuilder;
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        WitnessArgs(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        WitnessArgsReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        WitnessArgsReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .lock(self.lock())
+            .type_(self.type_())
+            .extra(self.extra())
+    }
+}
+impl WitnessArgs {
+    pub const NAME: &'static str = "WitnessArgs";
+    pub fn as_reader<'r>(&'r self) -> WitnessArgsReader<'r> {
+        WitnessArgsReader::new_unchecked(self.as_slice())
+    }
+    pub const FIELD_COUNT: usize = 3;
+    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
+        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
+        let bytes_len = u32::from_le(ptr[0]) as usize;
+        let first = u32::from_le(ptr[1]) as usize;
+        let count = (first - 4) / 4;
+        (bytes_len, count, &ptr[1..])
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        let (_, real_fields_count, _) = Self::field_offsets(self);
+        Self::FIELD_COUNT == real_fields_count
+    }
+    pub fn lock(&self) -> Bytes {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[0]) as usize;
+        let end = u32::from_le(offsets[0 + 1]) as usize;
+        Bytes::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn type_(&self) -> Bytes {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Bytes::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn extra(&self) -> Bytes {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
+            Bytes::new_unchecked(self.0.slice_from(start))
+        } else {
+            let end = u32::from_le(offsets[2 + 1]) as usize;
+            Bytes::new_unchecked(self.0.slice(start, end))
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for WitnessArgsReader<'r> {
+    type Entity = WitnessArgs;
+    fn to_entity(&self) -> Self::Entity {
+        WitnessArgs::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        WitnessArgsReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::error::VerificationError;
+        let len = slice.len();
+        if len < 4 {
+            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+            Err(err)?;
+        }
+        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
+        let total_size = u32::from_le(ptr[0]) as usize;
+        if total_size != len {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
+            Err(err)?;
+        }
+        if 3 == 0 && total_size == 4 {
+            return Ok(());
+        }
+        let expected = 4 + 4 * 3;
+        if total_size < expected {
+            let err =
+                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
+            Err(err)?;
+        }
+        let offset_first = u32::from_le(ptr[1]) as usize;
+        if offset_first % 4 != 0 {
+            let err = VerificationError::FirstOffsetIsBroken(Self::NAME.to_owned(), offset_first);
+            Err(err)?;
+        }
+        if offset_first < expected {
+            let err = VerificationError::FirstOffsetIsShort(
+                Self::NAME.to_owned(),
+                expected,
+                offset_first,
+            );
+            Err(err)?;
+        }
+        let real_field_count = if compatible {
+            let real_field_count = offset_first / 4 - 1;
+            let real_expected = 4 + 4 * real_field_count;
+            if total_size < real_expected {
+                let err = VerificationError::DataIsShort(
+                    Self::NAME.to_owned(),
+                    real_expected,
+                    total_size,
+                );
+                Err(err)?;
+            }
+            real_field_count
+        } else {
+            if offset_first > expected {
+                let err = VerificationError::FirstOffsetIsOverflow(
+                    Self::NAME.to_owned(),
+                    expected,
+                    offset_first,
+                );
+                Err(err)?;
+            }
+            3
+        };
+        let mut offsets: Vec<usize> = ptr[1..=real_field_count]
+            .iter()
+            .map(|x| u32::from_le(*x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
+            Err(err)?;
+        }
+        BytesReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        BytesReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        BytesReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Ok(())
+    }
+}
+impl<'r> WitnessArgsReader<'r> {
+    pub const NAME: &'r str = "WitnessArgsReader";
+    pub const FIELD_COUNT: usize = 3;
+    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
+        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
+        let bytes_len = u32::from_le(ptr[0]) as usize;
+        let first = u32::from_le(ptr[1]) as usize;
+        let count = (first - 4) / 4;
+        (bytes_len, count, &ptr[1..])
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        let (_, real_fields_count, _) = Self::field_offsets(self);
+        Self::FIELD_COUNT == real_fields_count
+    }
+    pub fn lock(&self) -> BytesReader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[0]) as usize;
+        let end = u32::from_le(offsets[0 + 1]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn type_(&self) -> BytesReader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn extra(&self) -> BytesReader<'r> {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
+            BytesReader::new_unchecked(&self.as_slice()[start..])
+        } else {
+            let end = u32::from_le(offsets[2 + 1]) as usize;
+            BytesReader::new_unchecked(&self.as_slice()[start..end])
+        }
+    }
+}
+impl molecule::prelude::Builder for WitnessArgsBuilder {
+    type Entity = WitnessArgs;
+    fn expected_length(&self) -> usize {
+        let len_header = 4 + 3 * 4;
+        len_header
+            + self.lock.as_slice().len()
+            + self.type_.as_slice().len()
+            + self.extra.as_slice().len()
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        let len = (self.expected_length() as u32).to_le_bytes();
+        writer.write_all(&len[..])?;
+        let mut offset = 4 + 3 * 4;
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.lock.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.type_.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.extra.as_slice().len();
+        }
+        let _ = offset;
+        writer.write_all(self.lock.as_slice())?;
+        writer.write_all(self.type_.as_slice())?;
+        writer.write_all(self.extra.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner).expect("write vector should be ok");
+        WitnessArgs::new_unchecked(inner.into())
+    }
+}
+impl WitnessArgsBuilder {
+    pub const NAME: &'static str = "WitnessArgsBuilder";
+    pub fn lock(mut self, v: Bytes) -> Self {
+        self.lock = v;
+        self
+    }
+    pub fn type_(mut self, v: Bytes) -> Self {
+        self.type_ = v;
+        self
+    }
+    pub fn extra(mut self, v: Bytes) -> Self {
+        self.extra = v;
+        self
+    }
+}
