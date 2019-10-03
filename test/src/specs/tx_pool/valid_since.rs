@@ -15,7 +15,7 @@ pub struct ValidSince;
 impl Spec for ValidSince {
     crate::name!("valid_since");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         self.test_since_relative_block_number(&net.nodes[0]);
         self.test_since_absolute_block_number(&net.nodes[0]);
         self.test_since_relative_median_time(&net.nodes[0]);
@@ -34,7 +34,7 @@ impl Spec for ValidSince {
 
 impl ValidSince {
     pub fn test_since_relative_block_number(&self, node: &Node) {
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let relative: BlockNumber = 5;
         let since = since_from_relative_block_number(relative);
         let transaction = {
@@ -61,7 +61,7 @@ impl ValidSince {
     }
 
     pub fn test_since_absolute_block_number(&self, node: &Node) {
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let absolute: BlockNumber = node.rpc_client().get_tip_block_number() + 5;
         let since = since_from_absolute_block_number(absolute);
         let transaction = {
@@ -90,7 +90,7 @@ impl ValidSince {
 
     pub fn test_since_relative_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let cellbase = node.get_tip_block().transactions()[0].clone();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
         sleep(Duration::from_secs(2));
@@ -137,7 +137,7 @@ impl ValidSince {
 
     pub fn test_since_absolute_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let cellbase = node.get_tip_block().transactions()[0].clone();
 
         node.generate_blocks(median_time_block_count as usize);
@@ -182,7 +182,7 @@ impl ValidSince {
 
     #[allow(clippy::identity_op)]
     pub fn test_since_and_proposal(&self, node: &Node) {
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // test relative block number since
         info!("Use tip block cellbase as tx input with a relative block number since");

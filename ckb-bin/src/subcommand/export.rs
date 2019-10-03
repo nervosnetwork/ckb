@@ -10,10 +10,8 @@ pub fn export(args: ExportArgs) -> Result<(), ExitCode> {
             eprintln!("Export error: {:?}", err);
             ExitCode::Failure
         })?;
-    Export::new(shared, args.format, args.target)
-        .execute()
-        .map_err(|err| {
-            eprintln!("Export error: {:?}", err);
-            ExitCode::Failure
-        })
+    Export::new(shared, args.target).execute().map_err(|err| {
+        eprintln!("Export error: {:?}", err);
+        ExitCode::Failure
+    })
 }

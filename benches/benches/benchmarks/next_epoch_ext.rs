@@ -55,7 +55,7 @@ impl FakeStore {
 
 fn gen_empty_block(parent: &HeaderView) -> BlockView {
     let mut rng = thread_rng();
-    let nonce: u64 = rng.gen();
+    let nonce: u128 = rng.gen();
     let uncles_count: u32 = rng.gen_range(0, 2);
     let uncles: Vec<_> = (0..uncles_count)
         .map(|_| {
@@ -101,13 +101,11 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let epoch_ext = build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO);
-                    let consensus = ConsensusBuilder::new(
-                        genesis_block.clone(),
-                        DEFAULT_EPOCH_REWARD,
-                        epoch_ext,
-                    )
-                    .build();
+                    let epoch_ext =
+                        build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO, 1000, 14400);
+                    let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)
+                        .initial_primary_epoch_reward(DEFAULT_EPOCH_REWARD)
+                        .build();
                     let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
 
                     let mut store = FakeStore::default();

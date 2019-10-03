@@ -30,7 +30,7 @@ fn repeat_process_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block_with_nonce(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
     assert!(chain_controller
@@ -127,7 +127,7 @@ fn test_transaction_spend_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let last_cell_base_hash = last_cell_base.hash().to_owned();
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash().to_owned();
@@ -142,7 +142,7 @@ fn test_transaction_spend_in_same_block() {
 
     let txs = vec![tx1, tx2];
 
-    for hash in &[&last_cell_base_hash, &tx1_hash, &tx2_hash] {
+    for hash in &[&tx1_hash, &tx2_hash] {
         assert_eq!(
             shared
                 .snapshot()
@@ -216,7 +216,7 @@ fn test_transaction_conflict_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -250,7 +250,7 @@ fn test_transaction_conflict_in_different_blocks() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
@@ -287,7 +287,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
     chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -319,9 +319,9 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block_with_nonce(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -330,7 +330,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
-    chain.gen_empty_block_with_nonce(100, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     // commit tx1 and tx2 in N+2 block
     chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     // commit tx3 in N+3 block
@@ -724,7 +724,11 @@ fn test_next_epoch_ext() {
     let mut consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
         .build();
+    let remember_primary_reward = consensus.genesis_epoch_ext.primary_reward();
     consensus.genesis_epoch_ext.set_length(400);
+    consensus
+        .genesis_epoch_ext
+        .set_primary_reward(remember_primary_reward);
 
     // last_difficulty 1000
     // last_epoch_length 400
@@ -772,22 +776,18 @@ fn test_next_epoch_ext() {
         );
 
         let consensus = shared.consensus();
-        let epoch_reward = consensus.epoch_reward();
+        let epoch_reward = consensus.primary_epoch_reward(epoch.number());
         let block_reward = Capacity::shannons(epoch_reward.as_u64() / epoch.length());
-        let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
+        let block_reward_plus_one = Capacity::shannons(block_reward.as_u64() + 1);
         let bound = 400 + epoch.remainder_reward().as_u64();
 
         // block_reward 428082191780
         // remainder_reward 960
+        assert_eq!(epoch.block_reward(400).unwrap(), block_reward_plus_one);
         assert_eq!(
-            epoch.block_reward(400).unwrap(),
-            block_reward1,
-            "block_reward {:?}, remainder_reward{:?}",
-            block_reward,
-            epoch.remainder_reward()
+            epoch.block_reward(bound - 1).unwrap(),
+            block_reward_plus_one
         );
-
-        assert_eq!(epoch.block_reward(bound - 1).unwrap(), block_reward1);
         assert_eq!(epoch.block_reward(bound).unwrap(), block_reward);
     }
 

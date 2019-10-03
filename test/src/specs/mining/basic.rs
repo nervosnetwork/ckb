@@ -1,4 +1,4 @@
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::{core::BlockView, packed::ProposalShortId, prelude::*};
 use log::info;
@@ -11,7 +11,7 @@ pub struct MiningBasic;
 impl Spec for MiningBasic {
     crate::name!("mining_basic");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         self.test_basic(node);
@@ -23,7 +23,7 @@ impl MiningBasic {
     pub const BLOCK_TEMPLATE_TIMEOUT: u64 = 3;
 
     pub fn test_basic(&self, node: &Node) {
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Use generated block's cellbase as tx input");
         let transaction_hash = node.generate_transaction();
         let block1_hash = node.generate_block();

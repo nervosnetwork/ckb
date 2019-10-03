@@ -2,7 +2,7 @@ use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, clear_messages, wait_until,
 };
-use crate::{Net, Spec, TestProtocol};
+use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_dao::DaoCalculator;
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
@@ -28,7 +28,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
 
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
         let node = &net.nodes[0];
         net.connect(node);
@@ -72,7 +72,7 @@ impl Spec for CompactBlockEmpty {
     crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
 
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
@@ -97,11 +97,12 @@ impl Spec for CompactBlockPrefilled {
     crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
 
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
@@ -142,12 +143,13 @@ impl Spec for CompactBlockMissingFreshTxs {
     // Case: Send to node0 a block which missing a tx, which is a fresh tx for
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
         node.submit_block(
             &node
@@ -159,7 +161,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         node.generate_blocks(3);
 
         // Net consume and ignore the recent blocks
-        (0..4).for_each(|_| {
+        (0..(DEFAULT_TX_PROPOSAL_WINDOW.1 + 6)).for_each(|_| {
             net.receive();
         });
 
@@ -199,11 +201,12 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     // 1. Put the target tx into tx_pool, and proposal it. Then move it into proposal window
     // 2. Relay target block which contains the target transaction as committed transaction. Expect
     //    successful to reconstruct the target block and grow up.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Build the target transaction
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
@@ -248,7 +251,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
     );
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         net.connect(node0);
@@ -256,6 +259,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         let node1 = &net.nodes[1];
         net.connect(node1);
         let _ = net.receive();
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash().clone());
         node0.submit_block(
@@ -316,12 +320,13 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
     // orphan_block_pool now
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction_spend_tip_cellbase();
         node.submit_block(
@@ -474,7 +479,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
     // Case: Relay a compact block which has lower total difficulty than shared_best_known
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         net.exit_ibd_mode();

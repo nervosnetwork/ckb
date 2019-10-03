@@ -39,10 +39,10 @@ impl Pow {
     }
 }
 
-pub fn pow_message(pow_hash: &Byte32, nonce: u64) -> [u8; 40] {
-    let mut message = [0; 40];
-    message[8..40].copy_from_slice(pow_hash.as_slice());
-    LittleEndian::write_u64(&mut message, nonce);
+pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
+    let mut message = [0; 48];
+    message[0..32].copy_from_slice(pow_hash.as_slice());
+    LittleEndian::write_u128(&mut message[32..48], nonce);
     message
 }
 
@@ -67,14 +67,14 @@ mod test {
     #[test]
     fn test_pow_message() {
         let zero_hash = blake2b_256(&[]).pack();
-        let nonce = u64::max_value();
+        let nonce = u128::max_value();
         let message = pow_message(&zero_hash, nonce);
         assert_eq!(
             message.to_vec(),
             [
-                255, 255, 255, 255, 255, 255, 255, 255, 68, 244, 198, 151, 68, 213, 248, 197, 93,
-                100, 32, 98, 148, 157, 202, 228, 155, 196, 231, 239, 67, 211, 136, 197, 161, 47,
-                66, 181, 99, 61, 22, 62
+                68, 244, 198, 151, 68, 213, 248, 197, 93, 100, 32, 98, 148, 157, 202, 228, 155,
+                196, 231, 239, 67, 211, 136, 197, 161, 47, 66, 181, 99, 61, 22, 62, 255, 255, 255,
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
             ]
             .to_vec()
         );

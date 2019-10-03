@@ -21,7 +21,7 @@ impl Spec for WhitelistOnSessionLimit {
         })
     }
 
-    fn run(&self, mut net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Running whitelist on session limit");
 
         // with no whitelist
@@ -67,12 +67,13 @@ impl Spec for WhitelistOnSessionLimit {
 
         node0.stop();
 
-        node0.start(
+        node0.edit_config_file(
             Box::new(|_| ()),
             Box::new(move |config| {
                 config.network.whitelist_peers = vec![node1_listen.parse().unwrap()]
             }),
         );
+        node0.start();
 
         // with whitelist
         let mut id_set = HashSet::new();

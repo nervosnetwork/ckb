@@ -11,6 +11,7 @@ use ckb_types::{
 };
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,10 +23,11 @@ pub struct Net {
     start_port: u16,
     setup: Setup,
     working_dir: String,
+    vendor_dir: PathBuf,
 }
 
 impl Net {
-    pub fn new(binary: &str, start_port: u16, setup: Setup) -> Self {
+    pub fn new(binary: &str, start_port: u16, vendor_dir: PathBuf, setup: Setup) -> Self {
         let nodes: Vec<Node> = (0..setup.num_nodes)
             .map(|n| {
                 Node::new(
@@ -42,11 +44,16 @@ impl Net {
             start_port,
             setup,
             working_dir: temp_path(),
+            vendor_dir,
         }
     }
 
     pub fn working_dir(&self) -> &str {
         &self.working_dir
+    }
+
+    pub fn vendor_dir(&self) -> &PathBuf {
+        &self.vendor_dir
     }
 
     fn num_nodes(&self) -> u32 {

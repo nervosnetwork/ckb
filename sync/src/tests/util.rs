@@ -60,7 +60,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .unwrap_or(parent_epoch);
     let cellbase = {
         let (_, reward) = snapshot.finalize_block_reward(&parent.header()).unwrap();
-        always_success_cellbase(parent_number + 1, reward.total)
+        always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
     };
     let dao = {
         let resolved_cellbase = resolve_transaction(
@@ -95,5 +95,5 @@ pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> Tran
             .expect("parent exist")
     };
     let (_, reward) = snapshot.finalize_block_reward(&parent_header).unwrap();
-    always_success_cellbase(parent_number + 1, reward.total)
+    always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
 }

@@ -23,9 +23,9 @@ pub struct Miner {
     pub works: LruCache<Byte32, Work>,
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
-    pub nonce_rx: Receiver<(Byte32, u64)>,
+    pub nonce_rx: Receiver<(Byte32, u128)>,
     pub pb: ProgressBar,
-    pub nonces_found: u64,
+    pub nonces_found: u128,
     pub stderr_is_tty: bool,
 }
 
@@ -94,7 +94,7 @@ impl Miner {
         }
     }
 
-    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u64) {
+    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u128) {
         if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
             self.notify_workers(WorkerMessage::Stop);
             let raw_header = work.block.header().raw();

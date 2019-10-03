@@ -34,6 +34,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         code_hash: h256!("0x0"),
         args: Default::default(),
         hash_type: ScriptHashType::Data,
+        message: Default::default(),
     };
     let (shared, table) = builder
         .block_assembler_config(Some(config))
@@ -86,7 +87,7 @@ fn test_get_block_template() {
     assert!(block_verify.verify(&block).is_ok());
 }
 
-fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
+fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> BlockView {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number, epoch);
     // This just make sure we can generate a valid block template,

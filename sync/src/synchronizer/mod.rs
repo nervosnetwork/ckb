@@ -560,16 +560,22 @@ mod tests {
             .snapshot()
             .finalize_block_reward(parent_header)
             .unwrap();
-        TransactionBuilder::default()
+
+        let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.pack())
-                    .build(),
-            )
-            .output_data(Bytes::new().pack())
-            .witness(Script::default().into_witness())
-            .build()
+            .witness(Script::default().into_witness());
+        if number <= shared.consensus().finalization_delay_length() {
+            builder.build()
+        } else {
+            builder
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(reward.total.pack())
+                        .build(),
+                )
+                .output_data(Bytes::new().pack())
+                .build()
+        }
     }
 
     fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {
@@ -581,7 +587,7 @@ mod tests {
         shared: &Shared,
         parent_header: &CoreHeaderView,
         epoch: &EpochExt,
-        nonce: u64,
+        nonce: u128,
     ) -> BlockView {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
@@ -611,7 +617,7 @@ mod tests {
     fn insert_block(
         chain_controller: &ChainController,
         shared: &Shared,
-        nonce: u64,
+        nonce: u128,
         number: BlockNumber,
     ) {
         let snapshot = shared.snapshot();
@@ -640,7 +646,7 @@ mod tests {
         ];
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -669,11 +675,11 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            insert_block(&chain_controller1, &shared1, u128::from(i), i);
         }
 
         for i in 1..num {
-            insert_block(&chain_controller2, &shared2, i + 1, i);
+            insert_block(&chain_controller2, &shared2, u128::from(i + 1), i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -696,7 +702,7 @@ mod tests {
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller3, &shared3, j, i);
+            insert_block(&chain_controller3, &shared3, u128::from(j), i);
         }
 
         let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
@@ -786,7 +792,7 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -1023,7 +1029,7 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            insert_block(&chain_controller1, &shared1, u128::from(i), i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -1035,7 +1041,7 @@ mod tests {
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller2, &shared2, j, i);
+            insert_block(&chain_controller2, &shared2, u128::from(j), i);
         }
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());

@@ -1,5 +1,5 @@
 use ckb_test::specs::*;
-use ckb_test::Spec;
+use ckb_test::{Net, Spec};
 use ckb_types::core::ScriptHashType;
 use clap::{value_t, App, Arg};
 use log::{error, info};
@@ -13,6 +13,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[allow(clippy::cognitive_complexity)]
 fn main() {
     let _ = {
         let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
@@ -30,6 +31,7 @@ fn main() {
     } else {
         None
     };
+    let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
 
     if matches.is_present("list-specs") {
         list_specs();
@@ -49,6 +51,7 @@ fn main() {
     let mut panicked_error = false;
 
     for (index, (spec_name, spec)) in &mut specs_iter {
+        let mut net = Net::new(binary, start_port, vendor.clone(), spec.setup());
         info!(
             "{}/{} .............. Running {}",
             index + 1,
@@ -56,18 +59,16 @@ fn main() {
             spec_name
         );
         let now = Instant::now();
-        let net = spec.setup_net(&binary, start_port);
         let net_dir = net.working_dir().to_owned();
         let node_dirs: Vec<_> = net
             .nodes
             .iter()
             .map(|node| node.working_dir().to_owned())
             .collect();
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
-            spec.run(net);
-        }));
-
         info!("Started Net with working dir: {}", net_dir);
+
+        let result = run_spec(spec.as_ref(), &mut net);
+
         node_dirs.iter().enumerate().for_each(|(i, node_dir)| {
             info!("Started Node.{} with working dir: {}", i, node_dir);
         });
@@ -181,6 +182,12 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
     }
 }
 
+fn current_dir() -> PathBuf {
+    ::std::env::current_dir()
+        .expect("can't get current_dir")
+        .join("vendor")
+}
+
 fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
     path.as_ref()
         .canonicalize()
@@ -198,6 +205,7 @@ fn all_specs() -> SpecMap {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
+        Box::new(GetBlocksTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),
         Box::new(ChainFork1),
@@ -209,6 +217,7 @@ fn all_specs() -> SpecMap {
         Box::new(ChainFork7),
         Box::new(LongForks),
         Box::new(ForksContainSameTransactions),
+        Box::new(ForksContainSameUncle),
         Box::new(DepositDAO),
         // pick from https://github.com/nervosnetwork/ckb/pull/1626
         // TODO: add NervosDAO tests back when we have a way to build longer
@@ -228,6 +237,8 @@ fn all_specs() -> SpecMap {
         Box::new(TransactionRelayBasic),
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
+        Box::new(RelayInvalidTransaction),
+        Box::new(TransactionRelayTimeout),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
@@ -264,6 +275,10 @@ fn all_specs() -> SpecMap {
         Box::new(WhitelistOnSessionLimit),
         Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
+        Box::new(InsufficientReward),
+        Box::new(UncleInheritFromForkBlock),
+        Box::new(UncleInheritFromForkUncle),
+        Box::new(PackUnclesIntoEpochStarting),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
@@ -353,4 +368,20 @@ fn node_log(node_dir: &str) -> PathBuf {
         .join("data")
         .join("logs")
         .join("run.log")
+}
+
+fn run_spec(spec: &dyn ckb_test::specs::Spec, net: &mut Net) -> ::std::thread::Result<()> {
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.init_config(net);
+    }))?;
+
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.before_run(net);
+    }))?;
+
+    spec.start_node(net);
+
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.run(net);
+    }))
 }

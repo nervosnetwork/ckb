@@ -1,4 +1,5 @@
 mod alert;
+mod consensus;
 mod dao;
 mod indexer;
 mod mining;
@@ -8,6 +9,7 @@ mod sync;
 mod tx_pool;
 
 pub use alert::*;
+pub use consensus::*;
 pub use dao::*;
 pub use indexer::*;
 pub use mining::*;
@@ -72,7 +74,15 @@ pub trait Spec {
         Setup::default()
     }
 
-    fn run(&self, net: Net);
+    fn init_config(&self, net: &mut Net) {
+        net.nodes.iter_mut().for_each(|node| {
+            node.edit_config_file(self.modify_chain_spec(), self.modify_ckb_config());
+        });
+    }
+
+    fn before_run(&self, _net: &mut Net) {}
+
+    fn run(&self, net: &mut Net);
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|_| ())
@@ -86,20 +96,16 @@ pub trait Spec {
         })
     }
 
-    fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(binary, start_port, self.setup());
-
+    fn start_node(&self, net: &mut Net) {
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
-            node.start(self.modify_chain_spec(), self.modify_ckb_config());
+            node.start();
         });
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
         if self.setup().connect_all {
             net.connect_all();
         }
-
-        net
     }
 }
 

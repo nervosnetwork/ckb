@@ -226,11 +226,6 @@ impl TransactionView {
         self.data().is_cellbase()
     }
 
-    pub fn is_empty(&self) -> bool {
-        let raw = self.data().raw();
-        raw.inputs().is_empty() || raw.outputs().is_empty()
-    }
-
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
     }
@@ -275,7 +270,7 @@ impl HeaderView {
         self.data().raw().difficulty()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().nonce().unpack()
     }
 
@@ -328,7 +323,7 @@ impl UncleBlockView {
         self.header().difficulty()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
     }
 
@@ -439,7 +434,7 @@ impl BlockView {
         self.data().header().raw().dao()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
     }
 

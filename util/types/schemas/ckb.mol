@@ -7,6 +7,7 @@ option BytesOpt (Bytes);
 array Bool [byte; 1];
 array Uint32 [byte; 4];
 array Uint64 [byte; 8];
+array Uint128 [byte; 16];
 array BeUint32 [byte; 4];
 array BeUint64 [byte; 8];
 array Byte32 [byte; 32];
@@ -93,7 +94,7 @@ struct RawHeader {
 
 struct Header {
     raw:                    RawHeader,
-    nonce:                  Uint64,
+    nonce:                  Uint128,
 }
 
 table UncleBlock {
@@ -106,6 +107,11 @@ table Block {
     uncles:                 UncleBlockVec,
     transactions:           TransactionVec,
     proposals:              ProposalShortIdVec,
+}
+
+table CellbaseWitness {
+    lock:    Script,
+    message: Bytes,
 }
 
 /* Types for Storage */

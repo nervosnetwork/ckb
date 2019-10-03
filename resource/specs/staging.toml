@@ -6,7 +6,7 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 1564207200792
 compact_target = 0x1e015555
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-nonce = 0
+nonce = "0x0"
 
 [genesis.genesis_cell]
 message = "ckb_staging"
@@ -78,10 +78,13 @@ lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 lock.hash_type = "type"
 
 [params]
-epoch_reward = 1_917_808_21917808
+initial_primary_epoch_reward = 1_917_808_21917808
 secondary_epoch_reward = 613_698_63013698
 max_block_cycles = 10_000_000_000
 cellbase_maturity = 10
+primary_epoch_reward_halving_interval = 8760
+epoch_duration_target = 14400
+genesis_epoch_length = 1000
 
 [pow]
 func = "Eaglesong"

@@ -11,7 +11,7 @@
 
 use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
-    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TX_PROPOSAL_WINDOW,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
 };
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -25,12 +25,12 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, Cycle, EpochExt,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
         EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
-    H160, H256,
+    H160, H256, U128,
 };
 pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
@@ -63,23 +63,30 @@ pub struct ChainSpec {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    pub epoch_reward: Capacity,
+    pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: u64,
+    pub primary_epoch_reward_halving_interval: EpochNumber,
+    pub epoch_duration_target: u64,
+    pub genesis_epoch_length: BlockNumber,
 }
 
 impl Default for Params {
     fn default() -> Self {
         use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_EPOCH_REWARD, DEFAULT_SECONDARY_EPOCH_REWARD,
-            MAX_BLOCK_CYCLES,
+            CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
+            GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
         };
         Params {
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             max_block_cycles: MAX_BLOCK_CYCLES,
             cellbase_maturity: CELLBASE_MATURITY.full_value(),
+            primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+            epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
+            genesis_epoch_length: GENESIS_EPOCH_LENGTH,
         }
     }
 }
@@ -92,7 +99,7 @@ pub struct Genesis {
     pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
-    pub nonce: u64,
+    pub nonce: U128,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: Vec<SystemCell>,
@@ -214,28 +221,36 @@ impl ChainSpec {
     }
 
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
-        let genesis_epoch_ext =
-            build_genesis_epoch_ext(self.params.epoch_reward, self.genesis.compact_target);
-        let genesis_block = self.build_block(&genesis_epoch_ext)?;
+        let genesis_epoch_ext = build_genesis_epoch_ext(
+            self.params.initial_primary_epoch_reward,
+            self.genesis.compact_target,
+            self.params.genesis_epoch_length,
+            self.params.epoch_duration_target,
+        );
+        let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus =
-            ConsensusBuilder::new(genesis_block, self.params.epoch_reward, genesis_epoch_ext)
-                .id(self.name.clone())
-                .cellbase_maturity(EpochNumberWithFraction::from_full_value(
-                    self.params.cellbase_maturity,
-                ))
-                .secondary_epoch_reward(self.params.secondary_epoch_reward)
-                .max_block_cycles(self.params.max_block_cycles)
-                .pow(self.pow.clone())
-                .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
-                .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
-                .build();
+        let consensus = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
+            .id(self.name.clone())
+            .cellbase_maturity(EpochNumberWithFraction::from_full_value(
+                self.params.cellbase_maturity,
+            ))
+            .secondary_epoch_reward(self.params.secondary_epoch_reward)
+            .max_block_cycles(self.params.max_block_cycles)
+            .pow(self.pow.clone())
+            .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
+            .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+            .primary_epoch_reward_halving_interval(
+                self.params.primary_epoch_reward_halving_interval,
+            )
+            .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
+            .epoch_duration_target(self.params.epoch_duration_target)
+            .build();
 
         Ok(consensus)
     }
 
-    fn build_block(&self, genesis_epoch_ext: &EpochExt) -> Result<BlockView, Box<dyn Error>> {
+    fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
@@ -243,9 +258,6 @@ impl ChainSpec {
             vec![&cellbase_transaction, &dep_group_transaction],
             &self.genesis.satoshi_gift.satoshi_pubkey_hash,
             self.genesis.satoshi_gift.satoshi_cell_occupied_ratio,
-            genesis_epoch_ext,
-            TX_PROPOSAL_WINDOW,
-            self.params.secondary_epoch_reward,
         );
 
         let block = BlockBuilder::default()
@@ -255,7 +267,7 @@ impl ChainSpec {
             .compact_target(self.genesis.compact_target.pack())
             .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
-            .nonce(self.genesis.nonce.pack())
+            .nonce(u128::from_le_bytes(self.genesis.nonce.to_le_bytes()).pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();

@@ -30,7 +30,7 @@ fn test_dead_cell_in_same_block() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -86,7 +86,7 @@ fn test_dead_cell_in_different_block() {
         chain2.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
-    let last_cell_base = &chain2.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
@@ -141,7 +141,7 @@ fn test_invalid_out_point_index_in_same_block() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -197,7 +197,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -270,7 +270,7 @@ fn test_full_dead_transaction() {
     chain1.push(block.clone());
     chain2.push(block.clone());
     mock_store.insert_block(&block, shared.consensus().genesis_epoch_ext());
-    let root_tx = &block.transactions()[0];
+    let root_tx = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_multi_outputs_transaction(&root_tx, vec![0], 1, vec![1]);
 
     parent = block.header().to_owned();

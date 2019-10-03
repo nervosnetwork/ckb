@@ -66,19 +66,27 @@ pub fn always_success_consensus() -> Consensus {
         .build()
 }
 
-pub fn always_success_cellbase(block_number: BlockNumber, reward: Capacity) -> TransactionView {
+pub fn always_success_cellbase(
+    block_number: BlockNumber,
+    reward: Capacity,
+    consensus: &Consensus,
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let input = CellInput::new_cellbase_input(block_number);
-    let output = CellOutput::new_builder()
-        .capacity(reward.pack())
-        .lock(always_success_script.to_owned())
-        .build();
+
     let witness = always_success_script.to_owned().into_witness();
     let data = Bytes::new();
-    TransactionBuilder::default()
-        .input(input)
-        .output(output)
-        .witness(witness)
-        .output_data(data.pack())
-        .build()
+
+    let builder = TransactionBuilder::default().input(input).witness(witness);
+
+    if block_number <= consensus.finalization_delay_length() {
+        builder.build()
+    } else {
+        let output = CellOutput::new_builder()
+            .capacity(reward.pack())
+            .lock(always_success_script.to_owned())
+            .build();
+
+        builder.output(output).output_data(data.pack()).build()
+    }
 }

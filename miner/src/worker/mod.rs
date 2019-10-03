@@ -42,18 +42,18 @@ impl WorkerController {
     }
 }
 
-fn partition_nonce(id: u64, total: u64) -> Range<u64> {
-    let span = u64::max_value() / total;
+fn partition_nonce(id: u128, total: u128) -> Range<u128> {
+    let span = u128::max_value() / total;
     let start = span * id;
     let end = match id {
         x if x < total - 1 => start + span,
-        x if x == total - 1 => u64::max_value(),
+        x if x == total - 1 => u128::max_value(),
         _ => unreachable!(),
     };
     Range { start, end }
 }
 
-fn nonce_generator(range: Range<u64>) -> impl FnMut() -> u64 {
+fn nonce_generator(range: Range<u128>) -> impl FnMut() -> u128 {
     let mut rng = rand::thread_rng();
     let Range { start, end } = range;
     move || rng.gen_range(start, end)
@@ -64,7 +64,7 @@ const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elaps
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
     config: &WorkerConfig,
-    nonce_tx: Sender<(Byte32, u64)>,
+    nonce_tx: Sender<(Byte32, u128)>,
     mp: &MultiProgress,
 ) -> WorkerController {
     match config {
@@ -95,7 +95,7 @@ pub fn start_worker(
                 let worker_txs = (0..config.threads)
                     .map(|i| {
                         let worker_name = format!("EaglesongSimple-Worker-{}", i);
-                        let nonce_range = partition_nonce(i as u64, config.threads as u64);
+                        let nonce_range = partition_nonce(i as u128, config.threads as u128);
                         // `100` is the len of progress bar, we can use any dummy value here,
                         // since we only show the spinner in console.
                         let pb = mp.add(ProgressBar::new(100));
@@ -125,5 +125,5 @@ pub fn start_worker(
 }
 
 pub trait Worker {
-    fn run<G: FnMut() -> u64>(&mut self, rng: G, progress_bar: ProgressBar);
+    fn run<G: FnMut() -> u128>(&mut self, rng: G, progress_bar: ProgressBar);
 }

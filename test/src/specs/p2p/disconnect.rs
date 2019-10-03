@@ -9,7 +9,7 @@ impl Spec for Disconnect {
 
     crate::setup!(num_nodes: 2);
 
-    fn run(&self, mut net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Running Disconnect");
 
         info!("Disconnect node1");

@@ -1,4 +1,3 @@
-use crate::format::Format;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
@@ -17,24 +16,15 @@ pub struct Import {
     /// source file contains block data
     source: PathBuf,
     chain: ChainController,
-    /// source file format
-    format: Format,
 }
 
 impl Import {
-    pub fn new(chain: ChainController, format: Format, source: PathBuf) -> Self {
-        Import {
-            format,
-            chain,
-            source,
-        }
+    pub fn new(chain: ChainController, source: PathBuf) -> Self {
+        Import { chain, source }
     }
 
     pub fn execute(self) -> Result<(), Box<dyn Error>> {
-        match self.format {
-            Format::Json => self.read_from_json(),
-            _ => Ok(()),
-        }
+        self.read_from_json()
     }
 
     #[cfg(not(feature = "progress_bar"))]

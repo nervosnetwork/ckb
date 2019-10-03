@@ -190,7 +190,9 @@ impl<'a> EmptyVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.transaction.is_empty() {
+        if self.transaction.inputs().is_empty()
+            || (self.transaction.outputs().is_empty() && !self.transaction.is_cellbase())
+        {
             Err(TransactionError::Empty.into())
         } else {
             Ok(())

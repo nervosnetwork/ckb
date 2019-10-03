@@ -75,11 +75,17 @@ impl packed::CellInput {
 
 impl packed::Script {
     pub fn into_witness(self) -> packed::Bytes {
-        self.as_bytes().pack()
+        packed::CellbaseWitness::new_builder()
+            .lock(self)
+            .build()
+            .as_bytes()
+            .pack()
     }
 
     pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
-        Self::from_slice(&witness.raw_data()).ok()
+        packed::CellbaseWitness::from_slice(&witness.raw_data())
+            .map(|cellbase_witness| cellbase_witness.lock())
+            .ok()
     }
 }
 
