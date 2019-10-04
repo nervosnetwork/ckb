@@ -226,8 +226,6 @@ impl<'a> CompactBlockProcess<'a> {
                 }
             }
 
-            assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
-
             pending_compact_blocks
                 .entry(block_hash.clone())
                 .or_insert_with(|| (compact_block, HashMap::default()))
