@@ -141,7 +141,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
-                 args = [ \"{}\" ]\n\
+                 args = \"{}\"\n\
                  hash_type = \"{}\"\n\
                  message = \"{}\"",
                 hash,
