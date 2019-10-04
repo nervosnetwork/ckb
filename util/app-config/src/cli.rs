@@ -24,6 +24,7 @@ pub const ARG_DATA: &str = "data";
 pub const ARG_LIST_CHAINS: &str = "list-chains";
 pub const ARG_INTERACTIVE: &str = "interactive";
 pub const ARG_CHAIN: &str = "chain";
+pub const ARG_IMPORT_SPEC: &str = "import-spec";
 pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
@@ -300,6 +301,15 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_CHAIN)
                 .default_value(DEFAULT_SPEC)
                 .help("Initializes CKB direcotry for <chain>"),
+        )
+        .arg(
+            Arg::with_name(ARG_IMPORT_SPEC)
+                .long(ARG_IMPORT_SPEC)
+                .takes_value(true)
+                .help(
+                    "Uses the specifiec file as chain spec. Specially, \
+                     The dash \"-\" denotes importing the spec from stdin encoded in base64",
+                ),
         )
         .arg(
             Arg::with_name(ARG_LOG_TO)
