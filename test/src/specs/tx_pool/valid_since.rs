@@ -6,7 +6,6 @@ use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::core::BlockNumber;
 use log::info;
-use std::cmp::max;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -16,7 +15,7 @@ pub struct ValidSince;
 impl Spec for ValidSince {
     crate::name!("valid_since");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         self.test_since_relative_block_number(&net.nodes[0]);
         self.test_since_absolute_block_number(&net.nodes[0]);
         self.test_since_relative_median_time(&net.nodes[0]);
@@ -27,37 +26,24 @@ impl Spec for ValidSince {
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
-        let cellbase_maturity = self.cellbase_maturity();
         Box::new(move |spec_config: &mut ChainSpec| {
-            spec_config.params.cellbase_maturity = cellbase_maturity;
+            spec_config.params.cellbase_maturity = 0;
         })
     }
 }
 
 impl ValidSince {
-    pub fn cellbase_maturity(&self) -> u64 {
-        DEFAULT_TX_PROPOSAL_WINDOW.0 + 2
-    }
-
-    // (current, current+cellbase_maturity): Err(Transaction(CellbaseImmaturity))
-    // [current+cellbase_maturity, current+relative_number): Err(Transaction(Immature))
     pub fn test_since_relative_block_number(&self, node: &Node) {
-        node.generate_block();
-        let relative: BlockNumber = self.cellbase_maturity() + 5;
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        let relative: BlockNumber = 5;
         let since = since_from_relative_block_number(relative);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
             node.new_transaction_with_since(cellbase.hash(), since)
         };
 
-        // Failed to send transaction since CellbaseImmaturity
-        for _ in 1..self.cellbase_maturity() {
-            assert_send_transaction_fail(node, &transaction, "Transaction(CellbaseImmaturity)");
-            node.generate_block();
-        }
-
         // Failed to send transaction since SinceImmaturity
-        for _ in self.cellbase_maturity()..relative {
+        for _ in 1..relative {
             assert_send_transaction_fail(node, &transaction, "Transaction(Immature)");
             node.generate_block();
         }
@@ -74,23 +60,14 @@ impl ValidSince {
         );
     }
 
-    // (current, current+cellbase_maturity): Err(Transaction(CellbaseImmaturity))
-    // [current+cellbase_maturity, absolute_number): Err(Transaction(Immature))
     pub fn test_since_absolute_block_number(&self, node: &Node) {
-        node.generate_block();
-        let absolute: BlockNumber =
-            node.rpc_client().get_tip_block_number() + self.cellbase_maturity() + 5;
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        let absolute: BlockNumber = node.rpc_client().get_tip_block_number() + 5;
         let since = since_from_absolute_block_number(absolute);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
             node.new_transaction_with_since(cellbase.hash(), since)
         };
-
-        // Failed to send transaction since CellbaseImmaturity
-        for _ in 1..self.cellbase_maturity() {
-            assert_send_transaction_fail(node, &transaction, "Transaction(CellbaseImmaturity)");
-            node.generate_block();
-        }
 
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
@@ -113,15 +90,12 @@ impl ValidSince {
 
     pub fn test_since_relative_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let cellbase = node.get_tip_block().transactions()[0].clone();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
         sleep(Duration::from_secs(2));
 
-        let n = max(self.cellbase_maturity(), median_time_block_count);
-        (0..n).for_each(|_| {
-            node.generate_block();
-        });
+        node.generate_blocks(median_time_block_count as usize);
 
         // Calculate the current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
@@ -163,12 +137,10 @@ impl ValidSince {
 
     pub fn test_since_absolute_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let cellbase = node.get_tip_block().transactions()[0].clone();
-        let n = max(self.cellbase_maturity(), median_time_block_count);
-        (0..n).for_each(|_| {
-            node.generate_block();
-        });
+
+        node.generate_blocks(median_time_block_count as usize);
 
         // Calculate current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
@@ -210,7 +182,7 @@ impl ValidSince {
 
     #[allow(clippy::identity_op)]
     pub fn test_since_and_proposal(&self, node: &Node) {
-        node.generate_block();
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // test relative block number since
         info!("Use tip block cellbase as tx input with a relative block number since");

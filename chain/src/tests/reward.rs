@@ -5,24 +5,26 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView,
+        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
-    U256,
+    utilities::DIFF_TWO,
 };
 use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 
+#[allow(clippy::int_plus_one)]
 pub(crate) fn create_cellbase(
     parent: &HeaderView,
     miner_lock: Script,
@@ -33,17 +35,23 @@ pub(crate) fn create_cellbase(
 ) -> TransactionView {
     let number = parent.number() + 1;
     let capacity = calculate_reward(store, consensus, parent);
-    TransactionBuilder::default()
+    let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(
-            CellOutputBuilder::default()
-                .capacity(reward.unwrap_or(capacity).pack())
-                .lock(reward_lock)
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
-        .witness(miner_lock.into_witness())
-        .build()
+        .witness(miner_lock.into_witness());
+
+    if (parent.number() + 1) <= consensus.finalization_delay_length() {
+        builder.build()
+    } else {
+        builder
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(reward.unwrap_or(capacity).pack())
+                    .lock(reward_lock)
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -73,11 +81,22 @@ pub(crate) fn gen_block(
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
 
+    let last_epoch = store
+        .0
+        .get_block_epoch_index(&parent_header.hash())
+        .and_then(|index| store.0.get_epoch_ext(&index))
+        .unwrap();
+    let epoch = store
+        .0
+        .next_epoch_ext(shared.consensus(), &last_epoch, &parent_header)
+        .unwrap_or(last_epoch);
+
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
-        .difficulty(parent_header.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .dao(dao)
         .transactions(txs)
         .uncles(uncles)
@@ -137,12 +156,12 @@ fn finalize_reward() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(tx.clone())
-        .difficulty(U256::one().pack())
+        .compact_target(DIFF_TWO.pack())
         .dao(dao)
         .build();
 
     let consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
 
@@ -159,17 +178,17 @@ fn finalize_reward() {
 
     let ids: Vec<_> = txs.iter().map(TransactionView::proposal_short_id).collect();
     let mut blocks = Vec::with_capacity(24);
-    let bob_args: Vec<packed::Bytes> = vec![Bytes::from(b"b0b".to_vec()).pack()];
+    let bob_args: packed::Bytes = Bytes::from(b"b0b".to_vec()).pack();
 
     let bob = ScriptBuilder::default()
-        .args(bob_args.into_iter().pack())
+        .args(bob_args)
         .code_hash(always_success_script.code_hash())
         .hash_type(ScriptHashType::Data.pack())
         .build();
 
-    let alice_args: Vec<packed::Bytes> = vec![Bytes::from(b"a11ce".to_vec()).pack()];
+    let alice_args: packed::Bytes = Bytes::from(b"a11ce".to_vec()).pack();
     let alice = ScriptBuilder::default()
-        .args(alice_args.into_iter().pack())
+        .args(alice_args)
         .code_hash(always_success_script.code_hash())
         .hash_type(ScriptHashType::Data.pack())
         .build();
@@ -212,7 +231,7 @@ fn finalize_reward() {
         parent = block.header().clone();
 
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
         blocks.push(block);
     }
@@ -250,7 +269,7 @@ fn finalize_reward() {
     parent = block.header().clone();
 
     chain_controller
-        .process_block(Arc::new(block.clone()), true)
+        .process_block(Arc::new(block.clone()))
         .expect("process block ok");
 
     let (target, reward) = shared
@@ -285,6 +304,6 @@ fn finalize_reward() {
     );
 
     chain_controller
-        .process_block(Arc::new(block.clone()), true)
+        .process_block(Arc::new(block.clone()))
         .expect("process block ok");
 }

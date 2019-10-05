@@ -3,10 +3,12 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
+    utilities::difficulty_to_compact,
     U256,
 };
 use faketime::unix_time_as_millis;
@@ -54,29 +56,37 @@ pub fn always_success_consensus() -> Consensus {
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
     ConsensusBuilder::default()
         .genesis_block(genesis)
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build()
 }
 
-pub fn always_success_cellbase(block_number: BlockNumber, reward: Capacity) -> TransactionView {
+pub fn always_success_cellbase(
+    block_number: BlockNumber,
+    reward: Capacity,
+    consensus: &Consensus,
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let input = CellInput::new_cellbase_input(block_number);
-    let output = CellOutput::new_builder()
-        .capacity(reward.pack())
-        .lock(always_success_script.to_owned())
-        .build();
+
     let witness = always_success_script.to_owned().into_witness();
     let data = Bytes::new();
-    TransactionBuilder::default()
-        .input(input)
-        .output(output)
-        .witness(witness)
-        .output_data(data.pack())
-        .build()
+
+    let builder = TransactionBuilder::default().input(input).witness(witness);
+
+    if block_number <= consensus.finalization_delay_length() {
+        builder.build()
+    } else {
+        let output = CellOutput::new_builder()
+            .capacity(reward.pack())
+            .lock(always_success_script.to_owned())
+            .build();
+
+        builder.output(output).output_data(data.pack()).build()
+    }
 }

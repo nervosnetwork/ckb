@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Read};
 use std::path::PathBuf;
 
 use crate::helper::prompt;
@@ -75,6 +76,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         let in_block_assembler_code_hash = prompt("code hash: ");
         let in_args = prompt("args: ");
         let in_hash_type = prompt("hash_type: ");
+        let in_message = prompt("message: ");
 
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
@@ -83,6 +85,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
+
+        args.block_assembler_message = Some(in_message.trim().to_string());
 
         match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
             Some(hash_type) => args.block_assembler_hash_type = hash_type,
@@ -138,11 +142,14 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
-                 args = [ \"{}\" ]\n\
-                 hash_type = \"{}\"",
+                 args = \"{}\"\n\
+                 hash_type = \"{}\"\n\
+                 message = \"{}\"",
                 hash,
                 args.block_assembler_args.join("\", \""),
                 serde_plain::to_string(&args.block_assembler_hash_type).unwrap(),
+                args.block_assembler_message
+                    .unwrap_or_else(|| "0x".to_string()),
             )
         }
         None => {
@@ -151,21 +158,13 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
                  # code_hash = \"{}\"\n\
-                 # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
-                 # hash_type = \"{}\"",
+                 # args = \"ckb cli blake160 <compressed-pubkey>\"\n\
+                 # hash_type = \"{}\"\n\
+                 # message = \"A 0x-prefixed hex string\"",
                 default_code_hash_option.unwrap_or_default(),
                 DEFAULT_LOCK_SCRIPT_HASH_TYPE,
             )
         }
-    };
-
-    let context = TemplateContext {
-        spec: &args.chain,
-        rpc_port: &args.rpc_port,
-        p2p_port: &args.p2p_port,
-        log_to_file: args.log_to_file,
-        log_to_stdout: args.log_to_stdout,
-        block_assembler: &block_assembler,
     };
 
     println!(
@@ -178,15 +177,49 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.root_dir.display()
     );
 
+    let mut context = TemplateContext {
+        spec: &args.chain,
+        rpc_port: &args.rpc_port,
+        p2p_port: &args.p2p_port,
+        log_to_file: args.log_to_file,
+        log_to_stdout: args.log_to_stdout,
+        block_assembler: &block_assembler,
+        spec_source: "bundled",
+    };
+
+    if let Some(spec_file) = args.import_spec {
+        context.spec_source = "file";
+
+        let specs_dir = args.root_dir.join("specs");
+        fs::create_dir_all(&specs_dir)?;
+        let target_file = specs_dir.join(format!("{}.toml", args.chain));
+
+        if spec_file == "-" {
+            println!("create specs/{}.toml from stdin", args.chain);
+            let mut encoded_content = String::new();
+            io::stdin().read_to_string(&mut encoded_content)?;
+            let spec_content = base64::decode_config(
+                &encoded_content.trim(),
+                base64::STANDARD.decode_allow_trailing_bits(true),
+            )
+            .map_err(|err| {
+                eprintln!("stdin must be encoded in base64: {}", err);
+                ExitCode::Failure
+            })?;
+            fs::write(target_file, spec_content)?;
+        } else {
+            println!("cp {} specs/{}.toml", spec_file, args.chain);
+            fs::copy(spec_file, target_file)?;
+        }
+    } else if args.chain == DEFAULT_SPEC {
+        println!("create {}", SPEC_DEV_FILE_NAME);
+        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
+    }
+
     println!("create {}", CKB_CONFIG_FILE_NAME);
     Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
     println!("create {}", MINER_CONFIG_FILE_NAME);
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
-
-    if args.chain == DEFAULT_SPEC {
-        println!("create {}", SPEC_DEV_FILE_NAME);
-        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
-    }
 
     Ok(())
 }

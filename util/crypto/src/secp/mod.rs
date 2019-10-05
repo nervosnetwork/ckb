@@ -73,5 +73,4 @@ mod tests {
         assert!(deser_signature.is_valid());
         assert_eq!(ser_signature, deser_signature.serialize());
     }
-
 }

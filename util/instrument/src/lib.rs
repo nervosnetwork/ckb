@@ -8,10 +8,8 @@
 //!   export from `Export`.
 
 mod export;
-mod format;
 mod import;
 mod iter;
 
 pub use crate::export::Export;
-pub use crate::format::Format;
 pub use crate::import::Import;

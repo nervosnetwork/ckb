@@ -25,6 +25,12 @@ impl From<core::Capacity> for Uint64 {
     }
 }
 
+impl From<core::EpochNumberWithFraction> for Uint64 {
+    fn from(value: core::EpochNumberWithFraction) -> Self {
+        Uint64(value.full_value())
+    }
+}
+
 impl From<Uint64> for core::Capacity {
     fn from(value: Uint64) -> Self {
         core::Capacity::shannons(value.value())

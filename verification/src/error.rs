@@ -1,5 +1,5 @@
 use ckb_error::Error;
-use ckb_types::packed::{Byte32, Uint256};
+use ckb_types::packed::Byte32;
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -39,7 +39,7 @@ pub enum TransactionError {
     ExceededMaximumBlockBytes,
 }
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum HeaderErrorKind {
     InvalidParent,
     Pow,
@@ -58,7 +58,7 @@ pub struct BlockError {
     kind: Context<BlockErrorKind>,
 }
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum BlockErrorKind {
     ProposalTransactionDuplicate,
 
@@ -66,13 +66,10 @@ pub enum BlockErrorKind {
     CommitTransactionDuplicate,
 
     /// The merkle tree hash of proposed transactions does not match the one in header.
-    ProposalTransactionsRoot,
+    ProposalTransactionsHash,
 
     /// The merkle tree hash of committed transactions does not match the one in header.
-    CommitTransactionsRoot,
-
-    /// The merkle tree witness hash of committed transactions does not match the one in header.
-    WitnessesMerkleRoot,
+    TransactionsRoot,
 
     /// Invalid data in DAO header field is invalid
     InvalidDAO,
@@ -127,6 +124,7 @@ pub enum CellbaseError {
     InvalidRewardTarget,
     InvalidWitness,
     InvalidTypeScript,
+    InvalidOutputQuantity,
     InvalidQuantity,
     InvalidPosition,
     InvalidOutputData,
@@ -136,9 +134,6 @@ pub enum CellbaseError {
 pub enum UnclesError {
     #[fail(display = "OverCount(max: {}, actual: {})", max, actual)]
     OverCount { max: u32, actual: u32 },
-
-    #[fail(display = "MissMatchCount(expected: {}, actual: {})", expected, actual)]
-    MissMatchCount { expected: u32, actual: u32 },
 
     #[fail(
         display = "InvalidDepth(min: {}, max: {}, actual: {})",
@@ -152,8 +147,8 @@ pub enum UnclesError {
     #[fail(display = "InvalidNumber")]
     InvalidNumber,
 
-    #[fail(display = "UnmatchedDifficulty")]
-    UnmatchedDifficulty,
+    #[fail(display = "InvalidTarget")]
+    InvalidTarget,
 
     #[fail(display = "InvalidDifficultyEpoch")]
     InvalidDifficultyEpoch,
@@ -211,10 +206,10 @@ pub struct NumberError {
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
     #[fail(
-        display = "DifficultyMismatch(expected: {}, actual: {})",
+        display = "TargetMismatch(expected: {:x}, actual: {:x})",
         expected, actual
     )]
-    DifficultyMismatch { expected: Uint256, actual: Uint256 },
+    TargetMismatch { expected: u32, actual: u32 },
 
     #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },
@@ -269,7 +264,7 @@ impl From<Context<HeaderErrorKind>> for HeaderError {
 }
 
 impl Fail for HeaderError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner().cause()
     }
 
@@ -299,7 +294,7 @@ impl From<Context<BlockErrorKind>> for BlockError {
 }
 
 impl Fail for BlockError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner().cause()
     }
 

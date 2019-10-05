@@ -1,5 +1,5 @@
 use ckb_test::specs::*;
-use ckb_test::Spec;
+use ckb_test::{Net, Spec};
 use ckb_types::core::ScriptHashType;
 use clap::{value_t, App, Arg};
 use log::{error, info};
@@ -7,11 +7,13 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::collections::HashMap;
 use std::env;
-use std::fs::read_to_string;
+use std::fs::{read_to_string, File};
+use std::io::{BufRead, BufReader};
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[allow(clippy::cognitive_complexity)]
 fn main() {
     let _ = {
         let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
@@ -29,31 +31,27 @@ fn main() {
     } else {
         None
     };
-
-    let all_specs = all_specs();
+    let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
 
     if matches.is_present("list-specs") {
-        let mut names: Vec<_> = all_specs.keys().collect();
-        names.sort();
-        for spec_name in names {
-            println!("{}", spec_name);
-        }
+        list_specs();
         return;
     }
-
-    let specs = filter_specs(all_specs, spec_names_to_run);
 
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
     info!("max time: {:?}", max_time);
 
+    let specs = filter_specs(all_specs(), spec_names_to_run);
     let total = specs.len();
     let start_time = Instant::now();
     let mut specs_iter = specs.into_iter().enumerate();
     let mut rerun_specs = vec![];
-    let mut panic_error: Option<Box<dyn Any + Send>> = None;
+    let mut spec_error: Option<Box<dyn Any + Send>> = None;
+    let mut panicked_error = false;
 
     for (index, (spec_name, spec)) in &mut specs_iter {
+        let mut net = Net::new(binary, start_port, vendor.clone(), spec.setup());
         info!(
             "{}/{} .............. Running {}",
             index + 1,
@@ -61,18 +59,16 @@ fn main() {
             spec_name
         );
         let now = Instant::now();
-        let net = spec.setup_net(&binary, start_port);
         let net_dir = net.working_dir().to_owned();
         let node_dirs: Vec<_> = net
             .nodes
             .iter()
             .map(|node| node.working_dir().to_owned())
             .collect();
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
-            spec.run(net);
-        }));
-
         info!("Started Net with working dir: {}", net_dir);
+
+        let result = run_spec(spec.as_ref(), &mut net);
+
         node_dirs.iter().enumerate().for_each(|(i, node_dir)| {
             info!("Started Node.{} with working dir: {}", i, node_dir);
         });
@@ -84,9 +80,13 @@ fn main() {
             now.elapsed().as_secs()
         );
 
-        // Tail nodes' logs when fails
-        panic_error = result.err();
-        if panic_error.is_some() || nodes_panicked(&node_dirs) {
+        spec_error = result.err();
+        panicked_error = nodes_panicked(&node_dirs);
+        if panicked_error {
+            print_panicked_logs(&node_dirs);
+            rerun_specs.push(spec_name);
+            break;
+        } else if spec_error.is_some() {
             tail_node_logs(node_dirs);
             rerun_specs.push(spec_name);
             break;
@@ -109,7 +109,7 @@ fn main() {
         return;
     }
 
-    if panic_error.is_some() {
+    if spec_error.is_some() || panicked_error {
         error!("ckb-failed on spec {}", rerun_specs[0]);
         info!("You can rerun remaining specs using following command:");
     } else {
@@ -124,7 +124,7 @@ fn main() {
         rerun_specs.join(" "),
     );
 
-    if let Some(err) = panic_error {
+    if let Some(err) = spec_error {
         panic::resume_unwind(err);
     }
 }
@@ -182,6 +182,12 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
     }
 }
 
+fn current_dir() -> PathBuf {
+    ::std::env::current_dir()
+        .expect("can't get current_dir")
+        .join("vendor")
+}
+
 fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
     path.as_ref()
         .canonicalize()
@@ -189,7 +195,7 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 fn all_specs() -> SpecMap {
-    let specs: Vec<Box<Spec>> = vec![
+    let specs: Vec<Box<dyn Spec>> = vec![
         Box::new(BlockRelayBasic),
         Box::new(BlockSyncFromOne),
         Box::new(BlockSyncForks),
@@ -199,6 +205,7 @@ fn all_specs() -> SpecMap {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
+        Box::new(GetBlocksTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),
         Box::new(ChainFork1),
@@ -210,13 +217,17 @@ fn all_specs() -> SpecMap {
         Box::new(ChainFork7),
         Box::new(LongForks),
         Box::new(ForksContainSameTransactions),
+        Box::new(ForksContainSameUncle),
         Box::new(DepositDAO),
-        Box::new(WithdrawDAO),
-        Box::new(WithdrawAndDepositDAOWithinSameTx),
+        // pick from https://github.com/nervosnetwork/ckb/pull/1626
+        // TODO: add NervosDAO tests back when we have a way to build longer
+        // chains in tests.
+        // Box::new(WithdrawDAO),
+        // Box::new(WithdrawAndDepositDAOWithinSameTx),
         Box::new(WithdrawDAOWithNotMaturitySince),
-        Box::new(WithdrawDAOWithOverflowCapacity),
+        // Box::new(WithdrawDAOWithOverflowCapacity),
         Box::new(WithdrawDAOWithInvalidWitness),
-        Box::new(DAOWithSatoshiCellOccupied),
+        // Box::new(DAOWithSatoshiCellOccupied),
         Box::new(SpendSatoshiCell::new()),
         Box::new(MiningBasic),
         Box::new(BootstrapCellbase),
@@ -226,6 +237,8 @@ fn all_specs() -> SpecMap {
         Box::new(TransactionRelayBasic),
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
+        Box::new(RelayInvalidTransaction),
+        Box::new(TransactionRelayTimeout),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
@@ -259,8 +272,24 @@ fn all_specs() -> SpecMap {
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),
         Box::new(IBDProcess),
+        Box::new(WhitelistOnSessionLimit),
+        Box::new(IBDProcessWithWhiteList),
+        Box::new(MalformedMessageWithWhitelist),
+        Box::new(InsufficientReward),
+        Box::new(UncleInheritFromForkBlock),
+        Box::new(UncleInheritFromForkUncle),
+        Box::new(PackUnclesIntoEpochStarting),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
+}
+
+fn list_specs() {
+    let all_specs = all_specs();
+    let mut names: Vec<_> = all_specs.keys().collect();
+    names.sort();
+    for spec_name in names {
+        println!("{}", spec_name);
+    }
 }
 
 // grep "panicked at" $node_log_path
@@ -270,6 +299,43 @@ fn nodes_panicked(node_dirs: &[String]) -> bool {
             .expect("failed to read node's log")
             .contains("panicked at")
     })
+}
+
+// sed -n ${{panic_ln-300}},${{panic_ln+300}}p $node_log_path
+fn print_panicked_logs(node_dirs: &[String]) {
+    for (i, node_dir) in node_dirs.iter().enumerate() {
+        let node_log = node_log(&node_dir);
+        let log_reader =
+            BufReader::new(File::open(&node_log).expect("failed to read node's log")).lines();
+        let panic_ln = log_reader.enumerate().find(|(_ln, line)| {
+            line.as_ref()
+                .map(|line| line.contains("panicked at"))
+                .unwrap_or(false)
+        });
+        if panic_ln.is_none() {
+            return;
+        }
+
+        let panic_ln = panic_ln.unwrap().0;
+        let print_lns = 600;
+        let from_ln = panic_ln.saturating_sub(print_lns / 2) + 1;
+        println!(
+            "\n************** (Node.{}) sed -n {},{}p {}",
+            i,
+            from_ln,
+            from_ln + print_lns,
+            node_log.display(),
+        );
+        BufReader::new(File::open(&node_log).expect("failed to read node's log"))
+            .lines()
+            .skip(from_ln)
+            .take(print_lns)
+            .for_each(|line| {
+                if let Ok(line) = line {
+                    println!("{}", line);
+                }
+            });
+    }
 }
 
 // tail -n 2000 $node_log_path
@@ -302,4 +368,20 @@ fn node_log(node_dir: &str) -> PathBuf {
         .join("data")
         .join("logs")
         .join("run.log")
+}
+
+fn run_spec(spec: &dyn ckb_test::specs::Spec, net: &mut Net) -> ::std::thread::Result<()> {
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.init_config(net);
+    }))?;
+
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.before_run(net);
+    }))?;
+
+    spec.start_node(net);
+
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        spec.run(net);
+    }))
 }

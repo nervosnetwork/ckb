@@ -7,7 +7,7 @@ use ckb_pow::PowEngine;
 use ckb_types::{
     packed::{Byte32, Header},
     prelude::*,
-    utilities::difficulty_to_target,
+    utilities::compact_to_target,
 };
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -23,9 +23,9 @@ pub struct Miner {
     pub works: LruCache<Byte32, Work>,
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
-    pub nonce_rx: Receiver<(Byte32, u64)>,
+    pub nonce_rx: Receiver<(Byte32, u128)>,
     pub pb: ProgressBar,
-    pub nonces_found: u64,
+    pub nonces_found: u128,
     pub stderr_is_tty: bool,
 }
 
@@ -74,7 +74,7 @@ impl Miner {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
                         let pow_hash= work.block.header().calc_pow_hash();
-                        let target = difficulty_to_target(&work.block.header().raw().difficulty().unpack());
+                        let (target, _,) = compact_to_target(work.block.header().raw().compact_target().unpack());
                         self.works.insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
                     },
@@ -94,7 +94,7 @@ impl Miner {
         }
     }
 
-    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u64) {
+    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u128) {
         if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
             self.notify_workers(WorkerMessage::Stop);
             let raw_header = work.block.header().raw();

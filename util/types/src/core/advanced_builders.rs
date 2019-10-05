@@ -1,6 +1,10 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use crate::{constants, core, packed, prelude::*, utilities::merkle_root, U256};
+use crate::{
+    constants, core, packed,
+    prelude::*,
+    utilities::{merkle_root, DIFF_TWO},
+};
 
 /*
  * Definitions
@@ -13,7 +17,7 @@ pub struct TransactionBuilder {
     pub(crate) header_deps: Vec<packed::Byte32>,
     pub(crate) inputs: Vec<packed::CellInput>,
     pub(crate) outputs: Vec<packed::CellOutput>,
-    pub(crate) witnesses: Vec<packed::Witness>,
+    pub(crate) witnesses: Vec<packed::Bytes>,
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
@@ -25,15 +29,13 @@ pub struct HeaderBuilder {
     pub(crate) timestamp: packed::Uint64,
     pub(crate) number: packed::Uint64,
     pub(crate) transactions_root: packed::Byte32,
-    pub(crate) witnesses_root: packed::Byte32,
     pub(crate) proposals_hash: packed::Byte32,
-    pub(crate) difficulty: packed::Uint256,
+    pub(crate) compact_target: packed::Uint32,
     pub(crate) uncles_hash: packed::Byte32,
-    pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
     // Nonce
-    pub(crate) nonce: packed::Uint64,
+    pub(crate) nonce: packed::Uint128,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -71,11 +73,9 @@ impl ::std::default::Default for HeaderBuilder {
             timestamp: Default::default(),
             number: Default::default(),
             transactions_root: Default::default(),
-            witnesses_root: Default::default(),
             proposals_hash: Default::default(),
-            difficulty: U256::one().pack(),
+            compact_target: DIFF_TWO.pack(),
             uncles_hash: Default::default(),
-            uncles_count: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
             nonce: Default::default(),
@@ -154,7 +154,7 @@ impl TransactionBuilder {
     );
     def_setter_for_vector!(inputs, CellInput, input, inputs, set_inputs);
     def_setter_for_vector!(outputs, CellOutput, output, outputs, set_outputs);
-    def_setter_for_vector!(witnesses, Witness, witness, witnesses, set_witnesses);
+    def_setter_for_vector!(witnesses, Bytes, witness, witnesses, set_witnesses);
     def_setter_for_vector!(
         outputs_data,
         Bytes,
@@ -201,14 +201,12 @@ impl HeaderBuilder {
     def_setter_simple!(timestamp, Uint64);
     def_setter_simple!(number, Uint64);
     def_setter_simple!(transactions_root, Byte32);
-    def_setter_simple!(witnesses_root, Byte32);
     def_setter_simple!(proposals_hash, Byte32);
-    def_setter_simple!(difficulty, Uint256);
+    def_setter_simple!(compact_target, Uint32);
     def_setter_simple!(uncles_hash, Byte32);
-    def_setter_simple!(uncles_count, Uint32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
-    def_setter_simple!(nonce, Uint64);
+    def_setter_simple!(nonce, Uint128);
 
     pub fn build(self) -> core::HeaderView {
         let Self {
@@ -217,18 +215,16 @@ impl HeaderBuilder {
             timestamp,
             number,
             transactions_root,
-            witnesses_root,
             proposals_hash,
-            difficulty,
+            compact_target,
             uncles_hash,
-            uncles_count,
             epoch,
             dao,
             nonce,
         } = self;
         debug_assert!(
-            Unpack::<U256>::unpack(&difficulty) > U256::zero(),
-            "[HeaderBuilder] difficulty should greater than zero"
+            Unpack::<u32>::unpack(&compact_target) > 0,
+            "[HeaderBuilder] compact_target should greater than zero"
         );
         let raw = packed::RawHeader::new_builder()
             .version(version)
@@ -236,11 +232,9 @@ impl HeaderBuilder {
             .timestamp(timestamp)
             .number(number)
             .transactions_root(transactions_root)
-            .witnesses_root(witnesses_root)
             .proposals_hash(proposals_hash)
-            .difficulty(difficulty)
+            .compact_target(compact_target)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count)
             .epoch(epoch)
             .dao(dao)
             .build();
@@ -256,14 +250,12 @@ impl BlockBuilder {
     def_setter_simple!(header, timestamp, Uint64);
     def_setter_simple!(header, number, Uint64);
     def_setter_simple!(header, transactions_root, Byte32);
-    def_setter_simple!(header, witnesses_root, Byte32);
     def_setter_simple!(header, proposals_hash, Byte32);
-    def_setter_simple!(header, difficulty, Uint256);
+    def_setter_simple!(header, compact_target, Uint32);
     def_setter_simple!(header, uncles_hash, Byte32);
-    def_setter_simple!(header, uncles_count, Uint32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
-    def_setter_simple!(header, nonce, Uint64);
+    def_setter_simple!(header, nonce, Uint128);
     def_setter_for_view_vector!(uncles, UncleBlockView, uncle, uncles, set_uncles);
     def_setter_for_view_vector!(
         transactions,
@@ -341,17 +333,15 @@ impl BlockBuilder {
         let uncles = uncles.pack();
 
         let core::HeaderView { data, hash } = if reset_header {
-            let transactions_root = merkle_root(&tx_hashes[..]);
+            let raw_transactions_root = merkle_root(&tx_hashes[..]);
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
+            let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
             let uncles_hash = uncles.calc_uncles_hash();
-            let uncles_count = uncles.len() as u32;
             header
                 .transactions_root(transactions_root)
-                .witnesses_root(witnesses_root)
                 .proposals_hash(proposals_hash)
                 .uncles_hash(uncles_hash)
-                .uncles_count(uncles_count.pack())
                 .build()
         } else {
             header.build()
@@ -406,11 +396,9 @@ impl packed::Header {
             .timestamp(self.raw().timestamp())
             .number(self.raw().number())
             .transactions_root(self.raw().transactions_root())
-            .witnesses_root(self.raw().witnesses_root())
             .proposals_hash(self.raw().proposals_hash())
-            .difficulty(self.raw().difficulty())
+            .compact_target(self.raw().compact_target())
             .uncles_hash(self.raw().uncles_hash())
-            .uncles_count(self.raw().uncles_count())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
             .nonce(self.nonce())

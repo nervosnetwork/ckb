@@ -40,7 +40,7 @@ impl<'a> ChainStore<'a> for ChainDB {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
         self.db
             .iter(col, from_key, direction)
             .expect("db operation should be ok")
@@ -97,7 +97,7 @@ impl ChainDB {
         };
 
         let block_number = genesis.number();
-        let epoch_number = genesis.epoch();
+        let epoch_with_fraction = genesis.epoch();
         let block_hash = genesis.hash();
 
         for tx in genesis.transactions().iter() {
@@ -105,7 +105,7 @@ impl ChainDB {
             let tx_meta = if tx.is_cellbase() {
                 TransactionMeta::new_cellbase(
                     block_number,
-                    epoch_number,
+                    epoch_with_fraction.number(),
                     block_hash.clone(),
                     outputs_len,
                     false,
@@ -113,7 +113,7 @@ impl ChainDB {
             } else {
                 TransactionMeta::new(
                     block_number,
-                    epoch_number,
+                    epoch_with_fraction.number(),
                     block_hash.clone(),
                     outputs_len,
                     false,

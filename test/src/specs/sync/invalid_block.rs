@@ -1,3 +1,4 @@
+use super::utils::wait_get_blocks;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
@@ -27,8 +28,7 @@ impl Spec for ChainContainsInvalidBlock {
     //   3. `good_node` mines a new block B[i]', i < `CN.length`.
     //   4. `fresh_node` synchronizes from `bad_node` and `good_node`. We expect
     //      that `fresh_node` synchronizes the valid chain.
-    fn run(&self, net: Net) {
-        let mut net = net;
+    fn run(&self, net: &mut Net) {
         let bad_node = net.nodes.pop().unwrap();
         let good_node = net.nodes.pop().unwrap();
         let fresh_node = net.nodes.pop().unwrap();
@@ -90,9 +90,7 @@ impl Spec for ForkContainsInvalidBlock {
         protocols: vec![TestProtocol::sync()],
     );
 
-    fn run(&self, net: Net) {
-        let mut net = net;
-
+    fn run(&self, net: &mut Net) {
         // Build bad forks
         let invalid_number = 4;
         let bad_chain: Vec<BlockView> = {
@@ -122,7 +120,7 @@ impl Spec for ForkContainsInvalidBlock {
         let (pi, _, _) = net.receive();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header().clone()).collect();
         net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
-        assert!(wait_get_blocks(&net), "timeout to wait GetBlocks",);
+        assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks",);
 
         // Build good chain (good_chain.len < bad_chain.len)
         good_node.generate_blocks(invalid_number + 2);
@@ -178,15 +176,4 @@ impl Spec for ForkContainsInvalidBlock {
             "request an invalid fork via GetBlock should be failed"
         );
     }
-}
-
-fn wait_get_blocks(net: &Net) -> bool {
-    wait_until(10, || {
-        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
-            if let Ok(message) = SyncMessage::from_slice(&data) {
-                return message.to_enum().item_name() == packed::GetBlocks::NAME;
-            }
-        }
-        false
-    })
 }

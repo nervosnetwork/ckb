@@ -1,9 +1,9 @@
-use crate::chain::ChainController;
 use crate::tests::util::{
     create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
     create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
     MockStore,
 };
+use crate::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
@@ -20,6 +20,7 @@ use ckb_types::{
         TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
+    utilities::difficulty_to_compact,
     U256,
 };
 use std::sync::Arc;
@@ -29,11 +30,11 @@ fn repeat_process_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
     assert!(chain_controller
-        .process_block(Arc::clone(&block), true)
+        .process_block(Arc::clone(&block))
         .expect("process block ok"));
     assert_eq!(
         shared
@@ -45,7 +46,7 @@ fn repeat_process_block() {
     );
 
     assert!(!chain_controller
-        .process_block(Arc::clone(&block), true)
+        .process_block(Arc::clone(&block))
         .expect("process block ok"));
     assert_eq!(
         shared
@@ -82,7 +83,7 @@ fn test_genesis_transaction_spend() {
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
         .transaction(always_success_tx)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .build();
 
@@ -107,7 +108,7 @@ fn test_genesis_transaction_spend() {
 
     for block in &chain.blocks()[0..10] {
         assert!(chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .is_ok());
     }
 
@@ -124,9 +125,9 @@ fn test_transaction_spend_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let last_cell_base_hash = last_cell_base.hash().to_owned();
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash().to_owned();
@@ -141,7 +142,7 @@ fn test_transaction_spend_in_same_block() {
 
     let txs = vec![tx1, tx2];
 
-    for hash in &[&last_cell_base_hash, &tx1_hash, &tx2_hash] {
+    for hash in &[&tx1_hash, &tx2_hash] {
         assert_eq!(
             shared
                 .snapshot()
@@ -153,7 +154,7 @@ fn test_transaction_spend_in_same_block() {
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
     // empty block
-    chain.gen_empty_block(100, &mock_store);
+    chain.gen_empty_block(&mock_store);
     // commit txs in block
     chain.gen_block_with_commit_txs(txs.clone(), &mock_store, false);
     let (parent_hash4, parent_number4) = {
@@ -166,7 +167,7 @@ fn test_transaction_spend_in_same_block() {
 
     for block in chain.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
@@ -183,6 +184,12 @@ fn test_transaction_spend_in_same_block() {
         CellStatus::Dead
     );
 
+    let epoch = mock_store
+        .0
+        .get_block_epoch_index(&parent_hash4)
+        .and_then(|index| mock_store.0.get_epoch_ext(&index))
+        .unwrap();
+
     assert_eq!(
         shared
             .snapshot()
@@ -191,7 +198,12 @@ fn test_transaction_spend_in_same_block() {
             cell_output: tx2_output,
             data_bytes: tx2_output_data.len() as u64,
             out_point: OutPoint::new(tx2_hash.clone(), 0),
-            transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
+            transaction_info: Some(TransactionInfo::new(
+                parent_number4,
+                epoch.number_with_fraction(parent_number4),
+                parent_hash4,
+                2
+            )),
             mem_cell_data: None,
         })
     );
@@ -202,9 +214,9 @@ fn test_transaction_conflict_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -214,19 +226,19 @@ fn test_transaction_conflict_in_same_block() {
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
     // empty block
-    chain.gen_empty_block(100, &mock_store);
+    chain.gen_empty_block(&mock_store);
     // commit txs in block
     chain.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()), true)
+            .process_block(Arc::new(chain.blocks()[3].clone()))
             .unwrap_err(),
     );
 }
@@ -236,9 +248,9 @@ fn test_transaction_conflict_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
@@ -247,7 +259,7 @@ fn test_transaction_conflict_in_different_blocks() {
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
 
     // empty N+1 block
-    chain.gen_empty_block(100, &mock_store);
+    chain.gen_empty_block(&mock_store);
 
     // commit tx1 and tx2 in N+2 block
     chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
@@ -257,13 +269,13 @@ fn test_transaction_conflict_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()), true)
+            .process_block(Arc::new(chain.blocks()[4].clone()))
             .unwrap_err(),
     );
 }
@@ -273,9 +285,9 @@ fn test_invalid_out_point_index_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block(&mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];;
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -285,19 +297,19 @@ fn test_invalid_out_point_index_in_same_block() {
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
     // empty N+1 block
-    chain.gen_empty_block(100, &mock_store);
+    chain.gen_empty_block(&mock_store);
     // commit txs in N+2 block
     chain.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()), true)
+            .process_block(Arc::new(chain.blocks()[3].clone()))
             .unwrap_err(),
     );
 }
@@ -307,9 +319,9 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent.clone(), shared.consensus());
-    chain.gen_empty_block(100u64, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
 
-    let last_cell_base = &chain.tip().transactions()[0];
+    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -318,7 +330,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
-    chain.gen_empty_block(100, &mock_store);
+    chain.gen_empty_block_with_nonce(100u128, &mock_store);
     // commit tx1 and tx2 in N+2 block
     chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
     // commit tx3 in N+3 block
@@ -326,14 +338,14 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
 
-    assert_error_eq(
+    assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()), true)
+            .process_block(Arc::new(chain.blocks()[4].clone()))
             .unwrap_err(),
     );
 }
@@ -357,7 +369,7 @@ fn test_genesis_transaction_fetch() {
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .build();
 
     let consensus = ConsensusBuilder::default()
@@ -381,26 +393,26 @@ fn test_chain_fork_by_total_difficulty() {
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
-        chain1.gen_empty_block_with_difficulty(100u64, &mock_store);
+        chain1.gen_empty_block_with_diff(100u64, &mock_store);
     }
 
     // 99 * 10 + 110 * 10 = 2090
     for i in 0..final_number {
         let j = if i > 10 { 110 } else { 99 };
-        chain2.gen_empty_block_with_difficulty(j, &mock_store);
+        chain2.gen_empty_block_with_diff(j, &mock_store);
     }
 
     assert!(chain2.total_difficulty() > chain1.total_difficulty());
 
     for block in chain1.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
 
     for block in chain2.blocks() {
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
     assert_eq!(
@@ -421,23 +433,23 @@ fn test_chain_fork_by_first_received() {
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
-        chain1.gen_empty_block_with_difficulty(100u64, &mock_store);
+        chain1.gen_empty_block_with_diff(100u64, &mock_store);
     }
 
     // 50 * 40 = 2000
     for _ in 0..(final_number * 2) {
-        chain2.gen_empty_block_with_difficulty(50u64, &mock_store);
+        chain2.gen_empty_block_with_diff(50u64, &mock_store);
     }
 
     // 20 * 100 = 2000
     for _ in 0..(final_number * 5) {
-        chain3.gen_empty_block_with_difficulty(20u64, &mock_store);
+        chain3.gen_empty_block_with_diff(20u64, &mock_store);
     }
 
     for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
         for block in chain.blocks() {
             chain_controller
-                .process_block(Arc::new(block.clone()), false)
+                .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
         }
     }
@@ -496,13 +508,13 @@ fn prepare_context_chain(
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .timestamp((parent.timestamp() + timestep).pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
 
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
         mock_store.insert_block(&new_block, &epoch);
@@ -536,13 +548,13 @@ fn prepare_context_chain(
             .uncles(uncles)
             .number((parent.number() + 1).pack())
             .timestamp((parent.timestamp() + timestep).pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
 
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
         mock_store.insert_block(&new_block, &epoch);
@@ -560,7 +572,7 @@ fn test_epoch_hash_rate_dampening() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -651,7 +663,7 @@ fn test_orphan_rate_estimation_overflow() {
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -688,10 +700,10 @@ fn test_orphan_rate_estimation_overflow() {
         // max((400 + 150) * 1000 / 798000, 1)  last_epoch_hash_rate 1
         // 14400 * 40 / (41 * 480)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(29u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(29u64)),
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
     }
 }
@@ -704,7 +716,7 @@ fn test_next_epoch_ext() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -712,7 +724,11 @@ fn test_next_epoch_ext() {
     let mut consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
         .build();
+    let remember_primary_reward = consensus.genesis_epoch_ext.primary_reward();
     consensus.genesis_epoch_ext.set_length(400);
+    consensus
+        .genesis_epoch_ext
+        .set_primary_reward(remember_primary_reward);
 
     // last_difficulty 1000
     // last_epoch_length 400
@@ -753,29 +769,25 @@ fn test_next_epoch_ext() {
         // (51 * 14400) / ((1 + 1/20) * 604)
         // (40 * 51 * 14400) / (41 * 604)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(1186u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(1186u64)),
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
 
         let consensus = shared.consensus();
-        let epoch_reward = consensus.epoch_reward();
+        let epoch_reward = consensus.primary_epoch_reward(epoch.number());
         let block_reward = Capacity::shannons(epoch_reward.as_u64() / epoch.length());
-        let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
+        let block_reward_plus_one = Capacity::shannons(block_reward.as_u64() + 1);
         let bound = 400 + epoch.remainder_reward().as_u64();
 
         // block_reward 428082191780
         // remainder_reward 960
+        assert_eq!(epoch.block_reward(400).unwrap(), block_reward_plus_one);
         assert_eq!(
-            epoch.block_reward(400).unwrap(),
-            block_reward1,
-            "block_reward {:?}, remainder_reward{:?}",
-            block_reward,
-            epoch.remainder_reward()
+            epoch.block_reward(bound - 1).unwrap(),
+            block_reward_plus_one
         );
-
-        assert_eq!(epoch.block_reward(bound - 1).unwrap(), block_reward1);
         assert_eq!(epoch.block_reward(bound).unwrap(), block_reward);
     }
 
@@ -809,10 +821,10 @@ fn test_next_epoch_ext() {
         // Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) * C_i+1,m
         // 50 * 14400 * 9587 / ((133 + 9587) * 800)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(887u64),
-            "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(887u64)), // 887
+            "epoch compact_target {}",
+            epoch.compact_target()
         );
     }
 
@@ -844,10 +856,10 @@ fn test_next_epoch_ext() {
         // (400 + 150) * 1000 / 7980  last_epoch_hash_rate 68
         // 1801 * 68 * 14400 / (2200 * 480)
         assert_eq!(
-            epoch.difficulty(),
-            &U256::from(1670u64),
+            epoch.compact_target(),
+            difficulty_to_compact(U256::from(1670u64)),
             "epoch difficulty {}",
-            epoch.difficulty()
+            epoch.compact_target()
         );
     }
 }

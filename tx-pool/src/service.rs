@@ -60,7 +60,7 @@ pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub type SubmitTxsResult = Result<Vec<Cycle>, Error>;
-type NotifyTxsCallback = Option<Box<FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
+type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -229,23 +229,23 @@ impl TxPoolController {
     }
 }
 
-pub struct TxPoolServiceBuiler {
+pub struct TxPoolServiceBuilder {
     service: Option<TxPoolService>,
 }
 
-impl TxPoolServiceBuiler {
+impl TxPoolServiceBuilder {
     pub fn new(
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         snapshot_mgr: Arc<SnapshotMgr>,
-    ) -> TxPoolServiceBuiler {
+    ) -> TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let tx_pool = TxPool::new(tx_pool_config, snapshot, Arc::clone(&last_txs_updated_at));
         let block_assembler = block_assembler_config.map(BlockAssembler::new);
 
-        TxPoolServiceBuiler {
+        TxPoolServiceBuilder {
             service: Some(TxPoolService::new(
                 tx_pool,
                 block_assembler,
@@ -428,7 +428,7 @@ impl TxPoolService {
         if self.block_assembler.is_none() {
             future::Either::A(future::err(
                 InternalErrorKind::System
-                    .cause("BlockAssembler disabled")
+                    .reason("BlockAssembler disabled")
                     .into(),
             ))
         } else {

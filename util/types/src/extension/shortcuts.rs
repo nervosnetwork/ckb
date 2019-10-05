@@ -1,12 +1,11 @@
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 use crate::{
-    core::{self, BlockNumber, ScriptHashType},
+    core::{self, BlockNumber},
     packed,
     prelude::*,
-    utilities::merkle_root,
-    H256,
+    utilities::{compact_to_difficulty, merkle_root},
+    U256,
 };
 
 impl packed::Byte32 {
@@ -75,41 +74,18 @@ impl packed::CellInput {
 }
 
 impl packed::Script {
-    pub fn into_witness(self) -> packed::Witness {
-        let mut code_hash_and_hash_type = self.code_hash().as_slice().to_vec();
-        let hash_type: ScriptHashType = self.hash_type().unpack();
-        code_hash_and_hash_type.push(hash_type as u8);
-        packed::Witness::new_builder()
-            .push((&code_hash_and_hash_type[..]).pack())
-            .extend(self.args().into_iter())
+    pub fn into_witness(self) -> packed::Bytes {
+        packed::CellbaseWitness::new_builder()
+            .lock(self)
             .build()
+            .as_bytes()
+            .pack()
     }
 
-    pub fn from_witness(witness: packed::Witness) -> Option<Self> {
-        if !witness.is_empty() {
-            let mut args = witness.into_iter();
-            let first = args.next().should_be_ok();
-            let len = first.raw_data().len();
-            if len == 33 {
-                let code_hash = H256::from_slice(&first.raw_data()[..(len - 1)])
-                    .expect("impossible: fail to create H256 from slice");
-                if let Ok(hash_type) = ScriptHashType::try_from(first.raw_data()[len - 1]) {
-                    let args = packed::BytesVec::new_builder().extend(args).build();
-                    let script = packed::Script::new_builder()
-                        .code_hash(code_hash.pack())
-                        .args(args)
-                        .hash_type(hash_type.pack())
-                        .build();
-                    Some(script)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
+        packed::CellbaseWitness::from_slice(&witness.raw_data())
+            .map(|cellbase_witness| cellbase_witness.lock())
+            .ok()
     }
 }
 
@@ -128,6 +104,18 @@ impl packed::Transaction {
 
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.calc_tx_hash())
+    }
+}
+
+impl packed::RawHeader {
+    pub fn difficulty(&self) -> U256 {
+        compact_to_difficulty(self.compact_target().unpack())
+    }
+}
+
+impl packed::Header {
+    pub fn difficulty(&self) -> U256 {
+        self.raw().difficulty()
     }
 }
 
@@ -150,20 +138,18 @@ impl packed::Block {
         tx_hashes: &[packed::Byte32],
         tx_witness_hashes: &[packed::Byte32],
     ) -> packed::Block {
-        let transactions_root = merkle_root(tx_hashes);
+        let raw_transactions_root = merkle_root(tx_hashes);
         let witnesses_root = merkle_root(tx_witness_hashes);
+        let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
         let proposals_hash = self.as_reader().calc_proposals_hash();
         let uncles_hash = self.as_reader().calc_uncles_hash();
-        let uncles_count = self.as_reader().uncles().len() as u32;
         let raw_header = self
             .header()
             .raw()
             .as_builder()
             .transactions_root(transactions_root)
-            .witnesses_root(witnesses_root)
             .proposals_hash(proposals_hash)
             .uncles_hash(uncles_hash)
-            .uncles_count(uncles_count.pack())
             .build();
         let header = self.header().as_builder().raw(raw_header).build();
         self.as_builder().header(header).build()

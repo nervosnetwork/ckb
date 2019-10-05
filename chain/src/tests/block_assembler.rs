@@ -1,5 +1,5 @@
-use crate::chain::ChainController;
 use crate::chain::ChainService;
+use crate::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -32,8 +32,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let config = BlockAssemblerConfig {
         code_hash: h256!("0x0"),
-        args: vec![],
+        args: Default::default(),
         hash_type: ScriptHashType::Data,
+        message: Default::default(),
     };
     let (shared, table) = builder
         .block_assembler_config(Some(config))
@@ -56,7 +57,7 @@ lazy_static! {
             .unwrap();
 
         let block: Block = block_template.into();
-        block.as_slice().len() as u64
+        block.serialized_size_without_uncle_proposals() as u64
     };
 }
 
@@ -74,7 +75,7 @@ fn test_get_block_template() {
     let block = block.as_advanced_builder().build();
     let header = block.header();
 
-    let resolver = HeaderResolverWrapper::new(&header, shared.store(), shared.consensus());
+    let resolver = HeaderResolverWrapper::new(&header, shared.store());
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
         let header_verifier = HeaderVerifier::new(snapshot, Pow::Dummy.engine());
@@ -86,7 +87,7 @@ fn test_get_block_template() {
     assert!(block_verify.verify(&block).is_ok());
 }
 
-fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
+fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> BlockView {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number, epoch);
     // This just make sure we can generate a valid block template,
@@ -98,7 +99,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .timestamp((parent_header.timestamp() + 10).pack())
         .number(number.pack())
         .epoch(epoch.number().pack())
-        .difficulty(epoch.difficulty().clone().pack())
+        .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)
         .build();
@@ -139,7 +140,7 @@ fn test_block_template_timestamp() {
     let block = gen_block(&genesis, 0, &epoch);
 
     chain_controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     let tx_pool = shared.tx_pool_controller();
 
@@ -184,13 +185,13 @@ fn test_prepare_uncles() {
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
     chain_controller
-        .process_block(Arc::new(block0_1.clone()), false)
+        .internal_process_block(Arc::new(block0_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .process_block(Arc::new(block0_0.clone()), false)
+        .internal_process_block(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .process_block(Arc::new(block1_1.clone()), false)
+        .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let tx_pool = shared.tx_pool_controller();
@@ -210,7 +211,7 @@ fn test_prepare_uncles() {
 
     let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
     chain_controller
-        .process_block(Arc::new(block2_1.clone()), false)
+        .internal_process_block(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let block_template = tx_pool
@@ -228,7 +229,7 @@ fn test_prepare_uncles() {
 
     let block3_1 = gen_block(&block2_1.header(), 10, &epoch);
     chain_controller
-        .process_block(Arc::new(block3_1.clone()), false)
+        .internal_process_block(Arc::new(block3_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = tx_pool
@@ -298,7 +299,7 @@ fn test_package_basic() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -409,7 +410,7 @@ fn test_package_multi_best_scores() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -513,7 +514,7 @@ fn test_package_zero_fee_txs() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);

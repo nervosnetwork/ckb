@@ -6,7 +6,7 @@ use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
     bytes::Bytes,
-    core::{BlockNumber, Capacity, EpochNumber, Version},
+    core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
     packed,
     prelude::*,
     utilities::merkle_root,
@@ -159,7 +159,7 @@ impl TransactionView {
         self.data().raw().outputs_data()
     }
 
-    pub fn witnesses(&self) -> packed::WitnessVec {
+    pub fn witnesses(&self) -> packed::BytesVec {
         self.data().witnesses()
     }
 
@@ -226,17 +226,8 @@ impl TransactionView {
         self.data().is_cellbase()
     }
 
-    pub fn is_empty(&self) -> bool {
-        let raw = self.data().raw();
-        raw.inputs().is_empty() || raw.outputs().is_empty()
-    }
-
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
-    }
-
-    pub fn serialized_size(&self) -> usize {
-        self.data().serialized_size()
     }
 }
 
@@ -262,14 +253,12 @@ impl HeaderView {
 
     define_header_unpacked_inner_getter!(version, Version);
     define_header_unpacked_inner_getter!(number, BlockNumber);
-    define_header_unpacked_inner_getter!(difficulty, U256);
+    define_header_unpacked_inner_getter!(compact_target, u32);
     define_header_unpacked_inner_getter!(timestamp, u64);
-    define_header_unpacked_inner_getter!(uncles_count, u32);
-    define_header_unpacked_inner_getter!(epoch, EpochNumber);
+    define_header_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_header_packed_inner_getter!(parent_hash, Byte32);
     define_header_packed_inner_getter!(transactions_root, Byte32);
-    define_header_packed_inner_getter!(witnesses_root, Byte32);
     define_header_packed_inner_getter!(proposals_hash, Byte32);
     define_header_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -277,7 +266,11 @@ impl HeaderView {
         self.data().raw().dao()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn difficulty(&self) -> U256 {
+        self.data().raw().difficulty()
+    }
+
+    pub fn nonce(&self) -> u128 {
         self.data().nonce().unpack()
     }
 
@@ -313,14 +306,12 @@ impl UncleBlockView {
 
     define_uncle_unpacked_inner_getter!(version, Version);
     define_uncle_unpacked_inner_getter!(number, BlockNumber);
-    define_uncle_unpacked_inner_getter!(difficulty, U256);
+    define_uncle_unpacked_inner_getter!(compact_target, u32);
     define_uncle_unpacked_inner_getter!(timestamp, u64);
-    define_uncle_unpacked_inner_getter!(uncles_count, u32);
-    define_uncle_unpacked_inner_getter!(epoch, EpochNumber);
+    define_uncle_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_uncle_packed_inner_getter!(parent_hash, Byte32);
     define_uncle_packed_inner_getter!(transactions_root, Byte32);
-    define_uncle_packed_inner_getter!(witnesses_root, Byte32);
     define_uncle_packed_inner_getter!(proposals_hash, Byte32);
     define_uncle_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -328,7 +319,11 @@ impl UncleBlockView {
         self.data().header().raw().dao()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn difficulty(&self) -> U256 {
+        self.header().difficulty()
+    }
+
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
     }
 
@@ -426,14 +421,12 @@ impl BlockView {
 
     define_block_unpacked_inner_getter!(version, Version);
     define_block_unpacked_inner_getter!(number, BlockNumber);
-    define_block_unpacked_inner_getter!(difficulty, U256);
+    define_block_unpacked_inner_getter!(compact_target, u32);
     define_block_unpacked_inner_getter!(timestamp, u64);
-    define_block_unpacked_inner_getter!(uncles_count, u32);
-    define_block_unpacked_inner_getter!(epoch, EpochNumber);
+    define_block_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_block_packed_inner_getter!(parent_hash, Byte32);
     define_block_packed_inner_getter!(transactions_root, Byte32);
-    define_block_packed_inner_getter!(witnesses_root, Byte32);
     define_block_packed_inner_getter!(proposals_hash, Byte32);
     define_block_packed_inner_getter!(uncles_hash, Byte32);
 
@@ -441,8 +434,12 @@ impl BlockView {
         self.data().header().raw().dao()
     }
 
-    pub fn nonce(&self) -> u64 {
+    pub fn nonce(&self) -> u128 {
         self.data().header().nonce().unpack()
+    }
+
+    pub fn difficulty(&self) -> U256 {
+        self.header().difficulty()
     }
 
     pub fn header(&self) -> HeaderView {
@@ -530,15 +527,18 @@ impl BlockView {
     }
 
     pub fn calc_transactions_root(&self) -> packed::Byte32 {
+        merkle_root(&[
+            self.calc_raw_transactions_root(),
+            self.calc_witnesses_root(),
+        ])
+    }
+
+    fn calc_raw_transactions_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_hashes[..])
     }
 
-    pub fn calc_witnesses_root(&self) -> packed::Byte32 {
+    fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
-    }
-
-    pub fn serialized_size(&self) -> usize {
-        self.data().serialized_size()
     }
 }
 

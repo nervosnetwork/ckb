@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.21.2"
+version = "0.22.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -35,7 +35,6 @@ ckb-error = { path = "../error" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 
 [dev-dependencies]
-ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

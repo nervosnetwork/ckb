@@ -10,29 +10,31 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
-    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+    build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
 };
 use ckb_crypto::secp::Privkey;
-use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::{Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA};
+use ckb_resource::{
+    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, Ratio,
-        ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
+        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
-    H160, H256, U256,
+    H160, H256, U128,
 };
 pub use error::SpecError;
-use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -45,6 +47,11 @@ const SPECIAL_CELL_PRIVKEY: H256 =
     h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
 const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 
+pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
+pub const OUTPUT_INDEX_DAO: u64 = 2;
+pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
+pub const OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL: u64 = 4;
+
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
     pub name: String,
@@ -56,23 +63,30 @@ pub struct ChainSpec {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    pub epoch_reward: Capacity,
+    pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
-    pub cellbase_maturity: BlockNumber,
+    pub cellbase_maturity: u64,
+    pub primary_epoch_reward_halving_interval: EpochNumber,
+    pub epoch_duration_target: u64,
+    pub genesis_epoch_length: BlockNumber,
 }
 
 impl Default for Params {
     fn default() -> Self {
         use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_EPOCH_REWARD, DEFAULT_SECONDARY_EPOCH_REWARD,
-            MAX_BLOCK_CYCLES,
+            CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
+            GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
         };
         Params {
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             max_block_cycles: MAX_BLOCK_CYCLES,
-            cellbase_maturity: CELLBASE_MATURITY,
+            cellbase_maturity: CELLBASE_MATURITY.full_value(),
+            primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+            epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
+            genesis_epoch_length: GENESIS_EPOCH_LENGTH,
         }
     }
 }
@@ -82,10 +96,10 @@ pub struct Genesis {
     pub version: u32,
     pub parent_hash: H256,
     pub timestamp: u64,
-    pub difficulty: U256,
+    pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
-    pub nonce: u64,
+    pub nonce: U128,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: Vec<SystemCell>,
@@ -133,17 +147,12 @@ impl Default for SatoshiGift {
 #[derive(Debug)]
 pub enum SpecLoadError {
     FileNotFound,
-    ChainNameNotAllowed(String),
     GenesisMismatch { expect: H256, actual: H256 },
 }
 
 impl SpecLoadError {
     fn file_not_found() -> Box<Self> {
         Box::new(SpecLoadError::FileNotFound)
-    }
-
-    fn chain_name_not_allowed(name: String) -> Box<Self> {
-        Box::new(SpecLoadError::ChainNameNotAllowed(name))
     }
 
     fn genesis_mismatch(expect: H256, actual: H256) -> Box<Self> {
@@ -157,11 +166,6 @@ impl fmt::Display for SpecLoadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SpecLoadError::FileNotFound => write!(f, "ChainSpec: file not found"),
-            SpecLoadError::ChainNameNotAllowed(name) => write!(
-                f,
-                "ChainSpec: name not allowed, expect ckb_dev, actual {}",
-                name
-            ),
             SpecLoadError::GenesisMismatch { expect, actual } => write!(
                 f,
                 "ChainSpec: genesis hash mismatch, expect {:#x}, actual {:#x}",
@@ -178,10 +182,6 @@ impl ChainSpec {
         }
         let config_bytes = resource.get()?;
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
-        if !(resource.is_bundled() || spec.name == "ckb_dev" || spec.name == "ckb_integration_test")
-        {
-            return Err(SpecLoadError::chain_name_not_allowed(spec.name.clone()));
-        }
 
         if let Some(parent) = resource.parent() {
             for r in spec.genesis.system_cells.iter_mut() {
@@ -207,70 +207,95 @@ impl ChainSpec {
     }
 
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
-        let genesis_block = self.genesis.build_block()?;
+        let genesis_epoch_ext = build_genesis_epoch_ext(
+            self.params.initial_primary_epoch_reward,
+            self.genesis.compact_target,
+            self.params.genesis_epoch_length,
+            self.params.epoch_duration_target,
+        );
+        let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = ConsensusBuilder::new(genesis_block, self.params.epoch_reward)
+        let consensus = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
             .id(self.name.clone())
-            .cellbase_maturity(self.params.cellbase_maturity)
+            .cellbase_maturity(EpochNumberWithFraction::from_full_value(
+                self.params.cellbase_maturity,
+            ))
             .secondary_epoch_reward(self.params.secondary_epoch_reward)
             .max_block_cycles(self.params.max_block_cycles)
             .pow(self.pow.clone())
             .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
             .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+            .primary_epoch_reward_halving_interval(
+                self.params.primary_epoch_reward_halving_interval,
+            )
+            .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
+            .epoch_duration_target(self.params.epoch_duration_target)
             .build();
 
         Ok(consensus)
     }
-}
 
-impl Genesis {
-    fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
+    fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
-        let dao = genesis_dao_data_with_satoshi_gift(
+        let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
-            &self.satoshi_gift.satoshi_pubkey_hash,
-            self.satoshi_gift.satoshi_cell_occupied_ratio,
-        )
-        .map_err(|e| e.compat())?;;
+            &self.genesis.satoshi_gift.satoshi_pubkey_hash,
+            self.genesis.satoshi_gift.satoshi_cell_occupied_ratio,
+        );
 
         let block = BlockBuilder::default()
-            .version(self.version.pack())
-            .parent_hash(self.parent_hash.pack())
-            .timestamp(self.timestamp.pack())
-            .difficulty(self.difficulty.pack())
-            .uncles_hash(self.uncles_hash.pack())
+            .version(self.genesis.version.pack())
+            .parent_hash(self.genesis.parent_hash.pack())
+            .timestamp(self.genesis.timestamp.pack())
+            .compact_target(self.genesis.compact_target.pack())
+            .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
-            .nonce(self.nonce.pack())
+            .nonce(u128::from_le_bytes(self.genesis.nonce.to_le_bytes()).pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();
 
-        self.check_lock_scripts(&block)?;
+        self.check_block(&block)?;
         Ok(block)
     }
 
-    fn check_lock_scripts(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
-        let mut data_hashes: HashSet<packed::Byte32> = HashSet::default();
-        let mut type_hashes: HashSet<packed::Byte32> = HashSet::default();
-        let genesis_cell_lock: packed::Script = self.genesis_cell.lock.clone().into();
-        for tx in block.transactions() {
+    fn check_block(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
+        let mut data_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
+        let mut type_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
+        let genesis_cell_lock: packed::Script = self.genesis.genesis_cell.lock.clone().into();
+        for (tx_index, tx) in block.transactions().into_iter().enumerate() {
             data_hashes.extend(
                 tx.outputs_data()
                     .into_iter()
                     .map(|data| data.raw_data())
-                    .filter(|raw_data| !raw_data.is_empty())
-                    .map(|raw_data| packed::CellOutput::calc_data_hash(&raw_data)),
+                    .enumerate()
+                    .filter(|(_, raw_data)| !raw_data.is_empty())
+                    .map(|(output_index, raw_data)| {
+                        (
+                            packed::CellOutput::calc_data_hash(&raw_data),
+                            (tx_index, output_index),
+                        )
+                    }),
             );
             type_hashes.extend(
                 tx.outputs()
                     .into_iter()
-                    .filter_map(|output| output.type_().to_opt())
-                    .map(|type_script| type_script.calc_script_hash()),
+                    .enumerate()
+                    .filter_map(|(output_index, output)| {
+                        output
+                            .type_()
+                            .to_opt()
+                            .map(|type_script| (output_index, type_script))
+                    })
+                    .map(|(output_index, type_script)| {
+                        (type_script.calc_script_hash(), (tx_index, output_index))
+                    }),
             );
         }
+        // Check lock scripts
         for lock_script in block
             .transactions()
             .into_iter()
@@ -279,7 +304,7 @@ impl Genesis {
         {
             match lock_script.hash_type().unpack() {
                 ScriptHashType::Data => {
-                    if !data_hashes.contains(&lock_script.code_hash()) {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=data",
                             lock_script.code_hash(),
@@ -288,7 +313,7 @@ impl Genesis {
                     }
                 }
                 ScriptHashType::Type => {
-                    if !type_hashes.contains(&lock_script.code_hash()) {
+                    if !type_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=type",
                             lock_script.code_hash(),
@@ -298,13 +323,42 @@ impl Genesis {
                 }
             }
         }
+
+        // Check system cells data hash
+        let check_cells_data_hash = |tx_index, output_index, hash: &H256| {
+            if data_hashes.get(&hash.pack()) != Some(&(tx_index, output_index)) {
+                return Err(format!(
+                    "Invalid output data for tx-index: {}, output-index: {}, expected data hash: {:x}",
+                    tx_index, output_index,
+                    hash,
+                ));
+            }
+            Ok(())
+        };
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL as usize,
+            &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+        )?;
+        check_cells_data_hash(0, OUTPUT_INDEX_DAO as usize, &CODE_HASH_DAO)?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_DATA as usize,
+            &CODE_HASH_SECP256K1_DATA,
+        )?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL as usize,
+            &CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+        )?;
+
         Ok(())
     }
 
     fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
         let input = packed::CellInput::new_cellbase_input(0);
         let mut outputs = Vec::<packed::CellOutput>::with_capacity(
-            1 + self.system_cells.len() + self.issued_cells.len(),
+            1 + self.genesis.system_cells.len() + self.genesis.issued_cells.len(),
         );
         let mut outputs_data = Vec::with_capacity(outputs.capacity());
 
@@ -313,13 +367,14 @@ impl Genesis {
         // - system cells, which stores the built-in code blocks.
         // - special issued cell, for dep group cell in next transaction
         // - issued cells
-        let (output, data) = self.genesis_cell.build_output()?;
+        let (output, data) = self.genesis.genesis_cell.build_output()?;
         outputs.push(output);
         outputs_data.push(data);
 
         // The first output cell is genesis cell
         let system_cells_output_index_start = 1;
         let (system_cells_outputs, system_cells_data): (Vec<_>, Vec<_>) = self
+            .genesis
             .system_cells
             .iter()
             .enumerate()
@@ -327,7 +382,7 @@ impl Genesis {
                 system_cell.build_output(
                     &input,
                     system_cells_output_index_start + index as u64,
-                    &self.system_cells_lock,
+                    &self.genesis.system_cells_lock,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -337,7 +392,7 @@ impl Genesis {
         outputs_data.extend(system_cells_data);
 
         let special_issued_lock = packed::Script::new_builder()
-            .args(vec![secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone()))].pack())
+            .args(secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone())).pack())
             .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -348,10 +403,15 @@ impl Genesis {
         outputs.push(special_issued_cell);
         outputs_data.push(Bytes::new());
 
-        outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
-        outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
+        outputs.extend(
+            self.genesis
+                .issued_cells
+                .iter()
+                .map(IssuedCell::build_output),
+        );
+        outputs_data.extend(self.genesis.issued_cells.iter().map(|_| Bytes::new()));
 
-        let script: packed::Script = self.bootstrap_lock.clone().into();
+        let script: packed::Script = self.genesis.bootstrap_lock.clone().into();
 
         let tx = TransactionBuilder::default()
             .input(input)
@@ -385,6 +445,7 @@ impl Genesis {
         }
 
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
+            .genesis
             .dep_groups
             .values()
             .map(|files| {
@@ -403,7 +464,7 @@ impl Genesis {
 
                 let data = Bytes::from(out_points.pack().as_slice());
                 let cell = packed::CellOutput::new_builder()
-                    .lock(self.system_cells_lock.clone().into())
+                    .lock(self.genesis.system_cells_lock.clone().into())
                     .build_exact_capacity(Capacity::bytes(data.len())?)?;
                 Ok((cell, data.pack()))
             })
@@ -416,15 +477,7 @@ impl Genesis {
         let input_out_point = cellbase_tx
             .outputs()
             .into_iter()
-            .position(|output| {
-                output
-                    .lock()
-                    .args()
-                    .get(0)
-                    .map(|arg| arg.clone().unpack())
-                    .as_ref()
-                    == Some(&lock_arg)
-            })
+            .position(|output| Unpack::<Bytes>::unpack(&output.lock().args()) == lock_arg)
             .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
@@ -455,7 +508,7 @@ impl Genesis {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
 
         Ok(TransactionBuilder::default()
             .cell_deps(cell_deps)
@@ -465,11 +518,6 @@ impl Genesis {
             .witness(witness)
             .build())
     }
-}
-
-fn secp_lock_arg(privkey: &Privkey) -> Bytes {
-    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
 }
 
 impl GenesisCell {
@@ -500,18 +548,7 @@ impl SystemCell {
     ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
         let data: Bytes = self.file.get()?.into_owned().into();
         let type_script = if self.create_type_id {
-            let mut blake2b = new_blake2b();
-            blake2b.update(input.as_slice());
-            blake2b.update(&output_index.to_le_bytes());
-            let mut ret = [0; 32];
-            blake2b.finalize(&mut ret);
-            let script_arg = Bytes::from(&ret[..]).pack();
-            let script = packed::Script::new_builder()
-                .code_hash(TYPE_ID_CODE_HASH.pack())
-                .hash_type(ScriptHashType::Type.pack())
-                .args(vec![script_arg].pack())
-                .build();
-            Some(script)
+            Some(build_type_id_script(input, output_index))
         } else {
             None
         };
@@ -521,6 +558,29 @@ impl SystemCell {
             .build_exact_capacity(Capacity::bytes(data.len())?)?;
         Ok((cell, data))
     }
+}
+
+fn secp_lock_arg(privkey: &Privkey) -> Bytes {
+    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
+}
+
+pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
+    build_type_id_script(&packed::CellInput::new_cellbase_input(0), output_index)
+}
+
+pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
+    let mut blake2b = new_blake2b();
+    blake2b.update(&input.as_slice());
+    blake2b.update(&output_index.to_le_bytes());
+    let mut ret = [0; 32];
+    blake2b.finalize(&mut ret);
+    let script_arg = Bytes::from(&ret[..]);
+    packed::Script::new_builder()
+        .code_hash(TYPE_ID_CODE_HASH.pack())
+        .hash_type(ScriptHashType::Type.pack())
+        .args(script_arg.pack())
+        .build()
 }
 
 #[cfg(test)]
@@ -580,7 +640,9 @@ pub mod test {
             }
 
             let consensus = spec.build_consensus();
-            assert!(consensus.is_ok(), "{}", consensus.unwrap_err());
+            if let Err(err) = consensus {
+                panic!("{}", err);
+            }
             let consensus = consensus.unwrap();
             let block = consensus.genesis_block();
             let cellbase = block.transaction(0).unwrap();

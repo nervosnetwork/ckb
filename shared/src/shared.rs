@@ -9,7 +9,7 @@ use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_tx_pool::{
-    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuiler,
+    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
 use ckb_types::{
     core::{Cycle, EpochExt, HeaderView, TransactionMeta},
@@ -41,7 +41,7 @@ impl Shared {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| InternalErrorKind::Database.cause("failed to get tip's block_ext"))?
+            .ok_or_else(|| InternalErrorKind::Database.reason("failed to get tip's block_ext"))?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
         let cell_set = Self::init_cell_set(&store)?;
@@ -61,7 +61,7 @@ impl Shared {
         ));
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
-        let tx_pool_builer = TxPoolServiceBuiler::new(
+        let tx_pool_builder = TxPoolServiceBuilder::new(
             tx_pool_config,
             Arc::clone(&snapshot),
             block_assembler_config,
@@ -69,7 +69,7 @@ impl Shared {
             Arc::clone(&snapshot_mgr),
         );
 
-        let tx_pool_controller = tx_pool_builer.start();
+        let tx_pool_controller = tx_pool_builder.start();
 
         let shared = Shared {
             store,
@@ -102,7 +102,7 @@ impl Shared {
                 Ok(())
             })
             .map_err(|err| {
-                InternalErrorKind::Database.cause(format!("failed to init cell set: {:?}", err))
+                InternalErrorKind::Database.reason(format!("failed to init cell set: {:?}", err))
             })?;
         info_target!(
             crate::LOG_TARGET_CHAIN,
@@ -163,7 +163,7 @@ impl Shared {
                     }
                 } else {
                     Err(InternalErrorKind::Database
-                        .cause("genesis does not exist in database")
+                        .reason("genesis does not exist in database")
                         .into())
                 }
             }

@@ -18,7 +18,7 @@ pub trait DBIterator {
         col: Col,
         from_key: &'a [u8],
         direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'a>>;
+    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>>;
 }
 
 impl DBIterator for RocksDB {
@@ -27,7 +27,7 @@ impl DBIterator for RocksDB {
         col: Col,
         from_key: &'a [u8],
         direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'a>> {
+    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
         let cf = cf_handle(&self.inner, col)?;
         let iter_direction = match direction {
             Direction::Forward => RdbDirection::Forward,
@@ -47,7 +47,7 @@ impl DBIterator for RocksDBTransaction {
         col: Col,
         from_key: &'a [u8],
         direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'a>> {
+    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
         let cf = cf_handle(&self.db, col)?;
         let iter_direction = match direction {
             Direction::Forward => RdbDirection::Forward,
@@ -67,7 +67,7 @@ impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
         col: Col,
         from_key: &'b [u8],
         direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'b>> {
+    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'b>> {
         let cf = cf_handle(&self.db, col)?;
         let iter_direction = match direction {
             Direction::Forward => RdbDirection::Forward,
@@ -87,7 +87,7 @@ impl DBIterator for RocksDBSnapshot {
         col: Col,
         from_key: &'a [u8],
         direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'a>> {
+    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
         let cf = cf_handle(&self.db, col)?;
         let iter_direction = match direction {
             Direction::Forward => RdbDirection::Forward,

@@ -305,41 +305,6 @@ impl TxPool {
         }
     }
 
-    pub fn add_tx_to_pool(&mut self, tx: TransactionView, cycles: Cycle) -> Result<Cycle, Error> {
-        let tx_size = tx.serialized_size();
-        if self.reach_size_limit(tx_size) {
-            Err(InternalErrorKind::TransactionPoolFull)?;
-        }
-        let short_id = tx.proposal_short_id();
-        match self.resolve_tx_from_pending_and_proposed(tx.clone()) {
-            Ok(rtx) => self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
-                if self.reach_cycles_limit(cycles) {
-                    Err(InternalErrorKind::TransactionPoolFull)?;
-                }
-                if self.contains_proposed(&short_id) {
-                    if let Err(e) = self.proposed_tx_and_descendants(Some(cycles), tx_size, tx) {
-                        debug_target!(
-                            crate::LOG_TARGET_TX_POOL,
-                            "Failed to add proposed tx {:?}, reason: {:?}",
-                            short_id,
-                            e
-                        );
-                        return Err(e);
-                    }
-                    self.update_statics_for_add_tx(tx_size, cycles);
-                    return Ok(cycles);
-                }
-                if let Err(e) = self.pending_tx(Some(cycles), tx_size, tx) {
-                    return Err(e);
-                } else {
-                    self.update_statics_for_add_tx(tx_size, cycles);
-                    return Ok(cycles);
-                }
-            }),
-            Err(err) => Err(err),
-        }
-    }
-
     fn contains_proposed(&self, short_id: &ProposalShortId) -> bool {
         self.snapshot().proposals().contains_proposed(short_id)
     }
@@ -584,7 +549,7 @@ impl TxPool {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated
-                        .cause(tx_hash)
+                        .reason(tx_hash)
                         .into())
                 }
             },
@@ -646,7 +611,7 @@ impl TxPool {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated
-                        .cause(tx_hash)
+                        .reason(tx_hash)
                         .into())
                 }
             },
@@ -672,10 +637,10 @@ impl TxPool {
         tx: TransactionView,
     ) -> Option<(Byte32, Cycle)> {
         let mut ret = None;
-        let tx_hash = tx.hash().to_owned();
+        let tx_hash = tx.hash();
         let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
         let tx_short_id = tx.proposal_short_id();
-        let tx_size = tx.serialized_size();
+        let tx_size = tx.data().serialized_size_in_block();
         if snapshot.proposals().contains_proposed(&tx_short_id) {
             if let Ok(cycles) = self.proposed_tx_and_descendants(cached_cycles, tx_size, tx) {
                 if cached_cycles.is_none() {

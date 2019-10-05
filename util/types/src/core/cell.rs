@@ -218,14 +218,14 @@ impl<'a> BlockCellProvider<'a> {
             for dep in tx.cell_deps_iter() {
                 if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash()) {
                     if *output_idx >= idx {
-                        Err(OutPointError::OutOfOrder(dep.out_point()))?;
+                        return Err(OutPointError::OutOfOrder(dep.out_point()).into());
                     }
                 }
             }
             for out_point in tx.input_pts_iter() {
                 if let Some(output_idx) = output_indices.get(&out_point.tx_hash()) {
                     if *output_idx >= idx {
-                        Err(OutPointError::OutOfOrder(out_point))?;
+                        return Err(OutPointError::OutOfOrder(out_point).into());
                     }
                 }
             }
@@ -398,7 +398,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     let mut resolve_cell =
         |out_point: &OutPoint, with_data: bool| -> Result<Option<Box<CellMeta>>, Error> {
             if seen_inputs.contains(out_point) {
-                Err(OutPointError::Dead(out_point.clone()))?;
+                return Err(OutPointError::Dead(out_point.clone()).into());
             }
 
             let cell_status = cell_provider.cell(out_point, with_data);
@@ -416,7 +416,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                Err(OutPointError::Dead(out_point.clone()))?;
+                return Err(OutPointError::Dead(out_point.clone()).into());
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(*cell_meta);
@@ -485,7 +485,10 @@ impl ResolvedTransaction {
 mod tests {
     use super::*;
     use crate::{
-        core::{capacity_bytes, BlockBuilder, BlockView, Capacity, TransactionBuilder},
+        core::{
+            capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction,
+            TransactionBuilder,
+        },
         h256,
         packed::{Byte32, CellDep, CellInput},
         H256,
@@ -539,7 +542,7 @@ mod tests {
         CellMeta {
             transaction_info: Some(TransactionInfo {
                 block_number: 1,
-                block_epoch: 1,
+                block_epoch: EpochNumberWithFraction::new(1, 1, 10),
                 block_hash: Byte32::zero(),
                 index: 1,
             }),
@@ -653,7 +656,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
+        assert_error_eq!(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
 
     #[test]
@@ -682,7 +685,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq(
+        assert_error_eq!(
             result.unwrap_err(),
             OutPointError::Unknown(vec![op_unknown]),
         );
@@ -738,7 +741,7 @@ mod tests {
             &header_checker,
         );
 
-        assert_error_eq(
+        assert_error_eq!(
             result.unwrap_err(),
             OutPointError::InvalidHeader(invalid_block_hash),
         );
@@ -781,7 +784,7 @@ mod tests {
             let block = generate_block(vec![tx2.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_error_eq(
+            assert_error_eq!(
                 provider.err().unwrap(),
                 OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
@@ -802,7 +805,7 @@ mod tests {
             let block = generate_block(vec![tx3.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_error_eq(
+            assert_error_eq!(
                 provider.err().unwrap(),
                 OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
@@ -885,7 +888,7 @@ mod tests {
             let result2 =
                 resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
-            assert_error_eq(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
+            assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
         }
     }
 }

@@ -11,7 +11,7 @@ pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -19,7 +19,7 @@ impl<'a> BlockProcess<'a> {
         message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         BlockProcess {
             message,

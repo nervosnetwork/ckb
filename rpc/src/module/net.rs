@@ -145,17 +145,19 @@ impl NetworkRpc for NetworkRpcImpl {
                     self.network_controller
                         .ban(ip_network, ban_until, reason.unwrap_or_default())
                 {
-                    Err(RPCError::custom(
+                    return Err(RPCError::custom(
                         RPCError::Invalid,
                         format!("ban address error {}", err),
-                    ))?
+                    ));
                 }
             }
             "delete" => self.network_controller.unban(&ip_network),
-            _ => Err(RPCError::custom(
-                RPCError::Invalid,
-                "invalid command".to_owned(),
-            ))?,
+            _ => {
+                return Err(RPCError::custom(
+                    RPCError::Invalid,
+                    "invalid command".to_owned(),
+                ))
+            }
         }
         Ok(())
     }

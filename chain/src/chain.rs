@@ -1,4 +1,6 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
+use crate::switch::Switch;
+use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_proposal_table::ProposalTable;
@@ -12,7 +14,7 @@ use ckb_types::{
             ResolvedTransaction,
         },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, TransactionMeta,
+        BlockExt, BlockNumber, BlockView, Capacity, TransactionMeta,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
@@ -27,7 +29,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, bool), Result<bool, Error>>;
+type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
 
 #[derive(Clone)]
 pub struct ChainController {
@@ -42,10 +44,18 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
-        Request::call(&self.process_block_sender, (block, need_verify)).unwrap_or_else(|| {
+    pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
+        self.internal_process_block(block, Switch::NONE)
+    }
+
+    pub fn internal_process_block(
+        &self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> Result<bool, Error> {
+        Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
-                .cause("Chain service has gone")
+                .reason("Chain service has gone")
                 .into())
         })
     }
@@ -206,7 +216,7 @@ impl ChainService {
     pub(crate) fn process_block(
         &mut self,
         block: Arc<BlockView>,
-        need_verify: bool,
+        switch: Switch,
     ) -> Result<bool, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
@@ -216,7 +226,7 @@ impl ChainService {
                 block.header().hash()
             );
         }
-        self.insert_block(block, need_verify).map(|ret| {
+        self.insert_block(block, switch).map(|ret| {
             debug!("finish processing block");
             ret
         })
@@ -230,7 +240,7 @@ impl ChainService {
         })
     }
 
-    fn insert_block(&mut self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
+    fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
         let db_txn = self.shared.store().begin_transaction();
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
@@ -240,7 +250,7 @@ impl ChainService {
             return Ok(false);
         }
         // non-contextual verify
-        if need_verify {
+        if !switch.disable_non_contextual() {
             self.non_contextual_verify(&block)?;
         }
 
@@ -259,9 +269,10 @@ impl ChainService {
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
 
         if parent_ext.verified == Some(false) {
-            Err(InvalidParentError {
+            return Err(InvalidParentError {
                 parent_hash: parent_header.hash().to_owned(),
-            })?;
+            }
+            .into());
         }
 
         db_txn.insert_block(&block)?;
@@ -319,7 +330,7 @@ impl ChainService {
             self.rollback(&fork, &db_txn, &mut cell_set)?;
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, need_verify, &mut cell_set)?;
+            self.reconcile_main_chain(&db_txn, &mut fork, switch, &mut cell_set)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -540,12 +551,24 @@ impl ChainService {
         self.find_fork_until_latest_common(fork, &mut index);
     }
 
+    fn cal_txs_fees(
+        &self,
+        resolved: &[ResolvedTransaction],
+        txn: &StoreTransaction,
+    ) -> Result<Vec<Capacity>, Error> {
+        resolved
+            .iter()
+            .skip(1)
+            .map(|tx| DaoCalculator::new(self.shared.consensus(), txn).transaction_fee(&tx))
+            .collect()
+    }
+
     // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
-        need_verify: bool,
+        switch: Switch,
         cell_set: &mut HamtMap<Byte32, TransactionMeta>,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
@@ -565,7 +588,7 @@ impl ChainService {
             .iter()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
-            if need_verify {
+            if !switch.disable_all() {
                 if found_error.is_none() {
                     let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
                     let mut seen_inputs = HashSet::new();
@@ -602,8 +625,10 @@ impl ChainService {
                                 b,
                                 txs_verify_cache.clone(),
                                 &future_executor,
+                                switch,
                             ) {
-                                Ok((cycles, txs_fees)) => {
+                                Ok(cycles) => {
+                                    let txs_fees = self.cal_txs_fees(&resolved, txn)?;
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b, cell_set)?;
                                     let mut mut_ext = ext.clone();
@@ -613,9 +638,9 @@ impl ChainService {
                                     if b.transactions().len() > 1 {
                                         info!(
                                             "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
-                                            b.header().number(),
-                                            b.header().hash(),
-                                            b.serialized_size(),
+                                            b.number(),
+                                            b.hash(),
+                                            b.data().serialized_size_without_uncle_proposals(),
                                             self.shared.consensus().max_block_bytes(),
                                             cycles,
                                             self.shared.consensus().max_block_cycles()
@@ -657,7 +682,7 @@ impl ChainService {
         }
 
         if let Some(err) = found_error {
-            Err(err)?
+            Err(err)
         } else {
             Ok(())
         }

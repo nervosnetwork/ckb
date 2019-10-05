@@ -190,12 +190,11 @@ impl RpcClient {
             .expect("rpc call get_block_template")
     }
 
-    pub fn submit_block(&self, work_id: String, block: Block) -> Option<Byte32> {
+    pub fn submit_block(&self, work_id: String, block: Block) -> JsonRpcResult<Byte32> {
         self.inner
             .lock()
             .submit_block(work_id, block)
             .call()
-            .expect("rpc call submit_block")
             .map(|x| x.pack())
     }
 
@@ -386,7 +385,7 @@ jsonrpc_client!(pub struct Inner {
         proposals_limit: Option<Uint64>,
         max_version: Option<Version>
     ) -> RpcRequest<BlockTemplate>;
-    pub fn submit_block(&mut self, _work_id: String, _data: Block) -> RpcRequest<Option<H256>>;
+    pub fn submit_block(&mut self, _work_id: String, _data: Block) -> RpcRequest<H256>;
     pub fn get_blockchain_info(&mut self) -> RpcRequest<ChainInfo>;
     pub fn get_peers_state(&mut self) -> RpcRequest<Vec<PeerState>>;
     pub fn compute_transaction_hash(&mut self, tx: Transaction) -> RpcRequest<H256>;

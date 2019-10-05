@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.21.2"
+version = "0.22.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -22,7 +22,6 @@ ckb-miner = { path = "../../miner" }
 ckb-db = { path = "../../db" }
 ckb-pow = { path = "../../pow" }
 ckb-resource = { path = "../../resource"}
-ckb-instrument = { path = "../instrument", features = ["progress_bar"] }
 ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }

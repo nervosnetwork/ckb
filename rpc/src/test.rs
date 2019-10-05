@@ -1,6 +1,6 @@
 use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, MinerRpc,
+    MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
-use ckb_jsonrpc_types::Uint64;
+use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -22,13 +22,13 @@ use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
-        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
+        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
-    H256, U256,
+    H256,
 };
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
@@ -46,7 +46,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
-const GENESIS_DIFFICULTY: u64 = 1000;
+const GENESIS_TARGET: u32 = 0x2001_0000;
 const EPOCH_REWARD: u64 = 125_000_000_000_000;
 const CELLBASE_MATURITY: u64 = 0;
 const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
@@ -74,14 +74,14 @@ fn always_success_consensus() -> Consensus {
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
-        .difficulty(U256::from(GENESIS_DIFFICULTY).pack())
+        .compact_target(GENESIS_TARGET.pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
     ConsensusBuilder::default()
         .genesis_block(genesis)
-        .epoch_reward(Capacity::shannons(EPOCH_REWARD))
-        .cellbase_maturity(CELLBASE_MATURITY)
+        .initial_primary_epoch_reward(Capacity::shannons(EPOCH_REWARD))
+        .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
         .build()
 }
 
@@ -111,10 +111,10 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
             .unwrap_or(last_epoch)
     };
     let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
-    let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
+    let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     // We store a cellbase for constructing a new transaction later
-    if parent.number() == 0 {
+    if parent.number() > shared.consensus().finalization_delay_length() {
         UNSPENT.with(|unspent| {
             *unspent.borrow_mut() = cellbase.hash().unpack();
         });
@@ -131,9 +131,9 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .transaction(cellbase)
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .build()
 }
@@ -152,7 +152,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
         parent = block;
     }
@@ -225,7 +225,12 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(PoolRpcImpl::new(shared.clone(), sync_shared_state).to_delegate());
-    io.extend_with(NetworkRpcImpl { network_controller }.to_delegate());
+    io.extend_with(
+        NetworkRpcImpl {
+            network_controller: network_controller.clone(),
+        }
+        .to_delegate(),
+    );
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
@@ -243,6 +248,14 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     io.extend_with(
         ExperimentRpcImpl {
             shared: shared.clone(),
+        }
+        .to_delegate(),
+    );
+    io.extend_with(
+        MinerRpcImpl {
+            shared: shared.clone(),
+            chain: chain_controller.clone(),
+            network_controller: network_controller.clone(),
         }
         .to_delegate(),
     );
@@ -274,7 +287,7 @@ fn construct_transaction() -> TransactionView {
     let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()).pack(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000).pack())
+        .capacity(capacity_bytes!(100).pack())
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -321,7 +334,8 @@ fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -
 fn params_of(shared: &Shared, method: &str) -> Value {
     let tip = {
         let snapshot = shared.snapshot();
-        snapshot.tip_header().to_owned()
+        let tip_header = snapshot.tip_header();
+        snapshot.get_block(&tip_header.hash()).unwrap()
     };
     let tip_number: Uint64 = tip.number().into();
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
@@ -363,7 +377,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
         | "get_transactions_by_lock_hash" => {
-            vec![always_success_script_hash, json!("0x0"), json!("0x2")]
+            vec![always_success_script_hash, json!("0xa"), json!("0xe")]
         }
         "get_live_cell" => vec![always_success_out_point, json!(true)],
         "set_ban" => vec![
@@ -386,6 +400,11 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![json!(json_script)]
         }
         "calculate_dao_maximum_withdraw" => vec![json!(always_success_out_point), json!(tip_hash)],
+        "get_block_template" => vec![json!(null), json!(null), json!(null)],
+        "submit_block" => {
+            let json_block: JsonBlock = tip.data().into();
+            vec![json!("example"), json!(json_block)]
+        }
         method => {
             panic!("Unknown method: {}", method);
         }

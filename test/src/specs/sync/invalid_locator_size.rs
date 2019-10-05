@@ -16,7 +16,7 @@ impl Spec for InvalidLocatorSize {
 
     crate::setup!(protocols: vec![TestProtocol::sync()]);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         info!("Connect node0");
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];

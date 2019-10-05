@@ -30,7 +30,7 @@ pub fn attach_block_cell(
         let meta = if tx.is_cellbase() {
             TransactionMeta::new_cellbase(
                 block.number(),
-                block.epoch(),
+                block.epoch().number(),
                 block.hash(),
                 outputs_len,
                 false,
@@ -38,7 +38,7 @@ pub fn attach_block_cell(
         } else {
             TransactionMeta::new(
                 block.number(),
-                block.epoch(),
+                block.epoch().number(),
                 block.hash(),
                 outputs_len,
                 false,
@@ -76,7 +76,7 @@ pub fn detach_block_cell(
                     let mut meta = if tx.is_cellbase() {
                         TransactionMeta::new_cellbase(
                             header.number(),
-                            header.epoch(),
+                            header.epoch().number(),
                             header.hash(),
                             tx.outputs().len(),
                             true, // init with all dead
@@ -84,7 +84,7 @@ pub fn detach_block_cell(
                     } else {
                         TransactionMeta::new(
                             header.number(),
-                            header.epoch(),
+                            header.epoch().number(),
                             header.hash(),
                             tx.outputs().len(),
                             true, // init with all dead

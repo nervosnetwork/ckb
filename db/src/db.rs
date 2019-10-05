@@ -14,7 +14,7 @@ use std::sync::Arc;
 //      - If the data can be migrated manually: update "x.y1.z" to "x.y2.0".
 //      - If the data can not be migrated: update "x1.y.z" to "x2.0.0".
 pub(crate) const VERSION_KEY: &str = "db-version";
-pub(crate) const VERSION_VALUE: &str = "0.2100.0";
+pub(crate) const VERSION_VALUE: &str = "0.2200.0";
 
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
@@ -100,10 +100,10 @@ impl RocksDB {
             || required_version.minor != version.minor
             || required_version.patch < version.patch
         {
-            Err(internal_error(format!(
+            return Err(internal_error(format!(
                 "the database version is not matched, require {} but it's {}",
                 required_version, version
-            )))?;
+            )));
         } else if required_version.patch > version.patch {
             warn!(
                 "Migrating the data from {} to {} ...",
@@ -311,7 +311,7 @@ mod tests {
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.1.0");
         let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
-        assert_error_eq(
+        assert_error_eq!(
             r.err().unwrap(),
             internal_error("the database version is not matched, require 0.2.0 but it's 0.1.0"),
         );

@@ -1,6 +1,5 @@
 use super::app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_instrument::Format;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_miner::MinerConfig;
 use ckb_pow::PowEngine;
@@ -10,14 +9,12 @@ use std::sync::Arc;
 pub struct ExportArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
-    pub format: Format,
     pub target: PathBuf,
 }
 
 pub struct ImportArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
-    pub format: Format,
     pub source: PathBuf,
 }
 
@@ -59,6 +56,8 @@ pub struct InitArgs {
     pub block_assembler_code_hash: Option<String>,
     pub block_assembler_args: Vec<String>,
     pub block_assembler_hash_type: ScriptHashType,
+    pub block_assembler_message: Option<String>,
+    pub import_spec: Option<String>,
 }
 
 pub struct ResetDataArgs {

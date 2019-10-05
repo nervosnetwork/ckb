@@ -12,7 +12,7 @@ use ckb_types::{
     packed,
     prelude::*,
 };
-use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -168,8 +168,7 @@ impl<'a> CompactBlockProcess<'a> {
                 CompactBlockVerifier::verify(&compact_block)?;
 
                 // Header has been verified ok, update state
-                let epoch = resolver.epoch().expect("epoch verified").clone();
-                snapshot.insert_valid_header(self.peer, &header, epoch);
+                snapshot.insert_valid_header(self.peer, &header);
             }
 
             // Request proposal
@@ -227,8 +226,6 @@ impl<'a> CompactBlockProcess<'a> {
                 }
             }
 
-            assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
-
             pending_compact_blocks
                 .entry(block_hash.clone())
                 .or_insert_with(|| (compact_block, HashMap::default()))
@@ -273,7 +270,7 @@ impl<'a> CompactBlockProcess<'a> {
 }
 
 struct CompactBlockMedianTimeView<'a> {
-    fn_get_pending_header: Box<Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
+    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
     snapshot: &'a Snapshot,
 }
 

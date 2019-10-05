@@ -7,7 +7,7 @@ use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
-    core::{self, BlockNumber, EpochExt},
+    core::{self, BlockNumber},
     packed::{self, Byte32},
     prelude::*,
 };
@@ -19,7 +19,7 @@ pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
     snapshot: SyncSnapshot,
 }
 
@@ -27,7 +27,6 @@ pub struct VerifierResolver<'a> {
     snapshot: SyncSnapshot,
     header: &'a core::HeaderView,
     parent: Option<&'a core::HeaderView>,
-    epoch: Option<EpochExt>,
 }
 
 impl<'a> VerifierResolver<'a> {
@@ -36,23 +35,10 @@ impl<'a> VerifierResolver<'a> {
         header: &'a core::HeaderView,
         snapshot: SyncSnapshot,
     ) -> Self {
-        let epoch = parent
-            .and_then(|parent| {
-                snapshot
-                    .get_epoch_ext(&parent.hash())
-                    .map(|ext| (parent, ext))
-            })
-            .map(|(parent, last_epoch)| {
-                snapshot
-                    .next_epoch_ext(&last_epoch, parent)
-                    .unwrap_or(last_epoch)
-            });
-
         VerifierResolver {
             parent,
             header,
             snapshot,
-            epoch,
         }
     }
 }
@@ -63,7 +49,6 @@ impl<'a> ::std::clone::Clone for VerifierResolver<'a> {
             parent: self.parent,
             header: self.header,
             snapshot: self.snapshot.clone(),
-            epoch: self.epoch.clone(),
         }
     }
 }
@@ -94,10 +79,6 @@ impl<'a> HeaderResolver for VerifierResolver<'a> {
     fn parent(&self) -> Option<&core::HeaderView> {
         self.parent
     }
-
-    fn epoch(&self) -> Option<&EpochExt> {
-        self.epoch.as_ref()
-    }
 }
 
 impl<'a> HeadersProcess<'a> {
@@ -105,7 +86,7 @@ impl<'a> HeadersProcess<'a> {
         message: packed::SendHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         let snapshot = synchronizer.shared().snapshot();
         HeadersProcess {
@@ -457,9 +438,7 @@ where
             return result;
         }
 
-        let epoch = self.resolver.epoch().expect("epoch verified").clone();
-        self.snapshot
-            .insert_valid_header(self.peer, &self.header, epoch);
+        self.snapshot.insert_valid_header(self.peer, &self.header);
         result
     }
 }

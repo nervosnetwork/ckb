@@ -1,6 +1,9 @@
-use crate::syscalls::{
-    utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-    LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{
+        utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+        LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
+    },
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_types::{
@@ -73,27 +76,17 @@ impl<'a> LoadCell<'a> {
         &self,
         machine: &mut Mac,
         output: &CellOutput,
-    ) -> Result<(u8, usize), VMError> {
-        // NOTE: this is a very expensive operation here since we need to copy
-        // everything in a cell to a flatbuffer object, serialize the object
-        // into a buffer, and then copy requested data to VM memory space. So
-        // we should charge cycles proportional to the full Cell size no matter
-        // how much data the actual script is requesting, the per-byte cycle charged
-        // here, should also be significantly higher than LOAD_CELL_BY_FIELD.
-        // Also, while this is debatable, I suggest we charge full cycles for
-        // subsequent calls even if we have cache implemented here.
-        // TODO: find a way to cache this without consuming too much memory
+    ) -> Result<(u8, u64), VMError> {
         let data = output.as_slice();
-
-        store_data(machine, data)?;
-        Ok((SUCCESS, data.len()))
+        let wrote_size = store_data(machine, data)?;
+        Ok((SUCCESS, wrote_size))
     }
 
     fn load_by_field<Mac: SupportMachine>(
         &self,
         machine: &mut Mac,
         cell: &CellMeta,
-    ) -> Result<(u8, usize), VMError> {
+    ) -> Result<(u8, u64), VMError> {
         let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
         let output = &cell.cell_output;
 
@@ -102,14 +95,12 @@ impl<'a> LoadCell<'a> {
                 let capacity: Capacity = output.capacity().unpack();
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(capacity.as_u64())?;
-                store_data(machine, &buffer)?;
-                (SUCCESS, buffer.len())
+                (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
                 if let Some((_, data_hash)) = &cell.mem_cell_data {
                     let bytes = data_hash.raw_data();
-                    store_data(machine, &bytes)?;
-                    (SUCCESS, bytes.len())
+                    (SUCCESS, store_data(machine, &bytes)?)
                 } else {
                     (ITEM_MISSING, 0)
                 }
@@ -121,26 +112,22 @@ impl<'a> LoadCell<'a> {
                         .map_err(|_| VMError::Unexpected)?
                         .as_u64(),
                 )?;
-                store_data(machine, &buffer)?;
-                (SUCCESS, buffer.len())
+                (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::Lock => {
                 let lock = output.lock();
                 let data = lock.as_slice();
-                store_data(machine, data)?;
-                (SUCCESS, data.len())
+                (SUCCESS, store_data(machine, data)?)
             }
             CellField::LockHash => {
                 let hash = output.calc_lock_hash();
                 let bytes = hash.as_bytes();
-                store_data(machine, &bytes)?;
-                (SUCCESS, bytes.len())
+                (SUCCESS, store_data(machine, &bytes)?)
             }
             CellField::Type => match output.type_().to_opt() {
                 Some(type_) => {
                     let data = type_.as_slice();
-                    store_data(machine, data)?;
-                    (SUCCESS, data.len())
+                    (SUCCESS, store_data(machine, data)?)
                 }
                 None => (ITEM_MISSING, 0),
             },
@@ -148,8 +135,7 @@ impl<'a> LoadCell<'a> {
                 Some(type_) => {
                     let hash = type_.calc_script_hash();
                     let bytes = hash.as_bytes();
-                    store_data(machine, &bytes)?;
-                    (SUCCESS, bytes.len())
+                    (SUCCESS, store_data(machine, &bytes)?)
                 }
                 None => (ITEM_MISSING, 0),
             },
@@ -164,9 +150,9 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        let (load_by_field, cycle_factor) = match machine.registers()[A7].to_u64() {
-            LOAD_CELL_SYSCALL_NUMBER => (false, 100),
-            LOAD_CELL_BY_FIELD_SYSCALL_NUMBER => (true, 10),
+        let load_by_field = match machine.registers()[A7].to_u64() {
+            LOAD_CELL_SYSCALL_NUMBER => false,
+            LOAD_CELL_BY_FIELD_SYSCALL_NUMBER => true,
             _ => return Ok(false),
         };
 
@@ -174,8 +160,8 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let cell = self.fetch_cell(source, index as usize);
-        if cell.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
+        if let Err(err) = cell {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(true);
         }
         let cell = cell.unwrap();
@@ -185,7 +171,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
             self.load_full(machine, &cell.cell_output)?
         };
 
-        machine.add_cycles(len as u64 * cycle_factor)?;
+        machine.add_cycles(transferred_byte_cycles(len as u64))?;
         machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }

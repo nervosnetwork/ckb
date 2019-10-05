@@ -57,7 +57,7 @@ impl Synchronizer {
 
     fn try_process<'r>(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) -> Result<(), FailureError> {
@@ -75,20 +75,20 @@ impl Synchronizer {
                 if reader.check_data() {
                     BlockProcess::new(reader, self, peer, nc).execute()?;
                 } else {
-                    Err(err_msg("SendBlock: invalid data"))?;
+                    return Err(err_msg("SendBlock: invalid data"));
                 }
             }
             packed::SyncMessageUnionReader::InIBD(_) => {
                 InIBDProcess::new(self, peer, nc).execute()?;
             }
-            _ => Err(err_msg("Unexpected sync message"))?,
+            _ => return Err(err_msg("Unexpected sync message")),
         }
         Ok(())
     }
 
     fn process<'r>(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) {
@@ -141,7 +141,7 @@ impl Synchronizer {
         BlockFetcher::new(self.clone(), peer).fetch()
     }
 
-    fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
+    fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
         let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
             .map(|peer| (peer.is_outbound(), peer.is_whitelist))
@@ -178,7 +178,7 @@ impl Synchronizer {
     //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
-    pub fn eviction(&self, nc: &CKBProtocolContext) {
+    pub fn eviction(&self, nc: &dyn CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let snapshot = self.shared.snapshot();
         let is_initial_header_sync = self.shared.state().is_initial_header_sync();
@@ -266,7 +266,7 @@ impl Synchronizer {
         }
     }
 
-    fn start_sync_headers(&self, nc: &CKBProtocolContext) {
+    fn start_sync_headers(&self, nc: &dyn CKBProtocolContext) {
         let now = unix_time_as_millis();
         let snapshot = self.shared.snapshot();
         let ibd = snapshot.is_initial_block_download();
@@ -331,7 +331,7 @@ impl Synchronizer {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
+    fn find_blocks_to_fetch(&self, nc: &dyn CKBProtocolContext) {
         let peers: Vec<PeerIndex> = {
             self.peers()
                 .state
@@ -359,7 +359,7 @@ impl Synchronizer {
     fn send_getblocks(
         &self,
         v_fetch: Vec<packed::Byte32>,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
     ) {
         let content = packed::GetBlocks::new_builder()
@@ -424,7 +424,7 @@ impl CKBProtocolHandler for Synchronizer {
 
     fn connected(
         &mut self,
-        nc: Arc<CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         _version: &str,
     ) {
@@ -432,7 +432,7 @@ impl CKBProtocolHandler for Synchronizer {
         self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         let sync_state = self.shared().state();
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);
@@ -505,7 +505,7 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use crate::{types::HeaderView, types::PeerState, SyncSharedState, MAX_TIP_AGE};
-    use ckb_chain::chain::ChainService;
+    use ckb_chain::{chain::ChainService, switch::Switch};
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
     use ckb_network::{
@@ -526,6 +526,7 @@ mod tests {
         packed::{
             Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
         },
+        utilities::difficulty_to_compact,
         U256,
     };
     use ckb_util::Mutex;
@@ -559,16 +560,22 @@ mod tests {
             .snapshot()
             .finalize_block_reward(parent_header)
             .unwrap();
-        TransactionBuilder::default()
+
+        let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.pack())
-                    .build(),
-            )
-            .output_data(Bytes::new().pack())
-            .witness(Script::default().into_witness())
-            .build()
+            .witness(Script::default().into_witness());
+        if number <= shared.consensus().finalization_delay_length() {
+            builder.build()
+        } else {
+            builder
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(reward.total.pack())
+                        .build(),
+                )
+                .output_data(Bytes::new().pack())
+                .build()
+        }
     }
 
     fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {
@@ -580,7 +587,7 @@ mod tests {
         shared: &Shared,
         parent_header: &CoreHeaderView,
         epoch: &EpochExt,
-        nonce: u64,
+        nonce: u128,
     ) -> BlockView {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
@@ -599,9 +606,9 @@ mod tests {
             .transaction(cellbase)
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(now.pack())
-            .epoch(epoch.number().pack())
+            .epoch(epoch.number_with_fraction(number).pack())
             .number(number.pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .nonce(nonce.pack())
             .dao(dao)
             .build()
@@ -610,7 +617,7 @@ mod tests {
     fn insert_block(
         chain_controller: &ChainController,
         shared: &Shared,
-        nonce: u64,
+        nonce: u128,
         number: BlockNumber,
     ) {
         let snapshot = shared.snapshot();
@@ -625,7 +632,7 @@ mod tests {
         let block = gen_block(shared, &parent, &epoch, nonce);
 
         chain_controller
-            .process_block(Arc::new(block), true)
+            .process_block(Arc::new(block))
             .expect("process block ok");
     }
 
@@ -639,7 +646,7 @@ mod tests {
         ];
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -668,11 +675,11 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            insert_block(&chain_controller1, &shared1, u128::from(i), i);
         }
 
         for i in 1..num {
-            insert_block(&chain_controller2, &shared2, i + 1, i);
+            insert_block(&chain_controller2, &shared2, u128::from(i + 1), i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -695,7 +702,7 @@ mod tests {
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller3, &shared3, j, i);
+            insert_block(&chain_controller3, &shared3, u128::from(j), i);
         }
 
         let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
@@ -727,10 +734,10 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -746,7 +753,7 @@ mod tests {
             let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -785,7 +792,7 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -837,7 +844,7 @@ mod tests {
             let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
             blocks.push(new_block);
@@ -875,7 +882,7 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller
-                .process_block(Arc::new(new_block.clone()), false)
+                .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -917,7 +924,6 @@ mod tests {
         HeaderView::new(
             HeaderBuilder::default().build(),
             U256::from(total_difficulty),
-            0,
         )
     }
 
@@ -1023,7 +1029,7 @@ mod tests {
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            insert_block(&chain_controller1, &shared1, u128::from(i), i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -1035,7 +1041,7 @@ mod tests {
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller2, &shared2, j, i);
+            insert_block(&chain_controller2, &shared2, u128::from(j), i);
         }
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
@@ -1167,14 +1173,14 @@ mod tests {
 
         let consensus = Consensus::default();
         let block = BlockBuilder::default()
-            .difficulty(U256::from(2u64).pack())
+            .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
             .transaction(consensus.genesis_block().transactions()[0].clone())
             .build();
         let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
         let (chain_controller, shared) = start_chain(Some(consensus));
 
-        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(2u64));
+        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 

@@ -16,7 +16,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView, Version,
     },
-    packed::{self, ProposalShortId, Script},
+    packed::{CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -112,22 +112,19 @@ impl Future for BuildCellbaseProcess {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         let tip_header = self.snapshot.tip_header();
-        let cellbase_lock_args = self
-            .config
-            .args
-            .clone()
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<packed::Bytes>>();
-
         let hash_type: ScriptHashType = self.config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
-            .args(cellbase_lock_args.pack())
+            .args(self.config.args.as_bytes().pack())
             .code_hash(self.config.code_hash.pack())
             .hash_type(hash_type.pack())
             .build();
+        let cellbase_witness = CellbaseWitness::new_builder()
+            .lock(cellbase_lock)
+            .message(self.config.message.as_bytes().pack())
+            .build();
 
-        let cellbase = BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_lock)?;
+        let cellbase =
+            BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_witness)?;
 
         Ok(Async::Ready(cellbase))
     }
@@ -201,7 +198,6 @@ impl Future for PackageTxsProcess {
                     &proposals,
                 )?;
 
-                let proposals = guard.get_proposals(self.proposals_limit as usize);
                 let (entries, size, cycles) = CommitTxsScanner::new(guard.proposed())
                     .txs_to_commit(txs_size_limit, self.max_block_cycles);
                 if !entries.is_empty() {
@@ -279,10 +275,13 @@ impl Future for BlockTemplateBuilder {
         Ok(Async::Ready((
             BlockTemplate {
                 version: version.into(),
-                difficulty: self.current_epoch.difficulty().clone(),
+                compact_target: self.current_epoch.compact_target().into(),
                 current_time: current_time.into(),
                 number: candidate_number.into(),
-                epoch: self.current_epoch.number().into(),
+                epoch: self
+                    .current_epoch
+                    .number_with_fraction(candidate_number)
+                    .into(),
                 parent_hash: tip_hash.unpack(),
                 cycles_limit: cycles_limit.into(),
                 bytes_limit: bytes_limit.into(),

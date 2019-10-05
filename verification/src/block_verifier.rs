@@ -4,8 +4,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockView, EpochExt, HeaderView},
-    packed::{CellInput, Script},
+    core::{BlockView, HeaderView},
+    packed::{CellInput, CellbaseWitness},
+    prelude::*,
 };
 use std::collections::HashSet;
 
@@ -56,38 +57,40 @@ impl CellbaseVerifier {
 
         // empty checked, block must contain cellbase
         if cellbase_len != 1 {
-            Err(CellbaseError::InvalidQuantity)?;
+            return Err((CellbaseError::InvalidQuantity).into());
         }
 
         let cellbase_transaction = &block.transactions()[0];
 
         if !cellbase_transaction.is_cellbase() {
-            Err(CellbaseError::InvalidPosition)?;
+            return Err((CellbaseError::InvalidPosition).into());
         }
 
-        // cellbase outputs/outputs_data len must eq 1
-        if cellbase_transaction.outputs().len() != 1
-            || cellbase_transaction.outputs_data().len() != 1
+        // cellbase outputs/outputs_data len must le 1
+        if cellbase_transaction.outputs().len() > 1
+            || cellbase_transaction.outputs_data().len() > 1
+            || cellbase_transaction.outputs().len() != cellbase_transaction.outputs_data().len()
         {
-            Err(CellbaseError::InvalidQuantity)?;
+            return Err((CellbaseError::InvalidOutputQuantity).into());
         }
 
         // cellbase output data must empty
         if !cellbase_transaction
             .outputs_data()
-            .get_unchecked(0)
-            .is_empty()
+            .get(0)
+            .map(|data| data.is_empty())
+            .unwrap_or(true)
         {
-            Err(CellbaseError::InvalidOutputData)?;
+            return Err((CellbaseError::InvalidOutputData).into());
         }
 
         if cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(Script::from_witness)
+            .and_then(|witness| CellbaseWitness::from_slice(&witness.raw_data()).ok())
             .is_none()
         {
-            Err(CellbaseError::InvalidWitness)?;
+            return Err((CellbaseError::InvalidWitness).into());
         }
 
         if cellbase_transaction
@@ -95,7 +98,7 @@ impl CellbaseVerifier {
             .into_iter()
             .any(|output| output.type_().is_some())
         {
-            Err(CellbaseError::InvalidTypeScript)?;
+            return Err((CellbaseError::InvalidTypeScript).into());
         }
 
         let cellbase_input = &cellbase_transaction
@@ -103,7 +106,7 @@ impl CellbaseVerifier {
             .get(0)
             .expect("cellbase should have input");
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
-            Err(CellbaseError::InvalidInput)?;
+            return Err((CellbaseError::InvalidInput).into());
         }
 
         Ok(())
@@ -121,7 +124,7 @@ impl DuplicateVerifier {
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let mut seen = HashSet::with_capacity(block.transactions().len());
         if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
-            Err(BlockErrorKind::CommitTransactionDuplicate)?;
+            return Err((BlockErrorKind::CommitTransactionDuplicate).into());
         }
 
         let mut seen = HashSet::with_capacity(block.data().proposals().len());
@@ -131,7 +134,7 @@ impl DuplicateVerifier {
             .into_iter()
             .all(|id| seen.insert(id))
         {
-            Err(BlockErrorKind::ProposalTransactionDuplicate)?;
+            return Err((BlockErrorKind::ProposalTransactionDuplicate).into());
         }
         Ok(())
     }
@@ -147,15 +150,11 @@ impl MerkleRootVerifier {
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.transactions_root() != block.calc_transactions_root() {
-            Err(BlockErrorKind::CommitTransactionsRoot)?;
-        }
-
-        if block.witnesses_root() != block.calc_witnesses_root() {
-            Err(BlockErrorKind::WitnessesMerkleRoot)?;
+            return Err(BlockErrorKind::TransactionsRoot.into());
         }
 
         if block.proposals_hash() != block.calc_proposals_hash() {
-            Err(BlockErrorKind::ProposalTransactionsRoot)?;
+            return Err(BlockErrorKind::ProposalTransactionsHash.into());
         }
 
         Ok(())
@@ -165,45 +164,19 @@ impl MerkleRootVerifier {
 pub struct HeaderResolverWrapper<'a> {
     header: &'a HeaderView,
     parent: Option<HeaderView>,
-    epoch: Option<EpochExt>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CS>(header: &'a HeaderView, store: &'a CS, consensus: &'a Consensus) -> Self
+    pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
     where
         CS: ChainStore<'a>,
     {
         let parent = store.get_block_header(&header.data().raw().parent_hash());
-        let epoch = parent
-            .as_ref()
-            .and_then(|parent| {
-                store
-                    .get_block_epoch(&parent.hash())
-                    .map(|ext| (parent, ext))
-            })
-            .map(|(parent, last_epoch)| {
-                store
-                    .next_epoch_ext(consensus, &last_epoch, &parent)
-                    .unwrap_or(last_epoch)
-            });
-
-        HeaderResolverWrapper {
-            parent,
-            header,
-            epoch,
-        }
+        HeaderResolverWrapper { parent, header }
     }
 
-    pub fn build(
-        header: &'a HeaderView,
-        parent: Option<HeaderView>,
-        epoch: Option<EpochExt>,
-    ) -> Self {
-        HeaderResolverWrapper {
-            parent,
-            header,
-            epoch,
-        }
+    pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
+        HeaderResolverWrapper { parent, header }
     }
 }
 
@@ -214,10 +187,6 @@ impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
 
     fn parent(&self) -> Option<&HeaderView> {
         self.parent.as_ref()
-    }
-
-    fn epoch(&self) -> Option<&EpochExt> {
-        self.epoch.as_ref()
     }
 }
 
@@ -238,7 +207,7 @@ impl BlockProposalsLimitVerifier {
         if proposals_len <= self.block_proposals_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::ExceededMaximumProposalsLimit)?
+            Err(BlockErrorKind::ExceededMaximumProposalsLimit.into())
         }
     }
 }
@@ -258,11 +227,11 @@ impl BlockBytesVerifier {
         if block.is_genesis() {
             return Ok(());
         }
-        let block_bytes = block.serialized_size() as u64;
+        let block_bytes = block.data().serialized_size_without_uncle_proposals() as u64;
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::ExceededMaximumBlockBytes)?
+            Err(BlockErrorKind::ExceededMaximumBlockBytes.into())
         }
     }
 }

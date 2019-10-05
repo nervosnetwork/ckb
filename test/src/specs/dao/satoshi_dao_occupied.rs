@@ -1,14 +1,15 @@
 use super::*;
 use crate::utils::is_committed;
-use crate::{Net, Spec};
-use ckb_chain_spec::{ChainSpec, IssuedCell};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use ckb_chain_spec::{
+    build_genesis_type_id_script, ChainSpec, IssuedCell,
+    OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
 use ckb_dao_utils::extract_dao_data;
-use ckb_hash::new_blake2b;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{Capacity, DepType, Ratio},
     prelude::*,
     H160, H256,
@@ -22,10 +23,10 @@ pub struct DAOWithSatoshiCellOccupied;
 impl Spec for DAOWithSatoshiCellOccupied {
     crate::name!("dao_with_satoshi_cell_occupied");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         // try deposit then withdraw dao
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
             ensure_committed(node0, &transaction)
@@ -86,14 +87,14 @@ impl SpendSatoshiCell {
 impl Spec for SpendSatoshiCell {
     crate::name!("spend_satoshi_cell");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let satoshi_cell_occupied = SATOSHI_CELL_CAPACITY
             .safe_mul_ratio(node0.consensus().satoshi_cell_occupied_ratio)
             .unwrap();
         // check genesis blocks dao
         let genesis = node0.get_block_by_number(0);
-        let (_ar, _c, u) = extract_dao_data(genesis.header().dao()).expect("extract dao");
+        let (_ar, _c, _s, u) = extract_dao_data(genesis.header().dao()).expect("extract dao");
         // u - used capacity should includes virtual occupied
         assert!(u > satoshi_cell_occupied);
 
@@ -124,12 +125,12 @@ impl Spec for SpendSatoshiCell {
             .privkey
             .sign_recoverable(&tx_hash.unpack())
             .expect("sign");
-        let witness = vec![
-            Bytes::from(sig.serialize()).pack(),
-            Bytes::from(self.pubkey.serialize()).pack(),
-        ]
-        .pack();
-        let transaction = transaction.as_advanced_builder().witness(witness).build();
+        let mut witness = Bytes::from(sig.serialize());
+        witness.extend_from_slice(&self.pubkey.serialize());
+        let transaction = transaction
+            .as_advanced_builder()
+            .witness(witness.pack())
+            .build();
 
         node0.generate_blocks(1);
         let tx_hash = node0
@@ -137,8 +138,7 @@ impl Spec for SpendSatoshiCell {
             .send_transaction(transaction.data().into());
         node0.generate_blocks(3);
         // cellbase occupied capacity minus satoshi cell
-        let cellbase_used_capacity =
-            Capacity::bytes(CELLBASE_USED_BYTES * node0.spec().genesis.system_cells.len()).unwrap();
+        let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
         let tx_status = node0
             .rpc_client()
             .get_transaction(tx_hash.clone())
@@ -150,7 +150,7 @@ impl Spec for SpendSatoshiCell {
         );
         let tip = node0.get_tip_block();
         // check tip dao, expect u correct
-        let (_ar, _c, new_u) = extract_dao_data(tip.header().dao()).expect("extract dao");
+        let (_ar, _c, _s, new_u) = extract_dao_data(tip.header().dao()).expect("extract dao");
         assert_eq!(
             Ok(new_u),
             u.safe_sub(satoshi_cell_occupied)
@@ -175,7 +175,7 @@ impl Spec for SpendSatoshiCell {
 
 fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
     let lock = Script::new_builder()
-        .args(vec![Bytes::from(&satoshi_pubkey_hash.0[..]).pack()].pack())
+        .args(Bytes::from(&satoshi_pubkey_hash.0[..]).pack())
         .code_hash(type_lock_script_code_hash().pack())
         .hash_type(ScriptHashType::Type.pack())
         .build();
@@ -186,24 +186,7 @@ fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
 }
 
 fn type_lock_script_code_hash() -> H256 {
-    let input = CellInput::new_cellbase_input(0);
-    // 0 => genesis cell, which contains a message and can never be spent.
-    // 1 => always success cell
-    // ....
-    // 5 => secp256k1_ripemd160_sha256_sighash_all cell
-    // define in integration.toml spec file
-    let output_index: u64 = 5;
-    let mut blake2b = new_blake2b();
-    blake2b.update(input.as_slice());
-    blake2b.update(&output_index.to_le_bytes());
-    let mut ret = [0; 32];
-    blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
-    Script::new_builder()
-        .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
-        .build()
+    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }

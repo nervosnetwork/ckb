@@ -1,4 +1,4 @@
-mod cost_model;
+pub mod cost_model;
 mod error;
 mod syscalls;
 mod type_id;

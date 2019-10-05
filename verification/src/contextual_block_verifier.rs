@@ -1,4 +1,4 @@
-use crate::error::BlockTransactionsError;
+use crate::error::{BlockTransactionsError, EpochError};
 use crate::txs_verify_cache::{FetchCache, UpdateCache};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{
@@ -17,10 +17,11 @@ use ckb_types::{
     core::error::OutPointError,
     core::{
         cell::{HeaderChecker, ResolvedTransaction},
-        BlockNumber, BlockReward, BlockView, Capacity, Cycle, EpochExt, EpochNumber, HeaderView,
-        TransactionView,
+        BlockNumber, BlockReward, BlockView, Capacity, Cycle, EpochExt, EpochNumberWithFraction,
+        HeaderView, TransactionView,
     },
-    packed::{Byte32, Script},
+    packed::{Byte32, CellOutput, Script},
+    prelude::*,
 };
 use futures::future::{self, Future};
 use lru_cache::LruCache;
@@ -31,6 +32,15 @@ use tokio::sync::lock::Lock;
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
+}
+
+pub trait Switch {
+    fn disable_epoch(&self) -> bool;
+    fn disable_uncles(&self) -> bool;
+    fn disable_two_phase_commit(&self) -> bool;
+    fn disable_daoheader(&self) -> bool;
+    fn disable_reward(&self) -> bool;
+    fn disable_txs(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
@@ -76,11 +86,13 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
 
 impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
-        match self.store.get_block_number(block_hash) {
-            Some(block_number) => {
+        match self.store.get_block_header(block_hash) {
+            Some(header) => {
                 let tip_header = self.store.get_tip_header().expect("tip should exist");
-                let tip_block_number = tip_header.number();
-                if tip_block_number < block_number + self.consensus.cellbase_maturity() {
+                let threshold =
+                    self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
+                let current = tip_header.epoch().to_rational();
+                if current < threshold {
                     Err(OutPointError::ImmatureHeader(block_hash.clone()).into())
                 } else {
                     Ok(())
@@ -135,14 +147,14 @@ impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, 
     }
 }
 
-pub struct CommitVerifier<'a, CS> {
+pub struct TwoPhaseCommitVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
     block: &'a BlockView,
 }
 
-impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
     pub fn new(context: &'a VerifyContext<'a, CS>, block: &'a BlockView) -> Self {
-        CommitVerifier { context, block }
+        TwoPhaseCommitVerifier { context, block }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
@@ -212,7 +224,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             for proposal_txs_id in proposal_txs_ids.iter() {
                 error_target!(crate::LOG_TARGET, "    {:?}", proposal_txs_id);
             }
-            Err(CommitError::Invalid)?;
+            return Err((CommitError::Invalid).into());
         }
         Ok(())
     }
@@ -237,32 +249,45 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
         }
     }
 
-    pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
+    #[allow(clippy::int_plus_one)]
+    pub fn verify(&self) -> Result<(), Error> {
         let cellbase = &self.resolved[0];
-        let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
-        if cellbase.transaction.outputs_capacity()? != block_reward.total {
-            Err(CellbaseError::InvalidRewardAmount)?;
-        }
-        if cellbase
-            .transaction
-            .outputs()
-            .get(0)
-            .expect("cellbase should have output")
-            .lock()
-            != target_lock
-        {
-            Err(CellbaseError::InvalidRewardTarget)?;
-        }
-        let txs_fees = self
-            .resolved
-            .iter()
-            .skip(1)
-            .map(|tx| {
-                DaoCalculator::new(self.context.consensus, self.context.store).transaction_fee(&tx)
-            })
-            .collect::<Result<Vec<Capacity>, Error>>()?;
+        let no_finalization_target =
+            (self.parent.number() + 1) <= self.context.consensus.finalization_delay_length();
 
-        Ok(txs_fees)
+        let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
+        let output = CellOutput::new_builder()
+            .capacity(block_reward.total.pack())
+            .lock(target_lock.clone())
+            .build();
+        let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
+
+        if no_finalization_target || insufficient_reward_to_create_cell {
+            let ret = if cellbase.transaction.outputs().is_empty() {
+                Ok(())
+            } else {
+                Err((CellbaseError::InvalidRewardTarget).into())
+            };
+            return ret;
+        }
+
+        if !insufficient_reward_to_create_cell {
+            if cellbase.transaction.outputs_capacity()? != block_reward.total {
+                return Err((CellbaseError::InvalidRewardAmount).into());
+            }
+            if cellbase
+                .transaction
+                .outputs()
+                .get(0)
+                .expect("cellbase should have output")
+                .lock()
+                != target_lock
+            {
+                return Err((CellbaseError::InvalidRewardTarget).into());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -302,7 +327,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
             })?;
 
         if dao != self.header.dao() {
-            Err(BlockErrorKind::InvalidDAO)?;
+            return Err((BlockErrorKind::InvalidDAO).into());
         }
         Ok(())
     }
@@ -311,7 +336,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
 struct BlockTxsVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
     block_number: BlockNumber,
-    epoch_number: EpochNumber,
+    epoch_number_with_fraction: EpochNumberWithFraction,
     parent_hash: Byte32,
     resolved: &'a [ResolvedTransaction],
 }
@@ -321,14 +346,14 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         block_number: BlockNumber,
-        epoch_number: EpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
         resolved: &'a [ResolvedTransaction],
     ) -> Self {
         BlockTxsVerifier {
             context,
             block_number,
-            epoch_number,
+            epoch_number_with_fraction,
             parent_hash,
             resolved,
         }
@@ -375,7 +400,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number,
+                        self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
                         self.context.consensus,
                     )
@@ -393,7 +418,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number,
+                        self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
                         self.context.consensus,
                         self.context.store,
@@ -416,7 +441,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {
-            Err(BlockErrorKind::ExceededMaximumCycles)?
+            Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
             Ok(sum)
         }
@@ -438,6 +463,40 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
         .unwrap_or(parent_ext))
 }
 
+pub struct EpochVerifier<'a> {
+    epoch: &'a EpochExt,
+    block: &'a BlockView,
+}
+
+impl<'a> EpochVerifier<'a> {
+    pub fn new(epoch: &'a EpochExt, block: &'a BlockView) -> Self {
+        EpochVerifier { epoch, block }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let header = self.block.header();
+        let actual_epoch_with_fraction = header.epoch();
+        let block_number = header.number();
+        let epoch_with_fraction = self.epoch.number_with_fraction(block_number);
+        if actual_epoch_with_fraction != epoch_with_fraction {
+            return Err(EpochError::NumberMismatch {
+                expected: epoch_with_fraction.full_value(),
+                actual: actual_epoch_with_fraction.full_value(),
+            }
+            .into());
+        }
+        let actual_compact_target = header.compact_target();
+        if self.epoch.compact_target() != actual_compact_target {
+            return Err(EpochError::TargetMismatch {
+                expected: self.epoch.compact_target(),
+                actual: actual_compact_target,
+            }
+            .into());
+        }
+        Ok(())
+    }
+}
+
 pub struct ContextualBlockVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
@@ -447,13 +506,14 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         ContextualBlockVerifier { context }
     }
 
-    pub fn verify(
+    pub fn verify<SW: Switch>(
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         executor: &Executor,
-    ) -> Result<(Cycle, Vec<Capacity>), Error> {
+        switch: SW,
+    ) -> Result<Cycle, Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
             .context
@@ -469,22 +529,40 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             prepare_epoch_ext(&self.context, &parent)?
         };
 
-        let uncle_verifier_context = UncleVerifierContext::new(&self.context, &epoch_ext);
-        UnclesVerifier::new(uncle_verifier_context, block).verify()?;
+        if !switch.disable_epoch() {
+            EpochVerifier::new(&epoch_ext, block).verify()?;
+        }
 
-        CommitVerifier::new(&self.context, block).verify()?;
-        DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
-        let txs_fees = RewardVerifier::new(&self.context, resolved, &parent).verify()?;
+        if !switch.disable_uncles() {
+            let uncle_verifier_context = UncleVerifierContext::new(&self.context, &epoch_ext);
+            UnclesVerifier::new(uncle_verifier_context, block).verify()?;
+        }
 
-        let cycles = BlockTxsVerifier::new(
-            &self.context,
-            block.number(),
-            block.epoch(),
-            parent_hash,
-            resolved,
-        )
-        .verify(txs_verify_cache, executor)?;
+        if !switch.disable_two_phase_commit() {
+            TwoPhaseCommitVerifier::new(&self.context, block).verify()?;
+        }
 
-        Ok((cycles, txs_fees))
+        if !switch.disable_daoheader() {
+            DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
+        }
+
+        if !switch.disable_reward() {
+            RewardVerifier::new(&self.context, resolved, &parent).verify()?;
+        }
+
+        let cycles = if !switch.disable_txs() {
+            BlockTxsVerifier::new(
+                &self.context,
+                block.number(),
+                block.epoch(),
+                parent_hash,
+                resolved,
+            )
+            .verify(txs_verify_cache, executor)?
+        } else {
+            0
+        };
+
+        Ok(cycles)
     }
 }

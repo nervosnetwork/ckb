@@ -16,10 +16,10 @@ where
     S: BuildHasher,
 {
     if sigs.len() > pks.len() {
-        Err(ErrorKind::SigCountOverflow)?;
+        return Err(ErrorKind::SigCountOverflow.into());
     }
     if m_threshold > sigs.len() {
-        Err(ErrorKind::SigNotEnough)?;
+        return Err(ErrorKind::SigNotEnough.into());
     }
 
     let mut used_pks: HashSet<Pubkey> = HashSet::with_capacity(m_threshold);
@@ -43,10 +43,11 @@ where
         .take(m_threshold)
         .count();
     if verified_sig_count < m_threshold {
-        Err(ErrorKind::Threshold {
+        return Err(ErrorKind::Threshold {
             pass_sigs: verified_sig_count,
             threshold: m_threshold,
-        })?
+        }
+        .into());
     }
     Ok(())
 }

@@ -3,19 +3,19 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1569045600322
-difficulty = "0x11940000"
+timestamp = 1570255200338
+compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-nonce = 0
+nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x155e776229c4d37c1c632b6bf209aad38afc1707a164ed23dca527412a615e15"
+hash = "0x8c6000088bb9540b111f1f777f1313b4ef4c3cd6c8b91a2f942db55e1e17e67d"
 
 [genesis.genesis_cell]
-message = "rylai-v10"
+message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
 
 [genesis.genesis_cell.lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
-args = []
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
 hash_type = "data"
 
 # An array list paths to system cell files, which is absolute or relative to
@@ -34,8 +34,8 @@ file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
 create_type_id = true
 
 [genesis.system_cells_lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
-args = []
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
 hash_type = "data"
 
 # Dep group cells
@@ -49,34 +49,34 @@ secp256k1_ripemd160_sha256_sighash_all = [
   { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
+# For first 11 block
 [genesis.bootstrap_lock]
-code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-# Lock for developers to run tests
-args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
 hash_type = "type"
 
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x64257f00b6b63e987609fa9be2d0c86d351020fb"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x3f1573b44218d4c12a91919a58a863be415a2bc3"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
 # Satoshi's gift, a cell send to satoshi's lock,
 # 60% capacity of this cell is occupied.
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
-lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 lock.hash_type = "type"
 
 [pow]

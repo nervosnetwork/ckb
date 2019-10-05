@@ -1,7 +1,10 @@
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
 use crate::UnclesError;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{
+    chain::{ChainController, ChainService},
+    switch::Switch,
+};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -13,13 +16,12 @@ use ckb_types::{
     },
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
-    U256,
 };
 use faketime;
 use rand::random;
 use std::sync::Arc;
 
-fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
+fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> BlockView {
     let now = parent_header.timestamp() + 1;
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
@@ -28,9 +30,9 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .parent_hash(parent_header.hash())
         .timestamp(now.pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .number(number.pack())
-        .difficulty(epoch.difficulty().pack())
+        .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .build()
 }
@@ -86,7 +88,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             .unwrap_or(parent_epoch);
         let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header();
@@ -107,7 +109,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             chain1[(i - 1) as usize].clone()
         };
         chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
+            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header();
@@ -130,33 +132,6 @@ fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
 }
 
 #[test]
-fn test_uncle_count() {
-    let (shared, chain1, chain2) = prepare();
-    let dummy_context = dummy_context(&shared);
-
-    // header has 0 uncle, but body has 1 uncle
-    let block = chain1
-        .last()
-        .cloned()
-        .unwrap()
-        .as_advanced_builder()
-        .uncle(chain2.last().cloned().unwrap().as_uncle())
-        .build_unchecked();
-
-    let epoch = epoch(&shared, &chain1, chain1.len() - 2);
-    let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
-    let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        UnclesError::MissMatchCount {
-            expected: 0,
-            actual: 1,
-        },
-    );
-}
-
-#[test]
 fn test_invalid_uncle_hash_case1() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
@@ -168,7 +143,6 @@ fn test_invalid_uncle_hash_case1() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .uncles_count(1u32.pack())
         .uncle(chain2.last().cloned().unwrap().as_uncle())
         .build_unchecked();
 
@@ -176,7 +150,7 @@ fn test_invalid_uncle_hash_case1() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::InvalidHash {
             expected: Byte32::zero(),
@@ -198,7 +172,6 @@ fn test_invalid_uncle_hash_case2() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .uncles_count(0u32.pack())
         .uncles_hash(uncles_hash.clone())
         .build_unchecked();
 
@@ -206,7 +179,7 @@ fn test_invalid_uncle_hash_case2() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::InvalidHash {
             expected: uncles_hash,
@@ -234,24 +207,24 @@ fn test_double_inclusion() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::DoubleInclusion(block.uncles().get(0).unwrap().header().hash().to_owned()),
     );
 }
 
-// Uncle.difficulty != block.difficulty
+// Uncle.compact_target != block.compact_target
 #[test]
-fn test_invalid_difficulty() {
+fn test_invalid_target() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
     let epoch = epoch(&shared, &chain1, 17);
-    let invalid_difficulty = epoch.difficulty() + U256::one();
+    let invalid_target = epoch.compact_target() + 1;
 
     let uncle = chain2[16]
         .clone()
         .as_advanced_builder()
-        .difficulty(invalid_difficulty.pack())
+        .compact_target(invalid_target.pack())
         .build()
         .as_uncle();
     let block = chain2[18]
@@ -262,10 +235,7 @@ fn test_invalid_difficulty() {
 
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedDifficulty,
-    );
+    assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::InvalidTarget);
 }
 // Uncle.epoch != block.epoch
 #[test]
@@ -279,7 +249,7 @@ fn test_invalid_epoch() {
     let uncle = chain2[uncle_number]
         .clone()
         .as_advanced_builder()
-        .difficulty(chain1[block_number].difficulty().pack())
+        .compact_target(chain1[block_number].compact_target().pack())
         .build()
         .as_uncle();
     let block = chain1[block_number]
@@ -292,7 +262,7 @@ fn test_invalid_epoch() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::InvalidDifficultyEpoch,
     );
@@ -316,7 +286,7 @@ fn test_invalid_number() {
     let epoch = epoch(&shared, &chain1, 16);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::InvalidNumber);
+    assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::InvalidNumber);
 }
 
 // Uncle proposals_hash is invalid
@@ -342,7 +312,7 @@ fn test_uncle_proposals_hash() {
     let epoch = epoch(&shared, &chain1, block_number);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::ProposalsHash);
+    assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::ProposalsHash);
 }
 
 // Uncle contains duplicated proposals
@@ -367,7 +337,7 @@ fn test_uncle_duplicated_proposals() {
     let epoch = epoch(&shared, &chain2, 7);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::ProposalDuplicate,
     );
@@ -391,7 +361,7 @@ fn test_duplicated_uncles() {
     let epoch = epoch(&shared, &chain1, 11);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::Duplicate(block.uncles().get(1).unwrap().header().hash().to_owned()),
     );
@@ -419,7 +389,7 @@ fn test_uncle_over_count() {
     let epoch = epoch(&shared, &chain1, 11);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::OverCount {
             max: max_uncles_num as u32,
@@ -450,7 +420,7 @@ fn test_exceeded_maximum_proposals_limit() {
     let epoch = epoch(&shared, &chain1, 7);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         UnclesError::ExceededMaximumProposalsLimit,
     );
@@ -472,7 +442,7 @@ fn test_descendant_limit() {
         let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
+        assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 
     // embedded should be ok
@@ -524,7 +494,7 @@ fn test_descendant_continuity() {
         let epoch = epoch(&shared, &chain1, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
+        assert_error_eq!(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 }
 
@@ -578,7 +548,7 @@ fn test_uncle_with_uncle_descendant() {
 
     for block in &chain2 {
         controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
 
@@ -591,7 +561,7 @@ fn test_uncle_with_uncle_descendant() {
         .build();
 
     controller
-        .process_block(Arc::new(block.clone()), false)
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .expect("process block ok");
 
     {

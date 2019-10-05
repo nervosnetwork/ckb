@@ -12,11 +12,12 @@ use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
+    utilities::difficulty_to_compact,
     U256,
 };
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -32,17 +33,14 @@ const SIZES: &[usize] = &[2usize];
 
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
-    let args = secp_script
-        .args()
-        .into_iter()
-        .map(|bytes| JsonBytes::from_bytes(bytes.unpack()))
-        .collect();
+    let args = JsonBytes::from_bytes(secp_script.args().unpack());
     let hash_type: ScriptHashType = secp_script.hash_type().unpack();
 
     BlockAssemblerConfig {
         code_hash: secp_script.code_hash().unpack(),
         hash_type: hash_type.into(),
         args,
+        message: Default::default(),
     }
 }
 
@@ -70,14 +68,14 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
         .build();
 
     let mut consensus = ConsensusBuilder::default()
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
@@ -138,7 +136,7 @@ fn bench(c: &mut Criterion) {
                         let txs = gen_txs_from_block(&block);
                         let tx_pool = shared.tx_pool_controller();
                         if !txs.is_empty() {
-                            tx_pool.submit_txs(txs).unwrap().expect("submit_txs");;
+                            tx_pool.submit_txs(txs).unwrap().expect("submit_txs");
                         }
                         let block_template = tx_pool
                             .get_block_template(None, None, None)
@@ -148,22 +146,19 @@ fn bench(c: &mut Criterion) {
                         let raw_header = raw_block.header().raw();
                         let header = Header::new_builder()
                             .raw(raw_header)
-                            .nonce(random::<u64>().pack())
+                            .nonce(random::<u128>().pack())
                             .build();
                         let block = raw_block.as_builder().header(header).build().into_view();
 
                         let header_view = block.header();
-                        let resolver =
-                            HeaderResolverWrapper::new(&header_view, snapshot, shared.consensus());
+                        let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
                         let header_verifier = HeaderVerifier::new(
                             snapshot,
                             Arc::clone(&shared.consensus().pow_engine()),
                         );
                         header_verifier.verify(&resolver).expect("header verified");
 
-                        chain
-                            .process_block(Arc::new(block), true)
-                            .expect("process_block");
+                        chain.process_block(Arc::new(block)).expect("process_block");
                         i -= 1;
                     }
                 },

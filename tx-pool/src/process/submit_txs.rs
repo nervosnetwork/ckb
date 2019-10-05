@@ -196,7 +196,7 @@ impl<'a> SubmitTxsExecutor<'a> {
 
         for ((rtx, cycles), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter()) {
             if self.tx_pool.reach_cycles_limit(cycles) {
-                Err(InternalErrorKind::TransactionPoolFull)?;
+                return Err(InternalErrorKind::TransactionPoolFull.into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
@@ -226,9 +226,9 @@ fn resolve_tx<'a>(
     txs_provider: &'a TransactionsProvider<'a>,
     tx: TransactionView,
 ) -> Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error> {
-    let tx_size = tx.serialized_size();
+    let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
-        Err(InternalErrorKind::TransactionPoolFull)?;
+        return Err(InternalErrorKind::TransactionPoolFull.into());
     }
 
     let short_id = tx.proposal_short_id();
@@ -282,7 +282,7 @@ fn verify_rtxs(
 ) -> Result<Vec<(ResolvedTransaction, Cycle)>, Error> {
     let tip_header = snapshot.tip_header();
     let tip_number = tip_header.number();
-    let epoch_number = tip_header.epoch();
+    let epoch = tip_header.epoch();
     let consensus = snapshot.consensus();
 
     txs.into_iter()
@@ -293,7 +293,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number,
+                    epoch,
                     tip_header.hash(),
                     consensus,
                 )
@@ -304,7 +304,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number,
+                    epoch,
                     tip_header.hash(),
                     consensus,
                     snapshot,

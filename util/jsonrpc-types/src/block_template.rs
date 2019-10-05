@@ -1,18 +1,18 @@
 use crate::{
-    BlockNumber, Byte32, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction,
-    Uint64, Version,
+    BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
+    Transaction, Uint32, Uint64, Version,
 };
-use ckb_types::{packed, prelude::*, H256, U256};
+use ckb_types::{packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::From;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockTemplate {
     pub version: Version,
-    pub difficulty: U256,
+    pub compact_target: Uint32,
     pub current_time: Timestamp,
     pub number: BlockNumber,
-    pub epoch: EpochNumber,
+    pub epoch: EpochNumberWithFraction,
     pub parent_hash: H256,
     pub cycles_limit: Cycle,
     pub bytes_limit: Uint64,
@@ -29,7 +29,7 @@ impl From<BlockTemplate> for packed::Block {
     fn from(block_template: BlockTemplate) -> packed::Block {
         let BlockTemplate {
             version,
-            difficulty,
+            compact_target,
             current_time,
             number,
             epoch,
@@ -43,7 +43,7 @@ impl From<BlockTemplate> for packed::Block {
         } = block_template;
         let raw = packed::RawHeader::new_builder()
             .version(version.pack())
-            .difficulty(difficulty.pack())
+            .compact_target(compact_target.pack())
             .parent_hash(parent_hash.pack())
             .timestamp(current_time.pack())
             .number(number.pack())

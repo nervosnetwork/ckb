@@ -1,25 +1,46 @@
 use crate::utils::assert_send_transaction_fail;
 use crate::{utils::is_committed, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
-use ckb_types::core::BlockNumber;
+use ckb_types::core::EpochNumberWithFraction;
 use log::info;
 
-const MATURITY: BlockNumber = 5;
+const CELLBASE_MATURITY_VALUE: u64 = 3;
 
 pub struct ReferenceHeaderMaturity;
 
 impl Spec for ReferenceHeaderMaturity {
     crate::name!("reference_header_maturity");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
-        info!("Generate 1 block");
-        node.generate_block();
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW + 2 block");
+        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Use generated block's cellbase as tx input");
         let base_block = node.get_tip_block();
-        info!("Ensure cellbase is matured");
-        node.generate_blocks(5);
+
+        let cellbase_maturity = EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY_VALUE);
+
+        {
+            info!("Ensure cellbase is matured");
+            let base_epoch = base_block.epoch();
+            let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
+            loop {
+                let tip_block = node.get_tip_block();
+                let tip_epoch = tip_block.epoch();
+                let current = tip_epoch.to_rational();
+                if current < threshold {
+                    if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
+                        let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
+                        node.generate_blocks(remained_blocks_in_epoch as usize);
+                    } else {
+                        node.generate_block();
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
 
         info!("Reference tip block's header to test for maturity");
         let tip_block = node.get_tip_block();
@@ -31,21 +52,38 @@ impl Spec for ReferenceHeaderMaturity {
             .header_dep(tip_block.hash())
             .build();
 
-        (0..MATURITY).for_each(|i| {
-            info!("Tx is not matured in N + {} block", i);
-            assert_send_transaction_fail(node, &tx, "ImmatureHeader");
-            node.generate_block();
-        });
+        {
+            let base_epoch = tip_block.epoch();
+            let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
+            loop {
+                let tip_block = node.get_tip_block();
+                let tip_epoch = tip_block.epoch();
+                let current = tip_epoch.to_rational();
+                if current < threshold {
+                    info!(
+                        "Tx is not matured in {} block (epoch = {})",
+                        tip_block.number(),
+                        tip_block.epoch()
+                    );
+                    assert_send_transaction_fail(node, &tx, "ImmatureHeader");
+                } else {
+                    break;
+                }
+                if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
+                    let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
+                    node.generate_blocks(remained_blocks_in_epoch as usize);
+                } else {
+                    node.generate_block();
+                }
+            }
+        }
 
-        info!("Tx will be added to pending pool in N + {} block", MATURITY,);
+        info!("Tx will be added to pending pool");
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
         assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
-        info!(
-            "Tx will be added to proposed pool in N + {} block",
-            MATURITY
-        );
+        info!("Tx will be added to proposed pool");
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -54,7 +92,7 @@ impl Spec for ReferenceHeaderMaturity {
         node.generate_block();
         node.assert_tx_pool_size(0, 0);
 
-        info!("Tx will be eventually accepted on chain",);
+        info!("Tx will be eventually accepted on chain");
         node.generate_blocks(5);
         let tx_status = node
             .rpc_client()
@@ -69,7 +107,7 @@ impl Spec for ReferenceHeaderMaturity {
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
-            spec_config.params.cellbase_maturity = MATURITY;
+            spec_config.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
         })
     }
 }

@@ -4,7 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{NetworkProtocol, SyncSharedState, Synchronizer};
-use ckb_chain::chain::ChainService;
+use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -14,8 +14,9 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
+    core::{cell::resolve_transaction, BlockBuilder, EpochNumberWithFraction, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
+    utilities::difficulty_to_compact,
     U256,
 };
 use ckb_util::RwLock;
@@ -89,14 +90,14 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
     let mut block = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
-        .difficulty(U256::from(1000u64).pack())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
 
     let consensus = ConsensusBuilder::default()
         .genesis_block(block.clone())
-        .cellbase_maturity(0)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build();
     let (shared, table) = SharedBuilder::default()
         .consensus(consensus)
@@ -118,17 +119,23 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
         let (_, reward) = snapshot.finalize_block_reward(&block.header()).unwrap();
 
-        let cellbase = TransactionBuilder::default()
+        let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.pack())
-                    .lock(always_success_script.to_owned())
-                    .build(),
-            )
-            .output_data(Bytes::default().pack())
-            .witness(always_success_script.to_owned().into_witness())
-            .build();
+            .witness(always_success_script.to_owned().into_witness());
+
+        let cellbase = if number <= snapshot.consensus().finalization_delay_length() {
+            builder.build()
+        } else {
+            builder
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(reward.total.pack())
+                        .lock(always_success_script.to_owned())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build()
+        };
 
         let dao = {
             let resolved_cellbase = resolve_transaction(
@@ -147,14 +154,14 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .transaction(cellbase)
             .parent_hash(block.header().hash().to_owned())
             .number(number.pack())
-            .epoch(epoch.number().pack())
+            .epoch(epoch.number_with_fraction(number).pack())
             .timestamp(timestamp.pack())
-            .difficulty(epoch.difficulty().pack())
+            .compact_target(epoch.compact_target().pack())
             .dao(dao)
             .build();
 
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block should be OK");
     }
 

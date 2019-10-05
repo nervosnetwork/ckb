@@ -1,11 +1,11 @@
-use crate::syscalls::{
-    utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
-    SUCCESS,
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{
+        utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
+        SUCCESS,
+    },
 };
-use ckb_types::{
-    packed::{Witness, WitnessVec},
-    prelude::*,
-};
+use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -13,19 +13,19 @@ use ckb_vm::{
 
 #[derive(Debug)]
 pub struct LoadWitness<'a> {
-    witnesses: WitnessVec,
+    witnesses: BytesVec,
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadWitness<'a> {
-    pub fn new(witnesses: WitnessVec, group_inputs: &'a [usize]) -> LoadWitness<'a> {
+    pub fn new(witnesses: BytesVec, group_inputs: &'a [usize]) -> LoadWitness<'a> {
         LoadWitness {
             witnesses,
             group_inputs,
         }
     }
 
-    fn fetch_witness(&self, source: Source, index: usize) -> Option<Witness> {
+    fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
         match source {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
@@ -56,11 +56,11 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
             return Ok(true);
         }
         let witness = witness.unwrap();
-        let data = witness.as_slice();
+        let data = witness.raw_data();
+        let wrote_size = store_data(machine, &data)?;
 
-        store_data(machine, data)?;
+        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 10)?;
         Ok(true)
     }
 }

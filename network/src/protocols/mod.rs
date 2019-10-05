@@ -94,7 +94,7 @@ pub struct CKBProtocol {
     protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
-    handler: Box<Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>,
+    handler: Box<dyn Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>,
     network_state: Arc<NetworkState>,
 }
 

@@ -66,33 +66,69 @@ function check_license() {
     done
 }
 
-function check_dependencies() {
+function search_crate() {
+    local crate="$1"
+    local source="$2"
+    local tmpcnt=0
+    local depcnt=0
+    local grepopts="-rh"
+    tmpcnt=$({\
+        ${GREP} ${grepopts} "\(^\| \)extern crate ${crate}\(::\|;\)" "${source}" \
+            || true; }\
+        | wc -l)
+    depcnt=$((depcnt + tmpcnt))
+    tmpcnt=$({\
+        ${GREP} ${grepopts} "\(^\| \)use ${crate}\(::\|;\)" "${source}" \
+            || true; }\
+        | wc -l)
+    depcnt=$((depcnt + tmpcnt))
+    tmpcnt=$({\
+        ${GREP} ${grepopts} "[ (<]\(::\|\)${crate}::" "${source}" \
+            || true; }\
+        | wc -l)
+    depcnt=$((depcnt + tmpcnt))
+    printf "${depcnt}"
+}
+
+function check_dependencies_for() {
+    local deptype="$1"
     for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml"); do
         local pkgroot=$(dirname "${cargo_toml}")
-        for dependency in $(${SED} -n '/^\[dependencies\]/,/^\[/p' "${cargo_toml}" \
+        for dependency_original in $(${SED} -n "/^\[${deptype}\]/,/^\[/p" "${cargo_toml}" \
                 | { ${GREP} -v "^\(\[\|[ ]*$\|[ ]*#\)" || true; } \
-                | ${SED} -n "s/\([^ =]*\).*/\1/p" \
-                | tr '-' '_'); do
+                | ${SED} -n "s/\([^ =]*\).*/\1/p"); do
+            local dependency=$(printf "${dependency_original}" | tr '-' '_')
+            local tmpcnt=0
             local depcnt=0
-            local srcdir="${pkgroot}/src"
-            if [ ! -d "${srcdir}" ]; then
-                srcdir="${pkgroot}"
+            local srcdir=
+            local buildrs=
+            case "${deptype}" in
+                "dependencies" | "dev-dependencies")
+                    srcdir="${pkgroot}/src"
+                    if [ ! -d "${srcdir}" ]; then
+                        srcdir="${pkgroot}"
+                    fi
+                    tmpcnt=$(search_crate "${dependency}" "${srcdir}")
+                    depcnt=$((depcnt + tmpcnt))
+                    ;;
+                "build-dependencies")
+                    buildrs="${pkgroot}/build.rs"
+                    tmpcnt=$(search_crate "${dependency}" "${buildrs}")
+                    depcnt=$((depcnt + tmpcnt))
+                    ;;
+                *)
+                    :
+                    ;;
+            esac
+            if [ "${deptype}" = "dev-dependencies" ]; then
+                for subdir in "tests" "benches" "examples"; do
+                    srcdir="${pkgroot}/${subdir}"
+                    if [ -d "${srcdir}" ]; then
+                        tmpcnt=$(search_crate "${dependency}" "${srcdir}")
+                        depcnt=$((depcnt + tmpcnt))
+                    fi
+                done
             fi
-            tmpcnt=$({\
-                ${GREP} -rh "\(^\| \)extern crate ${dependency}\(::\|;\)" "${srcdir}" \
-                    || true; }\
-                | wc -l)
-            depcnt=$((depcnt + tmpcnt))
-            tmpcnt=$({\
-                ${GREP} -rh "\(^\| \)use ${dependency}\(::\|;\)" "${srcdir}" \
-                    || true; }\
-                | wc -l)
-            depcnt=$((depcnt + tmpcnt))
-            tmpcnt=$({\
-                ${GREP} -rh "[ (<]\(::\|\)${dependency}::" "${srcdir}" \
-                    || true; }\
-                | wc -l)
-            depcnt=$((depcnt + tmpcnt))
             if [ "${depcnt}" -eq 0 ]; then
                 case "${dependency}" in
                     serde)
@@ -101,22 +137,38 @@ function check_dependencies() {
                                 || true; }\
                             | wc -l)
                         if [ "${tmpcnt}" -eq 0 ]; then
-                            printf "Error: [%s] in <%s>\n" "${dependency}" "${pkgroot}"
+                            printf "Error: [%s::%s] in <%s>\n" \
+                                "${deptype}" "${dependency}" "${pkgroot}"
                             ERRCNT=$((ERRCNT + 1))
                         fi
                         ;;
                     generic_channel | phf)
                         # We cann't handle these crates.
-                        printf "Warn: [%s] in <%s>\n" "${dependency}" "${pkgroot}"
+                        printf "Warn: [%s::%s] in <%s>\n" \
+                            "${deptype}" "${dependency}" "${pkgroot}"
                         ;;
                     *)
-                        printf "Error: [%s] in <%s>\n" "${dependency}" "${pkgroot}"
+                        printf "Error: [%s::%s] in <%s>\n" \
+                            "${deptype}" "${dependency}" "${pkgroot}"
                         ERRCNT=$((ERRCNT + 1))
                         ;;
                 esac
             fi
+            if [ "${deptype}" = "dev-dependencies" ]; then
+                tmpcnt=$(${GREP} -c "^${dependency_original}[^a-zA-Z0-9=_-]*=" "${cargo_toml}")
+                if [ "${tmpcnt}" -gt 1 ]; then
+                    printf "Warn: [%s::%s] in <%s>, twice\n" \
+                        "${deptype}" "${dependency}" "${pkgroot}"
+                fi
+            fi
         done
     done
+}
+
+function check_dependencies() {
+    check_dependencies_for "dependencies"
+    check_dependencies_for "build-dependencies"
+    check_dependencies_for "dev-dependencies"
 }
 
 function main() {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::utils::assert_send_transaction_fail;
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     bytes::Bytes,
     core::Capacity,
@@ -13,9 +13,9 @@ pub struct DepositDAO;
 impl Spec for DepositDAO {
     crate::name!("deposit_dao");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Deposit DAO
         {
@@ -46,9 +46,9 @@ pub struct WithdrawDAO;
 impl Spec for WithdrawDAO {
     crate::name!("withdraw_dao");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -64,14 +64,18 @@ pub struct WithdrawAndDepositDAOWithinSameTx;
 impl Spec for WithdrawAndDepositDAOWithinSameTx {
     crate::name!("withdraw_and_deposit_dao_within_same_tx");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let mut deposited = {
             let transaction = deposit_dao_transaction(node0);
             ensure_committed(node0, &transaction)
         };
+        let dao_type_hash = node0
+            .consensus()
+            .dao_type_hash()
+            .expect("No dao system cell");
         for _ in 0..5 {
             let transaction = {
                 let transaction =
@@ -82,7 +86,7 @@ impl Spec for WithdrawAndDepositDAOWithinSameTx {
                     .map(|cell_output| {
                         cell_output
                             .as_builder()
-                            .type_(Some(deposit_dao_script()).pack())
+                            .type_(Some(deposit_dao_script(dao_type_hash.clone())).pack())
                             .build()
                     })
                     .collect();
@@ -102,9 +106,9 @@ pub struct WithdrawDAOWithNotMaturitySince;
 impl Spec for WithdrawDAOWithNotMaturitySince {
     crate::name!("withdraw_dao_with_not_maturity_since");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let not_maturity = |node: &Node, previous_output: OutPoint| {
             let not_maturity_since = node.get_tip_block_number();
@@ -125,7 +129,7 @@ impl Spec for WithdrawDAOWithNotMaturitySince {
             transaction.as_advanced_builder().set_inputs(inputs).build()
         };
         node0.generate_blocks(20);
-        assert_send_transaction_fail(node0, &transaction, "Script(ValidationFailure(-14))");
+        assert_send_transaction_fail(node0, &transaction, "Script(ValidationFailure(-17))");
     }
 }
 
@@ -134,9 +138,9 @@ pub struct WithdrawDAOWithOverflowCapacity;
 impl Spec for WithdrawDAOWithOverflowCapacity {
     crate::name!("withdraw_dao_with_overflow_capacity");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -173,9 +177,9 @@ pub struct WithdrawDAOWithInvalidWitness;
 impl Spec for WithdrawDAOWithInvalidWitness {
     crate::name!("withdraw_dao_with_invalid_witness");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let deposited = {
             let transaction = deposit_dao_transaction(node0);
@@ -193,23 +197,23 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
         }
 
+        // TODO: DAO script does not return ERROR_WRONG_NUMBER_OF_ARGUMENTS now
         // Withdraw DAO with not-enough witnesses. Return DAO script ERROR_WRONG_NUMBER_OF_ARGUMENTS
-        {
-            let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
-            let witness: packed::Witness = vec![withdraw_header_index.pack()].pack();
-            let transaction =
-                withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
-                    .as_advanced_builder()
-                    .set_witnesses(vec![witness])
-                    .build();
-            node0.generate_blocks(20);
-            assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
-        }
+        // {
+        //     let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
+        //     let witness: packed::Bytes = withdraw_header_index.pack();
+        //     let transaction =
+        //         withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
+        //             .as_advanced_builder()
+        //             .set_witnesses(vec![witness])
+        //             .build();
+        //     node0.generate_blocks(20);
+        //     assert_send_transaction_fail(node0, &transaction, "Internal(CapacityOverflow)");
+        // }
 
         // Withdraw DAO with witness has bad format. Return DAO script ERROR_ENCODING.
         {
-            let witness: packed::Witness =
-                vec![Bytes::new().pack(), Bytes::from(vec![0]).pack()].pack();
+            let witness: packed::Bytes = Bytes::new().pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()
@@ -222,8 +226,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
         // Withdraw DAO with witness point to out-of-index dependency. DAO script `ckb_load_header` failed
         {
             let withdraw_header_index: Bytes = 9u64.to_le_bytes().to_vec().into();
-            let witness: packed::Witness =
-                vec![Default::default(), withdraw_header_index.pack()].pack();
+            let witness: packed::Bytes = withdraw_header_index.pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()

@@ -8,9 +8,8 @@ pub mod util;
 use failure::{Backtrace, Context, Fail};
 pub use internal::{InternalError, InternalErrorKind};
 use std::fmt::{self, Display};
-pub use util::assert_error_eq;
 
-#[derive(Fail, Debug, Clone, Copy, Eq, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum ErrorKind {
     OutPoint,
     Transaction,
@@ -44,7 +43,7 @@ impl From<Context<ErrorKind>> for Error {
 }
 
 impl Fail for Error {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.kind.cause()
     }
 

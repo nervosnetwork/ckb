@@ -13,6 +13,7 @@ pub struct Template<T>(T);
 
 pub struct TemplateContext<'a> {
     pub spec: &'a str,
+    pub spec_source: &'a str,
     pub rpc_port: &'a str,
     pub p2p_port: &'a str,
     pub log_to_file: bool,
@@ -38,6 +39,7 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
             .replace("{log_to_file}", &format!("{}", context.log_to_file))
             .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))
             .replace("{block_assembler}", context.block_assembler)
+            .replace("{spec_source}", context.spec_source)
     )
 }
 

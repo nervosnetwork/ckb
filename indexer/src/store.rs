@@ -608,7 +608,10 @@ impl IndexerStoreTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_chain::chain::{ChainController, ChainService};
+    use ckb_chain::{
+        chain::{ChainController, ChainService},
+        switch::Switch,
+    };
     use ckb_chain_spec::consensus::Consensus;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
@@ -618,6 +621,7 @@ mod tests {
             TransactionBuilder,
         },
         packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
+        utilities::{difficulty_to_compact, DIFF_TWO},
         U256,
     };
     use std::sync::Arc;
@@ -687,7 +691,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -719,7 +723,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -753,15 +757,19 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
 
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
@@ -798,7 +806,9 @@ mod tests {
             cells[1].cell_output.capacity().unpack()
         );
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
@@ -858,7 +868,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -890,7 +900,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -924,15 +934,19 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
 
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
@@ -951,7 +965,9 @@ mod tests {
         assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
@@ -1014,7 +1030,7 @@ mod tests {
             .transaction(tx12.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1046,7 +1062,7 @@ mod tests {
             .transaction(tx22.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -1078,7 +1094,7 @@ mod tests {
         let block2_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.header().hash().to_owned())
                     .build(),
@@ -1090,15 +1106,19 @@ mod tests {
             .transaction(tx32.clone())
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(21u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(22u64)).pack())
                     .number(3.pack())
                     .parent_hash(block2_fork.header().hash().to_owned())
                     .build(),
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
 
         store.sync_index_states();
 
@@ -1112,8 +1132,12 @@ mod tests {
         assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
-        chain.process_block(Arc::new(block2_fork), false).unwrap();
-        chain.process_block(Arc::new(block3), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block2_fork), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block3), Switch::DISABLE_ALL)
+            .unwrap();
 
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
@@ -1184,7 +1208,7 @@ mod tests {
             .transaction(tx13)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1194,21 +1218,25 @@ mod tests {
         let block1_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
-        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
@@ -1265,7 +1293,7 @@ mod tests {
             .transaction(tx12)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(1u64).pack())
+                    .compact_target(DIFF_TWO.pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
@@ -1276,7 +1304,7 @@ mod tests {
             .transaction(tx21)
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(2u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
                     .parent_hash(block1.hash())
                     .build(),
@@ -1286,22 +1314,28 @@ mod tests {
         let block1_fork = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .difficulty(U256::from(20u64).pack())
+                    .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(1.pack())
                     .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
 
-        chain.process_block(Arc::new(block1), false).unwrap();
-        chain.process_block(Arc::new(block2), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1), Switch::DISABLE_ALL)
+            .unwrap();
+        chain
+            .internal_process_block(Arc::new(block2), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
-        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        chain
+            .internal_process_block(Arc::new(block1_fork), Switch::DISABLE_ALL)
+            .unwrap();
         store.sync_index_states();
         let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());

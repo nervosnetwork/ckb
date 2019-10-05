@@ -5,6 +5,11 @@ use crate::{
     U256,
 };
 use ckb_error::Error;
+use ckb_rational::RationalU256;
+use std::cmp::Ordering;
+use std::fmt;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct BlockExt {
@@ -20,7 +25,7 @@ pub struct TransactionInfo {
     // Block hash
     pub block_hash: packed::Byte32,
     pub block_number: BlockNumber,
-    pub block_epoch: EpochNumber,
+    pub block_epoch: EpochNumberWithFraction,
     // Index in the block
     pub index: usize,
 }
@@ -35,7 +40,7 @@ impl TransactionInfo {
 
     pub fn new(
         block_number: BlockNumber,
-        block_epoch: EpochNumber,
+        block_epoch: EpochNumberWithFraction,
         block_hash: packed::Byte32,
         index: usize,
     ) -> Self {
@@ -65,7 +70,7 @@ pub struct EpochExt {
     pub(crate) last_block_hash_in_previous_epoch: packed::Byte32,
     pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
-    pub(crate) difficulty: U256,
+    pub(crate) compact_target: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -76,10 +81,15 @@ impl EpochExt {
     // Simple Getters
     //
 
-    pub fn number(&self) -> BlockNumber {
+    pub fn number(&self) -> EpochNumber {
         self.number
     }
 
+    pub fn primary_reward(&self) -> Capacity {
+        Capacity::shannons(
+            self.base_block_reward.as_u64() * self.length + self.remainder_reward.as_u64(),
+        )
+    }
     pub fn base_block_reward(&self) -> &Capacity {
         &self.base_block_reward
     }
@@ -104,8 +114,8 @@ impl EpochExt {
         self.length
     }
 
-    pub fn difficulty(&self) -> &U256 {
-        &self.difficulty
+    pub fn compact_target(&self) -> u32 {
+        self.compact_target
     }
 
     //
@@ -143,8 +153,14 @@ impl EpochExt {
         self.length = length;
     }
 
-    pub fn set_difficulty(&mut self, difficulty: U256) {
-        self.difficulty = difficulty;
+    pub fn set_primary_reward(&mut self, primary_reward: Capacity) {
+        let primary_reward_u64 = primary_reward.as_u64();
+        self.base_block_reward = Capacity::shannons(primary_reward_u64 / self.length);
+        self.remainder_reward = Capacity::shannons(primary_reward_u64 % self.length);
+    }
+
+    pub fn set_compact_target(&mut self, compact_target: u32) {
+        self.compact_target = compact_target;
     }
 
     //
@@ -173,6 +189,28 @@ impl EpochExt {
         } else {
             Ok(self.base_block_reward)
         }
+    }
+
+    pub fn number_with_fraction(&self, number: BlockNumber) -> EpochNumberWithFraction {
+        debug_assert!(
+            number >= self.start_number() && number < self.start_number() + self.length()
+        );
+        EpochNumberWithFraction::new(self.number(), number - self.start_number(), self.length())
+    }
+
+    // We name this issuance since it covers multiple parts: block reward,
+    // NervosDAO issuance as well as treasury part.
+    pub fn secondary_block_issuance(
+        &self,
+        block_number: BlockNumber,
+        secondary_epoch_issuance: Capacity,
+    ) -> Result<Capacity, Error> {
+        let mut g2 = Capacity::shannons(secondary_epoch_issuance.as_u64() / self.length());
+        let remainder = secondary_epoch_issuance.as_u64() % self.length();
+        if block_number >= self.start_number() && block_number < self.start_number() + remainder {
+            g2 = g2.safe_add(Capacity::one())?;
+        }
+        Ok(g2)
     }
 }
 
@@ -221,8 +259,8 @@ impl EpochExtBuilder {
         self
     }
 
-    pub fn difficulty(mut self, difficulty: U256) -> Self {
-        self.0.set_difficulty(difficulty);
+    pub fn compact_target(mut self, compact_target: u32) -> Self {
+        self.0.set_compact_target(compact_target);
         self
     }
 
@@ -233,5 +271,117 @@ impl EpochExtBuilder {
 
     pub fn build(self) -> EpochExt {
         self.0
+    }
+}
+
+/// Represents an epoch number with a fraction unit, it can be
+/// used to accurately represent the position for a block within
+/// an epoch.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct EpochNumberWithFraction(u64);
+
+impl fmt::Display for EpochNumberWithFraction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Epoch {{ number: {}, index: {}, length: {} }}",
+            self.number(),
+            self.index(),
+            self.length()
+        )
+    }
+}
+
+impl FromStr for EpochNumberWithFraction {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v = u64::from_str(s)?;
+        Ok(EpochNumberWithFraction(v))
+    }
+}
+
+impl PartialOrd for EpochNumberWithFraction {
+    fn partial_cmp(&self, other: &EpochNumberWithFraction) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for EpochNumberWithFraction {
+    fn cmp(&self, other: &EpochNumberWithFraction) -> Ordering {
+        if self.number() < other.number() {
+            Ordering::Less
+        } else if self.number() > other.number() {
+            Ordering::Greater
+        } else {
+            let a = self.index() * other.length();
+            let b = other.index() * self.length();
+            a.cmp(&b)
+        }
+    }
+}
+
+impl EpochNumberWithFraction {
+    pub const NUMBER_OFFSET: usize = 0;
+    pub const NUMBER_BITS: usize = 24;
+    pub const NUMBER_MAXIMUM_VALUE: u64 = (1u64 << Self::NUMBER_BITS);
+    pub const NUMBER_MASK: u64 = (Self::NUMBER_MAXIMUM_VALUE - 1);
+    pub const INDEX_OFFSET: usize = Self::NUMBER_BITS;
+    pub const INDEX_BITS: usize = 16;
+    pub const INDEX_MAXIMUM_VALUE: u64 = (1u64 << Self::INDEX_BITS);
+    pub const INDEX_MASK: u64 = (Self::INDEX_MAXIMUM_VALUE - 1);
+    pub const LENGTH_OFFSET: usize = Self::NUMBER_BITS + Self::INDEX_BITS;
+    pub const LENGTH_BITS: usize = 16;
+    pub const LENGTH_MAXIMUM_VALUE: u64 = (1u64 << Self::LENGTH_BITS);
+    pub const LENGTH_MASK: u64 = (Self::LENGTH_MAXIMUM_VALUE - 1);
+
+    pub fn new(number: u64, index: u64, length: u64) -> EpochNumberWithFraction {
+        debug_assert!(number < Self::NUMBER_MAXIMUM_VALUE);
+        debug_assert!(index < Self::INDEX_MAXIMUM_VALUE);
+        debug_assert!(length < Self::LENGTH_MAXIMUM_VALUE);
+        debug_assert!(length > 0);
+        Self::new_unchecked(number, index, length)
+    }
+
+    pub const fn new_unchecked(number: u64, index: u64, length: u64) -> Self {
+        EpochNumberWithFraction(
+            (length << Self::LENGTH_OFFSET)
+                | (index << Self::INDEX_OFFSET)
+                | (number << Self::NUMBER_OFFSET),
+        )
+    }
+
+    pub fn number(self) -> EpochNumber {
+        (self.0 >> Self::NUMBER_OFFSET) & Self::NUMBER_MASK
+    }
+
+    pub fn index(self) -> u64 {
+        (self.0 >> Self::INDEX_OFFSET) & Self::INDEX_MASK
+    }
+
+    pub fn length(self) -> u64 {
+        (self.0 >> Self::LENGTH_OFFSET) & Self::LENGTH_MASK
+    }
+
+    pub fn full_value(self) -> u64 {
+        self.0
+    }
+
+    // One caveat here, is that if the user specifies a zero epoch length either
+    // delibrately, or by accident, calling to_rational() after that might
+    // result in a division by zero panic. To prevent that, this method would
+    // automatically rewrite the value to epoch index 0 with epoch length to
+    // prevent panics
+    pub fn from_full_value(value: u64) -> Self {
+        let epoch = Self(value);
+        if epoch.length() == 0 {
+            Self::new(epoch.number(), 0, 1)
+        } else {
+            epoch
+        }
+    }
+
+    pub fn to_rational(self) -> RationalU256 {
+        RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
     }
 }

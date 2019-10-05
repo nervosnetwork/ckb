@@ -1,6 +1,6 @@
 [package]
 name = "ckb-types"
-version = "0.21.2"
+version = "0.22.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -17,3 +17,5 @@ crossbeam-channel = "0.3"
 bit-vec = "0.5.1"
 failure = "0.1.5"
 ckb-error = { path = "../../error" }
+ckb-rational = { path = "../rational" }
+proptest = "0.9"

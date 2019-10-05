@@ -140,21 +140,21 @@ impl NetworkState {
         session_id: SessionId,
         behaviour: Behaviour,
     ) {
-        if let Some(peer_id) =
-            self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
-        {
+        if let Some(peer_id) = self.with_peer_registry(|reg| {
+            reg.get_peer(session_id)
+                .filter(|peer| !peer.is_whitelist)
+                .map(|peer| peer.peer_id.clone())
+        }) {
             self.report_peer(p2p_control, &peer_id, behaviour);
         } else {
-            debug!("Report {} failed: not in peer registry", session_id);
+            debug!(
+                "Report {} failed: not in peer registry or it is in the whitelist",
+                session_id
+            );
         }
     }
 
-    pub(crate) fn report_peer(
-        &self,
-        p2p_control: &ServiceControl,
-        peer_id: &PeerId,
-        behaviour: Behaviour,
-    ) {
+    fn report_peer(&self, p2p_control: &ServiceControl, peer_id: &PeerId, behaviour: Behaviour) {
         trace!("report {:?} because {:?}", peer_id, behaviour);
         let report_result = match self.peer_store.lock().report(peer_id, behaviour) {
             Ok(result) => result,
@@ -183,16 +183,21 @@ impl NetworkState {
         duration: Duration,
         reason: String,
     ) {
-        if let Some(peer_id) =
-            self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
-        {
+        if let Some(peer_id) = self.with_peer_registry(|reg| {
+            reg.get_peer(session_id)
+                .filter(|peer| !peer.is_whitelist)
+                .map(|peer| peer.peer_id.clone())
+        }) {
             self.ban_peer(p2p_control, &peer_id, duration, reason);
         } else {
-            debug!("Ban session({}) failed: not in peer registry", session_id);
+            debug!(
+                "Ban session({}) failed: not in peer registry or it is in the whitelist",
+                session_id
+            );
         }
     }
 
-    pub(crate) fn ban_peer(
+    fn ban_peer(
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
@@ -830,7 +835,10 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_sender.clone())))
+                ProtocolHandle::Both(Box::new(
+                    DiscoveryProtocol::new(disc_sender.clone())
+                        .global_ip_only(!config.discovery_local_address),
+                ))
             })
             .build();
 

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.21.2"
+version = "0.22.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -20,11 +20,3 @@ arc-swap = "0.4"
 ckb-error = { path = "../error" }
 ckb-snapshot = { path = "../util/snapshot" }
 ckb-tx-pool = { path = "../tx-pool" }
-
-[dev-dependencies]
-env_logger = "0.6"
-tempfile = "3.0"
-rand = "0.6"
-serde_json = "1.0"
-ckb-chain = { path = "../chain" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils" }

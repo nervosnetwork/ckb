@@ -1,5 +1,8 @@
 use crate::SyncSharedState;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{
+    chain::{ChainController, ChainService},
+    switch::Switch,
+};
 
 use ckb_dao::DaoCalculator;
 use ckb_shared::{
@@ -42,7 +45,7 @@ pub fn generate_blocks(
         let block = inherit_block(shared, &parent_hash).build();
         parent_hash = block.header().hash().to_owned();
         chain_controller
-            .process_block(Arc::new(block), false)
+            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 }
@@ -57,7 +60,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .unwrap_or(parent_epoch);
     let cellbase = {
         let (_, reward) = snapshot.finalize_block_reward(&parent.header()).unwrap();
-        always_success_cellbase(parent_number + 1, reward.total)
+        always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
     };
     let dao = {
         let resolved_cellbase = resolve_transaction(
@@ -76,8 +79,8 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .parent_hash(parent_hash.to_owned())
         .number((parent.header().number() + 1).pack())
         .timestamp((parent.header().timestamp() + 1).pack())
-        .epoch(epoch.number().pack())
-        .difficulty(epoch.difficulty().pack())
+        .epoch(epoch.number_with_fraction(parent_number + 1).pack())
+        .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .transaction(inherit_cellbase(&snapshot, parent_number))
 }
@@ -92,5 +95,5 @@ pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> Tran
             .expect("parent exist")
     };
     let (_, reward) = snapshot.finalize_block_reward(&parent_header).unwrap();
-    always_success_cellbase(parent_number + 1, reward.total)
+    always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
 }

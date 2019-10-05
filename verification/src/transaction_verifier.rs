@@ -1,7 +1,6 @@
 use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
@@ -9,7 +8,7 @@ use ckb_types::{
     constants::TX_VERSION,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, Cycle, EpochNumber, TransactionView,
+        BlockNumber, Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView,
     },
     packed::Byte32,
     prelude::*,
@@ -31,17 +30,21 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         block_number: BlockNumber,
-        epoch_number: EpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
         consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(
+                &rtx,
+                epoch_number_with_fraction,
+                consensus.cellbase_maturity(),
+            ),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
                 block_number,
-                epoch_number,
+                epoch_number_with_fraction,
                 parent_hash,
             ),
         }
@@ -76,7 +79,7 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         block_number: BlockNumber,
-        epoch_number: EpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
         consensus: &'a Consensus,
         chain_store: &'a CS,
@@ -85,16 +88,20 @@ where
             version: VersionVerifier::new(&rtx.transaction),
             size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(&rtx.transaction),
-            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(
+                &rtx,
+                epoch_number_with_fraction,
+                consensus.cellbase_maturity(),
+            ),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store),
-            capacity: CapacityVerifier::new(rtx),
+            capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
                 block_number,
-                epoch_number,
+                epoch_number_with_fraction,
                 parent_hash,
             ),
         }
@@ -125,7 +132,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.version() != TX_VERSION {
-            Err(TransactionError::MismatchedVersion)?;
+            return Err((TransactionError::MismatchedVersion).into());
         }
         Ok(())
     }
@@ -145,11 +152,11 @@ impl<'a> SizeVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let size = self.transaction.serialized_size() as u64;
+        let size = self.transaction.data().serialized_size_in_block() as u64;
         if size <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(TransactionError::ExceededMaximumBlockBytes)?
+            Err(TransactionError::ExceededMaximumBlockBytes.into())
         }
     }
 }
@@ -183,8 +190,10 @@ impl<'a> EmptyVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.transaction.is_empty() {
-            Err(TransactionError::Empty)?
+        if self.transaction.inputs().is_empty()
+            || (self.transaction.outputs().is_empty() && !self.transaction.is_cellbase())
+        {
+            Err(TransactionError::Empty.into())
         } else {
             Ok(())
         }
@@ -193,19 +202,19 @@ impl<'a> EmptyVerifier<'a> {
 
 pub struct MaturityVerifier<'a> {
     transaction: &'a ResolvedTransaction,
-    block_number: BlockNumber,
-    cellbase_maturity: BlockNumber,
+    epoch: EpochNumberWithFraction,
+    cellbase_maturity: EpochNumberWithFraction,
 }
 
 impl<'a> MaturityVerifier<'a> {
     pub fn new(
         transaction: &'a ResolvedTransaction,
-        block_number: BlockNumber,
-        cellbase_maturity: BlockNumber,
+        epoch: EpochNumberWithFraction,
+        cellbase_maturity: EpochNumberWithFraction,
     ) -> Self {
         MaturityVerifier {
             transaction,
-            block_number,
+            epoch,
             cellbase_maturity,
         }
     }
@@ -215,9 +224,12 @@ impl<'a> MaturityVerifier<'a> {
             meta.transaction_info
                 .as_ref()
                 .map(|info| {
-                    info.block_number > 0
-                        && info.is_cellbase()
-                        && self.block_number < info.block_number + self.cellbase_maturity
+                    info.block_number > 0 && info.is_cellbase() && {
+                        let threshold =
+                            self.cellbase_maturity.to_rational() + info.block_epoch.to_rational();
+                        let current = self.epoch.to_rational();
+                        current < threshold
+                    }
                 })
                 .unwrap_or(false)
         };
@@ -236,7 +248,7 @@ impl<'a> MaturityVerifier<'a> {
         };
 
         if input_immature_spend() || dep_immature_spend() {
-            Err(TransactionError::CellbaseImmaturity)?
+            Err(TransactionError::CellbaseImmaturity.into())
         } else {
             Ok(())
         }
@@ -266,19 +278,25 @@ impl<'a> DuplicateDepsVerifier<'a> {
         {
             Ok(())
         } else {
-            Err(TransactionError::DuplicateDeps)?
+            Err(TransactionError::DuplicateDeps.into())
         }
     }
 }
 
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction,
+    // It's Option because special genesis block do not have dao system cell
+    dao_type_hash: Option<Byte32>,
 }
 
 impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        dao_type_hash: Option<Byte32>,
+    ) -> Self {
         CapacityVerifier {
             resolved_transaction,
+            dao_type_hash,
         }
     }
 
@@ -292,7 +310,7 @@ impl<'a> CapacityVerifier<'a> {
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
             if inputs_total < outputs_total {
-                Err(TransactionError::OutputsSumOverflow)?;
+                return Err((TransactionError::OutputsSumOverflow).into());
             }
         }
 
@@ -302,7 +320,7 @@ impl<'a> CapacityVerifier<'a> {
             .outputs_with_data_iter()
         {
             if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
-                Err(TransactionError::InsufficientCellCapacity)?;
+                return Err((TransactionError::InsufficientCellCapacity).into());
             }
         }
 
@@ -318,7 +336,11 @@ impl<'a> CapacityVerifier<'a> {
                     .cell_output
                     .type_()
                     .to_opt()
-                    .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
+                    .map(|t| {
+                        t.hash_type().unpack() == ScriptHashType::Type
+                            && &t.code_hash()
+                                == self.dao_type_hash.as_ref().expect("No dao system cell")
+                    })
                     .unwrap_or(false)
             })
     }
@@ -331,7 +353,7 @@ const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
 enum SinceMetric {
     BlockNumber(u64),
-    EpochNumber(u64),
+    EpochNumberWithFraction(EpochNumberWithFraction),
     Timestamp(u64),
 }
 
@@ -360,7 +382,9 @@ impl Since {
             //0b0000_0000
             0x0000_0000_0000_0000 => Some(SinceMetric::BlockNumber(value)),
             //0b0010_0000
-            0x2000_0000_0000_0000 => Some(SinceMetric::EpochNumber(value)),
+            0x2000_0000_0000_0000 => Some(SinceMetric::EpochNumberWithFraction(
+                EpochNumberWithFraction::from_full_value(value),
+            )),
             //0b0100_0000
             0x4000_0000_0000_0000 => Some(SinceMetric::Timestamp(value * 1000)),
             _ => None,
@@ -373,7 +397,7 @@ pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction,
     block_median_time_context: &'a M,
     block_number: BlockNumber,
-    epoch_number: EpochNumber,
+    epoch_number_with_fraction: EpochNumberWithFraction,
     parent_hash: Byte32,
     median_timestamps_cache: RefCell<LruCache<Byte32, u64>>,
 }
@@ -386,7 +410,7 @@ where
         rtx: &'a ResolvedTransaction,
         block_median_time_context: &'a M,
         block_number: BlockNumber,
-        epoch_number: BlockNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
@@ -394,7 +418,7 @@ where
             rtx,
             block_median_time_context,
             block_number,
-            epoch_number,
+            epoch_number_with_fraction,
             parent_hash,
             median_timestamps_cache,
         }
@@ -424,22 +448,22 @@ where
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < block_number {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
-                Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.epoch_number < epoch_number {
-                        Err(TransactionError::Immature)?;
+                Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    if self.epoch_number_with_fraction < epoch_number_with_fraction {
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
                     let tip_timestamp = self.block_median_time(&self.parent_hash);
                     if tip_timestamp < timestamp {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSince)?;
+                    return Err((TransactionError::InvalidSince).into());
                 }
             }
         }
@@ -449,18 +473,21 @@ where
     fn verify_relative_lock(&self, since: Since, cell_meta: &CellMeta) -> Result<(), Error> {
         if since.is_relative() {
             let info = match cell_meta.transaction_info {
-                Some(ref transaction_info) => transaction_info,
-                None => Err(TransactionError::Immature)?,
-            };
+                Some(ref transaction_info) => Ok(transaction_info),
+                None => Err(TransactionError::Immature),
+            }?;
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < info.block_number + block_number {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
-                Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.epoch_number < info.block_epoch + epoch_number {
-                        Err(TransactionError::Immature)?;
+                Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    let a = self.epoch_number_with_fraction.to_rational();
+                    let b =
+                        info.block_epoch.to_rational() + epoch_number_with_fraction.to_rational();
+                    if a < b {
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
@@ -471,11 +498,11 @@ where
                     let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
-                        Err(TransactionError::Immature)?;
+                        return Err((TransactionError::Immature).into());
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSince)?;
+                    return Err((TransactionError::InvalidSince).into());
                 }
             }
         }
@@ -497,7 +524,7 @@ where
             let since = Since(since);
             // check remain flags
             if !since.flags_is_valid() {
-                Err(TransactionError::InvalidSince)?;
+                return Err((TransactionError::InvalidSince).into());
             }
 
             // verify time lock
@@ -519,7 +546,7 @@ impl<'a> OutputsDataVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
-            Err(TransactionError::OutputsDataLengthMismatch)?;
+            return Err(TransactionError::OutputsDataLengthMismatch);
         }
         Ok(())
     }

@@ -1,19 +1,9 @@
-use crate::header_verifier::{
-    EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
-};
-use crate::{
-    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
-};
+use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier};
+use crate::{BlockErrorKind, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
-use ckb_types::{
-    constants::HEADER_VERSION,
-    core::{EpochExt, HeaderBuilder, HeaderView},
-    packed::Header,
-    prelude::*,
-    U256,
-};
+use ckb_types::{constants::HEADER_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
 use faketime::unix_time_as_millis;
 use std::sync::Arc;
 
@@ -30,7 +20,7 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&header);
 
-    assert_error_eq(verifier.verify().unwrap_err(), BlockErrorKind::Version);
+    assert_error_eq!(verifier.verify().unwrap_err(), BlockErrorKind::Version);
 }
 
 #[cfg(not(disable_faketime))]
@@ -65,7 +55,7 @@ fn test_timestamp_too_old() {
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
-    assert_error_eq(
+    assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
         TimestampError::BlockTimeTooOld {
             min,
@@ -88,7 +78,7 @@ fn test_timestamp_too_new() {
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
-    assert_error_eq(
+    assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
         TimestampError::BlockTimeTooNew {
             max,
@@ -103,68 +93,11 @@ fn test_number() {
     let header = HeaderBuilder::default().number(10u64.pack()).build();
 
     let verifier = NumberVerifier::new(&parent, &header);
-    assert_error_eq(
+    assert_error_eq!(
         verifier.verify().unwrap_err(),
         NumberError {
             expected: 11,
             actual: 10,
-        },
-    );
-}
-
-struct FakeHeaderResolver {
-    header: HeaderView,
-    epoch: EpochExt,
-}
-
-impl FakeHeaderResolver {
-    fn new(header: HeaderView, epoch: EpochExt) -> Self {
-        Self { header, epoch }
-    }
-}
-
-impl HeaderResolver for FakeHeaderResolver {
-    fn header(&self) -> &HeaderView {
-        &self.header
-    }
-
-    fn parent(&self) -> Option<&HeaderView> {
-        unimplemented!();
-    }
-
-    fn epoch(&self) -> Option<&EpochExt> {
-        Some(&self.epoch)
-    }
-}
-
-#[test]
-fn test_epoch_number() {
-    let header = HeaderBuilder::default().epoch(2u64.pack()).build();
-    let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
-
-    assert_error_eq(
-        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::NumberMismatch {
-            expected: 0,
-            actual: 2,
-        },
-    )
-}
-
-#[test]
-fn test_epoch_difficulty() {
-    let header = HeaderBuilder::default()
-        .difficulty(U256::from(2u64).pack())
-        .build();
-    let mut epoch = EpochExt::default();
-    epoch.set_difficulty(U256::from(1u64));
-    let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
-
-    assert_error_eq(
-        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::DifficultyMismatch {
-            expected: U256::from(1u64).pack(),
-            actual: U256::from(2u64).pack(),
         },
     );
 }
@@ -183,5 +116,5 @@ fn test_pow_verifier() {
     let fake_pow_engine: Arc<dyn PowEngine> = Arc::new(FakePowEngine);
     let verifier = PowVerifier::new(&header, &fake_pow_engine);
 
-    assert_error_eq(verifier.verify().unwrap_err(), PowError::InvalidNonce);
+    assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }

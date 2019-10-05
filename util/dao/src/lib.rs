@@ -2,19 +2,17 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
-    bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView,
+        Capacity, CapacityResult, HeaderView, ScriptHashType,
     },
-    packed::{Byte32, CellOutput, OutPoint},
+    packed::{Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use std::cmp::max;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 
 pub struct DaoCalculator<'a, CS, DL> {
     pub consensus: &'a Consensus,
@@ -57,16 +55,13 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .and_then(|index| self.store.get_epoch_ext(&index))
             .ok_or(DaoError::InvalidHeader)?;
 
-        let target_g2 = calculate_g2(
-            target.number(),
-            &target_epoch,
-            self.consensus.secondary_epoch_reward(),
-        )?;
-        let (_, _, target_parent_u) = extract_dao_data(target_parent.dao())?;
-        let (_, target_c, _) = extract_dao_data(target.dao())?;
-        let reward = u128::from(target_g2.as_u64()) * u128::from(target_parent_u.as_u64())
-            / (max(u128::from(target_c.as_u64()), 1));
-        Ok(Capacity::shannons(reward as u64))
+        let target_g2 = target_epoch
+            .secondary_block_issuance(target.number(), self.consensus.secondary_epoch_reward())?;
+        let (_, target_parent_c, _, target_parent_u) = extract_dao_data(target_parent.dao())?;
+        let reward128 = u128::from(target_g2.as_u64()) * u128::from(target_parent_u.as_u64())
+            / u128::from(target_parent_c.as_u64());
+        let reward = u64::try_from(reward128).map_err(|_| DaoError::Overflow)?;
+        Ok(Capacity::shannons(reward))
     }
 
     // Notice unlike primary_block_reward and secondary_epoch_reward above,
@@ -99,61 +94,58 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                 self.input_occupied_capacities(rtx)
                     .and_then(|c| capacities.safe_add(c).map_err(Into::into))
             })?;
+        let added_occupied_capacities = self.added_occupied_capacities(rtxs)?;
+        let withdrawed_interests = self.withdrawed_interests(rtxs)?;
 
-        // Newly added occupied capacities from outputs
-        let added_occupied_capacities =
-            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
-                rtx.transaction
-                    .outputs_with_data_iter()
-                    .try_fold(Capacity::zero(), |tx_capacities, (output, data)| {
-                        Capacity::bytes(data.len()).and_then(|data_capacity| {
-                            output
-                                .occupied_capacity(data_capacity)
-                                .and_then(|c| tx_capacities.safe_add(c))
-                        })
-                    })
-                    .and_then(|c| capacities.safe_add(c))
-            })?;
+        let (parent_ar, parent_c, parent_s, parent_u) = extract_dao_data(parent.dao())?;
 
-        let (parent_ar, parent_c, parent_u) = extract_dao_data(parent.dao())?;
+        // g contains both primary issuance and secondary issuance,
+        // g2 is the secondary issuance for the block, which consists of
+        // issuance for the miner, NervosDAO and treasury.
+        // When calculating issuance in NervosDAO, we use the real
+        // issuance for each block(which will only be issued on chain
+        // after the finalization delay), not the capacities generated
+        // in the cellbase of current block.
+        let parent_block_epoch = self
+            .store
+            .get_block_epoch_index(&parent.hash())
+            .and_then(|index| self.store.get_epoch_ext(&index))
+            .ok_or(DaoError::InvalidHeader)?;
+        let current_block_epoch = self
+            .store
+            .next_epoch_ext(&self.consensus, &parent_block_epoch, &parent)
+            .unwrap_or(parent_block_epoch);
+        let current_block_number = parent.number() + 1;
+        let current_g2 = current_block_epoch.secondary_block_issuance(
+            current_block_number,
+            self.consensus.secondary_epoch_reward(),
+        )?;
+        let current_g = current_block_epoch
+            .block_reward(current_block_number)
+            .and_then(|c| c.safe_add(current_g2).map_err(Into::into))?;
 
-        let (parent_g, parent_g2) = if parent.number() == 0 {
-            (Capacity::zero(), Capacity::zero())
-        } else {
-            let target_number = self
-                .consensus
-                .finalize_target(parent.number())
-                .ok_or(DaoError::InvalidHeader)?;
-            let target = self
-                .store
-                .get_block_hash(target_number)
-                .and_then(|hash| self.store.get_block_header(&hash))
-                .ok_or(DaoError::InvalidHeader)?;
-            let target_epoch = self
-                .store
-                .get_block_epoch_index(&target.hash())
-                .and_then(|index| self.store.get_epoch_ext(&index))
-                .ok_or(DaoError::InvalidHeader)?;
-            let parent_g2 = calculate_g2(
-                target.number(),
-                &target_epoch,
-                self.consensus.secondary_epoch_reward(),
-            )?;
-            let parent_g = self
-                .primary_block_reward(&target)
-                .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?;
-            (parent_g, parent_g2)
-        };
+        let miner_issuance128 = u128::from(current_g2.as_u64()) * u128::from(parent_u.as_u64())
+            / u128::from(parent_c.as_u64());
+        let miner_issuance =
+            Capacity::shannons(u64::try_from(miner_issuance128).map_err(|_| DaoError::Overflow)?);
+        let nervosdao_issuance = current_g2.safe_sub(miner_issuance)?;
 
-        let current_c = parent_c.safe_add(parent_g)?;
-        let current_ar = u128::from(parent_ar)
-            * u128::from((parent_c.safe_add(parent_g2)?).as_u64())
-            / (max(u128::from(parent_c.as_u64()), 1));
+        let current_c = parent_c.safe_add(current_g)?;
         let current_u = parent_u
             .safe_add(added_occupied_capacities)
             .and_then(|u| u.safe_sub(freed_occupied_capacities))?;
+        let current_s = parent_s
+            .safe_add(nervosdao_issuance)
+            .and_then(|s| s.safe_sub(withdrawed_interests))?;
 
-        Ok(pack_dao_data(current_ar as u64, current_c, current_u))
+        let ar_increase128 =
+            u128::from(parent_ar) * u128::from(current_g2.as_u64()) / u128::from(parent_c.as_u64());
+        let ar_increase = u64::try_from(ar_increase128).map_err(|_| DaoError::Overflow)?;
+        let current_ar = parent_ar
+            .checked_add(ar_increase)
+            .ok_or(DaoError::Overflow)?;
+
+        Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
     }
 
     pub fn maximum_withdraw(
@@ -182,17 +174,77 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     }
 
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
-        let header_deps: HashSet<Byte32> = rtx.transaction.header_deps_iter().collect();
+        let maximum_withdraw = self.transaction_maximum_withdraw(rtx)?;
+        rtx.transaction
+            .outputs_capacity()
+            .and_then(|y| maximum_withdraw.safe_sub(y))
+            .map_err(Into::into)
+    }
+
+    fn added_occupied_capacities(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
+        // Newly added occupied capacities from outputs
+        let added_occupied_capacities =
+            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+                rtx.transaction
+                    .outputs_with_data_iter()
+                    .enumerate()
+                    .try_fold(Capacity::zero(), |tx_capacities, (_, (output, data))| {
+                        Capacity::bytes(data.len())
+                            .and_then(|c| output.occupied_capacity(c))
+                            .and_then(|c| tx_capacities.safe_add(c))
+                    })
+                    .and_then(|c| capacities.safe_add(c))
+            })?;
+
+        Ok(added_occupied_capacities)
+    }
+
+    fn input_occupied_capacities(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         rtx.resolved_inputs
             .iter()
-            .enumerate()
-            .try_fold(Capacity::zero(), |capacities, (i, cell_meta)| {
+            .try_fold(Capacity::zero(), |capacities, cell_meta| {
+                let current_capacity = modified_occupied_capacity(&cell_meta, &self.consensus);
+                current_capacity.and_then(|c| capacities.safe_add(c))
+            })
+            .map_err(Into::into)
+    }
+
+    fn withdrawed_interests(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
+        let maximum_withdraws = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+            self.transaction_maximum_withdraw(rtx)
+                .and_then(|c| capacities.safe_add(c).map_err(Into::into))
+        })?;
+        let input_capacities = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+            let tx_input_capacities = rtx.resolved_inputs.iter().try_fold(
+                Capacity::zero(),
+                |tx_capacities, cell_meta| {
+                    let output_capacity: Capacity = cell_meta.cell_output.capacity().unpack();
+                    tx_capacities.safe_add(output_capacity)
+                },
+            )?;
+            capacities.safe_add(tx_input_capacities)
+        })?;
+        maximum_withdraws
+            .safe_sub(input_capacities)
+            .map_err(Into::into)
+    }
+
+    fn transaction_maximum_withdraw(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
+        let header_deps: HashSet<Byte32> = rtx.transaction.header_deps_iter().collect();
+        rtx.resolved_inputs.iter().enumerate().try_fold(
+            Capacity::zero(),
+            |capacities, (i, cell_meta)| {
                 let capacity: Result<Capacity, Error> = {
                     let output = &cell_meta.cell_output;
+                    let is_dao_type_script = |type_script: Script| {
+                        type_script.hash_type().unpack() == ScriptHashType::Type
+                            && type_script.code_hash()
+                                == self.consensus.dao_type_hash().expect("No dao system cell")
+                    };
                     if output
                         .type_()
                         .to_opt()
-                        .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
+                        .map(is_dao_type_script)
                         .unwrap_or(false)
                     {
                         let deposit_header_hash = cell_meta
@@ -205,13 +257,16 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .transaction
                             .witnesses()
                             .get(i)
-                            .and_then(|witness| witness.get(1))
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                if witness_data.raw_data().len() != 8 {
+                                // dao contract stores header deps index as u64 in the last 8 bytes of witness
+                                let witness_len = witness_data.raw_data().len();
+                                if witness_len < 8 {
                                     Err(DaoError::InvalidDaoFormat)
                                 } else {
-                                    Ok(LittleEndian::read_u64(&witness_data.raw_data()[0..8]))
+                                    Ok(LittleEndian::read_u64(
+                                        &witness_data.raw_data()[witness_len - 8..],
+                                    ))
                                 }
                             })
                             .and_then(|header_dep_index| {
@@ -232,23 +287,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                     }
                 };
                 capacity.and_then(|c| c.safe_add(capacities).map_err(Into::into))
-            })
-            .and_then(|x| {
-                rtx.transaction
-                    .outputs_capacity()
-                    .and_then(|y| x.safe_sub(y))
-                    .map_err(Into::into)
-            })
-    }
-
-    fn input_occupied_capacities(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
-        rtx.resolved_inputs
-            .iter()
-            .try_fold(Capacity::zero(), |capacities, cell_meta| {
-                let current_capacity = modified_occupied_capacity(&cell_meta, &self.consensus);
-                current_capacity.and_then(|c| capacities.safe_add(c))
-            })
-            .map_err(Into::into)
+            },
+        )
     }
 
     fn calculate_maximum_withdraw(
@@ -266,8 +306,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .store
             .get_block_header(withdraw_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
-        let (deposit_ar, _, _) = extract_dao_data(deposit_header.dao())?;
-        let (withdraw_ar, _, _) = extract_dao_data(withdraw_header.dao())?;
+        let (deposit_ar, _, _, _) = extract_dao_data(deposit_header.dao())?;
+        let (withdraw_ar, _, _, _) = extract_dao_data(withdraw_header.dao())?;
 
         let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
         let output_capacity: Capacity = output.capacity().unpack();
@@ -282,25 +322,6 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     }
 }
 
-fn calculate_g2(
-    block_number: BlockNumber,
-    current_epoch_ext: &EpochExt,
-    secondary_epoch_reward: Capacity,
-) -> Result<Capacity, Error> {
-    if block_number == 0 {
-        return Ok(Capacity::zero());
-    }
-    let epoch_length = current_epoch_ext.length();
-    let mut g2 = Capacity::shannons(secondary_epoch_reward.as_u64() / epoch_length);
-    let remainder = secondary_epoch_reward.as_u64() % epoch_length;
-    if block_number >= current_epoch_ext.start_number()
-        && block_number < current_epoch_ext.start_number() + remainder
-    {
-        g2 = g2.safe_add(Capacity::one())?;
-    }
-    Ok(g2)
-}
-
 /// return special occupied capacity if cell is satoshi's gift
 /// otherwise return cell occupied capacity
 pub fn modified_occupied_capacity(
@@ -310,13 +331,7 @@ pub fn modified_occupied_capacity(
     if let Some(tx_info) = &cell_meta.transaction_info {
         if tx_info.is_genesis()
             && tx_info.is_cellbase()
-            && cell_meta
-                .cell_output
-                .lock()
-                .args()
-                .get(0)
-                .map(|arg| arg.unpack())
-                == Some(Bytes::from(&consensus.satoshi_pubkey_hash.0[..]))
+            && cell_meta.cell_output.lock().args().raw_data() == consensus.satoshi_pubkey_hash.0[..]
         {
             return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
@@ -333,10 +348,12 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            capacity_bytes, cell::CellMetaBuilder, BlockBuilder, BlockNumber, HeaderBuilder,
-            TransactionBuilder,
+            capacity_bytes, cell::CellMetaBuilder, BlockBuilder, BlockNumber, EpochExt,
+            HeaderBuilder, TransactionBuilder,
         },
-        h256, H256, U256,
+        h256,
+        utilities::DIFF_TWO,
+        H256, U256,
     };
 
     fn new_store() -> ChainDB {
@@ -344,67 +361,36 @@ mod tests {
     }
 
     fn prepare_store(
-        consensus: &Consensus,
         parent: &HeaderView,
-        target_epoch_start: Option<BlockNumber>,
+        epoch_start: Option<BlockNumber>,
     ) -> (ChainDB, HeaderView) {
         let store = new_store();
         let txn = store.begin_transaction();
 
-        if let Some(target_number) = consensus.finalize_target(parent.number()) {
-            let target_epoch_start = target_epoch_start.unwrap_or(target_number - 300);
-            let mut index = HeaderBuilder::default()
-                .number((target_epoch_start - 1).pack())
-                .build();
-            // TODO: should make it simple after refactor get_ancestor
-            for number in target_epoch_start..parent.number() {
-                let epoch_ext = EpochExt::new_builder()
-                    .number(number)
-                    .base_block_reward(Capacity::shannons(50_000_000_000))
-                    .remainder_reward(Capacity::shannons(1_000_128))
-                    .previous_epoch_hash_rate(U256::one())
-                    .last_block_hash_in_previous_epoch(h256!("0x1").pack())
-                    .start_number(target_epoch_start)
-                    .length(2091)
-                    .difficulty(U256::one())
-                    .build();
+        let parent_block = BlockBuilder::default().header(parent.clone()).build();
 
-                let header = HeaderBuilder::default()
-                    .number(number.pack())
-                    .parent_hash(index.hash())
-                    .build();
-                let block = BlockBuilder::default().header(header.clone()).build();
+        txn.insert_block(&parent_block).unwrap();
+        txn.attach_block(&parent_block).unwrap();
 
-                index = header.clone();
+        let epoch_ext = EpochExt::new_builder()
+            .number(parent.number())
+            .base_block_reward(Capacity::shannons(50_000_000_000))
+            .remainder_reward(Capacity::shannons(1_000_128))
+            .previous_epoch_hash_rate(U256::one())
+            .last_block_hash_in_previous_epoch(h256!("0x1").pack())
+            .start_number(epoch_start.unwrap_or_else(|| parent.number() - 1000))
+            .length(2091)
+            .compact_target(DIFF_TWO)
+            .build();
+        let epoch_hash = h256!("0x123455").pack();
 
-                txn.insert_block(&block).unwrap();
-                txn.attach_block(&block).unwrap();
-                txn.insert_block_epoch_index(&header.hash(), &header.hash())
-                    .unwrap();
-                txn.insert_epoch_ext(&header.hash(), &epoch_ext).unwrap();
-            }
+        txn.insert_block_epoch_index(&parent.hash(), &epoch_hash)
+            .unwrap();
+        txn.insert_epoch_ext(&epoch_hash, &epoch_ext).unwrap();
 
-            let parent = parent
-                .as_advanced_builder()
-                .parent_hash(index.hash())
-                .build();
-            let parent_block = BlockBuilder::default().header(parent.clone()).build();
+        txn.commit().unwrap();
 
-            txn.insert_block(&parent_block).unwrap();
-            txn.attach_block(&parent_block).unwrap();
-
-            txn.commit().unwrap();
-
-            return (store, parent.clone());
-        } else {
-            let parent_block = BlockBuilder::default().header(parent.clone()).build();
-            txn.insert_block(&parent_block).unwrap();
-            txn.attach_block(&parent_block).unwrap();
-
-            txn.commit().unwrap();
-
-            return (store, parent.clone());
-        }
+        (store, parent.clone())
     }
 
     #[test]
@@ -417,11 +403,12 @@ mod tests {
             .dao(pack_dao_data(
                 10_000_000_000_123_456,
                 Capacity::shannons(500_000_000_123_000),
+                Capacity::shannons(400_000_000_123),
                 Capacity::shannons(600_000_000_000),
             ))
             .build();
 
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&parent_header, None);
         let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -429,8 +416,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_141,
-                Capacity::shannons(500_078_694_527_592),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -446,11 +434,12 @@ mod tests {
             .dao(pack_dao_data(
                 10_000_000_000_000_000,
                 Capacity::shannons(500_000_000_000_000),
+                Capacity::shannons(400_000_000_000),
                 Capacity::shannons(600_000_000_000),
             ))
             .build();
 
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&parent_header, Some(0));
         let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -458,8 +447,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_000_000_000_000,
-                Capacity::shannons(500_000_000_000_000),
+                10_000_586_990_559_680,
+                Capacity::shannons(500_079_349_527_985),
+                Capacity::shannons(429_314_308_551),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -475,11 +465,12 @@ mod tests {
             .dao(pack_dao_data(
                 10_000_000_000_123_456,
                 Capacity::shannons(500_000_000_123_000),
+                Capacity::shannons(400_000_000_123),
                 Capacity::shannons(600_000_000_000),
             ))
             .build();
 
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, Some(12329));
+        let (store, parent_header) = prepare_store(&parent_header, Some(12340));
         let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -487,37 +478,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_161,
-                Capacity::shannons(500_078_694_527_593),
-                Capacity::shannons(600_000_000_000)
-            )
-        );
-    }
-
-    #[test]
-    fn check_dao_data_calculation_works_on_zero_initial_capacity() {
-        let consensus = Consensus::default();
-
-        let parent_number = 0;
-        let parent_header = HeaderBuilder::default()
-            .number(parent_number.pack())
-            .dao(pack_dao_data(
-                10_000_000_000_000_000,
-                Capacity::shannons(0),
-                Capacity::shannons(600_000_000_000),
-            ))
-            .build();
-
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
-        let result = DaoCalculator::new(&consensus, &store)
-            .dao_field(&[], &parent_header)
-            .unwrap();
-        let dao_data = extract_dao_data(result).unwrap();
-        assert_eq!(
-            dao_data,
-            (
-                0,
-                Capacity::shannons(0),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -533,13 +496,17 @@ mod tests {
             .dao(pack_dao_data(
                 10_000_000_000_123_456,
                 Capacity::shannons(18_446_744_073_709_000_000),
+                Capacity::shannons(446_744_073_709),
                 Capacity::shannons(600_000_000_000),
             ))
             .build();
 
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&parent_header, None);
         let result = DaoCalculator::new(&consensus, &store).dao_field(&[], &parent_header);
-        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Internal(CapacityOverflow)"));
     }
 
     #[test]
@@ -552,11 +519,12 @@ mod tests {
             .dao(pack_dao_data(
                 10_000_000_000_123_456,
                 Capacity::shannons(500_000_000_123_000),
+                Capacity::shannons(400_000_000_123),
                 Capacity::shannons(600_000_000_000),
             ))
             .build();
 
-        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&parent_header, None);
         let input_cell_data = Bytes::from("abcde");
         let input_cell = CellOutput::new_builder()
             .capacity(capacity_bytes!(10000).pack())
@@ -586,8 +554,9 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_573_888_215_141,
-                Capacity::shannons(500_078_694_527_592),
+                10_000_586_990_682_998,
+                Capacity::shannons(500_079_349_650_985),
+                Capacity::shannons(429_314_308_674),
                 Capacity::shannons(600_500_000_000)
             )
         );
@@ -609,6 +578,7 @@ mod tests {
                 10_000_000_000_123_456,
                 Default::default(),
                 Default::default(),
+                Default::default(),
             ))
             .build();
         let deposit_block = BlockBuilder::default()
@@ -622,6 +592,7 @@ mod tests {
             .number(200.pack())
             .dao(pack_dao_data(
                 10_000_000_001_123_456,
+                Default::default(),
                 Default::default(),
                 Default::default(),
             ))
@@ -640,7 +611,7 @@ mod tests {
 
         let consensus = Consensus::default();
         let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdraw_header.hash());
+        let result = calculator.maximum_withdraw(&out_point, &withdraw_block.hash());
         assert_eq!(result.unwrap(), Capacity::shannons(100_000_000_009_999));
     }
 
@@ -656,6 +627,7 @@ mod tests {
                 10_000_000_000_123_456,
                 Default::default(),
                 Default::default(),
+                Default::default(),
             ))
             .build();
         let deposit_block = BlockBuilder::default()
@@ -669,6 +641,7 @@ mod tests {
             .number(200.pack())
             .dao(pack_dao_data(
                 10_000_000_001_123_456,
+                Default::default(),
                 Default::default(),
                 Default::default(),
             ))

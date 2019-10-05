@@ -1,4 +1,3 @@
-use crate::format::Format;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
@@ -17,28 +16,19 @@ pub struct Import {
     /// source file contains block data
     source: PathBuf,
     chain: ChainController,
-    /// source file format
-    format: Format,
 }
 
 impl Import {
-    pub fn new(chain: ChainController, format: Format, source: PathBuf) -> Self {
-        Import {
-            format,
-            chain,
-            source,
-        }
+    pub fn new(chain: ChainController, source: PathBuf) -> Self {
+        Import { chain, source }
     }
 
-    pub fn execute(self) -> Result<(), Box<Error>> {
-        match self.format {
-            Format::Json => self.read_from_json(),
-            _ => Ok(()),
-        }
+    pub fn execute(self) -> Result<(), Box<dyn Error>> {
+        self.read_from_json()
     }
 
     #[cfg(not(feature = "progress_bar"))]
-    pub fn read_from_json(&self) -> Result<(), Box<Error>> {
+    pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);
 
@@ -48,7 +38,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block, true)
+                    .process_block(block)
                     .expect("import occur malformation data");
             }
         }
@@ -56,7 +46,7 @@ impl Import {
     }
 
     #[cfg(feature = "progress_bar")]
-    pub fn read_from_json(&self) -> Result<(), Box<Error>> {
+    pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         let metadata = fs::metadata(&self.source)?;
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);
@@ -72,7 +62,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block, true)
+                    .process_block(block)
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);

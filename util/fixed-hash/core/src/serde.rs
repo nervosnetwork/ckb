@@ -48,7 +48,7 @@ macro_rules! impl_serde {
                         if b.len() <= 2 || &b[0..2] != b"0x" {
                             return Err(E::custom(format_args!(
                                 "invalid format, expected {}",
-                                &self as &serde::de::Expected
+                                &self as &dyn serde::de::Expected
                             )));
                         }
 
@@ -59,7 +59,7 @@ macro_rules! impl_serde {
                         $name::from_str(&v[2..]).map_err(|e| {
                             E::custom(format_args!(
                                 "invalid hex bytes: {:?}, expected {}",
-                                e, &self as &serde::de::Expected
+                                e, &self as &dyn serde::de::Expected
                             ))
                         })
                     }

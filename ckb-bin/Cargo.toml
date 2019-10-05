@@ -1,6 +1,6 @@
 [package]
 name = "ckb-bin"
-version = "0.21.2"
+version = "0.22.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -35,3 +35,4 @@ ckb-build-info = { path = "../util/build-info" }
 ckb-verification = { path = "../verification" }
 faster-hex = "0.4"
 ckb-db = { path = "../db" }
+base64 = "0.10.1"

@@ -11,5 +11,5 @@ pub(crate) const LOG_TARGET_TX_POOL: &str = "ckb-tx-pool";
 pub use component::entry::TxEntry;
 pub use config::{BlockAssemblerConfig, TxPoolConfig};
 pub use process::PlugTarget;
-pub use service::{TxPoolController, TxPoolServiceBuiler};
+pub use service::{TxPoolController, TxPoolServiceBuilder};
 pub use tokio::sync::lock::Lock as PollLock;

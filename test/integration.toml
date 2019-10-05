@@ -4,24 +4,21 @@ name = "ckb_integration_test"
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 timestamp = 0
-difficulty = "0x100"
+compact_target = 0x20010000
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 issued_cells = []
-nonce = 0
+nonce = "0x0"
 
 [genesis.genesis_cell]
 message = ""
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
-args = []
+args = "0x"
 hash_type = "data"
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
-[[genesis.system_cells]]
-file = { file = "cells/always_success" }
-create_type_id = false
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
 create_type_id = true
@@ -34,10 +31,13 @@ create_type_id = false
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
 create_type_id = true
+[[genesis.system_cells]]
+file = { file = "cells/always_success" }
+create_type_id = false
 
 [genesis.system_cells_lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
-args = []
+args = "0x"
 hash_type = "data"
 
 # Dep group cells
@@ -53,14 +53,17 @@ secp256k1_ripemd160_sha256_sighash_all = [
 
 [genesis.bootstrap_lock]
 code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-args = []
+args = "0x"
 hash_type = "data"
 
 [params]
-epoch_reward = 1_250_000_00000000
-secondary_epoch_reward = 600_000_00000000
+initial_primary_epoch_reward = 1_917_808_21917808
+secondary_epoch_reward = 613_698_63013698
 max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
+primary_epoch_reward_halving_interval = 8760
+epoch_duration_target = 14400
+genesis_epoch_length = 1000
 
 [pow]
 func = "Dummy"

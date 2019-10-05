@@ -1,5 +1,5 @@
 use crate::utils::is_committed;
-use crate::{Net, Node, Spec};
+use crate::{Net, Node, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
@@ -23,7 +23,7 @@ impl Spec for ChainFork1 {
     //                  1    2    3    4
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 
@@ -64,7 +64,7 @@ impl Spec for ChainFork2 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
     // node2                 \ -> C -> F -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -113,18 +113,18 @@ impl Spec for ChainFork3 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW.1 + 2 blocks (A, B) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -132,7 +132,7 @@ impl Spec for ChainFork3 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -158,7 +158,7 @@ impl Spec for ChainFork3 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -168,7 +168,7 @@ impl Spec for ChainFork3 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -184,18 +184,18 @@ impl Spec for ChainFork4 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
         info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -203,7 +203,7 @@ impl Spec for ChainFork4 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -227,7 +227,7 @@ impl Spec for ChainFork4 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -237,7 +237,7 @@ impl Spec for ChainFork4 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -253,13 +253,13 @@ impl Spec for ChainFork5 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 1 block (A) on node0");
-        node0.generate_blocks(1);
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW +2 block (A) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         info!("Generate 1 block (B) on node0, proposal spent A cellbase transaction");
         let transaction = node0.new_transaction_spend_tip_cellbase();
         node0.submit_transaction(&transaction);
@@ -267,7 +267,7 @@ impl Spec for ChainFork5 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -275,7 +275,7 @@ impl Spec for ChainFork5 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -295,12 +295,12 @@ impl Spec for ChainFork5 {
             }
         };
         node1.submit_block(&block.data());
-        assert_eq!(4, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = block.as_advanced_builder().transaction(transaction).build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(16, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -310,7 +310,7 @@ impl Spec for ChainFork5 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 5);
     }
 }
 
@@ -326,7 +326,7 @@ impl Spec for ChainFork6 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -385,18 +385,18 @@ impl Spec for ChainFork7 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
 
-        info!("Generate 2 blocks (A, B) on node0");
-        node0.generate_blocks(2);
+        info!("Generate 12 blocks (A, B) on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -404,7 +404,7 @@ impl Spec for ChainFork7 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -429,7 +429,7 @@ impl Spec for ChainFork7 {
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -439,7 +439,7 @@ impl Spec for ChainFork7 {
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
     }
 }
 
@@ -452,7 +452,7 @@ impl Spec for LongForks {
 
     // Case: Two nodes has different long forks should be able to convergence
     // based on sync mechanism
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
         net.exit_ibd_mode();
@@ -491,12 +491,14 @@ impl Spec for ForksContainSameTransactions {
     //   2. `chain0` and `chain1` both contain transaction `tx`, but `chain2` not
     //   3. Initialize node holds `chain0` as the main chain, then switch to `chain2`, finally to
     //      `chain1`. We expect `get_transaction(tx)` returns successfully.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
         let target_node = &net.nodes[3];
+
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let transaction = node0.new_transaction_spend_tip_cellbase();
 
@@ -513,13 +515,13 @@ impl Spec for ForksContainSameTransactions {
             sleep(Duration::from_millis(1));
             node1.generate_blocks(30);
             node1.submit_transaction(&transaction);
-            node1.generate_blocks(30);
+            node1.generate_blocks(40);
         }
 
         // Build `chain2`, all the blocks are empty, with length = 51
         {
             sleep(Duration::from_millis(1));
-            node2.generate_blocks(50);
+            node2.generate_blocks(60);
         }
 
         let (rpc_client0, rpc_client1, rpc_client2) =
@@ -534,21 +536,78 @@ impl Spec for ForksContainSameTransactions {
 
         // `target_node` holds `chain0` as the main chain
         target_node.connect(node0);
-        target_node.waiting_for_sync(node0, 41);
+        target_node.waiting_for_sync(node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 43);
         target_node.disconnect(node0);
         is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
-        target_node.waiting_for_sync(node2, 51);
+        target_node.waiting_for_sync(node2, 61);
         target_node.disconnect(node2);
         is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
-        target_node.waiting_for_sync(node1, 61);
+        target_node.waiting_for_sync(node1, 71);
         target_node.disconnect(node1);
         is_transaction_existed(target_node, transaction.hash());
+    }
+}
+
+pub struct ForksContainSameUncle;
+
+impl Spec for ForksContainSameUncle {
+    crate::name!("forks_contain_same_uncle");
+
+    crate::setup!(
+         num_nodes: 2,
+         connect_all: false,
+         protocols: vec![TestProtocol::sync()],
+    );
+
+    // Case: Two nodes maintain two different forks, but contains a same uncle block, should be
+    //       able to sync with each other.
+    //
+    // Consider the forks-graph: fork-A add block-U as uncle into block-A, fork-B add block-U
+    // as uncle into block-B as well. We expect that different nodes maintains fork-A and fork-B
+    // can sync with each other.
+    //
+    //                     /-> A(U)
+    // genesis -> 1 -> 2 ->
+    //             \       \-> B(U)
+    //              \-> U
+    //
+    fn run(&self, net: &mut Net) {
+        let node_a = &net.nodes[0];
+        let node_b = &net.nodes[1];
+        net.exit_ibd_mode();
+
+        info!("(1) Construct an uncle before fork point");
+        let uncle = construct_uncle(node_a);
+        node_a.generate_block();
+        node_b.generate_block();
+
+        info!("(2) Add `uncle` into different forks in node_a and node_b");
+        node_a.submit_block(&uncle.data());
+        node_b.submit_block(&uncle.data());
+        let block_a = node_a
+            .new_block_builder(None, None, None)
+            .set_uncles(vec![uncle.as_uncle()])
+            .build();
+        let block_b = node_b
+            .new_block_builder(None, None, None)
+            .set_uncles(vec![uncle.as_uncle()])
+            .timestamp((block_a.timestamp() + 2).pack())
+            .build();
+        node_a.submit_block(&block_a.data());
+        node_b.submit_block(&block_b.data());
+
+        info!("(3) Make node_b's fork longer(to help check whether is synchronized)");
+        node_b.generate_block();
+
+        info!("(4) Connect node_a and node_b, expect that they sync into convergence");
+        node_a.connect(node_b);
+        net.waiting_for_sync(node_b.get_tip_block_number());
     }
 }
 
@@ -574,4 +633,14 @@ fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
         .get_transaction(tx_hash)
         .expect("node should contains transaction");
     is_committed(&tx_status);
+}
+
+// Convenient way to construct an uncle block
+fn construct_uncle(node: &Node) -> BlockView {
+    let block = node.new_block(None, None, None);
+    let timestamp = block.timestamp() + 10;
+    block
+        .as_advanced_builder()
+        .timestamp(timestamp.pack())
+        .build()
 }

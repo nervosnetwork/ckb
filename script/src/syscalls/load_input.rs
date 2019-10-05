@@ -1,6 +1,9 @@
-use crate::syscalls::{
-    utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
-    LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{
+        utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
+        LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
+    },
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_types::{
@@ -49,40 +52,31 @@ impl<'a> LoadInput<'a> {
         &self,
         machine: &mut Mac,
         input: &CellInput,
-    ) -> Result<usize, VMError> {
-        // NOTE: like LOAD_CELL, this could also be expensive assuming the
-        // input has too many args. So right now we also charge for the full
-        // serialized input size. IF there's a chance we can get partial read
-        // working directly from storage to VM memory, we can revise the cycle
-        // costs here.
-
+    ) -> Result<u64, VMError> {
         let data = input.as_slice();
-        store_data(machine, data)?;
-        Ok(data.len())
+        let wrote_size = store_data(machine, data)?;
+        Ok(wrote_size)
     }
 
     fn load_by_field<Mac: SupportMachine>(
         &self,
         machine: &mut Mac,
         input: &CellInput,
-    ) -> Result<usize, VMError> {
+    ) -> Result<u64, VMError> {
         let field = InputField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
-        let result = match field {
+        match field {
             InputField::OutPoint => {
                 let previous_output = input.previous_output();
                 let data = previous_output.as_slice();
-                store_data(machine, data)?;
-                data.len()
+                store_data(machine, data)
             }
             InputField::Since => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(input.since().unpack())?;
-                store_data(machine, &buffer)?;
-                buffer.len()
+                store_data(machine, &buffer)
             }
-        };
-        Ok(result)
+        }
     }
 }
 
@@ -92,9 +86,9 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        let (load_by_field, cycle_factor) = match machine.registers()[A7].to_u64() {
-            LOAD_INPUT_SYSCALL_NUMBER => (false, 100),
-            LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER => (true, 10),
+        let load_by_field = match machine.registers()[A7].to_u64() {
+            LOAD_INPUT_SYSCALL_NUMBER => false,
+            LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER => true,
             _ => return Ok(false),
         };
 
@@ -102,8 +96,8 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let input = self.fetch_input(source, index as usize);
-        if input.is_err() {
-            machine.set_register(A0, Mac::REG::from_u8(input.unwrap_err()));
+        if let Err(err) = input {
+            machine.set_register(A0, Mac::REG::from_u8(err));
             return Ok(true);
         }
         let input = input.unwrap();
@@ -114,7 +108,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
             self.load_full(machine, &input)?
         };
 
-        machine.add_cycles(len as u64 * cycle_factor)?;
+        machine.add_cycles(transferred_byte_cycles(len as u64))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

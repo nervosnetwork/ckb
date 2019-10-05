@@ -28,4 +28,6 @@ pub struct BlockAssemblerConfig {
     pub code_hash: H256,
     pub hash_type: ScriptHashType,
     pub args: Vec<JsonBytes>,
+    #[serde(default)]
+    pub message: JsonBytes,
 }

@@ -1,23 +1,23 @@
 use crate::utils::is_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
+use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
 use ckb_crypto::secp::{Generator, Privkey};
-use ckb_hash::{blake2b_256, new_blake2b};
+use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{capacity_bytes, Capacity, Cycle, DepType, ScriptHashType, TransactionBuilder},
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, Witness},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     H256,
 };
 use log::info;
 
-const TX_2_IN_2_OUT_SIZE: usize = 589;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 13_335_200;
+const TX_2_IN_2_OUT_SIZE: usize = 557;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 3_093_521;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -42,7 +42,7 @@ impl Spec for SendSecpTxUseDepGroup {
         self.name
     }
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
 
         info!("Generate 20 block on node");
@@ -71,7 +71,7 @@ impl Spec for SendSecpTxUseDepGroup {
         let tx_hash = tx.hash();
         let message = H256::from(blake2b_256(tx_hash.as_slice()));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
@@ -134,7 +134,7 @@ impl CheckTypical2In2OutTx {
 impl Spec for CheckTypical2In2OutTx {
     crate::name!("check_typical_2_in_2_out_tx");
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let hash_type = ScriptHashType::Type;
 
         let node = &net.nodes[0];
@@ -160,7 +160,7 @@ impl Spec for CheckTypical2In2OutTx {
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
         let lock = Script::new_builder()
-            .args(vec![self.lock_arg.clone()].pack())
+            .args(self.lock_arg.pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(hash_type.pack())
             .build();
@@ -185,7 +185,7 @@ impl Spec for CheckTypical2In2OutTx {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness: Witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = tx
             .as_advanced_builder()
             .witness(witness.clone())
@@ -235,21 +235,7 @@ impl Spec for CheckTypical2In2OutTx {
 }
 
 fn type_lock_script_code_hash() -> H256 {
-    let input = CellInput::new_cellbase_input(0);
-    // 0 => genesis cell, which contains a message and can never be spent.
-    // 1 => always success cell, define in integration.toml spec file
-    let output_index: u64 = 2;
-    let mut blake2b = new_blake2b();
-    blake2b.update(input.as_slice());
-    blake2b.update(&output_index.to_le_bytes());
-    let mut ret = [0; 32];
-    blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
-    Script::new_builder()
-        .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
-        .build()
+    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }
@@ -263,6 +249,7 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
     BlockAssemblerConfig {
         code_hash,
         hash_type: hash_type.into(),
-        args: vec![JsonBytes::from_bytes(lock_arg.clone())],
+        args: JsonBytes::from_bytes(lock_arg),
+        message: Default::default(),
     }
 }

@@ -1,5 +1,5 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use log::info;
 
 pub struct IndexerBasic;
@@ -9,12 +9,12 @@ impl Spec for IndexerBasic {
 
     crate::setup!(num_nodes: 2, connect_all: false);
 
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 
-        info!("Generate 1 block on node0");
-        node0.generate_block();
+        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node0");
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let tip_block = node0.get_tip_block();
         let lock_hash = tip_block.transactions()[0]
@@ -80,9 +80,9 @@ impl Spec for IndexerBasic {
         assert_eq!(tip_number, cell_transactions[0].created_by.block_number);
 
         info!("Generate 5 blocks on node1 and connect node0 to switch fork");
-        node1.generate_blocks(5);
+        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 6) as usize);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 5);
+        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
         info!("Live cells size should be 5, cell transactions size should be 5");
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
