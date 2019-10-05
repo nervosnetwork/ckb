@@ -1,3 +1,86 @@
+# [v0.22.0](https://github.com/nervosnetwork/ckb/compare/v0.21.2...v0.22.0) (2019-10-05)
+
+### Breaking Changes
+
+* #1585: Include fractions in epoch number representations (@xxuejie)
+
+    This change introduce fractions in 2 places where epoch numbers might
+    be used:
+
+    * The epoch field in the header
+    * Cell input's since part when using epoch values
+
+    Here we use a rational number format to represent epoch number.
+    The lower 54 bits of the epoch number field are split into 3
+    parts(listed in the order from higher bits to lower bits):
+
+    * The highest 16 bits represent the epoch length
+    * The next 16 bits represent the current block index in the epoch
+    * The lowest 24 bits represent the current epoch number
+
+    Assuming we are at block number 11555, epoch 50, and epoch 50 starts
+    from block 11000, has a length of 1000. The epoch number for this
+    particular block will then be 9326559282, which is calculated
+    in the following way:
+
+    ```
+    50 | ((11555 - 11000) << 24) | (1000 << 16)
+    ```
+
+* #1643: Compress header (@zhangsoledad)
+
+    * remove `uncles_count`
+    * merge `transactions_root` and `witnesses_root`, where `new
+      transactions_root = blake256(old transactions_root || old
+      witnesses_root)`
+    * replace difficulty with `compact_target`
+
+* #1632: Change script args and witness to single bytes (@quake)
+
+    1. Change args and witness from `Vec<Bytes>` to `Bytes`.
+    2. Add `load_script` system call. The `main` method no longer receives
+       script args as argv.
+
+* #1599: Adjust NervosDAO stats calculation logic (@xxuejie)
+
+    The rules to generate dao field in block header has changed.
+
+* #1618: Change return type of RPC submit block (@keroro520)
+
+    Change return type of RPC `submit_block` from `Result<Option<H256>>` to `Result<H256>`
+
+* #1641: Script cycle adjustments (@xxuejie)
+
+* #1646: Use epoch as the basic maturity unit (@yangby-cryptape)
+
+    Cellbase outputs can be used after 4 epochs.
+
+* #1609: Use DAO type script hash in DAO transaction (@TheWaWaR)
+
+    DAO deposite must use *type* as the `hash_type` to reference the DAO system script.
+
+* #1617: Setup issuance schedule (@doitian)
+
+    BREAKING CHANGE: primary/secondary epoch reward has changed
+
+* #1666: Expand nonce to 128-bit (@zhangsoledad)
+
+    * Expand nonce to 128-bit
+    * Change `pow_message` from `[nonce + pow_hash]` to `[pow_hash + nonce]`
+
+### Features
+
+* #1602: Use all zeros as lock script which can never be unlocked (@driftluo)
+* #1674: Allow putting a message in cellbase witness (@TheWaWaR)
+* #1681: Allow setting the spec file in ckb init (@doitian)
+
+### Bug Fixes
+
+* #1622: Default executor misused (@zhangsoledad)
+* #1613: Use `serialized_size` while `calculate_txs_size_limit` (@u2)
+* #1660: JSON type number must use hex string (@driftluo)
+* #1678: `get_block_transactions_process` should fill missing uncle in response (@zhangsoledad)
+
 # [v0.21.2](https://github.com/nervosnetwork/ckb/compare/v0.21.0...v0.21.2) (2019-09-26)
 
 ### Bug Fixes
