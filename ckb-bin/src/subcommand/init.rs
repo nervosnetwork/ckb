@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Read};
 use std::path::PathBuf;
 
 use crate::helper::prompt;
@@ -166,15 +167,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         }
     };
 
-    let context = TemplateContext {
-        spec: &args.chain,
-        rpc_port: &args.rpc_port,
-        p2p_port: &args.p2p_port,
-        log_to_file: args.log_to_file,
-        log_to_stdout: args.log_to_stdout,
-        block_assembler: &block_assembler,
-    };
-
     println!(
         "{} CKB directory in {}",
         if !exported {
@@ -185,15 +177,49 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.root_dir.display()
     );
 
+    let mut context = TemplateContext {
+        spec: &args.chain,
+        rpc_port: &args.rpc_port,
+        p2p_port: &args.p2p_port,
+        log_to_file: args.log_to_file,
+        log_to_stdout: args.log_to_stdout,
+        block_assembler: &block_assembler,
+        spec_source: "bundled",
+    };
+
+    if let Some(spec_file) = args.import_spec {
+        context.spec_source = "file";
+
+        let specs_dir = args.root_dir.join("specs");
+        fs::create_dir_all(&specs_dir)?;
+        let target_file = specs_dir.join(format!("{}.toml", args.chain));
+
+        if spec_file == "-" {
+            println!("create specs/{}.toml from stdin", args.chain);
+            let mut encoded_content = String::new();
+            io::stdin().read_to_string(&mut encoded_content)?;
+            let spec_content = base64::decode_config(
+                &encoded_content.trim(),
+                base64::STANDARD.decode_allow_trailing_bits(true),
+            )
+            .map_err(|err| {
+                eprintln!("stdin must be encoded in base64: {}", err);
+                ExitCode::Failure
+            })?;
+            fs::write(target_file, spec_content)?;
+        } else {
+            println!("cp {} specs/{}.toml", spec_file, args.chain);
+            fs::copy(spec_file, target_file)?;
+        }
+    } else if args.chain == DEFAULT_SPEC {
+        println!("create {}", SPEC_DEV_FILE_NAME);
+        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
+    }
+
     println!("create {}", CKB_CONFIG_FILE_NAME);
     Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
     println!("create {}", MINER_CONFIG_FILE_NAME);
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
-
-    if args.chain == DEFAULT_SPEC {
-        println!("create {}", SPEC_DEV_FILE_NAME);
-        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
-    }
 
     Ok(())
 }

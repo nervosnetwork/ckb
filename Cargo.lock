@@ -384,6 +384,7 @@ dependencies = [
 name = "ckb-bin"
 version = "0.22.0-pre"
 dependencies = [
+ "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-app-config 0.22.0-pre",
  "ckb-build-info 0.22.0-pre",
  "ckb-chain 0.22.0-pre",

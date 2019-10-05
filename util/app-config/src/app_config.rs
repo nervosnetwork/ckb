@@ -260,6 +260,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         {
             Resource::bundled_ckb_config()
@@ -306,6 +307,7 @@ mod tests {
             log_to_file: false,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         {
             Resource::bundled_ckb_config()
@@ -341,6 +343,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         {
             Resource::bundled_ckb_config()
@@ -387,6 +390,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         {
             Resource::bundled_ckb_config()
@@ -431,6 +435,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         {
             Resource::bundled_ckb_config()

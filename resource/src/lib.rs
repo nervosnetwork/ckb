@@ -228,6 +228,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             block_assembler: "",
+            spec_source: "bundled",
         };
         Resource::bundled_ckb_config()
             .export(&context, root_dir.path())

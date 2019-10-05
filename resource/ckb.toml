@@ -11,8 +11,8 @@ data_dir = "data"
 # - { file = "specs/dev.toml" }
 # - { bundled = "specs/testnet.toml" }
 spec = { file = "specs/dev.toml" } # {{
-# testnet => spec = { bundled = "specs/testnet.toml" }
-# staging => spec = { bundled = "specs/staging.toml" }
+# testnet => spec = { {spec_source} = "specs/testnet.toml" }
+# staging => spec = { {spec_source} = "specs/staging.toml" }
 # integration => spec = { file = "specs/integration.toml" }
 # }}
 
