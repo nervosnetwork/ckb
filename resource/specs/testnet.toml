@@ -3,15 +3,15 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1569045600322
+timestamp = 1570255200338
 compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x9d33c7f172fe6efa61a3011a087f78196333f8cfd890b85b19d3e54f9fa36ce4"
+hash = "0x8c6000088bb9540b111f1f777f1313b4ef4c3cd6c8b91a2f942db55e1e17e67d"
 
 [genesis.genesis_cell]
-message = "rylai-v11"
+message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
