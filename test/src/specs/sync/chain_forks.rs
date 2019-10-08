@@ -1,6 +1,7 @@
 use crate::utils::is_committed;
 use crate::{Net, Node, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
+use ckb_jsonrpc_types::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
@@ -608,6 +609,75 @@ impl Spec for ForksContainSameUncle {
         info!("(4) Connect node_a and node_b, expect that they sync into convergence");
         node_a.connect(node_b);
         net.waiting_for_sync(node_b.get_tip_block_number());
+    }
+}
+
+pub struct ForkedTransaction;
+
+impl Spec for ForkedTransaction {
+    crate::name!("forked_transaction");
+
+    crate::setup!(num_nodes: 2, connect_all: false);
+
+    // Case: Check TxStatus of transaction on main-fork, verified-fork and unverified-fork
+    fn run(&self, net: &mut Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        let finalization_delay_length = node0.consensus().finalization_delay_length();
+
+        net.exit_ibd_mode();
+        let fixed_point = node0.get_tip_block_number();
+        let tx = node1.new_transaction_spend_tip_cellbase();
+
+        // `node0` doesn't have `tx`      => TxStatus: None
+        {
+            node0.generate_blocks(1 + 2 * finalization_delay_length as usize);
+            let tx_status = node0.rpc_client().get_transaction(tx.hash());
+            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+        }
+
+        // `node1` have `tx` on main-fork => TxStatus: Some(Committed)
+        {
+            node1.submit_transaction(&tx);
+            node1.generate_blocks(2 * finalization_delay_length as usize);
+            let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
+            is_committed(&tx_status);
+        }
+
+        // `node0` have `tx` on unverified-fork only => TxStatus: None
+        //
+        // We submit the main-fork of `node1` to `node0`, that will be persisted as an
+        // unverified-fork inside `node0`.
+        {
+            (fixed_point..=node1.get_tip_block_number()).for_each(|number| {
+                let block = node1.get_block_by_number(number);
+                node0.submit_block(&block.data());
+            });
+            let tx_status = node0.rpc_client().get_transaction(tx.hash());
+            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+        }
+
+        // node1 have `tx` on verified-fork   => TxStatus: Some(Pending)
+        //
+        // We submit the main-fork of `node0` to `node1`, that will trigger switching forks. Then
+        // the original main-fork of `node0` will become side verified-fork. And `tx` will be moved
+        // to gap-transactions-pool during switching forks
+        {
+            (fixed_point..=node0.get_tip_block_number()).for_each(|number| {
+                let block = node0.get_block_by_number(number);
+                node1.submit_block(&block.data());
+            });
+
+            let is_pending = |tx_status: &TransactionWithStatus| {
+                let pending_status = TxStatus::pending();
+                tx_status.tx_status.status == pending_status.status
+            };
+            let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
+            assert!(
+                is_pending(&tx_status),
+                "node1 maintains tx in verified fork."
+            );
+        }
     }
 }
 

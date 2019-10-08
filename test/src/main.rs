@@ -15,6 +15,7 @@ use std::time::Instant;
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
+    env::set_var("RUST_BACKTRACE", "full");
     let _ = {
         let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
@@ -279,6 +280,12 @@ fn all_specs() -> SpecMap {
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),
         Box::new(PackUnclesIntoEpochStarting),
+        Box::new(FeeOfTransaction),
+        Box::new(FeeOfMaxBlockProposalsLimit),
+        Box::new(FeeOfMultipleMaxBlockProposalsLimit),
+        Box::new(ProposeButNotCommit),
+        Box::new(ProposeDuplicated),
+        Box::new(ForkedTransaction),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
