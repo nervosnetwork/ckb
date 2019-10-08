@@ -47,6 +47,10 @@ impl PendingQueue {
         self.inner.remove_entry_and_descendants(id)
     }
 
+    pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
+        self.inner.remove_entry(id)
+    }
+
     /// find all ancestors from pool
     pub(crate) fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
         self.inner.get_ancestors(tx_short_id)
