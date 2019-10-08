@@ -289,6 +289,12 @@ fn all_specs() -> SpecMap {
         Box::new(ProposeDuplicated),
         Box::new(ForkedTransaction),
         Box::new(MissingUncleRequest),
+        Box::new(HandlingDescendantsOfProposed),
+        Box::new(HandlingDescendantsOfCommitted),
+        Box::new(ProposeOutOfOrder),
+        Box::new(SubmitTransactionWhenItsParentInGap),
+        Box::new(SubmitTransactionWhenItsParentInProposed),
+        Box::new(ProposeTransactionButParentNot),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

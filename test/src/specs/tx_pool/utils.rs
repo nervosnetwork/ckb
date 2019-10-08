@@ -65,7 +65,7 @@ impl TxFamily {
     }
 }
 
-pub fn prepare_txfamily(node: &Node) -> TxFamily {
+pub fn prepare_tx_family(node: &Node) -> TxFamily {
     // Ensure the generated transactions are conform to the cellbase mature rule
     let ancestor = node.new_transaction_spend_tip_cellbase();
     node.generate_blocks(node.consensus().cellbase_maturity().index() as usize);
