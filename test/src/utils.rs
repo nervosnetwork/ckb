@@ -116,12 +116,11 @@ pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
     RelayMessage::new_builder().set(content).build().as_bytes()
 }
 
-pub fn new_block_with_template(template: BlockTemplate) -> Block {
+pub fn new_block_with_template(template: BlockTemplate) -> BlockView {
     Block::from(template)
         .as_advanced_builder()
         .nonce(rand::random::<u128>().pack())
         .build()
-        .data()
 }
 
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool

@@ -5,7 +5,7 @@ use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::PeerIndex;
 use ckb_sync::NetworkProtocol;
-use ckb_types::packed::{Block, Byte32};
+use ckb_types::packed::Byte32;
 use ckb_types::{
     core::BlockView,
     packed::{self, SyncMessage},
@@ -72,8 +72,8 @@ impl Spec for BlockSyncWithUncle {
         let new_block1 = new_builder.clone().nonce(0.pack()).build();
         let new_block2 = new_builder.clone().nonce(1.pack()).build();
 
-        node1.submit_block(&new_block1.data());
-        node1.submit_block(&new_block2.data());
+        node1.submit_block(&new_block1);
+        node1.submit_block(&new_block2);
 
         let uncle = if node1.get_tip_block() == new_block1 {
             new_block2.as_uncle()
@@ -87,8 +87,7 @@ impl Spec for BlockSyncWithUncle {
             &block_builder
                 .clone()
                 .set_uncles(vec![uncle.clone()])
-                .build()
-                .data(),
+                .build(),
         );
 
         target.connect(node1);
@@ -269,7 +268,7 @@ impl Spec for BlockSyncOrphanBlocks {
         let mut blocks: Vec<BlockView> = (1..=5)
             .map(|_| {
                 let block = node1.new_block(None, None, None);
-                node1.submit_block(&block.data());
+                node1.submit_block(&block);
                 block
             })
             .collect();
@@ -327,7 +326,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
             .timestamp((a.timestamp() + 1).pack())
             .build();
         assert_ne!(a.hash(), b.hash());
-        node1.submit_block(&b.data());
+        node1.submit_block(&b);
 
         net.connect(node0);
         let (peer_id, _, _) = net
@@ -381,14 +380,8 @@ impl Spec for RequestUnverifiedBlocks {
         fork_chain.iter().for_each(|block| {
             target_node.submit_block(block);
         });
-        let main_hashes: Vec<_> = main_chain
-            .iter()
-            .map(|block| block.calc_header_hash())
-            .collect();
-        let fork_hashes: Vec<_> = fork_chain
-            .iter()
-            .map(|block| block.calc_header_hash())
-            .collect();
+        let main_hashes: Vec<_> = main_chain.iter().map(|block| block.hash()).collect();
+        let fork_hashes: Vec<_> = fork_chain.iter().map(|block| block.hash()).collect();
 
         // Request for the blocks on `main_chain` and `fork_chain`. We should only receive the
         // `main_chain` blocks
@@ -422,7 +415,7 @@ impl Spec for RequestUnverifiedBlocks {
     }
 }
 
-fn build_forks(node: &Node, offsets: &[u64]) -> Vec<Block> {
+fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
     let rpc_client = node.rpc_client();
     let mut blocks = Vec::with_capacity(offsets.len());
     for offset in offsets.iter() {

@@ -94,7 +94,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
 
         (0..multiple).for_each(|_| {
             let block = node.new_block(None, None, None);
-            node.submit_block(&block.data());
+            node.submit_block(&block);
             assert_eq!(
                 max_block_proposals_limit as usize,
                 block.union_proposal_ids_iter().count(),
@@ -136,7 +136,7 @@ impl Spec for ProposeButNotCommit {
 
         // `target_node` propose `tx`
         feed_blocks.iter().for_each(|block| {
-            target_node.submit_block(&block.data());
+            target_node.submit_block(&block);
         });
 
         // `target_node` keeps growing, but it will never commit `tx` since its transactions_pool
@@ -185,7 +185,7 @@ impl Spec for ProposeDuplicated {
             .uncle(uncle2)
             .build();
         node.submit_transaction(tx);
-        node.submit_block(&block.data());
+        node.submit_block(&block);
 
         let finalization_delay_length = node.consensus().finalization_delay_length();
         node.generate_blocks(2 * finalization_delay_length as usize);

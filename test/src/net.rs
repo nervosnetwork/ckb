@@ -179,7 +179,7 @@ impl Net {
     pub fn exit_ibd_mode(&self) -> BlockView {
         let block = self.nodes[0].new_block(None, None, None);
         self.nodes.iter().for_each(|node| {
-            node.submit_block(&block.data());
+            node.submit_block(&block);
         });
         block
     }
