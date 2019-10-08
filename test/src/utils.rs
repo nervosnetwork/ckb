@@ -210,16 +210,20 @@ pub fn temp_path() -> String {
 pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     // Ensure all the cellbases will be used later are already mature.
     let cellbase_maturity = node.consensus().cellbase_maturity();
-    node.generate_blocks(cellbase_maturity as usize);
+    node.generate_blocks(cellbase_maturity.index() as usize);
 
     // Explode these mature cellbases into multiple cells
     let mut n_outputs = 0;
     let mut txs = Vec::new();
     while n > n_outputs {
         node.generate_block();
-        let mature_number = node.get_tip_block_number() - cellbase_maturity;
+        let mature_number = node.get_tip_block_number() - cellbase_maturity.index();
         let mature_block = node.get_block_by_number(mature_number);
         let mature_cellbase = mature_block.transaction(0).unwrap();
+        if mature_cellbase.outputs().len() == 0 {
+            continue;
+        }
+
         let mature_utxos: TXOSet = TXOSet::from(&mature_cellbase);
         let tx = mature_utxos.boom(vec![node.always_success_cell_dep()]);
         n_outputs += tx.outputs().len();

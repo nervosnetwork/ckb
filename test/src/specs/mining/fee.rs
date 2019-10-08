@@ -20,7 +20,7 @@ impl Spec for FeeOfTransaction {
     //      `block[i + 1 + FINALIZATION_DELAY_LENGTH]`
     //   5. Expect that the miner receives the committed reward of `tx` from
     //      `block[i + 1 + PROPOSAL_WINDOW_CLOSEST + FINALIZATION_DELAY_LENGTH]`
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let closest = node.consensus().tx_proposal_window().closest();
         let finalization_delay_length = node.consensus().finalization_delay_length();
@@ -50,7 +50,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
     //   1. Submit `MAX_BLOCK_PROPOSALS_LIMIT` transactions into transactions_pool after height `i`
     //   2. Expect that the miner receives the proposed reward of `tx` from
     //      `block[i + 1 + FINALIZATION_DELAY_LENGTH]`
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
         let finalization_delay_length = node.consensus().finalization_delay_length();
@@ -80,7 +80,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
     //   1. Submit `3 * MAX_BLOCK_PROPOSALS_LIMIT` transactions into transactions_pool after height `i`
     //   2. Expect that the miner propose those transactions in the next `3` blocks, every block
     //      contains `MAX_BLOCK_PROPOSALS_LIMIT` transactions
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
         let finalization_delay_length = node.consensus().finalization_delay_length();
@@ -115,7 +115,7 @@ impl Spec for ProposeButNotCommit {
     crate::setup!(num_nodes: 2, connect_all: false);
 
     // Case: Propose a transaction but never commit it
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let target_node = &net.nodes[0];
         let feed_node = &net.nodes[1];
 
@@ -154,7 +154,7 @@ impl Spec for ProposeDuplicated {
     crate::name!("propose_duplicated");
 
     // Case: Uncle contains a proposal, and the new block contains the same one.
-    fn run(&self, net: Net) {
+    fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
         let tx = &txs[0];
