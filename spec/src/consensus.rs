@@ -24,8 +24,9 @@ use ckb_types::{
 use std::cmp;
 use std::sync::Arc;
 
-// TODO: add secondary reward for miner
+// 1.344 billion per year
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
+// 4.2 billion per year
 pub(crate) const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -34,7 +35,7 @@ pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
 pub(crate) const CELLBASE_MATURITY: EpochNumberWithFraction =
     EpochNumberWithFraction::new_unchecked(4, 0, 1);
-// TODO: should adjust this value based on CKB average block time
+
 const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
 
 // dampening factor
