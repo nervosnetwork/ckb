@@ -1,3 +1,4 @@
+use crate::cache::{CacheEntry, TxVerifyCache};
 use crate::error::{BlockTransactionsError, EpochError};
 use crate::txs_verify_cache::{FetchCache, UpdateCache};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
@@ -13,7 +14,6 @@ use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_tx_verify_cache::{CacheEntry, TxVerifyCache};
 use ckb_types::{
     core::error::OutPointError,
     core::{

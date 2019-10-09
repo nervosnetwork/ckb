@@ -1,9 +1,9 @@
 use crate::component::entry::DefectEntry;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::TransactionView,
     packed::{OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::CacheEntry;
 use std::collections::VecDeque;
 use std::collections::{hash_map, HashMap};
 use std::iter::ExactSizeIterator;

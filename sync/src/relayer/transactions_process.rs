@@ -2,12 +2,12 @@ use crate::relayer::Relayer;
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed,
     prelude::*,
 };
+use ckb_verification::cache::CacheEntry;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use sentry::{capture_message, with_scope, Level};

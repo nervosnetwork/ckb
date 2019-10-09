@@ -1,10 +1,10 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::CacheEntry;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};

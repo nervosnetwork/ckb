@@ -1,12 +1,8 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
-use ckb_types::{
-    core::{TransactionView},
-    packed,
-    prelude::*,
-};
 use ckb_tx_pool::fee_rate::FeeRate;
+use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
 
 pub struct SendLowFeeRateTx;

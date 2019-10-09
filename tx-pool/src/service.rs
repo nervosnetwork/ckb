@@ -16,11 +16,11 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_tx_verify_cache::{CacheEntry, TxVerifyCache};
 use ckb_types::{
     core::{BlockView, Cycle, TransactionView, UncleBlockView, Version},
     packed::{Byte32, ProposalShortId},
 };
+use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use crossbeam_channel;
 use failure::Error as FailureError;
 use futures::future::{self, Future};

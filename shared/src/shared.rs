@@ -11,13 +11,13 @@ use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_tx_pool::{
     BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
-use ckb_tx_verify_cache::TxVerifyCache;
 use ckb_types::{
     core::{EpochExt, HeaderView, TransactionMeta},
     packed::Byte32,
     prelude::*,
     U256,
 };
+use ckb_verification::cache::TxVerifyCache;
 use im::hashmap::HashMap as HamtMap;
 use std::collections::HashSet;
 use std::sync::Arc;

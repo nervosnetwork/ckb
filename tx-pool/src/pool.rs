@@ -9,7 +9,6 @@ use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_logger::{debug_target, error_target, trace_target};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
@@ -18,6 +17,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::CacheEntry;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;

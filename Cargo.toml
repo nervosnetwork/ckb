@@ -31,7 +31,6 @@ members = [
     "util/types",
     "util/future-executor",
     "util/jsonrpc-types",
-    "util/tx-verify-cache",
     "script/data-loader",
     "db",
     "resource",

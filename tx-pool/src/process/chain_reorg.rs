@@ -3,13 +3,13 @@ use crate::service::ChainReorgArgs;
 use ckb_logger::debug_target;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{cell::get_related_dep_out_points, BlockView, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
+use ckb_verification::cache::CacheEntry;
 use futures::future::Future;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};

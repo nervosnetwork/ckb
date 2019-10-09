@@ -12,7 +12,6 @@ serde = "1.0"
 serde_derive = "1.0"
 ckb-types = { path = "../util/types" }
 ckb-logger = {path = "../util/logger"}
-ckb-tx-verify-cache = { path = "../util/tx-verify-cache" }
 ckb-verification = { path = "../verification" }
 failure = "0.1.5"
 faketime = "0.2"

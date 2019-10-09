@@ -3,7 +3,6 @@ use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     core::{
         cell::{
@@ -13,6 +12,7 @@ use ckb_types::{
     },
     packed::Byte32,
 };
+use ckb_verification::cache::CacheEntry;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use futures::future::Future;
 use std::collections::{HashMap, HashSet};

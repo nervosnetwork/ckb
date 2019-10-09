@@ -1,4 +1,4 @@
-use ckb_tx_verify_cache::{CacheEntry, TxVerifyCache};
+use crate::cache::{CacheEntry, TxVerifyCache};
 use ckb_types::packed::Byte32;
 use futures::Future;
 use std::collections::HashMap;

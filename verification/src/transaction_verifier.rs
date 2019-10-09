@@ -1,3 +1,4 @@
+use crate::cache::CacheEntry;
 use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -5,7 +6,6 @@ use ckb_error::Error;
 use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
-use ckb_tx_verify_cache::CacheEntry;
 use ckb_types::{
     constants::TX_VERSION,
     core::{
