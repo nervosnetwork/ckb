@@ -80,6 +80,11 @@ matrix:
         - make check-cargotoml
         - make check-whitespaces
         - make check-dirty-rpc-doc
+    - name: Security Audit
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      os: linux
+      rust: nightly
+      script: make security-audit
 
     - name: Test benchmarks on Linux
       env: CACHE_NAME=bench
