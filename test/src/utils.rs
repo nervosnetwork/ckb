@@ -220,7 +220,7 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
         let mature_number = node.get_tip_block_number() - cellbase_maturity.index();
         let mature_block = node.get_block_by_number(mature_number);
         let mature_cellbase = mature_block.transaction(0).unwrap();
-        if mature_cellbase.outputs().len() == 0 {
+        if mature_cellbase.outputs().is_empty() {
             continue;
         }
 

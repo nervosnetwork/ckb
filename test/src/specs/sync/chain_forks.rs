@@ -624,6 +624,11 @@ impl Spec for ForkedTransaction {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let finalization_delay_length = node0.consensus().finalization_delay_length();
+        (0..=finalization_delay_length).for_each(|_| {
+            let block = node0.new_block(None, None, None);
+            node0.submit_block(&block.data());
+            node1.submit_block(&block.data());
+        });
 
         net.exit_ibd_mode();
         let fixed_point = node0.get_tip_block_number();
