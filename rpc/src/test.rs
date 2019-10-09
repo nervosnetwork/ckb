@@ -20,10 +20,11 @@ use ckb_shared::{
 use ckb_store::ChainStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
+use ckb_tx_pool::fee_rate::FeeRate;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
-        EpochNumberWithFraction, FeeRate, HeaderView, TransactionBuilder, TransactionView,
+        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},

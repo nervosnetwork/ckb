@@ -1,4 +1,5 @@
 use crate::component::entry::TxEntry;
+use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
@@ -12,7 +13,7 @@ use ckb_types::{
     },
     packed::Byte32,
 };
-use ckb_verification::{ContextualTransactionVerifier, TransactionError, TransactionVerifier};
+use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use futures::future::Future;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -204,7 +205,7 @@ impl<'a> SubmitTxsExecutor<'a> {
             let min_fee = self.tx_pool.config.min_fee_rate.fee(tx_size);
             // reject txs which fee lower than min fee rate
             if fee < min_fee {
-                return Err(TransactionError::LowFeeRate.into());
+                return Err(SubmitTxError::LowFeeRate.into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();

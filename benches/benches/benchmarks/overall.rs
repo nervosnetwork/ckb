@@ -8,12 +8,12 @@ use ckb_shared::{
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig};
+use ckb_tx_pool::{fee_rate::FeeRate, BlockAssemblerConfig, TxPoolConfig};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, FeeRate,
-        ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,

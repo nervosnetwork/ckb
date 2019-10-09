@@ -4,13 +4,13 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
+use ckb_tx_pool::{error::SubmitTxError, fee_rate::FeeRate};
 use ckb_types::{
-    core::{self, FeeRate},
+    core::{self},
     packed,
     prelude::*,
     H256,
 };
-use ckb_verification::TransactionError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -73,8 +73,8 @@ impl PoolRpc for PoolRpcImpl {
                 Ok(hash.unpack())
             }
             Err(e) => {
-                if let Some(e) = e.downcast_ref::<TransactionError>() {
-                    if e == &TransactionError::LowFeeRate {
+                if let Some(e) = e.downcast_ref::<SubmitTxError>() {
+                    if e == &SubmitTxError::LowFeeRate {
                         return Err(RPCError::custom(
                             RPCError::Invalid,
                             format!(

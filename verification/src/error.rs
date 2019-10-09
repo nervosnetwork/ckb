@@ -37,9 +37,6 @@ pub enum TransactionError {
 
     /// The transaction size is too large
     ExceededMaximumBlockBytes,
-
-    /// The fee rate of transaction is lower than min fee rate
-    LowFeeRate,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
@@ -235,8 +232,7 @@ impl TransactionError {
 
             TransactionError::Immature
             | TransactionError::CellbaseImmaturity
-            | TransactionError::MismatchedVersion
-            | TransactionError::LowFeeRate => false,
+            | TransactionError::MismatchedVersion => false,
         }
     }
 }

@@ -3,10 +3,11 @@ use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_jsonrpc_types::Status;
 use ckb_types::{
-    core::{FeeRate, TransactionView},
+    core::{TransactionView},
     packed,
     prelude::*,
 };
+use ckb_tx_pool::fee_rate::FeeRate;
 use log::info;
 
 pub struct TransactionRelayLowFeeRate;

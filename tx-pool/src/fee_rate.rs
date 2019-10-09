@@ -1,4 +1,4 @@
-use ckb_occupied_capacity::Capacity;
+use ckb_types::core::Capacity;
 use serde_derive::{Deserialize, Serialize};
 
 /// shannons per kilobytes

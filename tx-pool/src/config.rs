@@ -1,5 +1,6 @@
+use crate::fee_rate::FeeRate;
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
-use ckb_types::core::{Cycle, FeeRate};
+use ckb_types::core::Cycle;
 use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
 

@@ -1,11 +1,11 @@
-use crate::component::{
-    entry::{TxEntry, TxModifiedEntries},
-    proposed::ProposedPool,
+use crate::{
+    component::{
+        entry::{TxEntry, TxModifiedEntries},
+        proposed::ProposedPool,
+    },
+    fee_rate::FeeRate,
 };
-use ckb_types::{
-    core::{Cycle, FeeRate},
-    packed::ProposalShortId,
-};
+use ckb_types::{core::Cycle, packed::ProposalShortId};
 use std::cmp::max;
 use std::collections::HashSet;
 

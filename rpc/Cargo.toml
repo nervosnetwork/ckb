@@ -33,6 +33,7 @@ ckb-dao = { path = "../util/dao" }
 futures = "0.1"
 ckb-error = { path = "../error" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
+ckb-tx-pool = { path = "../tx-pool" }
 
 [dev-dependencies]
 ckb-chain-spec = { path = "../spec" }
