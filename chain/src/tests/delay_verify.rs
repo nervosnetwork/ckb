@@ -30,8 +30,8 @@ fn test_dead_cell_in_same_block() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     let tx3 = create_transaction(&tx1_hash, 3);
@@ -86,8 +86,8 @@ fn test_dead_cell_in_different_block() {
         chain2.gen_empty_block_with_inc_diff(100u64, &mock_store);
     }
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
+    let tx1 = create_multi_outputs_transaction(&last_cellbase, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![3]);
@@ -141,8 +141,8 @@ fn test_invalid_out_point_index_in_same_block() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
@@ -197,8 +197,8 @@ fn test_invalid_out_point_index_in_different_blocks() {
         chain2.gen_empty_block_with_inc_diff(99u64, &mock_store);
     }
 
-    let last_cell_base = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_transaction(&last_cell_base.hash(), 1);
+    let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
+    let tx1 = create_transaction(&last_cellbase.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
