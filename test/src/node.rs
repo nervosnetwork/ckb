@@ -274,6 +274,22 @@ impl Node {
         self.submit_block(&self.new_block(None, None, None).data())
     }
 
+    // Convenient way to construct an uncle block
+    pub fn construct_uncle(&self) -> BlockView {
+        let block = self.new_block(None, None, None);
+        // Make sure the uncle block timestamp is different from
+        // the next block timestamp in main fork.
+        // Firstly construct uncle block which timestamp
+        // is less than the current time, and then generate
+        // the new block in main fork which timestamp is greater than
+        // or equal to the current time.
+        let timestamp = block.timestamp() - 1;
+        block
+            .as_advanced_builder()
+            .timestamp(timestamp.pack())
+            .build()
+    }
+
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
     pub fn generate_transaction(&self) -> Byte32 {
         self.submit_transaction(&self.new_transaction_spend_tip_cellbase())

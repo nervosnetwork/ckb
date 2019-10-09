@@ -171,14 +171,7 @@ impl Spec for PackUnclesIntoEpochStarting {
 // Convenient way to construct an uncle block
 fn construct_uncle(node: &Node) -> BlockView {
     node.generate_block(); // Ensure exit IBD mode
-
-    let block = node.new_block(None, None, None);
-    let timestamp = block.timestamp() + 10;
-    let uncle = block
-        .as_advanced_builder()
-        .timestamp(timestamp.pack())
-        .build();
-
+    let uncle = node.construct_uncle();
     node.generate_block();
 
     uncle

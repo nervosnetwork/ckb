@@ -584,7 +584,7 @@ impl Spec for ForksContainSameUncle {
         net.exit_ibd_mode();
 
         info!("(1) Construct an uncle before fork point");
-        let uncle = construct_uncle(node_a);
+        let uncle = node_a.construct_uncle();
         node_a.generate_block();
         node_b.generate_block();
 
@@ -708,14 +708,4 @@ fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
         .get_transaction(tx_hash)
         .expect("node should contains transaction");
     is_committed(&tx_status);
-}
-
-// Convenient way to construct an uncle block
-fn construct_uncle(node: &Node) -> BlockView {
-    let block = node.new_block(None, None, None);
-    let timestamp = block.timestamp() + 10;
-    block
-        .as_advanced_builder()
-        .timestamp(timestamp.pack())
-        .build()
 }
