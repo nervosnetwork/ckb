@@ -33,7 +33,7 @@ TBD.
 
 ## Mining
 
-Mining on testnet Rylai is for testing purpose only, the mining algorithm **WILL BE CHANGED SOON**.
+Testnet Rylai uses the [Eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md) mining algorithm, which the mainnet is going to use too. Mining on testnet is for testing purpose only.
 
 At this time Rylai will be **RESET** every two weeks.
 
