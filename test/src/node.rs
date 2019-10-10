@@ -461,11 +461,6 @@ impl Node {
             message: Default::default(),
         });
 
-        if ::std::env::var("CI").is_ok() {
-            ckb_config.logger.filter =
-                Some(::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string()));
-        }
-
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,
