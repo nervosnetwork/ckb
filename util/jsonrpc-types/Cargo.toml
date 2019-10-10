@@ -16,3 +16,4 @@ jsonrpc-core = "10.1"
 [dev-dependencies]
 proptest = "0.9"
 regex = "1.1"
+lazy_static = "1.3"

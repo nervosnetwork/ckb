@@ -685,7 +685,9 @@ impl From<core::BlockReward> for BlockReward {
 mod tests {
     use super::*;
     use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
+    use lazy_static::lazy_static;
     use proptest::{collection::size_range, prelude::*};
+    use regex::Regex;
 
     fn mock_script(arg: Bytes) -> packed::Script {
         packed::ScriptBuilder::default()
@@ -737,9 +739,19 @@ mod tests {
         let encoded = serde_json::to_string(&json_block).unwrap();
         let decode: BlockView = serde_json::from_str(&encoded).unwrap();
         let decode_block: core::BlockView = decode.into();
+        header_field_format_check(&encoded);
         prop_assert_eq!(decode_block.data(), block.data());
         prop_assert_eq!(decode_block, block);
         Ok(())
+    }
+
+    fn header_field_format_check(json: &str) {
+        lazy_static! {
+            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|uncles_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
+        }
+        for caps in RE.captures_iter(json) {
+            assert!(&caps["value"].starts_with("0x"));
+        }
     }
 
     proptest! {

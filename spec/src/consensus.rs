@@ -24,8 +24,9 @@ use ckb_types::{
 use std::cmp;
 use std::sync::Arc;
 
-// TODO: add secondary reward for miner
+// 1.344 billion per year
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
+// 4.2 billion per year
 pub(crate) const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
@@ -34,7 +35,7 @@ pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
 pub(crate) const CELLBASE_MATURITY: EpochNumberWithFraction =
     EpochNumberWithFraction::new_unchecked(4, 0, 1);
-// TODO: should adjust this value based on CKB average block time
+
 const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
 
 // dampening factor
@@ -622,10 +623,9 @@ impl Consensus {
             &adjusted_last_epoch_hash_rate * epoch_duration_target,
             U256::one(),
         );
-        let next_epoch_diff = if bound {
+        let diff_denominator = if bound {
             if last_orphan_rate.is_zero() {
-                let denominator = U256::from(next_epoch_length);
-                (diff_numerator / denominator).into_u256()
+                RationalU256::new(next_epoch_length_u256, U256::one())
             } else {
                 let orphan_rate_estimation_recip = ((&last_orphan_rate + U256::one())
                     * &epoch_duration_target_u256
@@ -633,24 +633,24 @@ impl Consensus {
                     / (&last_orphan_rate * &last_epoch_duration * &next_epoch_length_u256))
                     .saturating_sub_u256(U256::one());
 
-                let denominator = if orphan_rate_estimation_recip.is_zero() {
+                if orphan_rate_estimation_recip.is_zero() {
                     // small probability event, use o_ideal for now
                     (orphan_rate_target + U256::one()) * next_epoch_length_u256
                 } else {
                     let orphan_rate_estimation = RationalU256::one() / orphan_rate_estimation_recip;
                     (orphan_rate_estimation + U256::one()) * next_epoch_length_u256
-                };
-                (diff_numerator / denominator).into_u256()
+                }
             }
         } else {
-            let denominator = (orphan_rate_target + U256::one()) * next_epoch_length_u256;
-            (diff_numerator / denominator).into_u256()
+            (orphan_rate_target + U256::one()) * next_epoch_length_u256
         };
 
-        debug_assert!(
-            next_epoch_diff > U256::zero(),
-            "next_epoch_diff should greater than one"
-        );
+        let next_epoch_diff = if diff_numerator > diff_denominator {
+            (diff_numerator / diff_denominator).into_u256()
+        } else {
+            // next_epoch_diff cannot be zero
+            U256::one()
+        };
 
         let primary_epoch_reward = self.primary_epoch_reward_of_next_epoch(last_epoch).as_u64();
         let block_reward = Capacity::shannons(primary_epoch_reward / next_epoch_length);
