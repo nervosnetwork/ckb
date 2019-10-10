@@ -18,6 +18,9 @@ env:
 
 addons:
   apt:
+    sources:
+      - sourceline: "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main"
+        key_url: "https://apt.llvm.org/llvm-snapshot.gpg.key"
     packages:
       - libssl-dev
       - autoconf
@@ -25,6 +28,8 @@ addons:
       - bison
       - texinfo
       - libtool
+      - clang-8
+      - libc6-dev-i386
 
 before_script:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
@@ -85,6 +90,14 @@ matrix:
       os: linux
       rust: nightly
       script: make security-audit
+
+    - name: WASM build
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      os: linux
+      script:
+        - export PATH=/usr/lib/llvm-8/bin:$PATH
+        - rustup target add wasm32-unknown-unknown
+        - make wasm-build-test
 
     - name: Test benchmarks on Linux
       env: CACHE_NAME=bench
