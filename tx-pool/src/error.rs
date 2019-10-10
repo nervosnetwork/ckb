@@ -10,7 +10,7 @@ pub enum SubmitTxError {
 
 impl From<SubmitTxError> for Error {
     fn from(error: SubmitTxError) -> Self {
-        error.context(ErrorKind::Transaction).into()
+        error.context(ErrorKind::SubmitTransaction).into()
     }
 }
 

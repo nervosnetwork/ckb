@@ -226,6 +226,8 @@ impl Setup {
             .unwrap();
         let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
+        let import_spec = matches.value_of(cli::ARG_IMPORT_SPEC).map(str::to_string);
+
         Ok(InitArgs {
             interactive,
             root_dir,
@@ -240,6 +242,7 @@ impl Setup {
             block_assembler_args,
             block_assembler_hash_type,
             block_assembler_message,
+            import_spec,
         })
     }
 
