@@ -286,6 +286,7 @@ fn all_specs() -> SpecMap {
         Box::new(ProposeButNotCommit),
         Box::new(ProposeDuplicated),
         Box::new(ForkedTransaction),
+        Box::new(MissingUncleRequest),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
