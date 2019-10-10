@@ -1,6 +1,6 @@
 use crate::specs::tx_pool::utils::prepare_tx_family;
-use crate::{Net, Node, Spec};
-use ckb_types::core::{BlockView, TransactionView};
+use crate::utils::{blank, commit, propose};
+use crate::{Net, Spec};
 use std::collections::HashSet;
 
 // Convention:
@@ -227,35 +227,4 @@ impl Spec for ProposeTransactionButParentNot {
             .submit_block("".to_string(), block.data().into())
             .expect_err("should be failed as it contains invalid transaction");
     }
-}
-
-// Return a block with empty proposed-zone and committed-zone contains `committed`
-fn commit(node: &Node, committed: &[&TransactionView]) -> BlockView {
-    let committed = committed
-        .iter()
-        .map(|t| t.to_owned().to_owned())
-        .collect::<Vec<_>>();
-    blank(node)
-        .as_advanced_builder()
-        .transactions(committed)
-        .build()
-}
-
-// Return a block with proposed-zone contains `proposals` and empty committed-zone
-fn propose(node: &Node, proposals: &[&TransactionView]) -> BlockView {
-    let proposals = proposals.iter().map(|tx| tx.proposal_short_id());
-    blank(node)
-        .as_advanced_builder()
-        .proposals(proposals)
-        .build()
-}
-
-// Return a block with empty proposed-zone and empty committed-zone
-fn blank(node: &Node) -> BlockView {
-    let example = node.new_block(None, None, None);
-    example
-        .as_advanced_builder()
-        .set_proposals(vec![])
-        .set_transactions(vec![example.transaction(0).unwrap()]) // cellbase
-        .build()
 }
