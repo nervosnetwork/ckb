@@ -110,8 +110,7 @@ impl Spec for CompactBlockPrefilled {
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build()
-                .data(),
+                .build(),
         );
         node.generate_blocks(3);
 
@@ -155,8 +154,7 @@ impl Spec for CompactBlockMissingFreshTxs {
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build()
-                .data(),
+                .build(),
         );
         node.generate_blocks(3);
 
@@ -214,8 +212,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build()
-                .data(),
+                .build(),
         );
         node.generate_blocks(3);
 
@@ -266,8 +263,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
             &node0
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build()
-                .data(),
+                .build(),
         );
         // Proposal a tx, and grow up into proposal window
         node0.generate_blocks(6);
@@ -304,7 +300,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         );
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
-        node1.submit_block(&block.data());
+        node1.submit_block(&block);
         node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
     }
 }
@@ -333,8 +329,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build()
-                .data(),
+                .build(),
         );
         node.generate_blocks(6);
 

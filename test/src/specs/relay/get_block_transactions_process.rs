@@ -26,8 +26,8 @@ impl Spec for MissingUncleRequest {
         let builder = node.new_block_builder(None, None, None);
         let block1 = builder.clone().nonce(0.pack()).build();
         let block2 = builder.clone().nonce(1.pack()).build();
-        node.submit_block(&block1.data());
-        node.submit_block(&block2.data());
+        node.submit_block(&block1);
+        node.submit_block(&block2);
 
         let builder = node.new_block_builder(None, None, None);
         let block = builder
@@ -35,7 +35,7 @@ impl Spec for MissingUncleRequest {
             .set_uncles(vec![block2.as_uncle()])
             .nonce(0.pack())
             .build();
-        node.submit_block(&block.data());
+        node.submit_block(&block);
 
         let content = packed::GetBlockTransactions::new_builder()
             .block_hash(block.hash())

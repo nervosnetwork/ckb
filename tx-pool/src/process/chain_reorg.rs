@@ -156,7 +156,7 @@ pub fn update_tx_pool_for_reorg(
         }
     }
     removed.into_iter().for_each(|id| {
-        tx_pool.pending.remove_entry_and_descendants(&id);
+        tx_pool.pending.remove_entry(&id);
     });
 
     // try move conflict to proposed

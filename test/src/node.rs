@@ -253,9 +253,9 @@ impl Node {
         &self.rpc_client
     }
 
-    pub fn submit_block(&self, block: &Block) -> Byte32 {
+    pub fn submit_block(&self, block: &BlockView) -> Byte32 {
         self.rpc_client()
-            .submit_block("".to_owned(), block.clone().into())
+            .submit_block("".to_owned(), block.data().into())
             .expect("submit_block failed")
     }
 
@@ -271,7 +271,7 @@ impl Node {
 
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> Byte32 {
-        self.submit_block(&self.new_block(None, None, None).data())
+        self.submit_block(&self.new_block(None, None, None))
     }
 
     // Convenient way to construct an uncle block
