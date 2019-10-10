@@ -14,6 +14,7 @@ pub struct AncestorsScoreSortKey {
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_vbytes: u64,
+    pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {
@@ -305,6 +306,7 @@ mod tests {
                 id: ProposalShortId::new([0u8; 10]),
                 ancestors_fee: Capacity::shannons(ancestors_fee),
                 ancestors_vbytes,
+                ancestors_size: 0,
             };
             key.min_fee_and_vbytes()
         })
@@ -349,6 +351,7 @@ mod tests {
                 id: ProposalShortId::new(id),
                 ancestors_fee: Capacity::shannons(ancestors_fee),
                 ancestors_vbytes,
+                ancestors_size: 0,
             }
         })
         .collect::<Vec<_>>();

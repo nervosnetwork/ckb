@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_chain::{chain::ChainController, switch::Switch};
-use ckb_jsonrpc_types::{Block, Transaction};
+use ckb_jsonrpc_types::{Block, Cycle, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
@@ -24,7 +24,7 @@ pub trait IntegrationTestRpc {
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
 
     #[rpc(name = "broadcast_transaction")]
-    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256>;
+    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -62,11 +62,11 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         }
     }
 
-    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256> {
+    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
         let tx: packed::Transaction = transaction.into();
         let hash = tx.calc_tx_hash();
         let relay_tx = packed::RelayTransaction::new_builder()
-            .cycles(10000u64.pack())
+            .cycles(cycles.value().pack())
             .transaction(tx)
             .build();
         let relay_txs = packed::RelayTransactions::new_builder()

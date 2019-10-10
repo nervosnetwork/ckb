@@ -199,7 +199,11 @@ impl Future for PackageTxsProcess {
                 )?;
 
                 let (entries, size, cycles) = CommitTxsScanner::new(guard.proposed())
-                    .txs_to_commit(txs_size_limit, self.max_block_cycles);
+                    .txs_to_commit(
+                        txs_size_limit,
+                        self.max_block_cycles,
+                        guard.config.min_fee_rate,
+                    );
                 if !entries.is_empty() {
                     info!(
                         "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",

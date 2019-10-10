@@ -1,4 +1,18 @@
+use ckb_error::{Error, ErrorKind};
 use failure::Fail;
+
+#[derive(Debug, PartialEq, Clone, Eq, Fail)]
+pub enum SubmitTxError {
+    /// The fee rate of transaction is lower than min fee rate
+    #[fail(display = "LowFeeRate")]
+    LowFeeRate,
+}
+
+impl From<SubmitTxError> for Error {
+    fn from(error: SubmitTxError) -> Self {
+        error.context(ErrorKind::Transaction).into()
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum BlockAssemblerError {

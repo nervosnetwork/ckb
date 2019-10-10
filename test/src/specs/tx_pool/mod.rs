@@ -5,6 +5,7 @@ mod limit;
 mod pool_reconcile;
 mod pool_resurrect;
 mod reference_header_maturity;
+mod send_low_fee_rate_tx;
 mod send_secp_tx;
 mod valid_since;
 
@@ -15,5 +16,6 @@ pub use limit::*;
 pub use pool_reconcile::*;
 pub use pool_resurrect::*;
 pub use reference_header_maturity::*;
+pub use send_low_fee_rate_tx::*;
 pub use send_secp_tx::*;
 pub use valid_since::*;

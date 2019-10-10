@@ -236,6 +236,7 @@ fn all_specs() -> SpecMap {
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
         Box::new(TransactionRelayBasic),
+        Box::new(TransactionRelayLowFeeRate),
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
@@ -248,6 +249,7 @@ fn all_specs() -> SpecMap {
         // Box::new(CellbaseMaturity),
         Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),
+        Box::new(SendLowFeeRateTx),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),

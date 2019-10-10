@@ -4,7 +4,13 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_tx_pool::{error::SubmitTxError, fee_rate::FeeRate};
+use ckb_types::{
+    core::{self},
+    packed,
+    prelude::*,
+    H256,
+};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -23,13 +29,19 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
+    min_fee_rate: FeeRate,
 }
 
 impl PoolRpcImpl {
-    pub fn new(shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> PoolRpcImpl {
+    pub fn new(
+        shared: Shared,
+        sync_shared_state: Arc<SyncSharedState>,
+        min_fee_rate: FeeRate,
+    ) -> PoolRpcImpl {
         PoolRpcImpl {
             sync_shared_state,
             shared,
+            min_fee_rate,
         }
     }
 }
@@ -45,7 +57,7 @@ impl PoolRpc for PoolRpcImpl {
         if let Err(e) = submit_txs {
             error!("send submit_txs request error {}", e);
             return Err(Error::internal_error());
-        };
+        }
 
         match submit_txs.unwrap() {
             Ok(_) => {
@@ -60,7 +72,20 @@ impl PoolRpc for PoolRpcImpl {
                     .insert(hash.clone());
                 Ok(hash.unpack())
             }
-            Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
+            Err(e) => {
+                if let Some(e) = e.downcast_ref::<SubmitTxError>() {
+                    if e == &SubmitTxError::LowFeeRate {
+                        return Err(RPCError::custom(
+                            RPCError::Invalid,
+                            format!(
+                                "transaction fee rate lower than min_fee_rate: {} shannons/KB",
+                                self.min_fee_rate
+                            ),
+                        ));
+                    }
+                }
+                Err(RPCError::custom(RPCError::Invalid, e.to_string()))
+            }
         }
     }
 

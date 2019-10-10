@@ -7,6 +7,7 @@ use ckb_network::{
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
+use ckb_tx_pool::fee_rate::FeeRate;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -153,7 +154,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared));
     (
-        Relayer::new(chain_controller, sync_shared_state),
+        Relayer::new(chain_controller, sync_shared_state, FeeRate::zero()),
         always_success_out_point,
     )
 }

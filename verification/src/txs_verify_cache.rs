@@ -1,17 +1,17 @@
-use ckb_types::{core::Cycle, packed::Byte32};
+use crate::cache::{CacheEntry, TxVerifyCache};
+use ckb_types::packed::Byte32;
 use futures::Future;
-use lru_cache::LruCache;
 use std::collections::HashMap;
 use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
 
 pub struct FetchCache<K> {
-    cache: Lock<LruCache<Byte32, Cycle>>,
+    cache: Lock<TxVerifyCache>,
     keys: Option<K>,
 }
 
 impl<K> FetchCache<K> {
-    pub fn new(cache: Lock<LruCache<Byte32, Cycle>>, keys: K) -> FetchCache<K> {
+    pub fn new(cache: Lock<TxVerifyCache>, keys: K) -> FetchCache<K> {
         FetchCache {
             cache,
             keys: Some(keys),
@@ -20,7 +20,7 @@ impl<K> FetchCache<K> {
 }
 
 impl<K: IntoIterator<Item = Byte32> + Send> Future for FetchCache<K> {
-    type Item = HashMap<Byte32, Cycle>;
+    type Item = HashMap<Byte32, CacheEntry>;
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -39,12 +39,12 @@ impl<K: IntoIterator<Item = Byte32> + Send> Future for FetchCache<K> {
 }
 
 pub struct UpdateCache {
-    cache: Lock<LruCache<Byte32, Cycle>>,
-    map: Option<HashMap<Byte32, Cycle>>,
+    cache: Lock<TxVerifyCache>,
+    map: Option<HashMap<Byte32, CacheEntry>>,
 }
 
 impl UpdateCache {
-    pub fn new(cache: Lock<LruCache<Byte32, Cycle>>, map: HashMap<Byte32, Cycle>) -> UpdateCache {
+    pub fn new(cache: Lock<TxVerifyCache>, map: HashMap<Byte32, CacheEntry>) -> UpdateCache {
         UpdateCache {
             cache,
             map: Some(map),

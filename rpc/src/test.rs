@@ -20,6 +20,7 @@ use ckb_shared::{
 use ckb_store::ChainStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
+use ckb_tx_pool::fee_rate::FeeRate;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
@@ -224,7 +225,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         }
         .to_delegate(),
     );
-    io.extend_with(PoolRpcImpl::new(shared.clone(), sync_shared_state).to_delegate());
+    io.extend_with(
+        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero()).to_delegate(),
+    );
     io.extend_with(
         NetworkRpcImpl {
             network_controller: network_controller.clone(),

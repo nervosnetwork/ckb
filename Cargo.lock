@@ -832,6 +832,7 @@ dependencies = [
  "ckb-sync 0.23.0-pre",
  "ckb-test-chain-utils 0.23.0-pre",
  "ckb-traits 0.23.0-pre",
+ "ckb-tx-pool 0.23.0-pre",
  "ckb-types 0.23.0-pre",
  "ckb-util 0.23.0-pre",
  "ckb-verification 0.23.0-pre",
@@ -895,8 +896,8 @@ dependencies = [
  "ckb-store 0.23.0-pre",
  "ckb-tx-pool 0.23.0-pre",
  "ckb-types 0.23.0-pre",
+ "ckb-verification 0.23.0-pre",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
 ]
 
 [[package]]
