@@ -13,6 +13,7 @@ use std::fmt::{self, Display};
 pub enum ErrorKind {
     OutPoint,
     Transaction,
+    SubmitTransaction,
     Script,
     Header,
     Block,
