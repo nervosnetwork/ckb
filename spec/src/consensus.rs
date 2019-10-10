@@ -1,18 +1,21 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
-use crate::{OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
-use ckb_dao_utils::{genesis_dao_data, genesis_dao_data_with_satoshi_gift};
+use crate::{
+    calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+};
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_types::{
+    bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
         BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
         EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
     },
     h160, h256,
-    packed::{Byte32, CellInput, Script},
+    packed::{Byte32, CellInput, CellOutput, Script},
     prelude::*,
     u256,
     utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
@@ -119,9 +122,19 @@ pub struct ConsensusBuilder {
 impl Default for ConsensusBuilder {
     fn default() -> Self {
         let input = CellInput::new_cellbase_input(0);
+        // at least issue some shannons to make dao field valid.
+        let output = {
+            let empty_output = CellOutput::new_builder().build();
+            let occupied = empty_output
+                .occupied_capacity(Capacity::zero())
+                .expect("default occupied");
+            empty_output.as_builder().capacity(occupied.pack()).build()
+        };
         let witness = Script::default().into_witness();
         let cellbase = TransactionBuilder::default()
             .input(input)
+            .output(output)
+            .output_data(Bytes::new().pack())
             .witness(witness)
             .build();
 
@@ -131,8 +144,19 @@ impl Default for ConsensusBuilder {
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
         );
+        let primary_issuance =
+            calculate_block_reward(INITIAL_PRIMARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
+        let secondary_issuance =
+            calculate_block_reward(DEFAULT_SECONDARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
 
-        let dao = genesis_dao_data(vec![&cellbase]).expect("genesis dao data calculation error!");
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase],
+            &SATOSHI_PUBKEY_HASH,
+            SATOSHI_CELL_OCCUPIED_RATIO,
+            primary_issuance,
+            secondary_issuance,
+        )
+        .expect("genesis dao data calculation error!");
 
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())

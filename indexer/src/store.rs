@@ -616,6 +616,7 @@ mod tests {
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_types::{
+        bytes::Bytes,
         core::{
             capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
             TransactionBuilder,
@@ -662,7 +663,11 @@ mod tests {
             .code_hash(CODE_HASH_DAO.pack())
             .hash_type(ScriptHashType::Data.into())
             .build();
-        let script2 = Script::default();
+        let script2 = ScriptBuilder::default()
+            .code_hash(CODE_HASH_DAO.pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"script2".to_vec()).pack())
+            .build();
         store.insert_lock_hash(&script1.calc_script_hash(), None);
         store.insert_lock_hash(&script2.calc_script_hash(), None);
 
@@ -839,7 +844,11 @@ mod tests {
             .code_hash(CODE_HASH_DAO.pack())
             .hash_type(ScriptHashType::Data.into())
             .build();
-        let script2 = Script::default();
+        let script2 = ScriptBuilder::default()
+            .code_hash(CODE_HASH_DAO.pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"script2".to_vec()).pack())
+            .build();
         store.insert_lock_hash(&script1.calc_script_hash(), None);
         store.insert_lock_hash(&script2.calc_script_hash(), None);
 
@@ -1001,7 +1010,11 @@ mod tests {
             .code_hash(CODE_HASH_DAO.pack())
             .hash_type(ScriptHashType::Data.into())
             .build();
-        let script2 = Script::default();
+        let script2 = ScriptBuilder::default()
+            .code_hash(CODE_HASH_DAO.pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"script2".to_vec()).pack())
+            .build();
         store.insert_lock_hash(&script1.calc_script_hash(), None);
         store.insert_lock_hash(&script2.calc_script_hash(), None);
 
