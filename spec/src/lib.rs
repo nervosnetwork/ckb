@@ -147,17 +147,12 @@ impl Default for SatoshiGift {
 #[derive(Debug)]
 pub enum SpecLoadError {
     FileNotFound,
-    ChainNameNotAllowed(String),
     GenesisMismatch { expect: H256, actual: H256 },
 }
 
 impl SpecLoadError {
     fn file_not_found() -> Box<Self> {
         Box::new(SpecLoadError::FileNotFound)
-    }
-
-    fn chain_name_not_allowed(name: String) -> Box<Self> {
-        Box::new(SpecLoadError::ChainNameNotAllowed(name))
     }
 
     fn genesis_mismatch(expect: H256, actual: H256) -> Box<Self> {
@@ -171,11 +166,6 @@ impl fmt::Display for SpecLoadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SpecLoadError::FileNotFound => write!(f, "ChainSpec: file not found"),
-            SpecLoadError::ChainNameNotAllowed(name) => write!(
-                f,
-                "ChainSpec: name not allowed, expect ckb_dev, actual {}",
-                name
-            ),
             SpecLoadError::GenesisMismatch { expect, actual } => write!(
                 f,
                 "ChainSpec: genesis hash mismatch, expect {:#x}, actual {:#x}",
@@ -192,10 +182,6 @@ impl ChainSpec {
         }
         let config_bytes = resource.get()?;
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
-        if !(resource.is_bundled() || spec.name == "ckb_dev" || spec.name == "ckb_integration_test")
-        {
-            return Err(SpecLoadError::chain_name_not_allowed(spec.name.clone()));
-        }
 
         if let Some(parent) = resource.parent() {
             for r in spec.genesis.system_cells.iter_mut() {
