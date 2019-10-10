@@ -7,6 +7,7 @@ use ckb_dao::DaoCalculator;
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{
+    bytes::Bytes,
     core::{
         cell::{resolve_transaction, ResolvedTransaction},
         BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,
@@ -54,12 +55,13 @@ impl Spec for CompactBlockEmptyParentUnknown {
         let ret = wait_until(10, move || node.get_tip_block() != tip_block);
         assert!(!ret, "Node0 should reconstruct empty block failed");
 
-        let (_, _, data) = net.receive();
-        let message = SyncMessage::from_slice(&data).unwrap();
-        assert_eq!(
-            message.to_enum().item_name(),
-            GetHeaders::NAME,
-            "Node0 should send back GetHeaders message for unknown parent header"
+        net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                    .unwrap_or(false)
+            },
+            "Node0 should send back GetHeaders message for unknown parent header",
         );
     }
 }
@@ -176,11 +178,14 @@ impl Spec for CompactBlockMissingFreshTxs {
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
         assert!(!ret, "Node0 should be unable to reconstruct the block");
 
-        let (_, _, data) = net.receive();
-        let message = RelayMessage::from_slice(&data).unwrap();
-        assert_eq!(
-            message.to_enum().item_name(),
-            packed::GetBlockTransactions::NAME,
+        net.should_receive(
+            |data: &Bytes| {
+                RelayMessage::from_slice(&data)
+                    .map(|message| {
+                        message.to_enum().item_name() == packed::GetBlockTransactions::NAME
+                    })
+                    .unwrap_or(false)
+            },
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
     }
@@ -289,13 +294,15 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
             peer_id0,
             build_compact_block(&block),
         );
-        let (_, _, data) = net
-            .receive_timeout(Duration::from_secs(10))
-            .expect("receive GetBlockTransactions");
-        let message = RelayMessage::from_slice(&data).unwrap();
-        assert_eq!(
-            message.to_enum().item_name(),
-            packed::GetBlockTransactions::NAME,
+
+        net.should_receive(
+            |data: &Bytes| {
+                RelayMessage::from_slice(&data)
+                    .map(|message| {
+                        message.to_enum().item_name() == packed::GetBlockTransactions::NAME
+                    })
+                    .unwrap_or(false)
+            },
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
 
