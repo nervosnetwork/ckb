@@ -227,24 +227,18 @@ impl SortedTxMap {
         self.entries.remove(&id).map(|entry| {
             // Update descendants entries
             for desc_id in self.get_descendants(&id) {
-                if let Some(key) = self
+                let desc_entry = self
                     .entries
-                    .get(&desc_id)
-                    .map(|entry| entry.as_sorted_key())
-                {
-                    self.sorted_index.remove(&key);
-                }
-                if let Some(desc_entry) = self.entries.get_mut(&desc_id) {
-                    // remove entry
-                    desc_entry.sub_entry_weight(&entry);
-                }
-                if let Some(key) = self
-                    .entries
-                    .get(&desc_id)
-                    .map(|entry| entry.as_sorted_key())
-                {
-                    self.sorted_index.insert(key);
-                }
+                    .get_mut(&desc_id)
+                    .expect("found inconsistency when remove_entry");
+                let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
+                debug_assert!(
+                    deleted,
+                    "found inconsistency between entries and sorted_index"
+                );
+
+                desc_entry.sub_entry_weight(&entry);
+                self.sorted_index.insert(desc_entry.as_sorted_key());
             }
 
             // Remove entry from self.sorted_index and self.links
@@ -252,7 +246,10 @@ impl SortedTxMap {
                 .sorted_index
                 .remove(&AncestorsScoreSortKey::from(&entry));
             debug_assert!(deleted, "pending pool inconsistent");
-            let link = self.links.remove(&id).expect("found inconsistency when remove entry's link");
+            let link = self
+                .links
+                .remove(&id)
+                .expect("found inconsistency when remove entry's link");
             for p_id in link.parents {
                 self.links
                     .get_mut(&p_id)
