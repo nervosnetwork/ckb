@@ -138,7 +138,9 @@ impl Spec for IBDProcessWithWhiteList {
             panic!("refuse to connect fail");
         }
 
-        node6.disconnect(node0);
+        // After the whitelist is disconnected, it will always try to reconnect.
+        // In order to ensure that the node6 has already generated two blocks when reconnecting,
+        // it must be in the connected state, and then disconnected.
         node6.generate_blocks(2);
 
         let generate_res = wait_until(10, || net.nodes[6].get_tip_block_number() == 2);
@@ -147,7 +149,12 @@ impl Spec for IBDProcessWithWhiteList {
             panic!("node6 can't generate blocks to 2");
         }
 
-        node0.connect_uncheck(node6);
+        // Although the disconnection of the whitelist is automatically reconnected for node0,
+        // the disconnect operation is still needed here to instantly refresh the state of node6 in node0.
+        node6.disconnect(node0);
+
+        // Make sure node0 re-connect with node6
+        node0.connect(node6);
 
         // IBD only with outbound/whitelist node
         let rpc_client1 = node1.rpc_client();
