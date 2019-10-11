@@ -4,7 +4,7 @@
 use crate::component::entry::TxEntry;
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// A struct to use as a sorted key
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -203,31 +203,29 @@ impl SortedTxMap {
     }
 
     pub fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
-        let mut queue = VecDeque::new();
-        let mut removed = Vec::new();
-        queue.push_back(id.clone());
-        while let Some(id) = queue.pop_front() {
-            if let Some(entry) = self.entries.remove(&id) {
-                let deleted = self
-                    .sorted_index
-                    .remove(&AncestorsScoreSortKey::from(&entry));
-                debug_assert!(deleted, "pending pool inconsistent");
-                if let Some(link) = self.links.remove(&id) {
-                    queue.extend(link.children);
-                }
-                removed.push(entry);
-            }
+        let mut removal = Vec::new();
+
+        if let Some(entry) = self.get(id) {
+            removal.push(entry.to_owned());
+        } else {
+            return removal;
         }
-        removed
+        let descendants = self.get_descendants(id);
+        removal.extend(descendants.iter().map(|desc_id| {
+            self.get(desc_id)
+                .expect("found inconsistency when remove_entry_and_descendants")
+                .to_owned()
+        }));
+
+        removal.iter().for_each(|e| {
+            self.remove_entry(&e.transaction.proposal_short_id());
+        });
+        removal
     }
 
     pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove(&id).map(|entry| {
-            let deleted = self
-                .sorted_index
-                .remove(&AncestorsScoreSortKey::from(&entry));
-            debug_assert!(deleted, "pending pool inconsistent");
-            // update descendants entries
+            // Update descendants entries
             for desc_id in self.get_descendants(&id) {
                 if let Some(key) = self
                     .entries
@@ -248,19 +246,24 @@ impl SortedTxMap {
                     self.sorted_index.insert(key);
                 }
             }
-            // update links
-            if let Some(link) = self.links.remove(&id) {
-                for p_id in link.parents {
-                    self.links
-                        .get_mut(&p_id)
-                        .map(|link| link.children.remove(&id));
-                }
-                for c_id in link.children {
-                    self.links
-                        .get_mut(&c_id)
-                        .map(|link| link.parents.remove(&id));
-                }
+
+            // Remove entry from self.sorted_index and self.links
+            let deleted = self
+                .sorted_index
+                .remove(&AncestorsScoreSortKey::from(&entry));
+            debug_assert!(deleted, "pending pool inconsistent");
+            let link = self.links.remove(&id).expect("found inconsistency when remove entry's link");
+            for p_id in link.parents {
+                self.links
+                    .get_mut(&p_id)
+                    .map(|link| link.children.remove(&id));
             }
+            for c_id in link.children {
+                self.links
+                    .get_mut(&c_id)
+                    .map(|link| link.parents.remove(&id));
+            }
+
             entry
         })
     }
