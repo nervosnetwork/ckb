@@ -2,6 +2,7 @@
 //! and its top-level members.
 
 use crate::component::entry::TxEntry;
+use crate::component::relative::RelativeTraversal;
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -64,79 +65,51 @@ pub struct TxLink {
     pub children: HashSet<ProposalShortId>,
 }
 
-#[derive(Clone, Copy)]
-enum Relation {
-    Parents,
-    Children,
-}
-
-impl TxLink {
-    fn get_direct_ids(&self, r: Relation) -> &HashSet<ProposalShortId> {
-        match r {
-            Relation::Parents => &self.parents,
-            Relation::Children => &self.children,
-        }
-    }
-
-    fn get_relative_ids(
-        links: &HashMap<ProposalShortId, TxLink>,
-        tx_short_id: &ProposalShortId,
-        relation: Relation,
-    ) -> HashSet<ProposalShortId> {
-        let mut family_txs = links
-            .get(tx_short_id)
-            .map(|link| link.get_direct_ids(relation).clone())
-            .unwrap_or_default();
-        let mut relative_txs = HashSet::with_capacity(family_txs.len());
-        while !family_txs.is_empty() {
-            let id = family_txs
-                .iter()
-                .next()
-                .map(ToOwned::to_owned)
-                .expect("exists");
-            relative_txs.insert(id.clone());
-            family_txs.remove(&id);
-
-            // check parents recursively
-            for id in links
-                .get(&id)
-                .map(|link| link.get_direct_ids(relation).clone())
-                .unwrap_or_default()
-            {
-                if !relative_txs.contains(&id) {
-                    family_txs.insert(id);
-                }
-            }
-        }
-        relative_txs
-    }
-
-    pub fn get_ancestors(
-        links: &HashMap<ProposalShortId, TxLink>,
-        tx_short_id: &ProposalShortId,
-    ) -> HashSet<ProposalShortId> {
-        TxLink::get_relative_ids(links, tx_short_id, Relation::Parents)
-    }
-
-    pub fn get_descendants(
-        links: &HashMap<ProposalShortId, TxLink>,
-        tx_short_id: &ProposalShortId,
-    ) -> HashSet<ProposalShortId> {
-        TxLink::get_relative_ids(links, tx_short_id, Relation::Children)
-    }
-}
-
 #[derive(Default, Debug, Clone)]
 pub(crate) struct SortedTxMap {
-    entries: HashMap<ProposalShortId, TxEntry>,
+    entries: HashMap<ProposalShortId, (TxEntry, TxLink)>,
     sorted_index: BTreeSet<AncestorsScoreSortKey>,
-    /// A map track transaction ancestors and descendants
-    links: HashMap<ProposalShortId, TxLink>,
 }
 
 impl SortedTxMap {
     pub fn size(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
+        self.entries.get(id).map(|(entry, _)| entry)
+    }
+
+    fn get_mut(&mut self, id: &ProposalShortId) -> Option<&mut TxEntry> {
+        self.entries.get_mut(id).map(|(entry, _)| entry)
+    }
+
+    pub fn get_link(&self, id: &ProposalShortId) -> Option<&TxLink> {
+        self.entries.get(id).map(|(_, link)| link)
+    }
+
+    fn get_link_mut(&mut self, id: &ProposalShortId) -> Option<&mut TxLink> {
+        self.entries.get_mut(id).map(|(_, link)| link)
+    }
+
+    fn insert(&mut self, entry: TxEntry, link: TxLink) -> Option<TxEntry> {
+        let id = entry.transaction.proposal_short_id();
+        self.sorted_index
+            .insert(AncestorsScoreSortKey::from(&entry));
+        self.entries
+            .insert(id, (entry, link))
+            .map(|(old_entry, _)| old_entry)
+    }
+
+    fn remove(&mut self, id: &ProposalShortId) -> Option<(TxEntry, TxLink)> {
+        self.entries.remove(id).map(|(entry, link)| {
+            self.sorted_index.remove(&entry.as_sorted_key());
+            (entry, link)
+        })
     }
 
     /// update entry ancestor prefix fields
@@ -146,8 +119,8 @@ impl SortedTxMap {
         parents: &HashSet<ProposalShortId>,
     ) {
         for id in parents {
-            let parent_entry = self.entries.get(&id).expect("pool consistent");
-            entry.add_ancestors_weight(&parent_entry);
+            let parent_entry = self.get(&id).expect("pool consistent");
+            entry.add_ancestors_weight(parent_entry);
         }
     }
 
@@ -161,13 +134,13 @@ impl SortedTxMap {
         for input in entry.transaction.inputs() {
             let parent_hash = &input.previous_output().tx_hash();
             let id = ProposalShortId::from_tx_hash(&(parent_hash));
-            if self.links.contains_key(&id) {
+            if self.contains_key(&id) {
                 parents.insert(id);
             }
         }
         for cell_dep in entry.transaction.cell_deps() {
             let id = ProposalShortId::from_tx_hash(&(cell_dep.out_point().tx_hash()));
-            if self.links.contains_key(&id) {
+            if self.contains_key(&id) {
                 parents.insert(id);
             }
         }
@@ -175,31 +148,17 @@ impl SortedTxMap {
         self.update_ancestors_stat_for_entry(&mut entry, &parents);
         // update parents references
         for parent_id in &parents {
-            self.links
-                .get_mut(parent_id)
+            self.get_link_mut(parent_id)
                 .expect("exists")
                 .children
                 .insert(short_id.clone());
         }
-        // insert links
-        self.links.insert(
-            short_id.clone(),
-            TxLink {
-                parents,
-                children: Default::default(),
-            },
-        );
-        self.sorted_index
-            .insert(AncestorsScoreSortKey::from(&entry));
-        self.entries.insert(short_id, entry)
-    }
 
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.entries.contains_key(id)
-    }
-
-    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
-        self.entries.get(id)
+        let link = TxLink {
+            parents,
+            children: Default::default(),
+        };
+        self.insert(entry, link)
     }
 
     pub fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
@@ -224,55 +183,41 @@ impl SortedTxMap {
     }
 
     pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
-        self.entries.remove(&id).map(|entry| {
-            // Update descendants entries
-            for desc_id in self.get_descendants(&id) {
+        if !self.contains_key(id) {
+            return None;
+        }
+
+        let descendants = self.get_descendants(id);
+        let (entry, link) = self.remove(id).expect("checked above");
+
+        // Update its descendants' entries
+        for desc_id in descendants.iter() {
+            let (old_sorted_key, new_sorted_key) = {
                 let desc_entry = self
-                    .entries
                     .get_mut(&desc_id)
                     .expect("found inconsistency when remove_entry");
-                let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
-                debug_assert!(
-                    deleted,
-                    "found inconsistency between entries and sorted_index"
-                );
+                let old_sorted_key = desc_entry.as_sorted_key();
 
                 desc_entry.sub_entry_weight(&entry);
-                self.sorted_index.insert(desc_entry.as_sorted_key());
-            }
+                let new_sorted_key = desc_entry.as_sorted_key();
+                (old_sorted_key, new_sorted_key)
+            };
 
-            // Remove entry from self.sorted_index and self.links
-            let deleted = self
-                .sorted_index
-                .remove(&AncestorsScoreSortKey::from(&entry));
-            debug_assert!(deleted, "pending pool inconsistent");
-            let link = self
-                .links
-                .remove(&id)
-                .expect("found inconsistency when remove entry's link");
-            for p_id in link.parents {
-                self.links
-                    .get_mut(&p_id)
-                    .map(|link| link.children.remove(&id));
-            }
-            for c_id in link.children {
-                self.links
-                    .get_mut(&c_id)
-                    .map(|link| link.parents.remove(&id));
-            }
+            self.sorted_index.insert(new_sorted_key);
+            self.sorted_index.remove(&old_sorted_key);
+        }
 
-            entry
-        })
-    }
+        // Remove the links between entry and parents/children
+        for p_id in link.parents.iter() {
+            self.get_link_mut(p_id)
+                .map(|p_link| p_link.children.remove(id));
+        }
+        for c_id in link.children.iter() {
+            self.get_link_mut(c_id)
+                .map(|c_link| c_link.parents.remove(id));
+        }
 
-    /// find all ancestors from pool
-    pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        TxLink::get_ancestors(&self.links, tx_short_id)
-    }
-
-    /// find all descendants from pool
-    pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        TxLink::get_descendants(&self.links, tx_short_id)
+        Some(entry)
     }
 
     /// return sorted keys
