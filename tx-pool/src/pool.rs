@@ -385,7 +385,7 @@ impl TxPool {
         let entries = self.orphan.remove_by_ancestor(tx);
         for entry in entries {
             let tx_hash = entry.transaction.hash().to_owned();
-            if self.contains_proposed(&tx.proposal_short_id()) {
+            if self.contains_proposed(&entry.transaction.proposal_short_id()) {
                 let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
                 if ret.is_err() {
                     self.update_statics_for_remove_tx(
