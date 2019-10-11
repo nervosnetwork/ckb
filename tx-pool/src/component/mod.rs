@@ -5,6 +5,7 @@ pub(crate) mod container;
 pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
+pub(crate) mod relative;
 
 pub use self::entry::{DefectEntry, TxEntry};
 

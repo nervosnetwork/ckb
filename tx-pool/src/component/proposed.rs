@@ -1,5 +1,6 @@
 use crate::component::container::SortedTxMap;
 use crate::component::entry::TxEntry;
+use crate::component::relative::RelativeTraversal;
 use ckb_types::{
     bytes::Bytes,
     core::{

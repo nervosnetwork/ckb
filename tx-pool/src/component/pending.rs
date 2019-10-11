@@ -1,5 +1,6 @@
 use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
+use crate::component::relative::RelativeTraversal;
 use crate::fee_rate::FeeRate;
 use ckb_types::{
     core::{
