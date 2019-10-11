@@ -102,8 +102,13 @@ pub fn update_tx_pool_for_reorg(
             get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
         (tx, related_out_points)
     });
-    tx_pool.remove_expired(detached_proposal_id.iter());
+    // NOTE: `remove_expired` will try to re-put the given expired/detached proposals into
+    // pending-pool if they can be found within txpool. As for a transaction
+    // which is both expired and committed at the one time(commit at its end of commit-window),
+    // we should treat it as a committed and not re-put into pending-pool. So we should ensure
+    // that involves `remove_committed_txs_from_proposed` before `remove_expired`.
     tx_pool.remove_committed_txs_from_proposed(txs_iter);
+    tx_pool.remove_expired(detached_proposal_id.iter());
 
     let to_update_cache = retain
         .into_iter()
