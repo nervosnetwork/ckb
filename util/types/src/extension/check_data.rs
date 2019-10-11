@@ -155,10 +155,14 @@ mod tests {
 
     #[test]
     fn check_data() {
-        let ht_right = packed::ScriptHashType::new_builder().set([1]).build();
-        let ht_error = packed::ScriptHashType::new_builder().set([2]).build();
-        let dt_right = packed::DepType::new_builder().set([1]).build();
-        let dt_error = packed::DepType::new_builder().set([2]).build();
+        let ht_right = packed::ScriptHashType::new_builder()
+            .set([1.into()])
+            .build();
+        let ht_error = packed::ScriptHashType::new_builder()
+            .set([2.into()])
+            .build();
+        let dt_right = packed::DepType::new_builder().set([1.into()]).build();
+        let dt_error = packed::DepType::new_builder().set([2.into()]).build();
 
         let script_right = packed::Script::new_builder()
             .hash_type(ht_right.clone())

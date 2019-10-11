@@ -119,7 +119,7 @@ impl Relayer {
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
                 BlockProposalProcess::new(reader, self).execute()?;
             }
-            packed::RelayMessageUnionReader::NotSet => return Err(err_msg("invalid data")),
+            packed::RelayMessageUnionReader::NotSet(_) => return Err(err_msg("invalid data")),
         }
         Ok(())
     }
