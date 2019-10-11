@@ -98,21 +98,5 @@ impl Spec for WhitelistOnSessionLimit {
         if !is_connect_peer_num_eq_3 {
             panic!("whitelist connect fail");
         }
-
-        node1.disconnect(&node0);
-        // whitelist will be connected on inbound reach limit
-        node1.connect(&node0);
-
-        let is_connect_peer_num_eq_3 = wait_until(10, || {
-            let peers = rpc_client0.get_peers();
-            peers.len() == 3
-                && peers
-                    .into_iter()
-                    .all(|node| id_set.contains(&node.node_id.as_str()))
-        });
-
-        if !is_connect_peer_num_eq_3 {
-            panic!("connect fail");
-        }
     }
 }
