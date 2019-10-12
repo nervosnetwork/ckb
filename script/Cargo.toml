@@ -32,3 +32,4 @@ ckb-store = { path = "../store" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tiny-keccak = "1.4"
 ckb-crypto = { path = "../util/crypto"}
+ckb-chain-spec = { path = "../spec" }

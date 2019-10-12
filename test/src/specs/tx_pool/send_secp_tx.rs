@@ -9,15 +9,12 @@ use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
-    core::{capacity_bytes, Capacity, Cycle, DepType, ScriptHashType, TransactionBuilder},
+    core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     H256,
 };
 use log::info;
-
-const TX_2_IN_2_OUT_SIZE: usize = 557;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 3_093_521;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -191,23 +188,6 @@ impl Spec for CheckTypical2In2OutTx {
             .witness(witness.clone())
             .witness(witness.clone())
             .build();
-        info!("Check 2 in 2 out tx size");
-        let serialized_size = tx.data().as_slice().len();
-        assert_eq!(
-            serialized_size, TX_2_IN_2_OUT_SIZE,
-            "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
-        );
-
-        info!("Check 2 in 2 out tx cycles");
-        let cycles: Cycle = node
-            .rpc_client()
-            .dry_run_transaction(tx.data().into())
-            .cycles
-            .into();
-        assert_eq!(
-            cycles, TX_2_IN_2_OUT_CYCLES,
-            "2 in 2 out tx cycles changed, PLEASE UPDATE consensus"
-        );
 
         info!("Send 1 secp tx use dep group");
         let tx_hash = node.rpc_client().send_transaction(tx.data().into());

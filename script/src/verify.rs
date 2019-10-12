@@ -423,8 +423,8 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_types::{
         core::{
-            capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder,
-            TransactionInfo,
+            capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, ScriptHashType,
+            TransactionBuilder, TransactionInfo,
         },
         h256,
         packed::{
@@ -435,8 +435,12 @@ mod tests {
     };
     use faster_hex::hex_encode;
 
+    use ckb_chain_spec::consensus::{CYCLE_BOUND, TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES};
     use ckb_error::assert_error_eq;
-    use ckb_test_chain_utils::always_success_cell;
+    use ckb_test_chain_utils::{
+        always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
+        secp256k1_data_cell, type_lock_script_code_hash,
+    };
     use ckb_vm::Error as VMInternalError;
     use std::fs::File;
     use std::io::Read;
@@ -1594,5 +1598,122 @@ mod tests {
             verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-2),
         );
+    }
+
+    #[test]
+    fn check_typical_secp256k1_blake160_2_in_2_out_tx() {
+        let consensus = ckb_testnet_consensus();
+        let hash_type = ScriptHashType::Type;
+        let dep_group_tx_hash = consensus.genesis_block().transactions()[1].hash();
+        let secp_out_point = OutPoint::new(dep_group_tx_hash, 0);
+
+        let cell_dep = CellDep::new_builder()
+            .out_point(secp_out_point.clone())
+            .dep_type(DepType::DepGroup.pack())
+            .build();
+
+        let input1 = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 0), 0);
+        let input2 = CellInput::new(OutPoint::new(h256!("0x1111").pack(), 0), 0);
+
+        let mut generator = Generator::non_crypto_safe_prng(42);
+        let privkey = generator.gen_privkey();
+        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
+
+        let lock = Script::new_builder()
+            .args(lock_arg.clone().pack())
+            .code_hash(type_lock_script_code_hash().pack())
+            .hash_type(hash_type.pack())
+            .build();
+
+        let output1 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock.clone())
+            .build();
+        let output2 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock.clone())
+            .build();
+        let tx = TransactionBuilder::default()
+            .cell_dep(cell_dep.clone())
+            .input(input1.clone())
+            .input(input2.clone())
+            .output(output1.clone())
+            .output(output2.clone())
+            .output_data(Default::default())
+            .output_data(Default::default())
+            .build();
+
+        let tx_hash: H256 = tx.hash().unpack();
+        let message = H256::from(blake2b_256(&tx_hash));
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        let witness = Bytes::from(sig.serialize()).pack();
+        let tx = tx
+            .as_advanced_builder()
+            .witness(witness.clone())
+            .witness(witness.clone())
+            .build();
+
+        let serialized_size = tx.data().as_slice().len() as u64;
+
+        assert_eq!(
+            serialized_size, TWO_IN_TWO_OUT_BYTES,
+            "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
+        );
+
+        let (secp256k1_blake160_cell, secp256k1_blake160_cell_data) =
+            secp256k1_blake160_sighash_cell(consensus.clone());
+
+        let (secp256k1_data_cell, secp256k1_data_cell_data) =
+            secp256k1_data_cell(consensus.clone());
+
+        let input_cell1 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock.clone())
+            .build();
+
+        let resolved_input_cell1 =
+            CellMetaBuilder::from_cell_output(input_cell1, Default::default())
+                .out_point(input1.previous_output().clone())
+                .build();
+
+        let input_cell2 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock.clone())
+            .build();
+
+        let resolved_input_cell2 =
+            CellMetaBuilder::from_cell_output(input_cell2, Default::default())
+                .out_point(input2.previous_output().clone())
+                .build();
+
+        let resolved_secp256k1_blake160_cell = CellMetaBuilder::from_cell_output(
+            secp256k1_blake160_cell.clone(),
+            secp256k1_blake160_cell_data.to_owned(),
+        )
+        .build();
+
+        let resolved_secp_data_cell = CellMetaBuilder::from_cell_output(
+            secp256k1_data_cell.clone(),
+            secp256k1_data_cell_data.to_owned(),
+        )
+        .build();
+
+        let rtx = ResolvedTransaction {
+            transaction: tx,
+            resolved_cell_deps: vec![resolved_secp256k1_blake160_cell, resolved_secp_data_cell],
+            resolved_inputs: vec![resolved_input_cell1, resolved_input_cell2],
+            resolved_dep_groups: vec![],
+        };
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+
+        let cycle = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
+
+        assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
+        assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
 }
