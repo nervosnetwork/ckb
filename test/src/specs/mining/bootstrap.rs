@@ -24,7 +24,7 @@ impl Spec for BootstrapCellbase {
         let miner = packed::Script::new_builder()
             .args(Bytes::from(vec![2, 1]).pack())
             .code_hash(h256!("0xa2").pack())
-            .hash_type(ScriptHashType::Data.pack())
+            .hash_type(ScriptHashType::Data.into())
             .build();
 
         let is_bootstrap_cellbase = |blk_hash: &packed::Byte32| {

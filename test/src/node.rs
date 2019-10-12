@@ -390,7 +390,7 @@ impl Node {
     pub fn always_success_script(&self) -> Script {
         Script::new_builder()
             .code_hash(self.always_success_code_hash.clone())
-            .hash_type(ScriptHashType::Data.pack())
+            .hash_type(ScriptHashType::Data.into())
             .build()
     }
 

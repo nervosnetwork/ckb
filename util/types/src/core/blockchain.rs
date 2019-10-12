@@ -32,6 +32,13 @@ impl ScriptHashType {
     }
 }
 
+impl Into<u8> for ScriptHashType {
+    #[inline]
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DepType {
     Code = 0,
@@ -53,6 +60,13 @@ impl TryFrom<u8> for DepType {
             1 => Ok(DepType::DepGroup),
             _ => Err(err_msg(format!("Invalid dep type {}", v))),
         }
+    }
+}
+
+impl Into<u8> for DepType {
+    #[inline]
+    fn into(self) -> u8 {
+        self as u8
     }
 }
 

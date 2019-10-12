@@ -237,7 +237,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                 let capacity: Result<Capacity, Error> = {
                     let output = &cell_meta.cell_output;
                     let is_dao_type_script = |type_script: Script| {
-                        type_script.hash_type().unpack() == ScriptHashType::Type
+                        type_script.hash_type() == Into::<u8>::into(ScriptHashType::Type)
                             && type_script.code_hash()
                                 == self.consensus.dao_type_hash().expect("No dao system cell")
                     };

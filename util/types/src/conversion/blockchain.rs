@@ -74,39 +74,6 @@ impl<'r> Unpack<[u8; 10]> for packed::ProposalShortIdReader<'r> {
 }
 impl_conversion_for_entity_unpack!([u8; 10], ProposalShortId);
 
-impl Pack<packed::ScriptHashType> for core::ScriptHashType {
-    fn pack(&self) -> packed::ScriptHashType {
-        let v = *self as u8;
-        packed::ScriptHashType::new_unchecked(Bytes::from(vec![v]))
-    }
-}
-
-impl<'r> Unpack<core::ScriptHashType> for packed::ScriptHashTypeReader<'r> {
-    fn unpack(&self) -> core::ScriptHashType {
-        use std::convert::TryFrom;
-        core::ScriptHashType::try_from(self.as_slice()[0])
-            .expect("internal error: fail to unpack ScriptHashType")
-    }
-}
-
-impl_conversion_for_entity_unpack!(core::ScriptHashType, ScriptHashType);
-
-impl Pack<packed::DepType> for core::DepType {
-    fn pack(&self) -> packed::DepType {
-        let v = *self as u8;
-        packed::DepType::new_unchecked(Bytes::from(vec![v]))
-    }
-}
-
-impl<'r> Unpack<core::DepType> for packed::DepTypeReader<'r> {
-    fn unpack(&self) -> core::DepType {
-        use std::convert::TryFrom;
-        core::DepType::try_from(self.as_slice()[0]).expect("internal error: fail to unpack DepType")
-    }
-}
-
-impl_conversion_for_entity_unpack!(core::DepType, DepType);
-
 impl Pack<packed::Bytes> for Bytes {
     fn pack(&self) -> packed::Bytes {
         let len = (self.len() as u32).to_le_bytes();
