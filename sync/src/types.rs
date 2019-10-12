@@ -727,6 +727,10 @@ impl SyncState {
     }
 
     pub fn set_shared_best_header(&self, header: HeaderView) {
+        assert!(
+            self.header_map.read().contains_key(&header.hash()),
+            "HeaderView must exists in header_map before set best header"
+        );
         *self.shared_best_header.write() = header;
     }
 
@@ -885,10 +889,10 @@ impl SyncSnapshot {
         }
     }
 
-    // Update the shared_best_header if need
-    // Update the peer's best_known_header
     // Update the header_map
     // Update the block_status_map
+    // Update the shared_best_header if need
+    // Update the peer's best_known_header
     pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
         let parent_view = self
             .get_header_view(&header.data().raw().parent_hash())
@@ -898,20 +902,23 @@ impl SyncSnapshot {
             HeaderView::new(header.clone(), total_difficulty)
         };
 
+        header_view.build_skip(|hash| self.get_header_view(hash));
+        self.state
+            .header_map
+            .write()
+            .insert(header.hash(), header_view.clone());
+        self.state
+            .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
+
+        // NOTE: Must update best headers(peers/global) after update header_map, otherwise will have
+        //   multiple threads inconsistent bug.
+
         // Update shared_best_header if the arrived header has greater difficulty
         let shared_best_header = self.state().shared_best_header();
         if header_view.is_better_than(&shared_best_header.total_difficulty()) {
             self.state.set_shared_best_header(header_view.clone());
         }
-
         self.state.peers().new_header_received(peer, &header_view);
-        header_view.build_skip(|hash| self.get_header_view(hash));
-        self.state
-            .header_map
-            .write()
-            .insert(header.hash(), header_view);
-        self.state
-            .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
     }
 
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
