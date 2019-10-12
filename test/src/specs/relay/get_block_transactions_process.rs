@@ -1,6 +1,7 @@
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
+    bytes::Bytes,
     core::UncleBlockView,
     packed::{self, RelayMessage},
     prelude::*,
@@ -53,12 +54,12 @@ impl Spec for MissingUncleRequest {
             message.as_slice().into(),
         );
 
-        let (_, _, data) = net.receive();
-        let message = RelayMessage::from_slice(&data).unwrap();
-
-        assert_eq!(
-            message.to_enum().item_name(),
-            packed::BlockTransactions::NAME,
+        net.should_receive(
+            |data: &Bytes| {
+                RelayMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == packed::BlockTransactions::NAME)
+                    .unwrap_or(false)
+            },
             "Node should reponse BlockTransactions message",
         );
 
