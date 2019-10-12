@@ -62,9 +62,6 @@ mod tests {
         let deser_pubkey = Pubkey::from_slice(&ser_pubkey).expect("deserialize pubkey");
         assert_eq!(deser_pubkey, pubkey);
 
-        let deser_privkey = Privkey::from_slice(privkey.as_ref());
-        assert_eq!(deser_privkey, privkey);
-
         let msg = random_message();
         let signature = privkey.sign_recoverable(&msg).expect("sign");
         let ser_signature = signature.serialize();
@@ -72,5 +69,12 @@ mod tests {
         let deser_signature = Signature::from_slice(&ser_signature).expect("deserialize");
         assert!(deser_signature.is_valid());
         assert_eq!(ser_signature, deser_signature.serialize());
+    }
+
+    #[test]
+    fn privkey_zeroize() {
+        let (mut privkey, _) = Generator::random_keypair();
+        privkey.zeroize();
+        assert!(privkey == Privkey::from_slice([0u8; 32].as_ref()));
     }
 }

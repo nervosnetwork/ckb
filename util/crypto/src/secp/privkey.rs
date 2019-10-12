@@ -5,9 +5,9 @@ use ckb_fixed_hash::H256;
 use secp256k1::key;
 use secp256k1::Message as SecpMessage;
 use std::str::FromStr;
-use std::{fmt, ops};
+use std::{ptr, sync::atomic};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Privkey {
     /// ECDSA key.
     inner: H256,
@@ -39,23 +39,19 @@ impl Privkey {
         h.copy_from_slice(&key[0..32]);
         Privkey { inner: h.into() }
     }
+
+    // uses core::ptr::write_volatile and core::sync::atomic memory fences to zeroing
+    pub(crate) fn zeroize(&mut self) {
+        for elem in self.inner.0.iter_mut() {
+            volatile_write(elem, Default::default());
+            atomic_fence();
+        }
+    }
 }
 
 impl From<H256> for Privkey {
     fn from(key: H256) -> Self {
         Privkey { inner: key }
-    }
-}
-
-impl Into<H256> for Privkey {
-    fn into(self) -> H256 {
-        self.inner
-    }
-}
-
-impl AsRef<[u8]> for Privkey {
-    fn as_ref(&self) -> &[u8] {
-        self.inner.as_bytes()
     }
 }
 
@@ -69,14 +65,6 @@ impl FromStr for Privkey {
     }
 }
 
-impl ops::Deref for Privkey {
-    type Target = H256;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
 impl From<key::SecretKey> for Privkey {
     fn from(key: key::SecretKey) -> Self {
         let mut h = [0u8; 32];
@@ -85,8 +73,18 @@ impl From<key::SecretKey> for Privkey {
     }
 }
 
-impl fmt::Display for Privkey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:x}", self.inner)
+#[inline]
+fn atomic_fence() {
+    atomic::compiler_fence(atomic::Ordering::SeqCst);
+}
+
+#[inline]
+fn volatile_write<T: Copy + Sized>(dst: &mut T, src: T) {
+    unsafe { ptr::write_volatile(dst, src) }
+}
+
+impl Drop for Privkey {
+    fn drop(&mut self) {
+        self.zeroize()
     }
 }
