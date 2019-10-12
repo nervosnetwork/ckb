@@ -7,7 +7,7 @@ timestamp = 0
 compact_target = 0x20010000
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 issued_cells = []
-nonce = "0x0"
+nonce = 0
 
 [genesis.genesis_cell]
 message = ""

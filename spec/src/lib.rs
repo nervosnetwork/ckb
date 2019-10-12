@@ -30,7 +30,7 @@ use ckb_types::{
     },
     h256, packed,
     prelude::*,
-    H160, H256, U128,
+    H160, H256,
 };
 pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ pub struct Genesis {
     pub compact_target: u32,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
-    pub nonce: U128,
+    pub nonce: u128,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: Vec<SystemCell>,
