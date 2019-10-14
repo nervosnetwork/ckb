@@ -1,31 +1,19 @@
-use crate::{core, packed, prelude::*};
+use crate::{core, packed};
 
 /*
  * Blockchain
  */
 
-impl<'r> packed::ScriptHashTypeReader<'r> {
-    pub fn check_data(&self) -> bool {
-        core::ScriptHashType::verify_value(self.as_slice()[0])
-    }
-}
-
-impl<'r> packed::DepTypeReader<'r> {
-    pub fn check_data(&self) -> bool {
-        core::DepType::verify_value(self.as_slice()[0])
-    }
-}
-
 impl<'r> packed::ScriptReader<'r> {
     pub fn check_data(&self) -> bool {
-        self.hash_type().check_data()
+        core::ScriptHashType::verify_value(self.hash_type().into())
     }
 }
 
 impl<'r> packed::ScriptOptReader<'r> {
     pub fn check_data(&self) -> bool {
         self.to_opt()
-            .map(|i| i.hash_type().check_data())
+            .map(|i| core::ScriptHashType::verify_value(i.hash_type().into()))
             .unwrap_or(true)
     }
 }
@@ -44,7 +32,7 @@ impl<'r> packed::CellOutputVecReader<'r> {
 
 impl<'r> packed::CellDepReader<'r> {
     pub fn check_data(&self) -> bool {
-        self.dep_type().check_data()
+        core::DepType::verify_value(self.dep_type().into())
     }
 }
 
@@ -155,21 +143,13 @@ mod tests {
 
     #[test]
     fn check_data() {
-        let ht_right = packed::ScriptHashType::new_builder()
-            .set([1.into()])
-            .build();
-        let ht_error = packed::ScriptHashType::new_builder()
-            .set([2.into()])
-            .build();
-        let dt_right = packed::DepType::new_builder().set([1.into()]).build();
-        let dt_error = packed::DepType::new_builder().set([2.into()]).build();
+        let ht_right = 1.into();
+        let ht_error = 2.into();
+        let dt_right = 1.into();
+        let dt_error = 2.into();
 
-        let script_right = packed::Script::new_builder()
-            .hash_type(ht_right.clone())
-            .build();
-        let script_error = packed::Script::new_builder()
-            .hash_type(ht_error.clone())
-            .build();
+        let script_right = packed::Script::new_builder().hash_type(ht_right).build();
+        let script_error = packed::Script::new_builder().hash_type(ht_error).build();
 
         let script_opt_right = packed::ScriptOpt::new_builder()
             .set(Some(script_right.clone()))
@@ -199,12 +179,8 @@ mod tests {
             .type_(script_opt_right.clone())
             .build();
 
-        let cell_dep_right = packed::CellDep::new_builder()
-            .dep_type(dt_right.clone())
-            .build();
-        let cell_dep_error = packed::CellDep::new_builder()
-            .dep_type(dt_error.clone())
-            .build();
+        let cell_dep_right = packed::CellDep::new_builder().dep_type(dt_right).build();
+        let cell_dep_error = packed::CellDep::new_builder().dep_type(dt_error).build();
 
         test_check_data_via_transaction(true, &[], &[], &[]);
         test_check_data_via_transaction(true, &[&output_right1], &[&[]], &[&cell_dep_right]);

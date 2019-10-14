@@ -2,6 +2,7 @@ use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
+    bytes::Bytes,
     packed::{GetHeaders, SyncMessage},
     prelude::*,
 };
@@ -22,9 +23,14 @@ impl Spec for MalformedMessage {
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let (peer_id, _, data) = net.receive();
-        let message = SyncMessage::from_slice(&data).expect("parse message failed");
-        assert_eq!(GetHeaders::NAME, message.to_enum().item_name());
+        let peer_id = net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                    .unwrap_or(false)
+            },
+            "Test node should receive GetHeaders message from node0",
+        );
 
         info!("Send malformed message to node0 twice");
         net.send(
@@ -65,9 +71,14 @@ impl Spec for MalformedMessageWithWhitelist {
         net.connect(&node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let (peer_id, _, data) = net.receive();
-        let message = SyncMessage::from_slice(&data).expect("parse message failed");
-        assert_eq!(GetHeaders::NAME, message.to_enum().item_name());
+        let peer_id = net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                    .unwrap_or(false)
+            },
+            "Test node should receive GetHeaders message from node0",
+        );
 
         let net_listen = format!(
             "/ip4/127.0.0.1/tcp/{}/p2p/{}",

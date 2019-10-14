@@ -23,6 +23,7 @@ use ckb_types::{
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use criterion::{criterion_group, Criterion};
 use rand::random;
+use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[cfg(not(feature = "ci"))]
@@ -34,7 +35,8 @@ const SIZES: &[usize] = &[2usize];
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
     let args = JsonBytes::from_bytes(secp_script.args().unpack());
-    let hash_type: ScriptHashType = secp_script.hash_type().unpack();
+    let hash_type: ScriptHashType =
+        ScriptHashType::try_from(Into::<u8>::into(secp_script.hash_type())).expect("checked data");
 
     BlockAssemblerConfig {
         code_hash: secp_script.code_hash().unpack(),

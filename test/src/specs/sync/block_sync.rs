@@ -7,6 +7,7 @@ use ckb_network::PeerIndex;
 use ckb_sync::NetworkProtocol;
 use ckb_types::packed::Byte32;
 use ckb_types::{
+    bytes::Bytes,
     core::BlockView,
     packed::{self, SyncMessage},
     prelude::*,
@@ -191,15 +192,17 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
         let block = node.new_block(None, None, None);
         sync_header(&net, peer_id, &block);
-        let (_, _, data) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("Expect SyncMessage");
-        let message = SyncMessage::from_slice(&data).unwrap();
-        assert_eq!(
-            message.to_enum().item_name(),
-            packed::GetBlocks::NAME,
-            "Node should send back GetBlocks message for the block {}",
-            block.hash()
+
+        net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                    .unwrap_or(false)
+            },
+            &format!(
+                "Node should send back GetBlocks message for the block {}",
+                block.hash()
+            ),
         );
 
         // Sync duplicated header again, `node` should discard the duplicated one.
@@ -224,15 +227,17 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
             .receive_timeout(Duration::new(10, 0))
             .expect("build connection with node");
         sync_header(&net, peer_id, &block);
-        let (_, _, data) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("Expect SyncMessage");
-        let message = SyncMessage::from_slice(&data).unwrap();
-        assert_eq!(
-            message.to_enum().item_name(),
-            packed::GetBlocks::NAME,
-            "Node should send back GetBlocks message for the block {}",
-            block.hash()
+
+        net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                    .unwrap_or(false)
+            },
+            &format!(
+                "Node should send back GetBlocks message for the block {}",
+                block.hash()
+            ),
         );
 
         // Sync corresponding block entity, `node` should accept the block as tip block

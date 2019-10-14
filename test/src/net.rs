@@ -217,6 +217,23 @@ impl Net {
     pub fn receive_timeout(&self, timeout: Duration) -> Result<NetMessage, RecvTimeoutError> {
         self.controller.as_ref().unwrap().1.recv_timeout(timeout)
     }
+
+    pub fn should_receive<F>(&self, f: F, message: &str) -> PeerIndex
+    where
+        F: Fn(&Bytes) -> bool,
+    {
+        let mut peer_id: PeerIndex = Default::default();
+        let received = wait_until(30, || {
+            let (receive_peer_id, _, data) = self
+                .receive_timeout(Duration::from_secs(30))
+                .expect("receive msg");
+            peer_id = receive_peer_id;
+            f(&data)
+        });
+
+        assert!(received, message.to_string());
+        peer_id
+    }
 }
 
 pub struct DummyProtocolHandler {

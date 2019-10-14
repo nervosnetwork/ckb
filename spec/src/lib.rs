@@ -35,6 +35,7 @@ use ckb_types::{
 pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -302,7 +303,9 @@ impl ChainSpec {
             .flat_map(|tx| tx.outputs().into_iter().map(move |output| output.lock()))
             .filter(|lock_script| lock_script != &genesis_cell_lock)
         {
-            match lock_script.hash_type().unpack() {
+            match ScriptHashType::try_from(Into::<u8>::into(lock_script.hash_type()))
+                .expect("checked data")
+            {
                 ScriptHashType::Data => {
                     if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
@@ -394,7 +397,7 @@ impl ChainSpec {
         let special_issued_lock = packed::Script::new_builder()
             .args(secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone())).pack())
             .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
-            .hash_type(ScriptHashType::Data.pack())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let special_issued_cell = packed::CellOutput::new_builder()
             .capacity(SPECIAL_CELL_CAPACITY.pack())
@@ -578,7 +581,7 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
     let script_arg = Bytes::from(&ret[..]);
     packed::Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.pack())
+        .hash_type(ScriptHashType::Type.into())
         .args(script_arg.pack())
         .build()
 }

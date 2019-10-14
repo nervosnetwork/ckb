@@ -116,7 +116,7 @@ impl Future for BuildCellbaseProcess {
         let cellbase_lock = Script::new_builder()
             .args(self.config.args.as_bytes().pack())
             .code_hash(self.config.code_hash.pack())
-            .hash_type(hash_type.pack())
+            .hash_type(hash_type.into())
             .build();
         let cellbase_witness = CellbaseWitness::new_builder()
             .lock(cellbase_lock)

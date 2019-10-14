@@ -16,8 +16,6 @@ vector Byte32Vec <Byte32>;
 option ScriptOpt (Script);
 
 array ProposalShortId [byte; 10];
-array ScriptHashType [byte; 1];
-array DepType [byte; 1];
 
 vector UncleBlockVec <UncleBlock>;
 vector TransactionVec <Transaction>;
@@ -28,7 +26,7 @@ vector CellOutputVec <CellOutput>;
 
 table Script {
     code_hash:      Byte32,
-    hash_type:      ScriptHashType,
+    hash_type:      byte,
     args:           Bytes,
 }
 
@@ -50,7 +48,7 @@ table CellOutput {
 
 struct CellDep {
     out_point:      OutPoint,
-    dep_type:       DepType,
+    dep_type:       byte,
 }
 
 table RawTransaction {
