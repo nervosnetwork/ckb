@@ -12,6 +12,8 @@ use ckb_types::{
     H256,
 };
 use std::convert::Into;
+use std::fs::read_to_string;
+use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
@@ -277,4 +279,21 @@ pub fn blank(node: &Node) -> BlockView {
         .set_transactions(vec![example.transaction(0).unwrap()]) // cellbase
         .set_uncles(vec![])
         .build()
+}
+
+// grep "panicked at" $node_log_path
+pub fn nodes_panicked(node_dirs: &[String]) -> bool {
+    node_dirs.iter().any(|node_dir| {
+        read_to_string(&node_log(&node_dir))
+            .expect("failed to read node's log")
+            .contains("panicked at")
+    })
+}
+
+// node_log=$node_dir/data/logs/run.log
+pub fn node_log(node_dir: &str) -> PathBuf {
+    PathBuf::from(node_dir)
+        .join("data")
+        .join("logs")
+        .join("run.log")
 }

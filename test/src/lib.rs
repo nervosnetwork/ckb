@@ -3,7 +3,8 @@ mod node;
 mod rpc;
 pub mod specs;
 mod txo;
-mod utils;
+pub mod utils;
+pub mod worker;
 
 use ckb_types::core::BlockNumber;
 
