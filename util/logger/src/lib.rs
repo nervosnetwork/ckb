@@ -1,4 +1,4 @@
-use ansi_term::Colour;
+use ansi_term::{self, Colour};
 use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
@@ -119,6 +119,15 @@ pub struct Logger {
     emit_sentry_breadcrumbs: bool,
 }
 
+#[cfg(target_os = "windows")]
+fn enable_ansi_support() {
+    ansi_term::enable_ansi_support()
+        .unwrap_or_else(|code| println!("Cannot enable ansi support: {:?}", code));
+}
+
+#[cfg(not(target_os = "windows"))]
+fn enable_ansi_support() {}
+
 impl Logger {
     fn new(config: Config) -> Logger {
         let mut builder = Builder::new();
@@ -142,6 +151,8 @@ impl Logger {
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
             .spawn(move || {
+                enable_ansi_support();
+
                 let file = file.map(|file| {
                     fs::OpenOptions::new()
                         .append(true)
