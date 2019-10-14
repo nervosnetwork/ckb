@@ -20,6 +20,10 @@ impl OrphanPool {
         OrphanPool::default()
     }
 
+    pub(crate) fn size(&self) -> usize {
+        self.vertices.len()
+    }
+
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&DefectEntry> {
         self.vertices.get(id)
     }
