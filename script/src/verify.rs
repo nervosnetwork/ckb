@@ -1374,7 +1374,10 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert!(verifier.verify(1_001_000).is_ok());
+        assert_error_eq!(
+            verifier.verify(1_001_000).unwrap_err(),
+            ScriptError::ValidationFailure(-4),
+        );
     }
 
     #[test]

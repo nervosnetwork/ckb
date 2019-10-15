@@ -19,6 +19,7 @@ pub const TYPE_ID_CYCLES: Cycle = 1_000_000;
 pub const ERROR_ARGS: i8 = -1;
 pub const ERROR_TOO_MANY_CELLS: i8 = -2;
 pub const ERROR_INVALID_INPUT_HASH: i8 = -3;
+pub const ERROR_DESTROY_CELL: i8 = -4;
 
 pub struct TypeIdSystemScript<'a> {
     pub rtx: &'a ResolvedTransaction,
@@ -42,6 +43,11 @@ impl<'a> TypeIdSystemScript<'a> {
         // output cell with current TYPE_ID script.
         if self.script_group.input_indices.len() > 1 || self.script_group.output_indices.len() > 1 {
             return Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS).into());
+        }
+
+        // TYPE_ID script cell can not be destroyed.
+        if self.script_group.output_indices.is_empty() {
+            return Err(ScriptError::ValidationFailure(ERROR_DESTROY_CELL).into());
         }
 
         // If there's only one output cell with current
