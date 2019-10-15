@@ -299,6 +299,9 @@ fn all_specs() -> SpecMap {
         Box::new(ReorgHandleProposals),
         Box::new(TransactionHashCollisionDifferentWitnessHashes),
         Box::new(DuplicatedTransaction),
+        Box::new(ConflictInPending),
+        Box::new(ConflictInGap),
+        Box::new(ConflictInProposed),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
