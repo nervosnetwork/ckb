@@ -1,4 +1,5 @@
 mod cellbase_maturity;
+mod conflict;
 mod depend_tx_in_same_block;
 mod descendant;
 mod different_txs_with_same_input;
@@ -14,6 +15,7 @@ mod utils;
 mod valid_since;
 
 pub use cellbase_maturity::*;
+pub use conflict::*;
 pub use depend_tx_in_same_block::*;
 pub use descendant::*;
 pub use different_txs_with_same_input::*;
