@@ -158,10 +158,7 @@ fn bench(c: &mut Criterion) {
 
                         let header_view = block.header();
                         let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
-                        let header_verifier = HeaderVerifier::new(
-                            snapshot,
-                            Arc::clone(&shared.consensus().pow_engine()),
-                        );
+                        let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
                         header_verifier.verify(&resolver).expect("header verified");
 
                         chain.process_block(Arc::new(block)).expect("process_block");

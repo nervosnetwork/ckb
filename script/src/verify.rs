@@ -7,12 +7,12 @@ use crate::{
     type_id::TypeIdSystemScript,
     DataLoader, ScriptError,
 };
+use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_error::{Error, InternalErrorKind};
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
