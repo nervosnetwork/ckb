@@ -53,12 +53,11 @@ const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_200_000;
-pub const CYCLE_BOUND: Cycle = 100_000;
 // bytes of a typical two-in-two-out tx
 pub const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
 // approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
-const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
+const TWO_IN_TWO_OUT_COUNT: u64 = 1_600;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
@@ -68,7 +67,7 @@ pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
 
 const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
-const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
+const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_600;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
