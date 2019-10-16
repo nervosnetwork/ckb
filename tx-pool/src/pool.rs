@@ -96,9 +96,9 @@ impl TxPool {
 
     pub fn info(&self) -> TxPoolInfo {
         TxPoolInfo {
-            pending_size: self.pending.size(),
+            pending_size: self.pending.size() + self.gap.size(),
             proposed_size: self.proposed.size(),
-            orphan_size: self.proposed.size(),
+            orphan_size: self.orphan.size(),
             total_tx_size: self.total_tx_size,
             total_tx_cycles: self.total_tx_cycles,
             last_txs_updated_at: self.get_last_txs_updated_at(),

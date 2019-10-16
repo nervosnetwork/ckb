@@ -9,6 +9,7 @@ impl Spec for IndexerBasic {
 
     crate::setup!(num_nodes: 2, connect_all: false);
 
+    #[allow(clippy::cognitive_complexity)]
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -56,7 +57,23 @@ impl Spec for IndexerBasic {
         });
 
         info!("Generate 3 more blocks on node0 to commit 6 txs");
-        node0.generate_blocks(3);
+        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        assert_eq!(6, tx_pool_info.pending.value() as u64);
+        node0.generate_blocks(1);
+
+        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        assert_eq!(
+            6,
+            tx_pool_info.pending.value() as u64
+                + tx_pool_info.proposed.value() as u64
+                + tx_pool_info.orphan.value() as u64
+        );
+        node0.generate_blocks(1);
+
+        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        assert_eq!(6, tx_pool_info.proposed.value() as u64);
+        node0.generate_blocks(1);
+
         info!(
             "Live cells size should be 4 (1 + 3), cell transactions size should be 10 (1 + 6 + 3)"
         );
