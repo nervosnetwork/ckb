@@ -1,7 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.4.0
+MOLC_VERSION := 0.4.1
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
