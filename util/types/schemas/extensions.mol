@@ -2,28 +2,6 @@ import blockchain;
 
 /* Basic Types */
 
-// TODO Remove this next time when we can do incompatible update.
-//
-// ### Reason
-//
-// In the previous version of molecule, when create a builder for Union, it
-// will set a None(NotSet) as default.
-// If the buider builds a Union without setting any item, the result will be
-// a None(NotSet).
-// But it brings a lot of trouble.
-// So, I remove this feature.
-//
-// Now, a default builder will set default value of the first item in the
-// Union as default item.
-// So, if a big item is set as first item in Union, the default builder will
-// cost a lot of memory.
-// Users have to put a small item as first item to improve UnionBuilder
-// performance by themself.
-//
-// Since next version will be an compatible version, just create a NotSet to
-// instead of the deleted None(NotSet).
-option NotSet(byte);
-
 option BoolOpt (Bool);
 option Byte32Opt (Byte32);
 option BytesOpt (Bytes);
@@ -130,7 +108,6 @@ table LockHashIndexState {
 /* Types for Network/Relay */
 
 union RelayMessage {
-    NotSet,
     CompactBlock,
     RelayTransactions,
     RelayTransactionHashes,
@@ -197,7 +174,6 @@ vector IndexTransactionVec <IndexTransaction>;
 /* Types for Network/Sync */
 
 union SyncMessage {
-    NotSet,
     GetHeaders,
     SendHeaders,
     GetBlocks,

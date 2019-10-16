@@ -3,163 +3,6 @@
 use super::blockchain::*;
 use molecule::prelude::*;
 #[derive(Clone)]
-pub struct NotSet(molecule::bytes::Bytes);
-impl ::std::fmt::Debug for NotSet {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        use molecule::faster_hex::hex_string;
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl ::std::fmt::Display for NotSet {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        if let Some(v) = self.to_opt() {
-            write!(f, "{}(Some({}))", Self::NAME, v)
-        } else {
-            write!(f, "{}(None)", Self::NAME)
-        }
-    }
-}
-impl ::std::default::Default for NotSet {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![];
-        NotSet::new_unchecked(v.into())
-    }
-}
-impl NotSet {
-    pub fn is_none(&self) -> bool {
-        self.0.is_empty()
-    }
-    pub fn is_some(&self) -> bool {
-        !self.0.is_empty()
-    }
-    pub fn to_opt(&self) -> Option<Byte> {
-        if self.is_none() {
-            None
-        } else {
-            Some(Byte::new_unchecked(self.0.clone()))
-        }
-    }
-    pub fn as_reader<'r>(&'r self) -> NotSetReader<'r> {
-        NotSetReader::new_unchecked(self.as_slice())
-    }
-}
-impl molecule::prelude::Entity for NotSet {
-    type Builder = NotSetBuilder;
-    const NAME: &'static str = "NotSet";
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        NotSet(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        NotSetReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        NotSetReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder().set(self.to_opt())
-    }
-}
-#[derive(Clone, Copy)]
-pub struct NotSetReader<'r>(&'r [u8]);
-impl<'r> ::std::fmt::Debug for NotSetReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        use molecule::faster_hex::hex_string;
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Display for NotSetReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        if let Some(v) = self.to_opt() {
-            write!(f, "{}(Some({}))", Self::NAME, v)
-        } else {
-            write!(f, "{}(None)", Self::NAME)
-        }
-    }
-}
-impl<'r> NotSetReader<'r> {
-    pub fn is_none(&self) -> bool {
-        self.0.is_empty()
-    }
-    pub fn is_some(&self) -> bool {
-        !self.0.is_empty()
-    }
-    pub fn to_opt(&self) -> Option<ByteReader<'r>> {
-        if self.is_none() {
-            None
-        } else {
-            Some(ByteReader::new_unchecked(self.as_slice()))
-        }
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for NotSetReader<'r> {
-    type Entity = NotSet;
-    const NAME: &'static str = "NotSetReader";
-    fn to_entity(&self) -> Self::Entity {
-        Self::Entity::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        NotSetReader(slice)
-    }
-    fn as_slice(&self) -> &'r [u8] {
-        self.0
-    }
-    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
-        if !slice.is_empty() {
-            ByteReader::verify(&slice[..], compatible)?;
-        }
-        Ok(())
-    }
-}
-#[derive(Debug, Default)]
-pub struct NotSetBuilder(pub(crate) Option<Byte>);
-impl NotSetBuilder {
-    pub fn set(mut self, v: Option<Byte>) -> Self {
-        self.0 = v;
-        self
-    }
-}
-impl molecule::prelude::Builder for NotSetBuilder {
-    type Entity = NotSet;
-    const NAME: &'static str = "NotSetBuilder";
-    fn expected_length(&self) -> usize {
-        self.0
-            .as_ref()
-            .map(|ref inner| inner.as_slice().len())
-            .unwrap_or(0)
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        self.0
-            .as_ref()
-            .map(|ref inner| writer.write_all(inner.as_slice()))
-            .unwrap_or(Ok(()))
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        NotSet::new_unchecked(inner.into())
-    }
-}
-#[derive(Clone)]
 pub struct BoolOpt(molecule::bytes::Bytes);
 impl ::std::fmt::Debug for BoolOpt {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -6103,27 +5946,36 @@ impl ::std::fmt::Display for RelayMessage {
 }
 impl ::std::default::Default for RelayMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![0, 0, 0, 0];
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 248, 0, 0, 0, 24, 0, 0, 0, 232, 0, 0, 0, 236, 0, 0, 0, 240, 0, 0, 0, 244,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
         RelayMessage::new_unchecked(v.into())
     }
 }
 impl RelayMessage {
-    pub const ITEM_COUNT: usize = 9;
+    pub const ITEM_COUNT: usize = 8;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
     pub fn to_enum(&self) -> RelayMessageUnion {
         let inner = self.0.slice_from(molecule::NUMBER_SIZE);
         match self.item_id() {
-            0 => NotSet::new_unchecked(inner).into(),
-            1 => CompactBlock::new_unchecked(inner).into(),
-            2 => RelayTransactions::new_unchecked(inner).into(),
-            3 => RelayTransactionHashes::new_unchecked(inner).into(),
-            4 => GetRelayTransactions::new_unchecked(inner).into(),
-            5 => GetBlockTransactions::new_unchecked(inner).into(),
-            6 => BlockTransactions::new_unchecked(inner).into(),
-            7 => GetBlockProposal::new_unchecked(inner).into(),
-            8 => BlockProposal::new_unchecked(inner).into(),
+            0 => CompactBlock::new_unchecked(inner).into(),
+            1 => RelayTransactions::new_unchecked(inner).into(),
+            2 => RelayTransactionHashes::new_unchecked(inner).into(),
+            3 => GetRelayTransactions::new_unchecked(inner).into(),
+            4 => GetBlockTransactions::new_unchecked(inner).into(),
+            5 => BlockTransactions::new_unchecked(inner).into(),
+            6 => GetBlockProposal::new_unchecked(inner).into(),
+            7 => BlockProposal::new_unchecked(inner).into(),
             _ => unreachable!(),
         }
     }
@@ -6177,22 +6029,21 @@ impl<'r> ::std::fmt::Display for RelayMessageReader<'r> {
     }
 }
 impl<'r> RelayMessageReader<'r> {
-    pub const ITEM_COUNT: usize = 9;
+    pub const ITEM_COUNT: usize = 8;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
     pub fn to_enum(&self) -> RelayMessageUnionReader<'r> {
         let inner = &self.as_slice()[molecule::NUMBER_SIZE..];
         match self.item_id() {
-            0 => NotSetReader::new_unchecked(inner).into(),
-            1 => CompactBlockReader::new_unchecked(inner).into(),
-            2 => RelayTransactionsReader::new_unchecked(inner).into(),
-            3 => RelayTransactionHashesReader::new_unchecked(inner).into(),
-            4 => GetRelayTransactionsReader::new_unchecked(inner).into(),
-            5 => GetBlockTransactionsReader::new_unchecked(inner).into(),
-            6 => BlockTransactionsReader::new_unchecked(inner).into(),
-            7 => GetBlockProposalReader::new_unchecked(inner).into(),
-            8 => BlockProposalReader::new_unchecked(inner).into(),
+            0 => CompactBlockReader::new_unchecked(inner).into(),
+            1 => RelayTransactionsReader::new_unchecked(inner).into(),
+            2 => RelayTransactionHashesReader::new_unchecked(inner).into(),
+            3 => GetRelayTransactionsReader::new_unchecked(inner).into(),
+            4 => GetBlockTransactionsReader::new_unchecked(inner).into(),
+            5 => BlockTransactionsReader::new_unchecked(inner).into(),
+            6 => GetBlockProposalReader::new_unchecked(inner).into(),
+            7 => BlockProposalReader::new_unchecked(inner).into(),
             _ => unreachable!(),
         }
     }
@@ -6218,15 +6069,14 @@ impl<'r> molecule::prelude::Reader<'r> for RelayMessageReader<'r> {
         let item_id = molecule::unpack_number(slice);
         let inner_slice = &slice[molecule::NUMBER_SIZE..];
         match item_id {
-            0 => NotSetReader::verify(inner_slice, compatible),
-            1 => CompactBlockReader::verify(inner_slice, compatible),
-            2 => RelayTransactionsReader::verify(inner_slice, compatible),
-            3 => RelayTransactionHashesReader::verify(inner_slice, compatible),
-            4 => GetRelayTransactionsReader::verify(inner_slice, compatible),
-            5 => GetBlockTransactionsReader::verify(inner_slice, compatible),
-            6 => BlockTransactionsReader::verify(inner_slice, compatible),
-            7 => GetBlockProposalReader::verify(inner_slice, compatible),
-            8 => BlockProposalReader::verify(inner_slice, compatible),
+            0 => CompactBlockReader::verify(inner_slice, compatible),
+            1 => RelayTransactionsReader::verify(inner_slice, compatible),
+            2 => RelayTransactionHashesReader::verify(inner_slice, compatible),
+            3 => GetRelayTransactionsReader::verify(inner_slice, compatible),
+            4 => GetBlockTransactionsReader::verify(inner_slice, compatible),
+            5 => BlockTransactionsReader::verify(inner_slice, compatible),
+            6 => GetBlockProposalReader::verify(inner_slice, compatible),
+            7 => BlockProposalReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEM_COUNT, item_id),
         }?;
         Ok(())
@@ -6235,7 +6085,7 @@ impl<'r> molecule::prelude::Reader<'r> for RelayMessageReader<'r> {
 #[derive(Debug, Default)]
 pub struct RelayMessageBuilder(pub(crate) RelayMessageUnion);
 impl RelayMessageBuilder {
-    pub const ITEM_COUNT: usize = 9;
+    pub const ITEM_COUNT: usize = 8;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::std::convert::Into<RelayMessageUnion>,
@@ -6263,7 +6113,6 @@ impl molecule::prelude::Builder for RelayMessageBuilder {
 }
 #[derive(Debug, Clone)]
 pub enum RelayMessageUnion {
-    NotSet(NotSet),
     CompactBlock(CompactBlock),
     RelayTransactions(RelayTransactions),
     RelayTransactionHashes(RelayTransactionHashes),
@@ -6275,7 +6124,6 @@ pub enum RelayMessageUnion {
 }
 #[derive(Debug, Clone, Copy)]
 pub enum RelayMessageUnionReader<'r> {
-    NotSet(NotSetReader<'r>),
     CompactBlock(CompactBlockReader<'r>),
     RelayTransactions(RelayTransactionsReader<'r>),
     RelayTransactionHashes(RelayTransactionHashesReader<'r>),
@@ -6287,15 +6135,12 @@ pub enum RelayMessageUnionReader<'r> {
 }
 impl ::std::default::Default for RelayMessageUnion {
     fn default() -> Self {
-        RelayMessageUnion::NotSet(::std::default::Default::default())
+        RelayMessageUnion::CompactBlock(::std::default::Default::default())
     }
 }
 impl ::std::fmt::Display for RelayMessageUnion {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            RelayMessageUnion::NotSet(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, NotSet::NAME, item)
-            }
             RelayMessageUnion::CompactBlock(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, CompactBlock::NAME, item)
             }
@@ -6338,9 +6183,6 @@ impl ::std::fmt::Display for RelayMessageUnion {
 impl<'r> ::std::fmt::Display for RelayMessageUnionReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            RelayMessageUnionReader::NotSet(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, NotSet::NAME, item)
-            }
             RelayMessageUnionReader::CompactBlock(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, CompactBlock::NAME, item)
             }
@@ -6383,7 +6225,6 @@ impl<'r> ::std::fmt::Display for RelayMessageUnionReader<'r> {
 impl RelayMessageUnion {
     pub(crate) fn display_inner(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            RelayMessageUnion::NotSet(ref item) => write!(f, "{}", item),
             RelayMessageUnion::CompactBlock(ref item) => write!(f, "{}", item),
             RelayMessageUnion::RelayTransactions(ref item) => write!(f, "{}", item),
             RelayMessageUnion::RelayTransactionHashes(ref item) => write!(f, "{}", item),
@@ -6398,7 +6239,6 @@ impl RelayMessageUnion {
 impl<'r> RelayMessageUnionReader<'r> {
     pub(crate) fn display_inner(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            RelayMessageUnionReader::NotSet(ref item) => write!(f, "{}", item),
             RelayMessageUnionReader::CompactBlock(ref item) => write!(f, "{}", item),
             RelayMessageUnionReader::RelayTransactions(ref item) => write!(f, "{}", item),
             RelayMessageUnionReader::RelayTransactionHashes(ref item) => write!(f, "{}", item),
@@ -6408,11 +6248,6 @@ impl<'r> RelayMessageUnionReader<'r> {
             RelayMessageUnionReader::GetBlockProposal(ref item) => write!(f, "{}", item),
             RelayMessageUnionReader::BlockProposal(ref item) => write!(f, "{}", item),
         }
-    }
-}
-impl ::std::convert::From<NotSet> for RelayMessageUnion {
-    fn from(item: NotSet) -> Self {
-        RelayMessageUnion::NotSet(item)
     }
 }
 impl ::std::convert::From<CompactBlock> for RelayMessageUnion {
@@ -6453,11 +6288,6 @@ impl ::std::convert::From<GetBlockProposal> for RelayMessageUnion {
 impl ::std::convert::From<BlockProposal> for RelayMessageUnion {
     fn from(item: BlockProposal) -> Self {
         RelayMessageUnion::BlockProposal(item)
-    }
-}
-impl<'r> ::std::convert::From<NotSetReader<'r>> for RelayMessageUnionReader<'r> {
-    fn from(item: NotSetReader<'r>) -> Self {
-        RelayMessageUnionReader::NotSet(item)
     }
 }
 impl<'r> ::std::convert::From<CompactBlockReader<'r>> for RelayMessageUnionReader<'r> {
@@ -6504,7 +6334,6 @@ impl RelayMessageUnion {
     pub const NAME: &'static str = "RelayMessageUnion";
     pub fn as_bytes(&self) -> molecule::bytes::Bytes {
         match self {
-            RelayMessageUnion::NotSet(item) => item.as_bytes(),
             RelayMessageUnion::CompactBlock(item) => item.as_bytes(),
             RelayMessageUnion::RelayTransactions(item) => item.as_bytes(),
             RelayMessageUnion::RelayTransactionHashes(item) => item.as_bytes(),
@@ -6517,7 +6346,6 @@ impl RelayMessageUnion {
     }
     pub fn as_slice(&self) -> &[u8] {
         match self {
-            RelayMessageUnion::NotSet(item) => item.as_slice(),
             RelayMessageUnion::CompactBlock(item) => item.as_slice(),
             RelayMessageUnion::RelayTransactions(item) => item.as_slice(),
             RelayMessageUnion::RelayTransactionHashes(item) => item.as_slice(),
@@ -6530,20 +6358,18 @@ impl RelayMessageUnion {
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
-            RelayMessageUnion::NotSet(_) => 0,
-            RelayMessageUnion::CompactBlock(_) => 1,
-            RelayMessageUnion::RelayTransactions(_) => 2,
-            RelayMessageUnion::RelayTransactionHashes(_) => 3,
-            RelayMessageUnion::GetRelayTransactions(_) => 4,
-            RelayMessageUnion::GetBlockTransactions(_) => 5,
-            RelayMessageUnion::BlockTransactions(_) => 6,
-            RelayMessageUnion::GetBlockProposal(_) => 7,
-            RelayMessageUnion::BlockProposal(_) => 8,
+            RelayMessageUnion::CompactBlock(_) => 0,
+            RelayMessageUnion::RelayTransactions(_) => 1,
+            RelayMessageUnion::RelayTransactionHashes(_) => 2,
+            RelayMessageUnion::GetRelayTransactions(_) => 3,
+            RelayMessageUnion::GetBlockTransactions(_) => 4,
+            RelayMessageUnion::BlockTransactions(_) => 5,
+            RelayMessageUnion::GetBlockProposal(_) => 6,
+            RelayMessageUnion::BlockProposal(_) => 7,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
-            RelayMessageUnion::NotSet(_) => "NotSet",
             RelayMessageUnion::CompactBlock(_) => "CompactBlock",
             RelayMessageUnion::RelayTransactions(_) => "RelayTransactions",
             RelayMessageUnion::RelayTransactionHashes(_) => "RelayTransactionHashes",
@@ -6556,7 +6382,6 @@ impl RelayMessageUnion {
     }
     pub fn as_reader<'r>(&'r self) -> RelayMessageUnionReader<'r> {
         match self {
-            RelayMessageUnion::NotSet(item) => item.as_reader().into(),
             RelayMessageUnion::CompactBlock(item) => item.as_reader().into(),
             RelayMessageUnion::RelayTransactions(item) => item.as_reader().into(),
             RelayMessageUnion::RelayTransactionHashes(item) => item.as_reader().into(),
@@ -6572,7 +6397,6 @@ impl<'r> RelayMessageUnionReader<'r> {
     pub const NAME: &'r str = "RelayMessageUnionReader";
     pub fn as_slice(&self) -> &'r [u8] {
         match self {
-            RelayMessageUnionReader::NotSet(item) => item.as_slice(),
             RelayMessageUnionReader::CompactBlock(item) => item.as_slice(),
             RelayMessageUnionReader::RelayTransactions(item) => item.as_slice(),
             RelayMessageUnionReader::RelayTransactionHashes(item) => item.as_slice(),
@@ -6585,20 +6409,18 @@ impl<'r> RelayMessageUnionReader<'r> {
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
-            RelayMessageUnionReader::NotSet(_) => 0,
-            RelayMessageUnionReader::CompactBlock(_) => 1,
-            RelayMessageUnionReader::RelayTransactions(_) => 2,
-            RelayMessageUnionReader::RelayTransactionHashes(_) => 3,
-            RelayMessageUnionReader::GetRelayTransactions(_) => 4,
-            RelayMessageUnionReader::GetBlockTransactions(_) => 5,
-            RelayMessageUnionReader::BlockTransactions(_) => 6,
-            RelayMessageUnionReader::GetBlockProposal(_) => 7,
-            RelayMessageUnionReader::BlockProposal(_) => 8,
+            RelayMessageUnionReader::CompactBlock(_) => 0,
+            RelayMessageUnionReader::RelayTransactions(_) => 1,
+            RelayMessageUnionReader::RelayTransactionHashes(_) => 2,
+            RelayMessageUnionReader::GetRelayTransactions(_) => 3,
+            RelayMessageUnionReader::GetBlockTransactions(_) => 4,
+            RelayMessageUnionReader::BlockTransactions(_) => 5,
+            RelayMessageUnionReader::GetBlockProposal(_) => 6,
+            RelayMessageUnionReader::BlockProposal(_) => 7,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
-            RelayMessageUnionReader::NotSet(_) => "NotSet",
             RelayMessageUnionReader::CompactBlock(_) => "CompactBlock",
             RelayMessageUnionReader::RelayTransactions(_) => "RelayTransactions",
             RelayMessageUnionReader::RelayTransactionHashes(_) => "RelayTransactionHashes",
@@ -10008,28 +9830,30 @@ impl ::std::fmt::Display for SyncMessage {
 }
 impl ::std::default::Default for SyncMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![0, 0, 0, 0];
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
         SyncMessage::new_unchecked(v.into())
     }
 }
 impl SyncMessage {
-    pub const ITEM_COUNT: usize = 10;
+    pub const ITEM_COUNT: usize = 9;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
     pub fn to_enum(&self) -> SyncMessageUnion {
         let inner = self.0.slice_from(molecule::NUMBER_SIZE);
         match self.item_id() {
-            0 => NotSet::new_unchecked(inner).into(),
-            1 => GetHeaders::new_unchecked(inner).into(),
-            2 => SendHeaders::new_unchecked(inner).into(),
-            3 => GetBlocks::new_unchecked(inner).into(),
-            4 => SendBlock::new_unchecked(inner).into(),
-            5 => SetFilter::new_unchecked(inner).into(),
-            6 => AddFilter::new_unchecked(inner).into(),
-            7 => ClearFilter::new_unchecked(inner).into(),
-            8 => FilteredBlock::new_unchecked(inner).into(),
-            9 => InIBD::new_unchecked(inner).into(),
+            0 => GetHeaders::new_unchecked(inner).into(),
+            1 => SendHeaders::new_unchecked(inner).into(),
+            2 => GetBlocks::new_unchecked(inner).into(),
+            3 => SendBlock::new_unchecked(inner).into(),
+            4 => SetFilter::new_unchecked(inner).into(),
+            5 => AddFilter::new_unchecked(inner).into(),
+            6 => ClearFilter::new_unchecked(inner).into(),
+            7 => FilteredBlock::new_unchecked(inner).into(),
+            8 => InIBD::new_unchecked(inner).into(),
             _ => unreachable!(),
         }
     }
@@ -10083,23 +9907,22 @@ impl<'r> ::std::fmt::Display for SyncMessageReader<'r> {
     }
 }
 impl<'r> SyncMessageReader<'r> {
-    pub const ITEM_COUNT: usize = 10;
+    pub const ITEM_COUNT: usize = 9;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
     pub fn to_enum(&self) -> SyncMessageUnionReader<'r> {
         let inner = &self.as_slice()[molecule::NUMBER_SIZE..];
         match self.item_id() {
-            0 => NotSetReader::new_unchecked(inner).into(),
-            1 => GetHeadersReader::new_unchecked(inner).into(),
-            2 => SendHeadersReader::new_unchecked(inner).into(),
-            3 => GetBlocksReader::new_unchecked(inner).into(),
-            4 => SendBlockReader::new_unchecked(inner).into(),
-            5 => SetFilterReader::new_unchecked(inner).into(),
-            6 => AddFilterReader::new_unchecked(inner).into(),
-            7 => ClearFilterReader::new_unchecked(inner).into(),
-            8 => FilteredBlockReader::new_unchecked(inner).into(),
-            9 => InIBDReader::new_unchecked(inner).into(),
+            0 => GetHeadersReader::new_unchecked(inner).into(),
+            1 => SendHeadersReader::new_unchecked(inner).into(),
+            2 => GetBlocksReader::new_unchecked(inner).into(),
+            3 => SendBlockReader::new_unchecked(inner).into(),
+            4 => SetFilterReader::new_unchecked(inner).into(),
+            5 => AddFilterReader::new_unchecked(inner).into(),
+            6 => ClearFilterReader::new_unchecked(inner).into(),
+            7 => FilteredBlockReader::new_unchecked(inner).into(),
+            8 => InIBDReader::new_unchecked(inner).into(),
             _ => unreachable!(),
         }
     }
@@ -10125,16 +9948,15 @@ impl<'r> molecule::prelude::Reader<'r> for SyncMessageReader<'r> {
         let item_id = molecule::unpack_number(slice);
         let inner_slice = &slice[molecule::NUMBER_SIZE..];
         match item_id {
-            0 => NotSetReader::verify(inner_slice, compatible),
-            1 => GetHeadersReader::verify(inner_slice, compatible),
-            2 => SendHeadersReader::verify(inner_slice, compatible),
-            3 => GetBlocksReader::verify(inner_slice, compatible),
-            4 => SendBlockReader::verify(inner_slice, compatible),
-            5 => SetFilterReader::verify(inner_slice, compatible),
-            6 => AddFilterReader::verify(inner_slice, compatible),
-            7 => ClearFilterReader::verify(inner_slice, compatible),
-            8 => FilteredBlockReader::verify(inner_slice, compatible),
-            9 => InIBDReader::verify(inner_slice, compatible),
+            0 => GetHeadersReader::verify(inner_slice, compatible),
+            1 => SendHeadersReader::verify(inner_slice, compatible),
+            2 => GetBlocksReader::verify(inner_slice, compatible),
+            3 => SendBlockReader::verify(inner_slice, compatible),
+            4 => SetFilterReader::verify(inner_slice, compatible),
+            5 => AddFilterReader::verify(inner_slice, compatible),
+            6 => ClearFilterReader::verify(inner_slice, compatible),
+            7 => FilteredBlockReader::verify(inner_slice, compatible),
+            8 => InIBDReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEM_COUNT, item_id),
         }?;
         Ok(())
@@ -10143,7 +9965,7 @@ impl<'r> molecule::prelude::Reader<'r> for SyncMessageReader<'r> {
 #[derive(Debug, Default)]
 pub struct SyncMessageBuilder(pub(crate) SyncMessageUnion);
 impl SyncMessageBuilder {
-    pub const ITEM_COUNT: usize = 10;
+    pub const ITEM_COUNT: usize = 9;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::std::convert::Into<SyncMessageUnion>,
@@ -10171,7 +9993,6 @@ impl molecule::prelude::Builder for SyncMessageBuilder {
 }
 #[derive(Debug, Clone)]
 pub enum SyncMessageUnion {
-    NotSet(NotSet),
     GetHeaders(GetHeaders),
     SendHeaders(SendHeaders),
     GetBlocks(GetBlocks),
@@ -10184,7 +10005,6 @@ pub enum SyncMessageUnion {
 }
 #[derive(Debug, Clone, Copy)]
 pub enum SyncMessageUnionReader<'r> {
-    NotSet(NotSetReader<'r>),
     GetHeaders(GetHeadersReader<'r>),
     SendHeaders(SendHeadersReader<'r>),
     GetBlocks(GetBlocksReader<'r>),
@@ -10197,15 +10017,12 @@ pub enum SyncMessageUnionReader<'r> {
 }
 impl ::std::default::Default for SyncMessageUnion {
     fn default() -> Self {
-        SyncMessageUnion::NotSet(::std::default::Default::default())
+        SyncMessageUnion::GetHeaders(::std::default::Default::default())
     }
 }
 impl ::std::fmt::Display for SyncMessageUnion {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            SyncMessageUnion::NotSet(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, NotSet::NAME, item)
-            }
             SyncMessageUnion::GetHeaders(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, GetHeaders::NAME, item)
             }
@@ -10239,9 +10056,6 @@ impl ::std::fmt::Display for SyncMessageUnion {
 impl<'r> ::std::fmt::Display for SyncMessageUnionReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            SyncMessageUnionReader::NotSet(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, NotSet::NAME, item)
-            }
             SyncMessageUnionReader::GetHeaders(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, GetHeaders::NAME, item)
             }
@@ -10275,7 +10089,6 @@ impl<'r> ::std::fmt::Display for SyncMessageUnionReader<'r> {
 impl SyncMessageUnion {
     pub(crate) fn display_inner(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            SyncMessageUnion::NotSet(ref item) => write!(f, "{}", item),
             SyncMessageUnion::GetHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnion::SendHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnion::GetBlocks(ref item) => write!(f, "{}", item),
@@ -10291,7 +10104,6 @@ impl SyncMessageUnion {
 impl<'r> SyncMessageUnionReader<'r> {
     pub(crate) fn display_inner(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
-            SyncMessageUnionReader::NotSet(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::GetHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::SendHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::GetBlocks(ref item) => write!(f, "{}", item),
@@ -10302,11 +10114,6 @@ impl<'r> SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::FilteredBlock(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::InIBD(ref item) => write!(f, "{}", item),
         }
-    }
-}
-impl ::std::convert::From<NotSet> for SyncMessageUnion {
-    fn from(item: NotSet) -> Self {
-        SyncMessageUnion::NotSet(item)
     }
 }
 impl ::std::convert::From<GetHeaders> for SyncMessageUnion {
@@ -10352,11 +10159,6 @@ impl ::std::convert::From<FilteredBlock> for SyncMessageUnion {
 impl ::std::convert::From<InIBD> for SyncMessageUnion {
     fn from(item: InIBD) -> Self {
         SyncMessageUnion::InIBD(item)
-    }
-}
-impl<'r> ::std::convert::From<NotSetReader<'r>> for SyncMessageUnionReader<'r> {
-    fn from(item: NotSetReader<'r>) -> Self {
-        SyncMessageUnionReader::NotSet(item)
     }
 }
 impl<'r> ::std::convert::From<GetHeadersReader<'r>> for SyncMessageUnionReader<'r> {
@@ -10408,7 +10210,6 @@ impl SyncMessageUnion {
     pub const NAME: &'static str = "SyncMessageUnion";
     pub fn as_bytes(&self) -> molecule::bytes::Bytes {
         match self {
-            SyncMessageUnion::NotSet(item) => item.as_bytes(),
             SyncMessageUnion::GetHeaders(item) => item.as_bytes(),
             SyncMessageUnion::SendHeaders(item) => item.as_bytes(),
             SyncMessageUnion::GetBlocks(item) => item.as_bytes(),
@@ -10422,7 +10223,6 @@ impl SyncMessageUnion {
     }
     pub fn as_slice(&self) -> &[u8] {
         match self {
-            SyncMessageUnion::NotSet(item) => item.as_slice(),
             SyncMessageUnion::GetHeaders(item) => item.as_slice(),
             SyncMessageUnion::SendHeaders(item) => item.as_slice(),
             SyncMessageUnion::GetBlocks(item) => item.as_slice(),
@@ -10436,21 +10236,19 @@ impl SyncMessageUnion {
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
-            SyncMessageUnion::NotSet(_) => 0,
-            SyncMessageUnion::GetHeaders(_) => 1,
-            SyncMessageUnion::SendHeaders(_) => 2,
-            SyncMessageUnion::GetBlocks(_) => 3,
-            SyncMessageUnion::SendBlock(_) => 4,
-            SyncMessageUnion::SetFilter(_) => 5,
-            SyncMessageUnion::AddFilter(_) => 6,
-            SyncMessageUnion::ClearFilter(_) => 7,
-            SyncMessageUnion::FilteredBlock(_) => 8,
-            SyncMessageUnion::InIBD(_) => 9,
+            SyncMessageUnion::GetHeaders(_) => 0,
+            SyncMessageUnion::SendHeaders(_) => 1,
+            SyncMessageUnion::GetBlocks(_) => 2,
+            SyncMessageUnion::SendBlock(_) => 3,
+            SyncMessageUnion::SetFilter(_) => 4,
+            SyncMessageUnion::AddFilter(_) => 5,
+            SyncMessageUnion::ClearFilter(_) => 6,
+            SyncMessageUnion::FilteredBlock(_) => 7,
+            SyncMessageUnion::InIBD(_) => 8,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
-            SyncMessageUnion::NotSet(_) => "NotSet",
             SyncMessageUnion::GetHeaders(_) => "GetHeaders",
             SyncMessageUnion::SendHeaders(_) => "SendHeaders",
             SyncMessageUnion::GetBlocks(_) => "GetBlocks",
@@ -10464,7 +10262,6 @@ impl SyncMessageUnion {
     }
     pub fn as_reader<'r>(&'r self) -> SyncMessageUnionReader<'r> {
         match self {
-            SyncMessageUnion::NotSet(item) => item.as_reader().into(),
             SyncMessageUnion::GetHeaders(item) => item.as_reader().into(),
             SyncMessageUnion::SendHeaders(item) => item.as_reader().into(),
             SyncMessageUnion::GetBlocks(item) => item.as_reader().into(),
@@ -10481,7 +10278,6 @@ impl<'r> SyncMessageUnionReader<'r> {
     pub const NAME: &'r str = "SyncMessageUnionReader";
     pub fn as_slice(&self) -> &'r [u8] {
         match self {
-            SyncMessageUnionReader::NotSet(item) => item.as_slice(),
             SyncMessageUnionReader::GetHeaders(item) => item.as_slice(),
             SyncMessageUnionReader::SendHeaders(item) => item.as_slice(),
             SyncMessageUnionReader::GetBlocks(item) => item.as_slice(),
@@ -10495,21 +10291,19 @@ impl<'r> SyncMessageUnionReader<'r> {
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
-            SyncMessageUnionReader::NotSet(_) => 0,
-            SyncMessageUnionReader::GetHeaders(_) => 1,
-            SyncMessageUnionReader::SendHeaders(_) => 2,
-            SyncMessageUnionReader::GetBlocks(_) => 3,
-            SyncMessageUnionReader::SendBlock(_) => 4,
-            SyncMessageUnionReader::SetFilter(_) => 5,
-            SyncMessageUnionReader::AddFilter(_) => 6,
-            SyncMessageUnionReader::ClearFilter(_) => 7,
-            SyncMessageUnionReader::FilteredBlock(_) => 8,
-            SyncMessageUnionReader::InIBD(_) => 9,
+            SyncMessageUnionReader::GetHeaders(_) => 0,
+            SyncMessageUnionReader::SendHeaders(_) => 1,
+            SyncMessageUnionReader::GetBlocks(_) => 2,
+            SyncMessageUnionReader::SendBlock(_) => 3,
+            SyncMessageUnionReader::SetFilter(_) => 4,
+            SyncMessageUnionReader::AddFilter(_) => 5,
+            SyncMessageUnionReader::ClearFilter(_) => 6,
+            SyncMessageUnionReader::FilteredBlock(_) => 7,
+            SyncMessageUnionReader::InIBD(_) => 8,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
-            SyncMessageUnionReader::NotSet(_) => "NotSet",
             SyncMessageUnionReader::GetHeaders(_) => "GetHeaders",
             SyncMessageUnionReader::SendHeaders(_) => "SendHeaders",
             SyncMessageUnionReader::GetBlocks(_) => "GetBlocks",
