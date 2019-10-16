@@ -2,7 +2,7 @@ use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
     syscalls::{
         Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
-        LoadTxHash, LoadWitness,
+        LoadTx, LoadWitness,
     },
     type_id::TypeIdSystemScript,
     DataLoader, ScriptError,
@@ -190,8 +190,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         self.rtx.transaction.hash()
     }
 
-    fn build_load_tx_hash(&self) -> LoadTxHash {
-        LoadTxHash::new(self.hash())
+    fn build_load_tx(&self) -> LoadTx {
+        LoadTx::new(&self.rtx.transaction)
     }
 
     fn build_load_cell(
@@ -369,7 +369,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .syscall(Box::new(
                 self.build_load_script_hash(current_script_hash.clone()),
             ))
-            .syscall(Box::new(self.build_load_tx_hash()))
+            .syscall(Box::new(self.build_load_tx()))
             .syscall(Box::new(self.build_load_cell(
                 &script_group.input_indices,
                 &script_group.output_indices,

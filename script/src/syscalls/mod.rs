@@ -5,7 +5,7 @@ mod load_header;
 mod load_input;
 mod load_script;
 mod load_script_hash;
-mod load_tx_hash;
+mod load_tx;
 mod load_witness;
 mod utils;
 
@@ -16,7 +16,7 @@ pub use self::load_header::LoadHeader;
 pub use self::load_input::LoadInput;
 pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
-pub use self::load_tx_hash::LoadTxHash;
+pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
 
 use ckb_vm::Error;
@@ -30,6 +30,7 @@ pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
 
+pub const LOAD_TRANSACTION_SYSCALL_NUMBER: u64 = 2051;
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
 pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2062;
 pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2063;
@@ -182,7 +183,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
+            cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView,
+            ScriptHashType, TransactionBuilder,
         },
         packed::{Byte32, CellOutput, OutPoint, Script, ScriptBuilder},
         prelude::*,
@@ -730,22 +732,29 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_TX_HASH_SYSCALL_NUMBER); // syscall number
 
-        let hash = blake2b_256(&data);
+        let transaction_view = TransactionBuilder::default()
+            .output_data(data.pack())
+            .build();
+
+        let hash = transaction_view.hash();
         let hash_len = 32u64;
-        let mut load_tx_hash = LoadTxHash::new(hash.pack());
+        let mut load_tx = LoadTx::new(&transaction_view);
 
         prop_assert!(machine
             .memory_mut()
             .store64(&size_addr, &(hash_len + 20))
             .is_ok());
 
-        prop_assert!(load_tx_hash.ecall(&mut machine).is_ok());
+        prop_assert!(load_tx.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(hash_len));
 
         for (i, addr) in (addr..addr + hash_len as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(hash.as_slice()[i]))
+            );
         }
         Ok(())
     }
@@ -754,6 +763,50 @@ mod tests {
         #[test]
         fn test_load_tx_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_tx_hash(data)?;
+        }
+    }
+
+    fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A7, LOAD_TRANSACTION_SYSCALL_NUMBER); // syscall number
+
+        let transaction_view = TransactionBuilder::default()
+            .output_data(data.pack())
+            .build();
+
+        let tx = transaction_view.data();
+        let tx_len = transaction_view.data().as_slice().len() as u64;
+        let mut load_tx = LoadTx::new(&transaction_view);
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(tx_len + 20))
+            .is_ok());
+
+        prop_assert!(load_tx.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(tx_len));
+
+        for (i, addr) in (addr..addr + tx_len as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(tx.as_slice()[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_tx(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_tx(data)?;
         }
     }
 
