@@ -15,10 +15,10 @@ pub mod transaction;
 
 pub use crate::config::DBConfig;
 pub use crate::db::RocksDB;
-pub use crate::iter::{DBIterator, Direction};
+pub use crate::iter::DBIterator;
 pub use crate::snapshot::RocksDBSnapshot;
 pub use crate::transaction::{RocksDBTransaction, RocksDBTransactionSnapshot};
-pub use rocksdb::{DBPinnableSlice, DBVector, Error as DBError};
+pub use rocksdb::{DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode};
 
 pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;

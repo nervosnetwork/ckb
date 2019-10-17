@@ -6,7 +6,10 @@ use crate::{
     META_TIP_HEADER_KEY,
 };
 use ckb_chain_spec::consensus::Consensus;
-use ckb_db::{iter::DBIteratorItem, Col, Direction};
+use ckb_db::{
+    iter::{DBIter, Direction, IteratorMode},
+    Col,
+};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -21,12 +24,7 @@ pub trait ChainStore<'a>: Send + Sync {
     type Vector: AsRef<[u8]>;
     fn cache(&'a self) -> Option<&'a StoreCache>;
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i>;
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
 
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
@@ -67,14 +65,16 @@ pub trait ChainStore<'a>: Send + Sync {
     /// Get block body by block header hash
     fn get_block_body(&'a self, hash: &packed::Byte32) -> Vec<TransactionView> {
         let prefix = hash.as_slice();
-        self.get_iter(COLUMN_BLOCK_BODY, prefix, Direction::Forward)
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .map(|(_key, value)| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                Unpack::<TransactionView>::unpack(&reader)
-            })
-            .collect()
+        self.get_iter(
+            COLUMN_BLOCK_BODY,
+            IteratorMode::From(prefix, Direction::Forward),
+        )
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .map(|(_key, value)| {
+            let reader = packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
+            Unpack::<TransactionView>::unpack(&reader)
+        })
+        .collect()
     }
 
     /// Get all transaction-hashes in block body by block header hash
@@ -87,7 +87,10 @@ pub trait ChainStore<'a>: Send + Sync {
 
         let prefix = hash.as_slice();
         let ret: Vec<_> = self
-            .get_iter(COLUMN_BLOCK_BODY, prefix, Direction::Forward)
+            .get_iter(
+                COLUMN_BLOCK_BODY,
+                IteratorMode::From(prefix, Direction::Forward),
+            )
             .take_while(|(key, _)| key.starts_with(prefix))
             .map(|(_key, value)| {
                 let reader =

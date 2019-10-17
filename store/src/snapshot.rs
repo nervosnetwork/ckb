@@ -1,7 +1,7 @@
 use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use ckb_db::{
-    iter::{DBIterator, DBIteratorItem, Direction},
+    iter::{DBIter, DBIterator, IteratorMode},
     Col, DBPinnableSlice, RocksDBSnapshot,
 };
 use std::sync::Arc;
@@ -24,14 +24,9 @@ impl<'a> ChainStore<'a> for StoreSnapshot {
             .expect("db operation should be ok")
     }
 
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
         self.inner
-            .iter(col, from_key, direction)
+            .iter(col, mode)
             .expect("db operation should be ok")
     }
 }
