@@ -333,7 +333,7 @@ fn print_panicked_logs(node_dirs: &[String]) {
                 .unwrap_or(false)
         });
         if panic_ln.is_none() {
-            return;
+            continue;
         }
 
         let panic_ln = panic_ln.unwrap().0;
