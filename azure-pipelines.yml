@@ -31,6 +31,7 @@ jobs:
           CI: true
 
   - job: IntegrationTest
+    timeoutInMinutes: 0
     condition: |
       and(
         not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
