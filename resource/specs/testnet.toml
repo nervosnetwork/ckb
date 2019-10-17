@@ -8,7 +8,7 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x8c6000088bb9540b111f1f777f1313b4ef4c3cd6c8b91a2f942db55e1e17e67d"
+hash = "0xbb4c6f6c9bfa834662f10d665e5f6f55bba767c02e305432660e59bc104eeddb"
 
 [genesis.genesis_cell]
 message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
@@ -29,9 +29,6 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
-[[genesis.system_cells]]
-file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
-create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -43,10 +40,6 @@ hash_type = "data"
 secp256k1_blake160_sighash_all = [
   { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-]
-secp256k1_ripemd160_sha256_sighash_all = [
-  { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
 # For first 11 block
@@ -71,13 +64,13 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
-# Satoshi's gift, a cell send to satoshi's lock,
+# Satoshi cell, used to adjust dao issuerance.
 # 60% capacity of this cell is occupied.
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
-lock.hash_type = "type"
+lock.hash_type = "data"
 
 [pow]
 func = "Eaglesong"

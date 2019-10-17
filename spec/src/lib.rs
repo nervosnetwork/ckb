@@ -19,7 +19,6 @@ use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
     Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
-    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -51,7 +50,6 @@ const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
 pub const OUTPUT_INDEX_DAO: u64 = 2;
 pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
-pub const OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL: u64 = 4;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
@@ -296,12 +294,15 @@ impl ChainSpec {
                     }),
             );
         }
+        let all_zero_lock_hash = packed::Byte32::default();
         // Check lock scripts
         for lock_script in block
             .transactions()
             .into_iter()
             .flat_map(|tx| tx.outputs().into_iter().map(move |output| output.lock()))
-            .filter(|lock_script| lock_script != &genesis_cell_lock)
+            .filter(|lock_script| {
+                lock_script != &genesis_cell_lock && lock_script.code_hash() != all_zero_lock_hash
+            })
         {
             match ScriptHashType::try_from(lock_script.hash_type()).expect("checked data") {
                 ScriptHashType::Data => {
@@ -346,11 +347,6 @@ impl ChainSpec {
             0,
             OUTPUT_INDEX_SECP256K1_DATA as usize,
             &CODE_HASH_SECP256K1_DATA,
-        )?;
-        check_cells_data_hash(
-            0,
-            OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL as usize,
-            &CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
         )?;
 
         Ok(())

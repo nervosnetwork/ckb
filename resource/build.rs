@@ -8,7 +8,6 @@ use walkdir::WalkDir;
 
 use ckb_system_scripts::{
     CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
-    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
 };
 
 fn main() {
@@ -49,13 +48,6 @@ fn main() {
         &mut out_file,
         "pub const CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL: H256 = {:?};\n",
         H256(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
-    )
-    .expect("write to code_hashes.rs");
-
-    write!(
-        &mut out_file,
-        "pub const CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL: H256 = {:?};\n",
-        H256(CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL)
     )
     .expect("write to code_hashes.rs");
 
