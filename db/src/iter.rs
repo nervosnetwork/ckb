@@ -3,99 +3,51 @@ use crate::{
     internal_error, Col, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
     RocksDBTransactionSnapshot,
 };
-use rocksdb::{ops::IterateCF, Direction as RdbDirection, IteratorMode};
+use rocksdb::{ops::IterateCF, ReadOptions};
+pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
 
-pub type DBIteratorItem = (Box<[u8]>, Box<[u8]>);
-
-pub enum Direction {
-    Forward,
-    Reverse,
-}
+pub type DBIterItem = (Box<[u8]>, Box<[u8]>);
 
 pub trait DBIterator {
-    fn iter<'a>(
-        &'a self,
-        col: Col,
-        from_key: &'a [u8],
-        direction: Direction,
-    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>>;
+    fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIter> {
+        let opts = ReadOptions::default();
+        self.iter_opt(col, mode, &opts)
+    }
+
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter>;
 }
 
 impl DBIterator for RocksDB {
-    fn iter<'a>(
-        &'a self,
-        col: Col,
-        from_key: &'a [u8],
-        direction: Direction,
-    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
         let cf = cf_handle(&self.inner, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
         self.inner
-            .iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
+            .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }
 }
 
 impl DBIterator for RocksDBTransaction {
-    fn iter<'a>(
-        &'a self,
-        col: Col,
-        from_key: &'a [u8],
-        direction: Direction,
-    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
         let cf = cf_handle(&self.db, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
         self.inner
-            .iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
+            .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }
 }
 
 impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
-    fn iter<'b>(
-        &'b self,
-        col: Col,
-        from_key: &'b [u8],
-        direction: Direction,
-    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'b>> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
         let cf = cf_handle(&self.db, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
         self.inner
-            .iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
+            .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }
 }
 
 impl DBIterator for RocksDBSnapshot {
-    fn iter<'a>(
-        &'a self,
-        col: Col,
-        from_key: &'a [u8],
-        direction: Direction,
-    ) -> Result<Box<dyn Iterator<Item = DBIteratorItem> + 'a>> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
         let cf = cf_handle(&self.db, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
-        self.iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
+        self.iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }
 }

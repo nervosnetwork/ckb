@@ -2,7 +2,7 @@ use crate::types::{
     CellTransaction, IndexerConfig, LiveCell, LockHashCellOutput, LockHashIndex,
     LockHashIndexState, TransactionPoint,
 };
-use ckb_db::{db::RocksDB, Col, DBIterator, Direction, RocksDBTransaction};
+use ckb_db::{db::RocksDB, Col, DBIterator, Direction, IteratorMode, RocksDBTransaction};
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -81,11 +81,15 @@ impl IndexerStore for DefaultIndexerStore {
         let mut from_key = lock_hash.as_slice().to_owned();
         let iter = if reverse_order {
             from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
-            self.db
-                .iter(COLUMN_LOCK_HASH_LIVE_CELL, &from_key, Direction::Reverse)
+            self.db.iter(
+                COLUMN_LOCK_HASH_LIVE_CELL,
+                IteratorMode::From(&from_key, Direction::Reverse),
+            )
         } else {
-            self.db
-                .iter(COLUMN_LOCK_HASH_LIVE_CELL, &from_key, Direction::Forward)
+            self.db.iter(
+                COLUMN_LOCK_HASH_LIVE_CELL,
+                IteratorMode::From(&from_key, Direction::Forward),
+            )
         };
         iter.expect("indexer db iter should be ok")
             .skip(skip_num)
@@ -115,11 +119,15 @@ impl IndexerStore for DefaultIndexerStore {
         let mut from_key = lock_hash.as_slice().to_owned();
         let iter = if reverse_order {
             from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
-            self.db
-                .iter(COLUMN_LOCK_HASH_TRANSACTION, &from_key, Direction::Reverse)
+            self.db.iter(
+                COLUMN_LOCK_HASH_TRANSACTION,
+                IteratorMode::From(&from_key, Direction::Reverse),
+            )
         } else {
-            self.db
-                .iter(COLUMN_LOCK_HASH_TRANSACTION, &from_key, Direction::Forward)
+            self.db.iter(
+                COLUMN_LOCK_HASH_TRANSACTION,
+                IteratorMode::From(&from_key, Direction::Forward),
+            )
         };
         iter.expect("indexer db iter should be ok")
             .skip(skip_num)
@@ -143,7 +151,7 @@ impl IndexerStore for DefaultIndexerStore {
 
     fn get_lock_hash_index_states(&self) -> HashMap<Byte32, LockHashIndexState> {
         self.db
-            .iter(COLUMN_LOCK_HASH_INDEX_STATE, &[], Direction::Forward)
+            .iter(COLUMN_LOCK_HASH_INDEX_STATE, IteratorMode::Start)
             .expect("indexer db iter should be ok")
             .map(|(key, value)| {
                 (
@@ -186,8 +194,7 @@ impl IndexerStore for DefaultIndexerStore {
                 .db
                 .iter(
                     COLUMN_LOCK_HASH_LIVE_CELL,
-                    lock_hash.as_slice(),
-                    Direction::Forward,
+                    IteratorMode::From(lock_hash.as_slice(), Direction::Forward),
                 )
                 .expect("indexer db iter should be ok");
 
@@ -204,8 +211,7 @@ impl IndexerStore for DefaultIndexerStore {
                 .db
                 .iter(
                     COLUMN_LOCK_HASH_TRANSACTION,
-                    lock_hash.as_slice(),
-                    Direction::Forward,
+                    IteratorMode::From(lock_hash.as_slice(), Direction::Forward),
                 )
                 .expect("indexer db iter should be ok");
 
