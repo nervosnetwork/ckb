@@ -62,12 +62,8 @@ impl Spec for IndexerBasic {
         node0.generate_blocks(1);
 
         let tx_pool_info = node0.rpc_client().tx_pool_info();
-        assert_eq!(
-            6,
-            tx_pool_info.pending.value() as u64
-                + tx_pool_info.proposed.value() as u64
-                + tx_pool_info.orphan.value() as u64
-        );
+        // in gap
+        assert_eq!(6, tx_pool_info.pending.value() as u64);
         node0.generate_blocks(1);
 
         let tx_pool_info = node0.rpc_client().tx_pool_info();

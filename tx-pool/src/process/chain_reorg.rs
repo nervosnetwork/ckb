@@ -125,7 +125,7 @@ pub fn update_tx_pool_for_reorg(
     // pending ---> gap ----> proposed
     // try move gap to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.gap.size());
-    for key in tx_pool.gap.sorted_keys() {
+    for key in tx_pool.gap.keys_sorted_by_fee_and_relation() {
         if snapshot.proposals().contains_proposed(&key.id) {
             let entry = tx_pool.gap.get(&key.id).expect("exists");
             entries.push((
@@ -142,7 +142,7 @@ pub fn update_tx_pool_for_reorg(
 
     // try move pending to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.pending.size());
-    for key in tx_pool.pending.sorted_keys() {
+    for key in tx_pool.pending.keys_sorted_by_fee_and_relation() {
         let entry = tx_pool.pending.get(&key.id).expect("exists");
         if snapshot.proposals().contains_proposed(&key.id) {
             entries.push((

@@ -275,9 +275,21 @@ impl SortedTxMap {
         TxLink::get_descendants(&self.links, tx_short_id)
     }
 
-    /// return sorted keys
-    pub fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+    /// return keys sorted by tx fee rate
+    pub fn keys_sorted_by_fee(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
         self.sorted_index.iter().rev()
+    }
+
+    /// return keys sorted by tx fee rate and transaction relation
+    pub fn keys_sorted_by_fee_and_relation(&self) -> Vec<&AncestorsScoreSortKey> {
+        let mut keys: Vec<_> = self.keys_sorted_by_fee().collect();
+        keys.sort_by_key(|k| {
+            self.entries
+                .get(&k.id)
+                .expect("entries should consistent with sorted_index")
+                .ancestors_count
+        });
+        keys
     }
 }
 
