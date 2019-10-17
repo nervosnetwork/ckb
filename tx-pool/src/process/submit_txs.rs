@@ -53,6 +53,8 @@ impl Future for PreResolveTxsProcess {
                 let snapshot = tx_pool.cloned_snapshot();
                 let tip_hash = snapshot.tip_hash();
 
+                check_transaction_hash_collision(&tx_pool, &txs)?;
+
                 let mut txs_provider = TransactionsProvider::default();
                 let resolved = txs
                     .iter()
@@ -228,6 +230,19 @@ impl<'a> SubmitTxsExecutor<'a> {
 
         Ok((cache, cycles_vec))
     }
+}
+
+fn check_transaction_hash_collision(
+    tx_pool: &TxPool,
+    txs: &[TransactionView],
+) -> Result<(), Error> {
+    for tx in txs {
+        let short_id = tx.proposal_short_id();
+        if tx_pool.contains_proposal_id(&short_id) {
+            return Err(InternalErrorKind::PoolTransactionDuplicated.into());
+        }
+    }
+    Ok(())
 }
 
 fn resolve_tx<'a>(
