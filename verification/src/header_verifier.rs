@@ -3,13 +3,13 @@ use crate::{
     BlockErrorKind, NumberError, PowError, TimestampError, UnknownParentError,
     ALLOWED_FUTURE_BLOCKTIME,
 };
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{constants::HEADER_VERSION, core::HeaderView};
+use ckb_types::core::{HeaderView, Version};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 pub trait HeaderResolver {
     fn header(&self) -> &HeaderView;
@@ -18,15 +18,15 @@ pub trait HeaderResolver {
 }
 
 pub struct HeaderVerifier<'a, T, M> {
-    pub pow: Arc<dyn PowEngine>,
     block_median_time_context: &'a M,
+    consensus: &'a Consensus,
     _phantom: PhantomData<T>,
 }
 
 impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
-    pub fn new(block_median_time_context: &'a M, pow: Arc<dyn PowEngine>) -> Self {
+    pub fn new(block_median_time_context: &'a M, consensus: &'a Consensus) -> Self {
         HeaderVerifier {
-            pow,
+            consensus,
             block_median_time_context,
             _phantom: PhantomData,
         }
@@ -37,9 +37,9 @@ impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifi
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
-        VersionVerifier::new(header).verify()?;
+        VersionVerifier::new(header, self.consensus.block_version()).verify()?;
         // POW check first
-        PowVerifier::new(header, &self.pow).verify()?;
+        PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent = target.parent().ok_or_else(|| UnknownParentError {
             parent_hash: header.parent_hash().to_owned(),
         })?;
@@ -51,15 +51,19 @@ impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifi
 
 pub struct VersionVerifier<'a> {
     header: &'a HeaderView,
+    block_version: Version,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a HeaderView) -> Self {
-        VersionVerifier { header }
+    pub fn new(header: &'a HeaderView, block_version: Version) -> Self {
+        VersionVerifier {
+            header,
+            block_version,
+        }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.version() != HEADER_VERSION {
+        if self.header.version() != self.block_version {
             return Err(BlockErrorKind::Version.into());
         }
         Ok(())
@@ -133,15 +137,12 @@ impl<'a> NumberVerifier<'a> {
 
 pub struct PowVerifier<'a> {
     header: &'a HeaderView,
-    pow: Arc<dyn PowEngine>,
+    pow: &'a dyn PowEngine,
 }
 
 impl<'a> PowVerifier<'a> {
-    pub fn new(header: &'a HeaderView, pow: &Arc<dyn PowEngine>) -> Self {
-        PowVerifier {
-            header,
-            pow: Arc::clone(pow),
-        }
+    pub fn new(header: &'a HeaderView, pow: &'a dyn PowEngine) -> Self {
+        PowVerifier { header, pow }
     }
 
     pub fn verify(&self) -> Result<(), Error> {

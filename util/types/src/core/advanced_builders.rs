@@ -68,7 +68,7 @@ impl ::std::default::Default for TransactionBuilder {
 impl ::std::default::Default for HeaderBuilder {
     fn default() -> Self {
         Self {
-            version: constants::HEADER_VERSION.pack(),
+            version: constants::BLOCK_VERSION.pack(),
             parent_hash: Default::default(),
             timestamp: Default::default(),
             number: Default::default(),

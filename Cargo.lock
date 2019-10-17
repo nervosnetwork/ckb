@@ -439,7 +439,6 @@ dependencies = [
  "ckb-error 0.23.0-pre",
  "ckb-jsonrpc-types 0.23.0-pre",
  "ckb-logger 0.23.0-pre",
- "ckb-pow 0.23.0-pre",
  "ckb-proposal-table 0.23.0-pre",
  "ckb-shared 0.23.0-pre",
  "ckb-stop-handler 0.23.0-pre",

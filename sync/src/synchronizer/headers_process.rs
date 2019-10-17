@@ -13,7 +13,6 @@ use ckb_types::{
 };
 use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
-use std::sync::Arc;
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
@@ -122,10 +121,7 @@ impl<'a> HeadersProcess<'a> {
     pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
         let parent = self.snapshot.get_header(&first.data().raw().parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, self.snapshot.clone());
-        let verifier = HeaderVerifier::new(
-            &resolver,
-            Arc::clone(&self.snapshot.consensus().pow_engine()),
-        );
+        let verifier = HeaderVerifier::new(&resolver, &self.snapshot.consensus());
         let acceptor = HeaderAcceptor::new(
             first,
             self.peer,
@@ -196,10 +192,7 @@ impl<'a> HeadersProcess<'a> {
         for window in headers.windows(2) {
             if let [parent, header] = &window {
                 let resolver = VerifierResolver::new(Some(&parent), &header, self.snapshot.clone());
-                let verifier = HeaderVerifier::new(
-                    &resolver,
-                    Arc::clone(&self.snapshot.consensus().pow_engine()),
-                );
+                let verifier = HeaderVerifier::new(&resolver, &self.snapshot.consensus());
                 let acceptor = HeaderAcceptor::new(
                     &header,
                     self.peer,

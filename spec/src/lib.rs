@@ -11,7 +11,7 @@
 
 use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
-    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TYPE_ID_CODE_HASH,
 };
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -23,7 +23,6 @@ use ckb_resource::{
 };
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
         EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
@@ -32,13 +31,14 @@ use ckb_types::{
     prelude::*,
     H160, H256, U128,
 };
-pub use error::SpecError;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+
+pub use error::SpecError;
 
 pub mod consensus;
 mod error;

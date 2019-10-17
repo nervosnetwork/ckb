@@ -83,7 +83,7 @@ impl MinerRpc for MinerRpcImpl {
         // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
         let resolver = HeaderResolverWrapper::new(&header, snapshot);
-        HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()))
+        HeaderVerifier::new(snapshot, &self.shared.consensus())
             .verify(&resolver)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 

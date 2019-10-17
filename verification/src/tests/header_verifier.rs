@@ -3,9 +3,8 @@ use crate::{BlockErrorKind, NumberError, PowError, TimestampError, ALLOWED_FUTUR
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
-use ckb_types::{constants::HEADER_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
+use ckb_types::{constants::BLOCK_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
 use faketime::unix_time_as_millis;
-use std::sync::Arc;
 
 fn mock_median_time_context() -> MockMedianTime {
     let now = unix_time_as_millis();
@@ -16,9 +15,9 @@ fn mock_median_time_context() -> MockMedianTime {
 #[test]
 pub fn test_version() {
     let header = HeaderBuilder::default()
-        .version((HEADER_VERSION + 1).pack())
+        .version((BLOCK_VERSION + 1).pack())
         .build();
-    let verifier = VersionVerifier::new(&header);
+    let verifier = VersionVerifier::new(&header, BLOCK_VERSION);
 
     assert_error_eq!(verifier.verify().unwrap_err(), BlockErrorKind::Version);
 }
@@ -113,8 +112,8 @@ impl PowEngine for FakePowEngine {
 #[test]
 fn test_pow_verifier() {
     let header = HeaderBuilder::default().build();
-    let fake_pow_engine: Arc<dyn PowEngine> = Arc::new(FakePowEngine);
-    let verifier = PowVerifier::new(&header, &fake_pow_engine);
+    let fake_pow_engine: &dyn PowEngine = &FakePowEngine;
+    let verifier = PowVerifier::new(&header, fake_pow_engine);
 
     assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }
