@@ -241,7 +241,7 @@ impl ProposedPool {
     where
         F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
     {
-        let mut iter = self.inner.sorted_keys().map(|key| {
+        let mut iter = self.inner.keys_sorted_by_fee().map(|key| {
             self.inner
                 .get(&key.id)
                 .expect("proposed pool must be consistent")
