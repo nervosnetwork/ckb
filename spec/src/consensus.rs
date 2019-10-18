@@ -1,9 +1,6 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
-use crate::{
-    OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
-    OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
-};
+use crate::{OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
 use ckb_dao_utils::{genesis_dao_data, genesis_dao_data_with_satoshi_gift};
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
@@ -203,7 +200,6 @@ impl ConsensusBuilder {
                 max_block_bytes: MAX_BLOCK_BYTES,
                 dao_type_hash: None,
                 secp_blake160_type_hash: None,
-                secp_ripemd160_type_hash: None,
                 genesis_epoch_ext,
                 block_version: BLOCK_VERSION,
                 tx_version: TX_VERSION,
@@ -268,8 +264,6 @@ impl ConsensusBuilder {
         self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
         self.inner.secp_blake160_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
-        self.inner.secp_ripemd160_type_hash =
-            self.get_type_hash(OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL);
         self.inner
             .genesis_epoch_ext
             .set_compact_target(self.inner.genesis_block.compact_target());
@@ -351,7 +345,6 @@ pub struct Consensus {
     pub genesis_hash: Byte32,
     pub dao_type_hash: Option<Byte32>,
     pub secp_blake160_type_hash: Option<Byte32>,
-    pub secp_ripemd160_type_hash: Option<Byte32>,
     pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
@@ -428,9 +421,6 @@ impl Consensus {
     }
     pub fn secp_blake160_type_hash(&self) -> Option<Byte32> {
         self.secp_blake160_type_hash.clone()
-    }
-    pub fn secp_ripemd160_type_hash(&self) -> Option<Byte32> {
-        self.secp_ripemd160_type_hash.clone()
     }
 
     pub fn max_uncles_num(&self) -> usize {
