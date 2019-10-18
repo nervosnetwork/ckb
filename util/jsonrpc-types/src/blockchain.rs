@@ -77,7 +77,7 @@ impl From<packed::Script> for Script {
         Script {
             code_hash: input.code_hash().unpack(),
             args: JsonBytes::from_bytes(input.args().unpack()),
-            hash_type: core::ScriptHashType::try_from(Into::<u8>::into(input.hash_type()))
+            hash_type: core::ScriptHashType::try_from(input.hash_type())
                 .expect("checked data")
                 .into(),
         }
@@ -223,7 +223,7 @@ impl From<packed::CellDep> for CellDep {
     fn from(input: packed::CellDep) -> Self {
         CellDep {
             out_point: input.out_point().into(),
-            dep_type: core::DepType::try_from(Into::<u8>::into(input.dep_type()))
+            dep_type: core::DepType::try_from(input.dep_type())
                 .expect("checked data")
                 .into(),
         }

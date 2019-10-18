@@ -303,9 +303,7 @@ impl ChainSpec {
             .flat_map(|tx| tx.outputs().into_iter().map(move |output| output.lock()))
             .filter(|lock_script| lock_script != &genesis_cell_lock)
         {
-            match ScriptHashType::try_from(Into::<u8>::into(lock_script.hash_type()))
-                .expect("checked data")
-            {
+            match ScriptHashType::try_from(lock_script.hash_type()).expect("checked data") {
                 ScriptHashType::Data => {
                     if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(

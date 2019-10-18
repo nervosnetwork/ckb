@@ -251,8 +251,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, Error> {
-        match ScriptHashType::try_from(Into::<u8>::into(script.hash_type())).expect("checked data")
-        {
+        match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
             ScriptHashType::Data => {
                 if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(data.to_owned())

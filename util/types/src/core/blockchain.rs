@@ -15,11 +15,11 @@ impl Default for ScriptHashType {
     }
 }
 
-impl TryFrom<u8> for ScriptHashType {
+impl TryFrom<packed::Byte> for ScriptHashType {
     type Error = FailureError;
 
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
+    fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
+        match Into::<u8>::into(v) {
             0 => Ok(ScriptHashType::Data),
             1 => Ok(ScriptHashType::Type),
             _ => Err(err_msg(format!("Invalid script hash type {}", v))),
@@ -60,11 +60,11 @@ impl Default for DepType {
     }
 }
 
-impl TryFrom<u8> for DepType {
+impl TryFrom<packed::Byte> for DepType {
     type Error = FailureError;
 
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
+    fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
+        match Into::<u8>::into(v) {
             0 => Ok(DepType::Code),
             1 => Ok(DepType::DepGroup),
             _ => Err(err_msg(format!("Invalid dep type {}", v))),
