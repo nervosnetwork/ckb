@@ -375,7 +375,7 @@ impl<'a> CapacityVerifier<'a> {
                     .type_()
                     .to_opt()
                     .map(|t| {
-                        t.hash_type() == Into::<u8>::into(ScriptHashType::Type)
+                        Into::<u8>::into(t.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
                             && &t.code_hash()
                                 == self.dao_type_hash.as_ref().expect("No dao system cell")
                     })

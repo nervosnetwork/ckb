@@ -6,14 +6,14 @@ use crate::{core, packed};
 
 impl<'r> packed::ScriptReader<'r> {
     pub fn check_data(&self) -> bool {
-        core::ScriptHashType::verify_value(self.hash_type())
+        core::ScriptHashType::verify_value(self.hash_type().into())
     }
 }
 
 impl<'r> packed::ScriptOptReader<'r> {
     pub fn check_data(&self) -> bool {
         self.to_opt()
-            .map(|i| core::ScriptHashType::verify_value(i.hash_type()))
+            .map(|i| core::ScriptHashType::verify_value(i.hash_type().into()))
             .unwrap_or(true)
     }
 }
@@ -32,7 +32,7 @@ impl<'r> packed::CellOutputVecReader<'r> {
 
 impl<'r> packed::CellDepReader<'r> {
     pub fn check_data(&self) -> bool {
-        core::DepType::verify_value(self.dep_type())
+        core::DepType::verify_value(self.dep_type().into())
     }
 }
 
@@ -143,10 +143,10 @@ mod tests {
 
     #[test]
     fn check_data() {
-        let ht_right = 1;
-        let ht_error = 2;
-        let dt_right = 1;
-        let dt_error = 2;
+        let ht_right = 1.into();
+        let ht_error = 2.into();
+        let dt_right = 1.into();
+        let dt_error = 2.into();
 
         let script_right = packed::Script::new_builder().hash_type(ht_right).build();
         let script_error = packed::Script::new_builder().hash_type(ht_error).build();

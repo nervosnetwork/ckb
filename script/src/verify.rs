@@ -320,7 +320,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     fn verify_script_group(&self, group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-            && group.script.hash_type() == Into::<u8>::into(ScriptHashType::Type)
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {
                 rtx: self.rtx,

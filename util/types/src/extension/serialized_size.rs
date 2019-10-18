@@ -13,7 +13,7 @@ macro_rules! impl_serialized_size_for_entity {
 impl<'r> packed::TransactionReader<'r> {
     pub fn serialized_size_in_block(&self) -> usize {
         // the offset in TransactionVec header is u32
-        self.as_slice().len() + 4
+        self.as_slice().len() + molecule::NUMBER_SIZE
     }
 }
 impl_serialized_size_for_entity!(Transaction, serialized_size_in_block);
@@ -25,7 +25,7 @@ impl<'r> packed::BlockReader<'r> {
         let uncles_proposals_size = self
             .uncles()
             .iter()
-            .map(|x| x.proposals().as_slice().len() - 4)
+            .map(|x| x.proposals().as_slice().len() - molecule::NUMBER_SIZE)
             .sum::<usize>();
         block_size - uncles_proposals_size
     }
