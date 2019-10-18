@@ -7,10 +7,10 @@ use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
-    constants::TX_VERSION,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         BlockNumber, Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView,
+        Version,
     },
     packed::Byte32,
     prelude::*,
@@ -88,7 +88,7 @@ where
         chain_store: &'a CS,
     ) -> Self {
         TransactionVerifier {
-            version: VersionVerifier::new(&rtx.transaction),
+            version: VersionVerifier::new(&rtx.transaction, consensus.tx_version()),
             size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(
@@ -157,15 +157,19 @@ impl<'a, CS: ChainStore<'a>> FeeCalculator<'a, CS> {
 
 pub struct VersionVerifier<'a> {
     transaction: &'a TransactionView,
+    tx_version: Version,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(transaction: &'a TransactionView) -> Self {
-        VersionVerifier { transaction }
+    pub fn new(transaction: &'a TransactionView, tx_version: Version) -> Self {
+        VersionVerifier {
+            transaction,
+            tx_version,
+        }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.transaction.version() != TX_VERSION {
+        if self.transaction.version() != self.tx_version {
             return Err((TransactionError::MismatchedVersion).into());
         }
         Ok(())

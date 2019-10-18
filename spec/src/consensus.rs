@@ -9,12 +9,12 @@ use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_types::{
-    constants::BLOCK_VERSION,
+    constants::{BLOCK_VERSION, TX_VERSION},
     core::{
         BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
         EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
     },
-    h160,
+    h160, h256,
     packed::{Byte32, CellInput, Script},
     prelude::*,
     u256,
@@ -53,12 +53,10 @@ const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_200_000;
-pub const CYCLE_BOUND: Cycle = 100_000;
 // bytes of a typical two-in-two-out tx
 pub const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
-// approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
-const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
+const TWO_IN_TWO_OUT_COUNT: u64 = 1_600;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
@@ -68,7 +66,8 @@ pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
 
 const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
-const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
+// 1.5 * TWO_IN_TWO_OUT_COUNT
+const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 2_400;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
@@ -79,6 +78,9 @@ pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
+
+// "TYPE_ID" in hex
+pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 
 /// Two protocol parameters w_close and w_far define the closest
 /// and farthest on-chain distance between a transaction's proposal
@@ -204,6 +206,8 @@ impl ConsensusBuilder {
                 secp_ripemd160_type_hash: None,
                 genesis_epoch_ext,
                 block_version: BLOCK_VERSION,
+                tx_version: TX_VERSION,
+                type_id_code_hash: TYPE_ID_CODE_HASH,
                 proposer_reward_ratio: PROPOSER_REWARD_RATIO,
                 max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
                 satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
@@ -368,6 +372,10 @@ pub struct Consensus {
     pub max_block_bytes: u64,
     // block version number supported
     pub block_version: Version,
+    // tx version number supported
+    pub tx_version: Version,
+    // "TYPE_ID" in hex
+    pub type_id_code_hash: H256,
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
@@ -496,6 +504,14 @@ impl Consensus {
 
     pub fn block_version(&self) -> Version {
         self.block_version
+    }
+
+    pub fn tx_version(&self) -> Version {
+        self.tx_version
+    }
+
+    pub fn type_id_code_hash(&self) -> &H256 {
+        &self.type_id_code_hash
     }
 
     pub fn tx_proposal_window(&self) -> ProposalWindow {

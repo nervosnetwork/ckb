@@ -4,7 +4,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_pow::Pow;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::Snapshot;
@@ -78,7 +77,7 @@ fn test_get_block_template() {
     let resolver = HeaderResolverWrapper::new(&header, shared.store());
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
-        let header_verifier = HeaderVerifier::new(snapshot, Pow::Dummy.engine());
+        let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
         header_verifier.verify(&resolver)
     };
     assert!(header_verify_result.is_ok());

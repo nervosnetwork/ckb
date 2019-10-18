@@ -7,12 +7,12 @@ use crate::{
     type_id::TypeIdSystemScript,
     DataLoader, ScriptError,
 };
+use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_error::{Error, InternalErrorKind};
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
@@ -425,7 +425,7 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_types::{
         core::{
-            capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, ScriptHashType,
+            capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, ScriptHashType,
             TransactionBuilder, TransactionInfo,
         },
         h256,
@@ -437,7 +437,7 @@ mod tests {
     };
     use faster_hex::hex_encode;
 
-    use ckb_chain_spec::consensus::{CYCLE_BOUND, TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES};
+    use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES};
     use ckb_error::assert_error_eq;
     use ckb_test_chain_utils::{
         always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
@@ -449,6 +449,7 @@ mod tests {
     use std::path::Path;
 
     const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
+    const CYCLE_BOUND: Cycle = 100_000;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
