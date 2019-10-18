@@ -359,6 +359,24 @@ impl RpcClient {
             .expect("rpc call get_cellbase_output_capacity_details")
             .expect("get_cellbase_output_capacity_details return none")
     }
+
+    pub fn send_mock_transaction(&self, tx: Transaction) -> Byte32 {
+        self.inner()
+            .lock()
+            .send_mock_transaction(tx)
+            .call()
+            .expect("rpc call send_mock_transaction")
+            .pack()
+    }
+
+    pub fn send_mock_block(&self, block: Block) -> Byte32 {
+        self.inner()
+            .lock()
+            .send_mock_block(block)
+            .call()
+            .expect("rpc call send_mock_block")
+            .pack()
+    }
 }
 
 jsonrpc_client!(pub struct Inner {
@@ -420,4 +438,6 @@ jsonrpc_client!(pub struct Inner {
     pub fn calculate_dao_maximum_withdraw(&mut self, _out_point: OutPoint, _hash: H256) -> RpcRequest<Capacity>;
     pub fn get_cellbase_output_capacity_details(&mut self, _hash: H256) -> RpcRequest<Option<BlockReward>>;
     pub fn broadcast_transaction(&mut self, tx: Transaction, cycles: Cycle) -> RpcRequest<H256>;
+    pub fn send_mock_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
+    pub fn send_mock_block(&mut self, tx: Block) -> RpcRequest<H256>;
 });

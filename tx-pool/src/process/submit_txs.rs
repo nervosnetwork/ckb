@@ -242,6 +242,11 @@ fn resolve_tx<'a>(
     }
 
     let short_id = tx.proposal_short_id();
+
+    if tx_pool.contains_proposal_id(&short_id) {
+        return Err(InternalErrorKind::PoolTransactionDuplicated.into());
+    }
+
     if snapshot.proposals().contains_proposed(&short_id) {
         resolve_tx_from_proposed(tx_pool, snapshot, txs_provider, tx).and_then(|rtx| {
             let fee = tx_pool.calculate_transaction_fee(snapshot, &rtx);

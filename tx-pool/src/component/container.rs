@@ -202,6 +202,13 @@ impl SortedTxMap {
         self.entries.get(id)
     }
 
+    pub fn get_sorted_key(&self, id: &ProposalShortId) -> Option<AncestorsScoreSortKey> {
+        self.sorted_index
+            .iter()
+            .find(|index| &index.id == id)
+            .cloned()
+    }
+
     pub fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
         let mut queue = VecDeque::new();
         let mut removed = Vec::new();

@@ -299,6 +299,10 @@ fn all_specs() -> SpecMap {
         Box::new(ProposeTransactionButParentNot),
         Box::new(ProposalExpireRuleForCommittingAndExpiredAtOneTime),
         Box::new(ReorgHandleProposals),
+        Box::new(FakeHashTransaction),
+        Box::new(ProposalIDCollisionOnPendingIrrelevant),
+        Box::new(ProposalIDCollisionOnGapIrrelevant),
+        Box::new(ProposalIDCollisionOnProposedIrrelevant),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

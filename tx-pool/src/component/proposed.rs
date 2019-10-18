@@ -1,4 +1,4 @@
-use crate::component::container::SortedTxMap;
+use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
 use ckb_types::{
     bytes::Bytes,
@@ -257,6 +257,10 @@ impl ProposedPool {
     /// find all descendants from pool
     pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
         self.inner.get_descendants(&tx_short_id)
+    }
+
+    pub fn get_sorted_key(&self, shrot_id: &ProposalShortId) -> Option<AncestorsScoreSortKey> {
+        self.inner.get_sorted_key(shrot_id)
     }
 }
 

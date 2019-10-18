@@ -39,6 +39,12 @@ impl TxFamily {
             .expect("out of index of tx-family")
     }
 
+    pub fn get_mut(&mut self, index: usize) -> &mut TransactionView {
+        self.transactions
+            .get_mut(index)
+            .expect("out of index of tx-family")
+    }
+
     #[allow(dead_code)]
     pub fn a(&self) -> &TransactionView {
         self.get(0)

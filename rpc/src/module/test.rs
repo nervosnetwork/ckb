@@ -5,7 +5,9 @@ use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_sync::NetworkProtocol;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::core::TransactionView;
+use ckb_types::packed::Byte32;
+use ckb_types::{bytes, core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -25,6 +27,12 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
+
+    #[rpc(name = "send_mock_transaction")]
+    fn send_mock_transaction(&self, mock_transaction: Transaction) -> Result<H256>;
+
+    #[rpc(name = "send_mock_block")]
+    fn send_mock_block(&self, mock_block: Block) -> Result<H256>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -84,4 +92,61 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             Ok(hash.unpack())
         }
     }
+
+    fn send_mock_transaction(&self, mock_transaction: Transaction) -> Result<H256> {
+        let tx: packed::Transaction = mock_transaction.into();
+        let mut tx = tx.into_view();
+        if is_fake_transaction(&tx) {
+            tx = to_fake_transaction(tx);
+        }
+        match self
+            .shared
+            .tx_pool_controller()
+            .submit_txs(vec![tx.clone()])
+        {
+            Ok(_) => Ok(tx.hash().unpack()),
+            Err(err) => Err(RPCError::custom(
+                RPCError::Invalid,
+                format!("send_mock_transaction error: {:?}", err),
+            )),
+        }
+    }
+
+    fn send_mock_block(&self, mock_block: Block) -> Result<H256> {
+        let block: packed::Block = mock_block.into();
+        let block = block.into_view();
+        let fake_block = block
+            .as_advanced_builder()
+            .set_transactions(vec![])
+            .transactions(block.transactions().into_iter().map(|tx| {
+                if is_fake_transaction(&tx) {
+                    to_fake_transaction(tx)
+                } else {
+                    tx
+                }
+            }))
+            .build();
+        match self.chain.process_block(Arc::new(fake_block.clone())) {
+            Ok(_) => Ok(fake_block.hash().unpack()),
+            Err(err) => Err(RPCError::custom(
+                RPCError::Invalid,
+                format!("send_mock_block error: {:?}", err),
+            )),
+        }
+    }
+}
+
+fn is_fake_transaction(tx: &TransactionView) -> bool {
+    tx.witnesses()
+        .get(0)
+        .map(|witness| witness.len() == Byte32::TOTAL_SIZE)
+        .unwrap_or(false)
+}
+
+fn to_fake_transaction(tx: TransactionView) -> TransactionView {
+    let fake_hash = {
+        let witness: bytes::Bytes = tx.witnesses().get(0).expect("expect 0th witness").unpack();
+        Byte32::from_slice(&witness).expect("expect 0th witness is Byte32")
+    };
+    tx.fake_hash(fake_hash)
 }

@@ -30,6 +30,7 @@ impl Future for FetchTxRPCProcess {
                 let ret = guard
                     .proposed()
                     .get(&id)
+                    .or_else(|| guard.gap.get(&id))
                     .map(|entry| (true, entry.transaction.clone()))
                     .or_else(|| guard.get_tx_without_conflict(&id).map(|tx| (false, tx)));
                 Ok(Async::Ready(ret))
