@@ -11,7 +11,7 @@ fn main() {
         panic!("asm feature can only be enabled on 64-bit Linux, macOS and Windows platforms!");
     }
 
-    if can_enable_asm {
+    if cfg!(any(feature = "asm", feature = "detect-asm")) && can_enable_asm {
         println!("cargo:rustc-cfg=has_asm");
     }
 }
