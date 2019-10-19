@@ -5,12 +5,7 @@ use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
 use ckb_tx_pool::{error::SubmitTxError, fee_rate::FeeRate};
-use ckb_types::{
-    core::{self},
-    packed,
-    prelude::*,
-    H256,
-};
+use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;

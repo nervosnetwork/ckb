@@ -15,7 +15,7 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
 };
 
@@ -161,13 +161,15 @@ fn withdraw_dao_transaction(
     };
     let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
     header_deps.push(block_hash);
-    let withdraw_dao_witness = Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack();
+    let withdraw_dao_witness = WitnessArgs::new_builder()
+        .type_(Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack())
+        .build();
     TransactionBuilder::default()
         .cell_deps(cell_deps)
         .header_deps(header_deps.into_iter())
         .input(deposited_input)
         .output(output)
         .output_data(output_data.pack())
-        .witness(withdraw_dao_witness)
+        .witness(withdraw_dao_witness.as_bytes().pack())
         .build()
 }

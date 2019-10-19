@@ -30,7 +30,7 @@ use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_tx_pool::fee_rate::FeeRate;
 use ckb_types::{
-    core::{self},
+    core,
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };

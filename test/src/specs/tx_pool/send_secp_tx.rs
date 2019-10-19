@@ -3,14 +3,14 @@ use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
 use ckb_crypto::secp::{Generator, Privkey};
-use ckb_hash::blake2b_256;
+use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     H256,
 };
@@ -66,15 +66,30 @@ impl Spec for SendSecpTxUseDepGroup {
             .build();
 
         let tx_hash = tx.hash();
-        let message = H256::from(blake2b_256(tx_hash.as_slice()));
+        let witness = WitnessArgs::new_builder()
+            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .build();
+        let witness_len = witness.as_bytes().len() as u64;
+        let message = {
+            let mut hasher = new_blake2b();
+            hasher.update(&tx_hash.as_bytes());
+            hasher.update(&witness_len.to_le_bytes());
+            hasher.update(&witness.as_bytes());
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness = Bytes::from(sig.serialize()).pack();
+        let witness = witness
+            .as_builder()
+            .lock(Bytes::from(sig.serialize()).pack())
+            .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
             .output(output)
             .output_data(Default::default())
-            .witness(witness)
+            .witness(witness.as_bytes().pack())
             .build();
         info!("Send 1 secp tx use dep group");
 
@@ -178,13 +193,32 @@ impl Spec for CheckTypical2In2OutTx {
             .build();
 
         let tx_hash: H256 = tx.hash().unpack();
-        let message = H256::from(blake2b_256(&tx_hash));
+        let witness = WitnessArgs::new_builder()
+            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .build();
+        let witness_len = witness.as_bytes().len() as u64;
+        let witness2 = Bytes::new();
+        let witness2_len = witness2.len() as u64;
+        let message = {
+            let mut hasher = new_blake2b();
+            hasher.update(&tx_hash.as_bytes());
+            hasher.update(&witness_len.to_le_bytes());
+            hasher.update(&witness.as_bytes());
+            hasher.update(&witness2_len.to_le_bytes());
+            hasher.update(&witness2);
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness = Bytes::from(sig.serialize()).pack();
+        let witness = witness
+            .as_builder()
+            .lock(Bytes::from(sig.serialize()).pack())
+            .build();
         let tx = tx
             .as_advanced_builder()
-            .witness(witness.clone())
-            .witness(witness.clone())
+            .witness(witness.as_bytes().pack())
+            .witness(witness2.pack())
             .build();
 
         info!("Send 1 secp tx use dep group");

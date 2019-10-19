@@ -430,7 +430,7 @@ mod tests {
         h256,
         packed::{
             Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, Script,
-            TransactionInfoBuilder, TransactionKeyBuilder,
+            TransactionInfoBuilder, TransactionKeyBuilder, WitnessArgs,
         },
         H256,
     };
@@ -1622,9 +1622,18 @@ mod tests {
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
         let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
+        let privkey2 = generator.gen_privkey();
+        let pubkey_data2 = privkey2.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg2 = Bytes::from(&blake2b_256(&pubkey_data2)[0..20]);
 
         let lock = Script::new_builder()
             .args(lock_arg.clone().pack())
+            .code_hash(type_lock_script_code_hash().pack())
+            .hash_type(ScriptHashType::Type.into())
+            .build();
+
+        let lock2 = Script::new_builder()
+            .args(lock_arg2.clone().pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(ScriptHashType::Type.into())
             .build();
@@ -1635,7 +1644,7 @@ mod tests {
             .build();
         let output2 = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
-            .lock(lock.clone())
+            .lock(lock2.clone())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep.clone())
@@ -1648,13 +1657,46 @@ mod tests {
             .build();
 
         let tx_hash: H256 = tx.hash().unpack();
-        let message = H256::from(blake2b_256(&tx_hash));
+        // sign input1
+        let witness = WitnessArgs::new_builder()
+            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .build();
+        let witness_len: u64 = witness.as_bytes().len() as u64;
+        let mut hasher = new_blake2b();
+        hasher.update(tx_hash.as_bytes());
+        hasher.update(&witness_len.to_le_bytes());
+        hasher.update(&witness.as_bytes());
+        let message = {
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
         let sig = privkey.sign_recoverable(&message).expect("sign");
-        let witness = Bytes::from(sig.serialize()).pack();
+        let witness = WitnessArgs::new_builder()
+            .lock(Bytes::from(sig.serialize()).pack())
+            .build();
+        // sign input2
+        let witness2 = WitnessArgs::new_builder()
+            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .build();
+        let witness2_len: u64 = witness2.as_bytes().len() as u64;
+        let mut hasher = new_blake2b();
+        hasher.update(tx_hash.as_bytes());
+        hasher.update(&witness2_len.to_le_bytes());
+        hasher.update(&witness2.as_bytes());
+        let message2 = {
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
+        let sig2 = privkey2.sign_recoverable(&message2).expect("sign");
+        let witness2 = WitnessArgs::new_builder()
+            .lock(Bytes::from(sig2.serialize()).pack())
+            .build();
         let tx = tx
             .as_advanced_builder()
-            .witness(witness.clone())
-            .witness(witness.clone())
+            .witness(witness.as_bytes().pack())
+            .witness(witness2.as_bytes().pack())
             .build();
 
         let serialized_size = tx.data().as_slice().len() as u64;
@@ -1682,7 +1724,7 @@ mod tests {
 
         let input_cell2 = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
-            .lock(lock.clone())
+            .lock(lock2.clone())
             .build();
 
         let resolved_input_cell2 =
@@ -1715,7 +1757,6 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         let cycle = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
-
         assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
         assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
