@@ -1,3 +1,27 @@
+# [v0.23.0](https://github.com/nervosnetwork/ckb/compare/v0.22.0...v0.23.0) (2019-10-05)
+
+### Features
+
+* #1645: Min transaction fee filter (@jjyr)
+
+### Bug Fixes
+
+* #1696: Set `next_epoch_diff` to one instead of panic when it is zero (@doitian)
+* #1683: Remove descendants of committed txs from pending pool (@keroro520)
+* #1698: WebAssembly build for core packages (@xxuejie)
+* #1665: Remove committed before expired during reorg (@keroro520)
+* #1706: Fix orphan tx package (@zhangsoledad)
+* #1712: Fix `tx_pool_info` (@u2)
+
+    Count transactions in gap in pending.
+
+* #1697: Fix `get_header_view` panic bug (@TheWaWaR)
+
+    Update best headers (peers/global) after update header_map.
+
+* #1714: Tx `sorted_keys` order by relation (@u2)
+* #1736: Fix tx pool inconsistent when receive duplicated hash txs. (@jjyr)
+
 # [v0.22.0](https://github.com/nervosnetwork/ckb/compare/v0.21.2...v0.22.0) (2019-10-05)
 
 ### Breaking Changes
