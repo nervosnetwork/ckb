@@ -29,11 +29,11 @@ impl Spec for UncleInheritFromForkBlock {
         info!("(2) Force reorg, so that the parent of `uncle` become fork-block");
         let longer_fork = (0..=target_node.get_tip_block_number()).map(|_| {
             let block = feed_node.new_block(None, None, None);
-            feed_node.submit_block(&block.data());
+            feed_node.submit_block(&block);
             block
         });
         longer_fork.for_each(|block| {
-            target_node.submit_block(&block.data());
+            target_node.submit_block(&block);
         });
 
         info!(
@@ -56,7 +56,7 @@ impl Spec for UncleInheritFromForkBlock {
             .new_block_builder(None, None, None)
             .set_uncles(vec![uncle.as_uncle()])
             .build();
-        target_node.submit_block(&block.data());
+        target_node.submit_block(&block);
     }
 }
 
@@ -77,7 +77,7 @@ impl Spec for UncleInheritFromForkUncle {
 
         info!("(1) Build a chain which embedded `uncle_parent` as an uncle");
         let uncle_parent = construct_uncle(target_node);
-        target_node.submit_block(&uncle_parent.data());
+        target_node.submit_block(&uncle_parent);
 
         let uncle_child = uncle_parent
             .as_advanced_builder()
@@ -99,11 +99,11 @@ impl Spec for UncleInheritFromForkUncle {
         info!("(2) Force reorg, so that `uncle_parent` become a fork-uncle");
         let longer_fork = (0..=target_node.get_tip_block_number()).map(|_| {
             let block = feed_node.new_block(None, None, None);
-            feed_node.submit_block(&block.data());
+            feed_node.submit_block(&block);
             block
         });
         longer_fork.for_each(|block| {
-            target_node.submit_block(&block.data());
+            target_node.submit_block(&block);
         });
 
         info!("(3) Submit block with `uncle`, which is inherited from fork-uncle `uncle_parent`, should be failed");
@@ -124,7 +124,7 @@ impl Spec for UncleInheritFromForkUncle {
             .new_block_builder(None, None, None)
             .set_uncles(vec![uncle_child.as_uncle()])
             .build();
-        target_node.submit_block(&block.data());
+        target_node.submit_block(&block);
     }
 }
 
@@ -151,7 +151,7 @@ impl Spec for PackUnclesIntoEpochStarting {
         assert_eq!(current_epoch_end - 1, node.get_tip_block_number());
 
         info!("(2) Submit the target uncle");
-        node.submit_block(&uncle.data());
+        node.submit_block(&uncle);
 
         info!("(3) Expect the next mining block(CURRENT_EPOCH_END) contains the target uncle");
         let block = node.new_block(None, None, None);
@@ -160,7 +160,7 @@ impl Spec for PackUnclesIntoEpochStarting {
         // Clear the uncles in the next block, we don't want to pack the target `uncle` now.
         info!("(4) Submit the next block with empty uncles");
         let block_with_empty_uncles = block.as_advanced_builder().set_uncles(vec![]).build();
-        node.submit_block(&block_with_empty_uncles.data());
+        node.submit_block(&block_with_empty_uncles);
 
         info!("(5) Expect the next mining block(NEXT_EPOCH_START) not contains the target uncle");
         let block = node.new_block(None, None, None);
@@ -171,14 +171,7 @@ impl Spec for PackUnclesIntoEpochStarting {
 // Convenient way to construct an uncle block
 fn construct_uncle(node: &Node) -> BlockView {
     node.generate_block(); // Ensure exit IBD mode
-
-    let block = node.new_block(None, None, None);
-    let timestamp = block.timestamp() + 10;
-    let uncle = block
-        .as_advanced_builder()
-        .timestamp(timestamp.pack())
-        .build();
-
+    let uncle = node.construct_uncle();
     node.generate_block();
 
     uncle
@@ -191,6 +184,6 @@ fn until_no_uncles_left(node: &Node) {
         if block.uncles().into_iter().count() == 0 {
             break;
         }
-        node.submit_block(&block.data());
+        node.submit_block(&block);
     }
 }

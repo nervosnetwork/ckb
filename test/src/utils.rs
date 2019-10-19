@@ -1,4 +1,4 @@
-use crate::{Net, Node};
+use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_types::{
     bytes::Bytes,
@@ -116,12 +116,11 @@ pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
     RelayMessage::new_builder().set(content).build().as_bytes()
 }
 
-pub fn new_block_with_template(template: BlockTemplate) -> Block {
+pub fn new_block_with_template(template: BlockTemplate) -> BlockView {
     Block::from(template)
         .as_advanced_builder()
         .nonce(rand::random::<u128>().pack())
         .build()
-        .data()
 }
 
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool
@@ -204,4 +203,78 @@ pub fn temp_path() -> String {
     let path = tempdir.path().to_str().unwrap().to_owned();
     tempdir.close().expect("close tempdir failed");
     path
+}
+
+/// Generate new blocks and explode these cellbases into `n` live cells
+pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
+    // Ensure all the cellbases will be used later are already mature.
+    let cellbase_maturity = node.consensus().cellbase_maturity();
+    node.generate_blocks(cellbase_maturity.index() as usize);
+
+    // Explode these mature cellbases into multiple cells
+    let mut n_outputs = 0;
+    let mut txs = Vec::new();
+    while n > n_outputs {
+        node.generate_block();
+        let mature_number = node.get_tip_block_number() - cellbase_maturity.index();
+        let mature_block = node.get_block_by_number(mature_number);
+        let mature_cellbase = mature_block.transaction(0).unwrap();
+        if mature_cellbase.outputs().is_empty() {
+            continue;
+        }
+
+        let mature_utxos: TXOSet = TXOSet::from(&mature_cellbase);
+        let tx = mature_utxos.boom(vec![node.always_success_cell_dep()]);
+        n_outputs += tx.outputs().len();
+        txs.push(tx);
+    }
+
+    // Ensure all the transactions were committed
+    txs.iter().for_each(|tx| {
+        node.submit_transaction(tx);
+    });
+    while txs
+        .iter()
+        .any(|tx| !is_committed(&node.rpc_client().get_transaction(tx.hash()).unwrap()))
+    {
+        node.generate_blocks(node.consensus().finalization_delay_length() as usize);
+    }
+
+    let mut utxos = TXOSet::default();
+    txs.iter()
+        .for_each(|tx| utxos.extend(Into::<TXOSet>::into(tx)));
+    utxos.truncate(n);
+    utxos
+}
+
+/// Return a blank block with additional committed transactions
+pub fn commit(node: &Node, committed: &[&TransactionView]) -> BlockView {
+    let committed = committed
+        .iter()
+        .map(|t| t.to_owned().to_owned())
+        .collect::<Vec<_>>();
+    blank(node)
+        .as_advanced_builder()
+        .transactions(committed)
+        .build()
+}
+
+/// Return a blank block with additional proposed transactions
+pub fn propose(node: &Node, proposals: &[&TransactionView]) -> BlockView {
+    let proposals = proposals.iter().map(|tx| tx.proposal_short_id());
+    blank(node)
+        .as_advanced_builder()
+        .proposals(proposals)
+        .build()
+}
+
+/// Return a block with `proposals = [], transactions = [cellbase], uncles = []`
+pub fn blank(node: &Node) -> BlockView {
+    let example = node.new_block(None, None, None);
+    example
+        .as_advanced_builder()
+        .set_proposals(vec![])
+        .set_transactions(vec![example.transaction(0).unwrap()]) // cellbase
+        .set_uncles(vec![])
+        .build()
 }

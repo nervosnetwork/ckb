@@ -4,6 +4,7 @@ use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::CacheEntry;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -15,8 +16,8 @@ pub struct DefectEntry {
     pub transaction: TransactionView,
     /// refs count
     pub refs_count: usize,
-    /// Cycles
-    pub cycles: Option<Cycle>,
+    /// Cycles and fee
+    pub cache_entry: Option<CacheEntry>,
     /// tx size
     pub size: usize,
 }
@@ -26,13 +27,13 @@ impl DefectEntry {
     pub fn new(
         tx: TransactionView,
         refs_count: usize,
-        cycles: Option<Cycle>,
+        cache_entry: Option<CacheEntry>,
         size: usize,
     ) -> DefectEntry {
         DefectEntry {
             transaction: tx,
             refs_count,
-            cycles,
+            cache_entry,
             size,
         }
     }
@@ -140,6 +141,7 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
             vbytes,
             id: entry.transaction.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
+            ancestors_size: entry.ancestors_size,
             ancestors_vbytes,
         }
     }

@@ -9,8 +9,8 @@ mod utils;
 
 pub use block_sync::*;
 pub use chain_forks::*;
-pub use get_blocks::GetBlocksTimeout;
-pub use ibd_process::{IBDProcess, IBDProcessWithWhiteList};
-pub use invalid_block::{ChainContainsInvalidBlock, ForkContainsInvalidBlock};
-pub use invalid_locator_size::InvalidLocatorSize;
-pub use sync_timeout::SyncTimeout;
+pub use get_blocks::*;
+pub use ibd_process::*;
+pub use invalid_block::*;
+pub use invalid_locator_size::*;
+pub use sync_timeout::*;

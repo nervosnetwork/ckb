@@ -64,7 +64,7 @@ impl MiningBasic {
         // According to the first-received policy,
         // the first block is always the best block
         let rpc_client = node.rpc_client();
-        assert_eq!(block1.hash(), node.submit_block(&block1.data()));
+        assert_eq!(block1.hash(), node.submit_block(&block1));
         assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
 
         let template1 = rpc_client.get_block_template(None, None, None);
@@ -76,7 +76,7 @@ impl MiningBasic {
             "templates keep same since block template cache",
         );
 
-        assert_eq!(block2.hash(), node.submit_block(&block2.data()));
+        assert_eq!(block2.hash(), node.submit_block(&block2));
         assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
         let template3 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block1.hash(), template3.parent_hash.pack());

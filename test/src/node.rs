@@ -253,9 +253,9 @@ impl Node {
         &self.rpc_client
     }
 
-    pub fn submit_block(&self, block: &Block) -> Byte32 {
+    pub fn submit_block(&self, block: &BlockView) -> Byte32 {
         self.rpc_client()
-            .submit_block("".to_owned(), block.clone().into())
+            .submit_block("".to_owned(), block.data().into())
             .expect("submit_block failed")
     }
 
@@ -271,7 +271,23 @@ impl Node {
 
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> Byte32 {
-        self.submit_block(&self.new_block(None, None, None).data())
+        self.submit_block(&self.new_block(None, None, None))
+    }
+
+    // Convenient way to construct an uncle block
+    pub fn construct_uncle(&self) -> BlockView {
+        let block = self.new_block(None, None, None);
+        // Make sure the uncle block timestamp is different from
+        // the next block timestamp in main fork.
+        // Firstly construct uncle block which timestamp
+        // is less than the current time, and then generate
+        // the new block in main fork which timestamp is greater than
+        // or equal to the current time.
+        let timestamp = block.timestamp() - 1;
+        block
+            .as_advanced_builder()
+            .timestamp(timestamp.pack())
+            .build()
     }
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
@@ -355,18 +371,11 @@ impl Node {
         since: u64,
         capacity: Capacity,
     ) -> TransactionView {
-        let always_success_out_point = OutPoint::new(
-            self.genesis_cellbase_hash.clone(),
-            SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
-        );
+        let always_success_cell_dep = self.always_success_cell_dep();
         let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
-            .cell_dep(
-                CellDep::new_builder()
-                    .out_point(always_success_out_point)
-                    .build(),
-            )
+            .cell_dep(always_success_cell_dep)
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity.pack())
@@ -382,6 +391,15 @@ impl Node {
         Script::new_builder()
             .code_hash(self.always_success_code_hash.clone())
             .hash_type(ScriptHashType::Data.pack())
+            .build()
+    }
+
+    pub fn always_success_cell_dep(&self) -> CellDep {
+        CellDep::new_builder()
+            .out_point(OutPoint::new(
+                self.genesis_cellbase_hash.clone(),
+                SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
+            ))
             .build()
     }
 
@@ -442,11 +460,6 @@ impl Node {
             hash_type: ScriptHashType::Data.into(),
             message: Default::default(),
         });
-
-        if ::std::env::var("CI").is_ok() {
-            ckb_config.logger.filter =
-                Some(::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string()));
-        }
 
         modify_ckb_config(&mut ckb_config);
         fs::write(

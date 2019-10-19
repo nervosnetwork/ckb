@@ -1,4 +1,5 @@
 use crate::component::entry::TxEntry;
+use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
@@ -7,10 +8,11 @@ use ckb_types::{
         cell::{
             resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
-        Capacity, Cycle, TransactionView,
+        Capacity, TransactionView,
     },
     packed::Byte32,
 };
+use ckb_verification::cache::CacheEntry;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use futures::future::Future;
 use std::collections::{HashMap, HashSet};
@@ -51,6 +53,8 @@ impl Future for PreResolveTxsProcess {
                 let snapshot = tx_pool.cloned_snapshot();
                 let tip_hash = snapshot.tip_hash();
 
+                check_transaction_hash_collision(&tx_pool, &txs)?;
+
                 let mut txs_provider = TransactionsProvider::default();
                 let resolved = txs
                     .iter()
@@ -76,14 +80,14 @@ impl Future for PreResolveTxsProcess {
 
 pub struct VerifyTxsProcess {
     pub snapshot: Arc<Snapshot>,
-    pub txs_verify_cache: HashMap<Byte32, Cycle>,
+    pub txs_verify_cache: HashMap<Byte32, CacheEntry>,
     pub txs: Option<Vec<ResolvedTransaction>>,
 }
 
 impl VerifyTxsProcess {
     pub fn new(
         snapshot: Arc<Snapshot>,
-        txs_verify_cache: HashMap<Byte32, Cycle>,
+        txs_verify_cache: HashMap<Byte32, CacheEntry>,
         txs: Vec<ResolvedTransaction>,
     ) -> VerifyTxsProcess {
         VerifyTxsProcess {
@@ -95,7 +99,7 @@ impl VerifyTxsProcess {
 }
 
 impl Future for VerifyTxsProcess {
-    type Item = Vec<(ResolvedTransaction, Cycle)>;
+    type Item = Vec<(ResolvedTransaction, CacheEntry)>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -111,7 +115,7 @@ impl Future for VerifyTxsProcess {
 
 pub struct SubmitTxsProcess {
     pub tx_pool: Lock<TxPool>,
-    pub txs: Option<Vec<(ResolvedTransaction, Cycle)>>,
+    pub txs: Option<Vec<(ResolvedTransaction, CacheEntry)>>,
     pub pre_resolve_tip: Byte32,
     pub status: Option<Vec<(usize, Capacity, TxStatus)>>,
 }
@@ -119,7 +123,7 @@ pub struct SubmitTxsProcess {
 impl SubmitTxsProcess {
     pub fn new(
         tx_pool: Lock<TxPool>,
-        txs: Vec<(ResolvedTransaction, Cycle)>,
+        txs: Vec<(ResolvedTransaction, CacheEntry)>,
         pre_resolve_tip: Byte32,
         status: Vec<(usize, Capacity, TxStatus)>,
     ) -> SubmitTxsProcess {
@@ -133,7 +137,7 @@ impl SubmitTxsProcess {
 }
 
 impl Future for SubmitTxsProcess {
-    type Item = (HashMap<Byte32, Cycle>, Vec<Cycle>);
+    type Item = (HashMap<Byte32, CacheEntry>, Vec<CacheEntry>);
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -169,9 +173,9 @@ impl<'a> SubmitTxsExecutor<'a> {
     fn execute(
         self,
         pre_resolve_tip: &Byte32,
-        txs: Vec<(ResolvedTransaction, Cycle)>,
+        txs: Vec<(ResolvedTransaction, CacheEntry)>,
         status: Vec<(usize, Capacity, TxStatus)>,
-    ) -> Result<(HashMap<Byte32, Cycle>, Vec<Cycle>), Error> {
+    ) -> Result<(HashMap<Byte32, CacheEntry>, Vec<CacheEntry>), Error> {
         let snapshot = self.tx_pool.snapshot();
 
         if pre_resolve_tip != &snapshot.tip_hash() {
@@ -194,15 +198,22 @@ impl<'a> SubmitTxsExecutor<'a> {
             .collect();
         let cycles_vec = txs.iter().map(|(_, cycles)| *cycles).collect();
 
-        for ((rtx, cycles), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter()) {
-            if self.tx_pool.reach_cycles_limit(cycles) {
+        for ((rtx, cache_entry), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter())
+        {
+            if self.tx_pool.reach_cycles_limit(cache_entry.cycles) {
                 return Err(InternalErrorKind::TransactionPoolFull.into());
+            }
+
+            let min_fee = self.tx_pool.config.min_fee_rate.fee(tx_size);
+            // reject txs which fee lower than min fee rate
+            if fee < min_fee {
+                return Err(SubmitTxError::LowFeeRate.into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
             let entry = TxEntry::new(
                 rtx.transaction,
-                cycles,
+                cache_entry.cycles,
                 fee,
                 tx_size,
                 related_dep_out_points,
@@ -212,12 +223,26 @@ impl<'a> SubmitTxsExecutor<'a> {
                 TxStatus::Gap => self.tx_pool.add_gap(entry),
                 TxStatus::Proposed => self.tx_pool.add_proposed(entry),
             } {
-                self.tx_pool.update_statics_for_add_tx(tx_size, cycles);
+                self.tx_pool
+                    .update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
 
         Ok((cache, cycles_vec))
     }
+}
+
+fn check_transaction_hash_collision(
+    tx_pool: &TxPool,
+    txs: &[TransactionView],
+) -> Result<(), Error> {
+    for tx in txs {
+        let short_id = tx.proposal_short_id();
+        if tx_pool.contains_proposal_id(&short_id) {
+            return Err(InternalErrorKind::PoolTransactionDuplicated.into());
+        }
+    }
+    Ok(())
 }
 
 fn resolve_tx<'a>(
@@ -278,8 +303,8 @@ fn resolve_tx_from_pending_and_proposed<'a>(
 fn verify_rtxs(
     snapshot: &Snapshot,
     txs: Vec<ResolvedTransaction>,
-    txs_verify_cache: &HashMap<Byte32, Cycle>,
-) -> Result<Vec<(ResolvedTransaction, Cycle)>, Error> {
+    txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+) -> Result<Vec<(ResolvedTransaction, CacheEntry)>, Error> {
     let tip_header = snapshot.tip_header();
     let tip_number = tip_header.number();
     let epoch = tip_header.epoch();
@@ -288,7 +313,7 @@ fn verify_rtxs(
     txs.into_iter()
         .map(|tx| {
             let tx_hash = tx.transaction.hash();
-            if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
+            if let Some(cache_entry) = txs_verify_cache.get(&tx_hash) {
                 ContextualTransactionVerifier::new(
                     &tx,
                     snapshot,
@@ -298,7 +323,7 @@ fn verify_rtxs(
                     consensus,
                 )
                 .verify()
-                .map(|_| (tx, *cycles))
+                .map(|_| (tx, *cache_entry))
             } else {
                 TransactionVerifier::new(
                     &tx,

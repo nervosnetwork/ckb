@@ -28,8 +28,9 @@ use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_tx_pool::fee_rate::FeeRate;
 use ckb_types::{
-    core,
+    core::{self},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
@@ -59,11 +60,20 @@ pub enum ReconstructionError {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState>,
+    pub(crate) min_fee_rate: FeeRate,
 }
 
 impl Relayer {
-    pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Self {
-        Relayer { chain, shared }
+    pub fn new(
+        chain: ChainController,
+        shared: Arc<SyncSharedState>,
+        min_fee_rate: FeeRate,
+    ) -> Self {
+        Relayer {
+            chain,
+            shared,
+            min_fee_rate,
+        }
     }
 
     pub fn shared(&self) -> &Arc<SyncSharedState> {

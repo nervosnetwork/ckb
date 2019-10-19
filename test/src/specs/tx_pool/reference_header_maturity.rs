@@ -108,6 +108,8 @@ impl Spec for ReferenceHeaderMaturity {
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
+            spec_config.params.epoch_duration_target = 30;
+            spec_config.params.genesis_epoch_length = 5;
         })
     }
 }

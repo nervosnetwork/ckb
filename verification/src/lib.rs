@@ -2,6 +2,7 @@
 extern crate enum_display_derive;
 
 mod block_verifier;
+pub mod cache;
 mod contextual_block_verifier;
 mod convert;
 mod error;

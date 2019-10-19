@@ -1,9 +1,11 @@
 mod basic;
 mod bootstrap;
+mod fee;
 mod size_limit;
 mod uncle;
 
-pub use basic::MiningBasic;
-pub use bootstrap::BootstrapCellbase;
-pub use size_limit::TemplateSizeLimit;
+pub use basic::*;
+pub use bootstrap::*;
+pub use fee::*;
+pub use size_limit::*;
 pub use uncle::*;

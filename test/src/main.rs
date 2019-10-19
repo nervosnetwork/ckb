@@ -15,6 +15,7 @@ use std::time::Instant;
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
+    env::set_var("RUST_BACKTRACE", "full");
     let _ = {
         let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
@@ -235,6 +236,7 @@ fn all_specs() -> SpecMap {
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
         Box::new(TransactionRelayBasic),
+        Box::new(TransactionRelayLowFeeRate),
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
@@ -247,6 +249,7 @@ fn all_specs() -> SpecMap {
         // Box::new(CellbaseMaturity),
         Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),
+        Box::new(SendLowFeeRateTx),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),
@@ -279,6 +282,26 @@ fn all_specs() -> SpecMap {
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),
         Box::new(PackUnclesIntoEpochStarting),
+        Box::new(FeeOfTransaction),
+        Box::new(FeeOfMaxBlockProposalsLimit),
+        Box::new(FeeOfMultipleMaxBlockProposalsLimit),
+        Box::new(ProposeButNotCommit),
+        Box::new(ProposeDuplicated),
+        Box::new(ForkedTransaction),
+        Box::new(MissingUncleRequest),
+        Box::new(HandlingDescendantsOfProposed),
+        Box::new(HandlingDescendantsOfCommitted),
+        Box::new(ProposeOutOfOrder),
+        Box::new(SubmitTransactionWhenItsParentInGap),
+        Box::new(SubmitTransactionWhenItsParentInProposed),
+        Box::new(ProposeTransactionButParentNot),
+        Box::new(ProposalExpireRuleForCommittingAndExpiredAtOneTime),
+        Box::new(ReorgHandleProposals),
+        Box::new(TransactionHashCollisionDifferentWitnessHashes),
+        Box::new(DuplicatedTransaction),
+        Box::new(ConflictInPending),
+        Box::new(ConflictInGap),
+        Box::new(ConflictInProposed),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

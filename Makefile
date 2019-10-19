@@ -17,6 +17,10 @@ test: ## Run all tests.
 cov: ## Run code coverage.
 	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files "*/generated/" "test/*" "*/tests/" --all -v --out Xml
 
+.PHONY: wasm-build-test
+wasm-build-test: ## Build core packages for wasm target
+	cd wasm-build-test && cargo build --target=wasm32-unknown-unknown
+
 .PHONY: setup-ckb-test
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
@@ -107,8 +111,8 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 
 .PHONY: security-audit
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
-	@cargo audit --version || cargo install cargo-audit
-	@cargo audit
+	@cargo +nightly install cargo-audit -Z install-upgrade
+	cargo audit
 	# expecting to see "Success No vulnerable packages found"
 
 .PHONY: bench-test

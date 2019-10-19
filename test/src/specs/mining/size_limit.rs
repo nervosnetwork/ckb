@@ -13,7 +13,7 @@ impl Spec for TemplateSizeLimit {
 
         info!("Generate 1 block");
         let blank_block = node.new_block(None, None, None);
-        node.submit_block(&blank_block.data());
+        node.submit_block(&blank_block);
         let blank_block_size = blank_block.data().serialized_size_without_uncle_proposals();
 
         info!("Generate 6 txs");

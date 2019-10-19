@@ -14,6 +14,7 @@ pub struct AncestorsScoreSortKey {
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_vbytes: u64,
+    pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {
@@ -153,6 +154,12 @@ impl SortedTxMap {
     pub fn add_entry(&mut self, mut entry: TxEntry) -> Option<TxEntry> {
         let short_id = entry.transaction.proposal_short_id();
 
+        let removed_entry = if self.contains_key(&short_id) {
+            self.remove_entry(&short_id)
+        } else {
+            None
+        };
+
         // find in pool parents
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction.inputs().len() + entry.transaction.cell_deps().len(),
@@ -190,7 +197,8 @@ impl SortedTxMap {
         );
         self.sorted_index
             .insert(AncestorsScoreSortKey::from(&entry));
-        self.entries.insert(short_id, entry)
+        self.entries.insert(short_id, entry);
+        removed_entry
     }
 
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
@@ -274,15 +282,28 @@ impl SortedTxMap {
         TxLink::get_descendants(&self.links, tx_short_id)
     }
 
-    /// return sorted keys
-    pub fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+    /// return keys sorted by tx fee rate
+    pub fn keys_sorted_by_fee(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
         self.sorted_index.iter().rev()
+    }
+
+    /// return keys sorted by tx fee rate and transaction relation
+    pub fn keys_sorted_by_fee_and_relation(&self) -> Vec<&AncestorsScoreSortKey> {
+        let mut keys: Vec<_> = self.keys_sorted_by_fee().collect();
+        keys.sort_by_key(|k| {
+            self.entries
+                .get(&k.id)
+                .expect("entries should consistent with sorted_index")
+                .ancestors_count
+        });
+        keys
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, prelude::*};
     use std::mem::size_of;
 
     #[test]
@@ -305,6 +326,7 @@ mod tests {
                 id: ProposalShortId::new([0u8; 10]),
                 ancestors_fee: Capacity::shannons(ancestors_fee),
                 ancestors_vbytes,
+                ancestors_size: 0,
             };
             key.min_fee_and_vbytes()
         })
@@ -349,6 +371,7 @@ mod tests {
                 id: ProposalShortId::new(id),
                 ancestors_fee: Capacity::shannons(ancestors_fee),
                 ancestors_vbytes,
+                ancestors_size: 0,
             }
         })
         .collect::<Vec<_>>();
@@ -364,5 +387,51 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_sorted_tx_map_with_conflict_tx_hash() {
+        let mut map = SortedTxMap::default();
+        let tx1 = TxEntry::new(
+            TransactionBuilder::default().build(),
+            100,
+            Capacity::shannons(100),
+            100,
+            Default::default(),
+        );
+        let tx2 = TxEntry::new(
+            TransactionBuilder::default()
+                .witness(Bytes::new().pack())
+                .build(),
+            200,
+            Capacity::shannons(200),
+            200,
+            Default::default(),
+        );
+        assert_eq!(tx1.transaction.hash(), tx2.transaction.hash());
+        assert_ne!(
+            tx1.transaction.witness_hash(),
+            tx2.transaction.witness_hash()
+        );
+        let ret = map.add_entry(tx1.clone());
+        assert!(ret.is_none());
+        // tx2 should replace tx1
+        let ret = map.add_entry(tx2.clone()).unwrap();
+        assert_eq!(
+            ret.transaction.witness_hash(),
+            tx1.transaction.witness_hash()
+        );
+        // should return tx2
+        let ret = map
+            .remove_entry(&tx2.transaction.proposal_short_id())
+            .unwrap();
+        assert_eq!(
+            ret.transaction.witness_hash(),
+            tx2.transaction.witness_hash()
+        );
+        // check consistency
+        for key in map.keys_sorted_by_fee() {
+            map.get(&key.id).expect("should consistent");
+        }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-jsonrpc-types"
-version = "0.22.0"
+version = "0.23.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -16,3 +16,4 @@ jsonrpc-core = "10.1"
 [dev-dependencies]
 proptest = "0.9"
 regex = "1.1"
+lazy_static = "1.3"

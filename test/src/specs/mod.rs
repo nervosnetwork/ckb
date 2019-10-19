@@ -23,6 +23,7 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::ChainSpec;
 use ckb_network::{ProtocolId, ProtocolVersion};
 use ckb_sync::NetworkProtocol;
+use ckb_tx_pool::fee_rate::FeeRate;
 
 #[macro_export]
 macro_rules! name {
@@ -93,6 +94,7 @@ pub trait Spec {
         Box::new(|config| {
             config.network.connect_outbound_interval_secs = 0;
             config.network.discovery_local_address = true;
+            config.tx_pool.min_fee_rate = FeeRate::zero();
         })
     }
 

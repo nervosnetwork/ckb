@@ -1,6 +1,6 @@
 [package]
 name = "ckb-types"
-version = "0.22.0"
+version = "0.23.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -18,4 +18,6 @@ bit-vec = "0.5.1"
 failure = "0.1.5"
 ckb-error = { path = "../../error" }
 ckb-rational = { path = "../rational" }
+
+[dev-dependencies]
 proptest = "0.9"

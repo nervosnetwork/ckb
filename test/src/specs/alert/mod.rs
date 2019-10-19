@@ -1,6 +1,6 @@
 mod alert_propagation;
 
-pub use alert_propagation::AlertPropagation;
+pub use alert_propagation::*;
 
 use ckb_crypto::secp::Privkey;
 use ckb_jsonrpc_types::JsonBytes;

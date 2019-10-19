@@ -1,5 +1,7 @@
+use crate::cache::CacheEntry;
 use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
@@ -67,6 +69,7 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub outputs_data_verifier: OutputsDataVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
     pub since: SinceVerifier<'a, M>,
+    pub fee_calculator: FeeCalculator<'a, CS>,
 }
 
 impl<'a, M, CS> TransactionVerifier<'a, M, CS>
@@ -104,10 +107,11 @@ where
                 epoch_number_with_fraction,
                 parent_hash,
             ),
+            fee_calculator: FeeCalculator::new(rtx, &consensus, &chain_store),
         }
     }
 
-    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
         self.version.verify()?;
         self.size.verify()?;
         self.empty.verify()?;
@@ -117,7 +121,37 @@ where
         self.outputs_data_verifier.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
-        Ok(cycles)
+        let fee = self.fee_calculator.transaction_fee()?;
+        Ok(CacheEntry::new(cycles, fee))
+    }
+}
+
+pub struct FeeCalculator<'a, CS> {
+    transaction: &'a ResolvedTransaction,
+    consensus: &'a Consensus,
+    chain_store: &'a CS,
+}
+
+impl<'a, CS: ChainStore<'a>> FeeCalculator<'a, CS> {
+    fn new(
+        transaction: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        chain_store: &'a CS,
+    ) -> Self {
+        Self {
+            transaction,
+            consensus,
+            chain_store,
+        }
+    }
+
+    fn transaction_fee(&self) -> Result<Capacity, Error> {
+        // skip tx fee calculation for cellbase
+        if self.transaction.is_cellbase() {
+            Ok(Capacity::zero())
+        } else {
+            DaoCalculator::new(&self.consensus, self.chain_store).transaction_fee(&self.transaction)
+        }
     }
 }
 

@@ -1,0 +1,18 @@
+[package]
+name = "ckb-wasm-test"
+version = "0.23.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-types = { path = "../util/types" }
+
+[dependencies.ckb-script]
+path = "../script"
+default-features = false
+features = []
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]

@@ -20,12 +20,12 @@ use ckb_types::{
     core::{BlockView, Cycle, TransactionView, UncleBlockView, Version},
     packed::{Byte32, ProposalShortId},
 };
+use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use crossbeam_channel;
 use failure::Error as FailureError;
 use futures::future::{self, Future};
 use futures::stream::Stream;
 use futures::sync::{mpsc, oneshot};
-use lru_cache::LruCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::lock::Lock;
@@ -59,7 +59,7 @@ impl<A> Notify<A> {
 pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
-pub type SubmitTxsResult = Result<Vec<Cycle>, Error>;
+pub type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
 type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
@@ -238,7 +238,7 @@ impl TxPoolServiceBuilder {
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        txs_verify_cache: Lock<TxVerifyCache>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
@@ -287,7 +287,7 @@ impl TxPoolServiceBuilder {
 pub struct TxPoolService {
     tx_pool: Lock<TxPool>,
     block_assembler: Option<BlockAssembler>,
-    txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+    txs_verify_cache: Lock<TxVerifyCache>,
     last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
 }
@@ -296,7 +296,7 @@ impl TxPoolService {
     pub fn new(
         tx_pool: TxPool,
         block_assembler: Option<BlockAssembler>,
-        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        txs_verify_cache: Lock<TxVerifyCache>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
@@ -516,7 +516,7 @@ impl TxPoolService {
     fn process_txs(
         &self,
         txs: Vec<TransactionView>,
-    ) -> impl Future<Item = Vec<Cycle>, Error = Error> {
+    ) -> impl Future<Item = Vec<CacheEntry>, Error = Error> {
         let keys: Vec<Byte32> = txs.iter().map(|tx| tx.hash()).collect();
         let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), keys);
         let txs_verify_cache = self.txs_verify_cache.clone();
@@ -530,9 +530,9 @@ impl TxPoolService {
                     VerifyTxsProcess::new(snapshot, cache.expect("fetched_cache never fail"), rtxs)
                 })
                 .and_then(move |txs| SubmitTxsProcess::new(tx_pool, txs, tip_hash, status))
-                .map(move |(map, cycles)| {
+                .map(move |(map, cache_entry)| {
                     tokio::spawn(UpdateCache::new(txs_verify_cache, map));
-                    cycles
+                    cache_entry
                 })
         })
     }
