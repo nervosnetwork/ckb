@@ -3,9 +3,12 @@
 #![allow(clippy::all)]
 #![allow(unused_imports)]
 
-// TODO Split this file into several files by functions.
-mod types;
+mod blockchain;
+mod extensions;
 
 pub mod packed {
-    pub use super::types::*;
+    pub use molecule::prelude::{Byte, ByteReader};
+
+    pub use super::blockchain::*;
+    pub use super::extensions::*;
 }

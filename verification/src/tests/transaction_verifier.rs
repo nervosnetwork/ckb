@@ -36,7 +36,7 @@ pub fn test_version() {
     let transaction = TransactionBuilder::default()
         .version((TX_VERSION + 1).pack())
         .build();
-    let verifier = VersionVerifier::new(&transaction);
+    let verifier = VersionVerifier::new(&transaction, TX_VERSION);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),

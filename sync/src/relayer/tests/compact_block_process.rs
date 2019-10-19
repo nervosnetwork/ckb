@@ -610,10 +610,10 @@ fn test_collision() {
         .hash()
         .clone()
         .as_builder()
-        .nth31(0u8)
-        .nth30(0u8)
-        .nth29(0u8)
-        .nth28(0u8)
+        .nth31(0u8.into())
+        .nth30(0u8.into())
+        .nth29(0u8.into())
+        .nth28(0u8.into())
         .build();
     // Fake tx with the same ProposalShortId but different hash with missing_tx
     let fake_tx = missing_tx.clone().fake_hash(fake_hash);

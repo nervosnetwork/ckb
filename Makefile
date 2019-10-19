@@ -1,7 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.3.1
+MOLC_VERSION := 0.4.1
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
@@ -140,19 +140,20 @@ check-dirty-rpc-doc: gen-rpc-doc
 
 ##@ Generates Files
 .PHONY: gen
-GEN_FILES := util/types/src/generated/types.rs
-gen: ${GEN_FILES} # Generate Protocol Files
+GEN_MOL_IN_DIR := util/types/schemas
+GEN_MOL_OUT_DIR := util/types/src/generated
+GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs
+gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 
 .PHONY: check-moleculec-version
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
 
-util/types/src/generated/types.rs: check-moleculec-version util/types/schemas/ckb.mol
-	${MOLC} \
-		--language rust \
-		--schema-file util/types/schemas/ckb.mol \
-		| rustfmt \
-		> util/types/src/generated/types.rs
+${GEN_MOL_OUT_DIR}/blockchain.rs: ${GEN_MOL_IN_DIR}/blockchain.mol
+	${MOLC} --language rust --schema-file $< | rustfmt > $@
+
+${GEN_MOL_OUT_DIR}/extensions.rs: ${GEN_MOL_IN_DIR}//extensions.mol
+	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
 ##@ Cleanup
 .PHONY: clean-node-files

@@ -35,8 +35,7 @@ const SIZES: &[usize] = &[2usize];
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
     let args = JsonBytes::from_bytes(secp_script.args().unpack());
-    let hash_type: ScriptHashType =
-        ScriptHashType::try_from(secp_script.hash_type()).expect("checked data");
+    let hash_type = ScriptHashType::try_from(secp_script.hash_type()).expect("checked data");
 
     BlockAssemblerConfig {
         code_hash: secp_script.code_hash().unpack(),
@@ -158,10 +157,7 @@ fn bench(c: &mut Criterion) {
 
                         let header_view = block.header();
                         let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
-                        let header_verifier = HeaderVerifier::new(
-                            snapshot,
-                            Arc::clone(&shared.consensus().pow_engine()),
-                        );
+                        let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
                         header_verifier.verify(&resolver).expect("header verified");
 
                         chain.process_block(Arc::new(block)).expect("process_block");

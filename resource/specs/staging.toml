@@ -27,9 +27,6 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
-[[genesis.system_cells]]
-file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
-create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -41,10 +38,6 @@ hash_type = "data"
 secp256k1_blake160_sighash_all = [
   { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-]
-secp256k1_ripemd160_sha256_sighash_all = [
-  { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
 # For first 11 block
@@ -69,13 +62,13 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
-# Satoshi's gift, a cell send to satoshi's lock,
+# Satoshi cell, used to adjust dao issuerance.
 # 60% capacity of this cell is occupied.
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
-lock.hash_type = "type"
+lock.hash_type = "data"
 
 [params]
 initial_primary_epoch_reward = 1_917_808_21917808

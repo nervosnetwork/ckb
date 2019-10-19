@@ -154,10 +154,8 @@ impl<'a> CompactBlockProcess<'a> {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
                     snapshot: snapshot.store(),
                 };
-                let header_verifier = HeaderVerifier::new(
-                    &median_time_context,
-                    Arc::clone(&snapshot.consensus().pow_engine()),
-                );
+                let header_verifier =
+                    HeaderVerifier::new(&median_time_context, &snapshot.consensus());
                 if let Err(err) = header_verifier.verify(&resolver) {
                     debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
                     snapshot
