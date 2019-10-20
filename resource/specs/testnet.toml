@@ -8,7 +8,7 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x2b44450a389f42f1f64ce8b68c707d97779080c7f099083e7592a41d2fc539a9"
+hash = "0x4a5ed270bdb96d39ccade8a29d1d9742895c04ce0528ac0452855a3fcfeac6f5"
 
 [genesis.genesis_cell]
 message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
@@ -29,6 +29,9 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -36,10 +39,17 @@ args = "0x"
 hash_type = "data"
 
 # Dep group cells
-[genesis.dep_groups]
-secp256k1_blake160_sighash_all = [
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_sighash_all"
+files = [
   { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
 ]
 
 # For first 11 block

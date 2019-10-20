@@ -29,6 +29,9 @@ create_type_id = true
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
 [[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
+[[genesis.system_cells]]
 file = { file = "cells/always_success" }
 create_type_id = false
 
@@ -38,10 +41,17 @@ args = "0x"
 hash_type = "data"
 
 # Dep group cells
-[genesis.dep_groups]
-secp256k1_blake160_sighash_all = [
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_sighash_all"
+files = [
   { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
 ]
 
 [genesis.bootstrap_lock]

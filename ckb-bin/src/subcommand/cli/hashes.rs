@@ -87,10 +87,14 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let dep_groups = spec
             .genesis
             .dep_groups
-            .values()
+            .iter()
             .enumerate()
-            .map(|(index, files)| DepGroupCell {
-                included_cells: files.iter().map(|res| res.to_string()).collect::<Vec<_>>(),
+            .map(|(index, dep_group)| DepGroupCell {
+                included_cells: dep_group
+                    .files
+                    .iter()
+                    .map(|res| res.to_string())
+                    .collect::<Vec<_>>(),
                 tx_hash: dep_group_tx.hash().unpack(),
                 index,
             })
