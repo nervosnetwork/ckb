@@ -7,6 +7,7 @@ array Byte32 [byte; 32];
 array Uint256 [byte; 32];
 
 vector Bytes <byte>;
+option BytesOpt (Bytes); 
 
 vector BytesVec <Bytes>;
 vector Byte32Vec <Byte32>;
@@ -101,7 +102,7 @@ table CellbaseWitness {
 }
 
 table WitnessArgs {
-    lock:                       Bytes,          // Lock args
-    type_:                      Bytes,          // Type args
-    extra:                      Bytes,
+    lock:                   BytesOpt,          // Lock args
+    input_type:             BytesOpt,          // Type args for input
+    output_type:            BytesOpt,          // Type args for output
 }
