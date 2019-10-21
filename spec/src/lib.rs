@@ -239,10 +239,30 @@ impl ChainSpec {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
+
+        let initial_primary_epoch_reward = self.params.initial_primary_epoch_reward.as_u64();
+        let secondary_epoch_reward = self.params.secondary_epoch_reward.as_u64();
+        let genesis_epoch_length = self.params.genesis_epoch_length;
+        let genesis_primary_issuance = Capacity::shannons({
+            if initial_primary_epoch_reward % genesis_epoch_length != 0 {
+                initial_primary_epoch_reward / genesis_epoch_length + 1
+            } else {
+                initial_primary_epoch_reward / genesis_epoch_length
+            }
+        });
+        let genesis_secondary_issuance = Capacity::shannons({
+            if secondary_epoch_reward % genesis_epoch_length != 0 {
+                secondary_epoch_reward / genesis_epoch_length + 1
+            } else {
+                secondary_epoch_reward / genesis_epoch_length
+            }
+        });
         let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
             &self.genesis.satoshi_gift.satoshi_pubkey_hash,
             self.genesis.satoshi_gift.satoshi_cell_occupied_ratio,
+            genesis_primary_issuance,
+            genesis_secondary_issuance,
         );
 
         let block = BlockBuilder::default()

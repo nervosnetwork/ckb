@@ -175,9 +175,17 @@ pub fn build_genesis_dao_data(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
+    genesis_primary_issuance: Capacity,
+    genesis_secondary_issuance: Capacity,
 ) -> Byte32 {
-    genesis_dao_data_with_satoshi_gift(txs, satoshi_pubkey_hash, satoshi_cell_occupied_ratio)
-        .expect("genesis dao data calculation error!")
+    genesis_dao_data_with_satoshi_gift(
+        txs,
+        satoshi_pubkey_hash,
+        satoshi_cell_occupied_ratio,
+        genesis_primary_issuance,
+        genesis_secondary_issuance,
+    )
+    .expect("genesis dao data calculation error!")
 }
 
 impl ConsensusBuilder {
