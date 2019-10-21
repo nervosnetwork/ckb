@@ -162,7 +162,7 @@ fn withdraw_dao_transaction(
     let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
     header_deps.push(block_hash);
     let withdraw_dao_witness = WitnessArgs::new_builder()
-        .type_(Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack())
+        .input_type(Some(Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec())).pack())
         .build();
     TransactionBuilder::default()
         .cell_deps(cell_deps)

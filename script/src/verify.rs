@@ -448,7 +448,7 @@ mod tests {
     use std::path::Path;
 
     const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
-    const CYCLE_BOUND: Cycle = 100_000;
+    const CYCLE_BOUND: Cycle = 200_000;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
@@ -1658,9 +1658,11 @@ mod tests {
 
         let tx_hash: H256 = tx.hash().unpack();
         // sign input1
-        let witness = WitnessArgs::new_builder()
-            .lock(Bytes::from(vec![0u8; 65]).pack())
-            .build();
+        let witness = {
+            WitnessArgs::new_builder()
+                .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+                .build()
+        };
         let witness_len: u64 = witness.as_bytes().len() as u64;
         let mut hasher = new_blake2b();
         hasher.update(tx_hash.as_bytes());
@@ -1673,11 +1675,11 @@ mod tests {
         };
         let sig = privkey.sign_recoverable(&message).expect("sign");
         let witness = WitnessArgs::new_builder()
-            .lock(Bytes::from(sig.serialize()).pack())
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         // sign input2
         let witness2 = WitnessArgs::new_builder()
-            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness2_len: u64 = witness2.as_bytes().len() as u64;
         let mut hasher = new_blake2b();
@@ -1691,7 +1693,7 @@ mod tests {
         };
         let sig2 = privkey2.sign_recoverable(&message2).expect("sign");
         let witness2 = WitnessArgs::new_builder()
-            .lock(Bytes::from(sig2.serialize()).pack())
+            .lock(Some(Bytes::from(sig2.serialize())).pack())
             .build();
         let tx = tx
             .as_advanced_builder()

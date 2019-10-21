@@ -261,12 +261,13 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .get(i)
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                // dao contract stores header deps index as u64 in the type_ field of WitnessArgs
+                                // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
                                 let witness = WitnessArgs::from_slice(&Unpack::<Bytes>::unpack(
                                     &witness_data,
                                 ))
                                 .map_err(|_| DaoError::InvalidDaoFormat)?;
-                                let header_deps_index_data: Bytes = witness.type_().unpack();
+                                let header_deps_index_data: Bytes =
+                                    witness.input_type().to_opt().unwrap().unpack();
                                 if header_deps_index_data.len() != 8 {
                                     Err(DaoError::InvalidDaoFormat)
                                 } else {

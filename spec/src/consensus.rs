@@ -51,7 +51,7 @@ const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 // cycles of a typical two-in-two-out tx
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_500_000;
 // bytes of a typical two-in-two-out tx
-pub const TWO_IN_TWO_OUT_BYTES: u64 = 613;
+pub const TWO_IN_TWO_OUT_BYTES: u64 = 597;
 // count of two-in-two-out txs a block should capable to package
 const TWO_IN_TWO_OUT_COUNT: u64 = 1_600;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second

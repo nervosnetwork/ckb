@@ -67,7 +67,7 @@ impl Spec for SendSecpTxUseDepGroup {
 
         let tx_hash = tx.hash();
         let witness = WitnessArgs::new_builder()
-            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let message = {
@@ -82,7 +82,7 @@ impl Spec for SendSecpTxUseDepGroup {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Bytes::from(sig.serialize()).pack())
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
@@ -194,7 +194,7 @@ impl Spec for CheckTypical2In2OutTx {
 
         let tx_hash: H256 = tx.hash().unpack();
         let witness = WitnessArgs::new_builder()
-            .lock(Bytes::from(vec![0u8; 65]).pack())
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let witness2 = Bytes::new();
@@ -213,7 +213,7 @@ impl Spec for CheckTypical2In2OutTx {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Bytes::from(sig.serialize()).pack())
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         let tx = tx
             .as_advanced_builder()

@@ -2175,6 +2175,163 @@ impl ::std::iter::IntoIterator for Bytes {
     }
 }
 #[derive(Clone)]
+pub struct BytesOpt(molecule::bytes::Bytes);
+impl ::std::fmt::Debug for BytesOpt {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl ::std::fmt::Display for BytesOpt {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        if let Some(v) = self.to_opt() {
+            write!(f, "{}(Some({}))", Self::NAME, v)
+        } else {
+            write!(f, "{}(None)", Self::NAME)
+        }
+    }
+}
+impl ::std::default::Default for BytesOpt {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![];
+        BytesOpt::new_unchecked(v.into())
+    }
+}
+impl BytesOpt {
+    pub fn is_none(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn is_some(&self) -> bool {
+        !self.0.is_empty()
+    }
+    pub fn to_opt(&self) -> Option<Bytes> {
+        if self.is_none() {
+            None
+        } else {
+            Some(Bytes::new_unchecked(self.0.clone()))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> BytesOptReader<'r> {
+        BytesOptReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for BytesOpt {
+    type Builder = BytesOptBuilder;
+    const NAME: &'static str = "BytesOpt";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        BytesOpt(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        BytesOptReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        BytesOptReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().set(self.to_opt())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct BytesOptReader<'r>(&'r [u8]);
+impl<'r> ::std::fmt::Debug for BytesOptReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Display for BytesOptReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        if let Some(v) = self.to_opt() {
+            write!(f, "{}(Some({}))", Self::NAME, v)
+        } else {
+            write!(f, "{}(None)", Self::NAME)
+        }
+    }
+}
+impl<'r> BytesOptReader<'r> {
+    pub fn is_none(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn is_some(&self) -> bool {
+        !self.0.is_empty()
+    }
+    pub fn to_opt(&self) -> Option<BytesReader<'r>> {
+        if self.is_none() {
+            None
+        } else {
+            Some(BytesReader::new_unchecked(self.as_slice()))
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for BytesOptReader<'r> {
+    type Entity = BytesOpt;
+    const NAME: &'static str = "BytesOptReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        BytesOptReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        if !slice.is_empty() {
+            BytesReader::verify(&slice[..], compatible)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct BytesOptBuilder(pub(crate) Option<Bytes>);
+impl BytesOptBuilder {
+    pub fn set(mut self, v: Option<Bytes>) -> Self {
+        self.0 = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for BytesOptBuilder {
+    type Entity = BytesOpt;
+    const NAME: &'static str = "BytesOptBuilder";
+    fn expected_length(&self) -> usize {
+        self.0
+            .as_ref()
+            .map(|ref inner| inner.as_slice().len())
+            .unwrap_or(0)
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        self.0
+            .as_ref()
+            .map(|ref inner| writer.write_all(inner.as_slice()))
+            .unwrap_or(Ok(()))
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        BytesOpt::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct BytesVec(molecule::bytes::Bytes);
 impl ::std::fmt::Debug for BytesVec {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -8013,8 +8170,8 @@ impl ::std::fmt::Display for WitnessArgs {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "lock", self.lock())?;
-        write!(f, ", {}: {}", "type_", self.type_())?;
-        write!(f, ", {}: {}", "extra", self.extra())?;
+        write!(f, ", {}: {}", "input_type", self.input_type())?;
+        write!(f, ", {}: {}", "output_type", self.output_type())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -8024,9 +8181,7 @@ impl ::std::fmt::Display for WitnessArgs {
 }
 impl ::std::default::Default for WitnessArgs {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            28, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0];
         WitnessArgs::new_unchecked(v.into())
     }
 }
@@ -8051,26 +8206,26 @@ impl WitnessArgs {
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
     }
-    pub fn lock(&self) -> Bytes {
+    pub fn lock(&self) -> BytesOpt {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[0][..]) as usize;
         let end = molecule::unpack_number(&offsets[1][..]) as usize;
-        Bytes::new_unchecked(self.0.slice(start, end))
+        BytesOpt::new_unchecked(self.0.slice(start, end))
     }
-    pub fn type_(&self) -> Bytes {
+    pub fn input_type(&self) -> BytesOpt {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[1][..]) as usize;
         let end = molecule::unpack_number(&offsets[2][..]) as usize;
-        Bytes::new_unchecked(self.0.slice(start, end))
+        BytesOpt::new_unchecked(self.0.slice(start, end))
     }
-    pub fn extra(&self) -> Bytes {
+    pub fn output_type(&self) -> BytesOpt {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[2][..]) as usize;
         if self.has_extra_fields() {
             let end = molecule::unpack_number(&offsets[3][..]) as usize;
-            Bytes::new_unchecked(self.0.slice(start, end))
+            BytesOpt::new_unchecked(self.0.slice(start, end))
         } else {
-            Bytes::new_unchecked(self.0.slice_from(start))
+            BytesOpt::new_unchecked(self.0.slice_from(start))
         }
     }
     pub fn as_reader<'r>(&'r self) -> WitnessArgsReader<'r> {
@@ -8101,8 +8256,8 @@ impl molecule::prelude::Entity for WitnessArgs {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .lock(self.lock())
-            .type_(self.type_())
-            .extra(self.extra())
+            .input_type(self.input_type())
+            .output_type(self.output_type())
     }
 }
 #[derive(Clone, Copy)]
@@ -8122,8 +8277,8 @@ impl<'r> ::std::fmt::Display for WitnessArgsReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "lock", self.lock())?;
-        write!(f, ", {}: {}", "type_", self.type_())?;
-        write!(f, ", {}: {}", "extra", self.extra())?;
+        write!(f, ", {}: {}", "input_type", self.input_type())?;
+        write!(f, ", {}: {}", "output_type", self.output_type())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -8152,26 +8307,26 @@ impl<'r> WitnessArgsReader<'r> {
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
     }
-    pub fn lock(&self) -> BytesReader<'r> {
+    pub fn lock(&self) -> BytesOptReader<'r> {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[0][..]) as usize;
         let end = molecule::unpack_number(&offsets[1][..]) as usize;
-        BytesReader::new_unchecked(&self.as_slice()[start..end])
+        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn type_(&self) -> BytesReader<'r> {
+    pub fn input_type(&self) -> BytesOptReader<'r> {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[1][..]) as usize;
         let end = molecule::unpack_number(&offsets[2][..]) as usize;
-        BytesReader::new_unchecked(&self.as_slice()[start..end])
+        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn extra(&self) -> BytesReader<'r> {
+    pub fn output_type(&self) -> BytesOptReader<'r> {
         let offsets = self.field_offsets();
         let start = molecule::unpack_number(&offsets[2][..]) as usize;
         if self.has_extra_fields() {
             let end = molecule::unpack_number(&offsets[3][..]) as usize;
-            BytesReader::new_unchecked(&self.as_slice()[start..end])
+            BytesOptReader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            BytesReader::new_unchecked(&self.as_slice()[start..])
+            BytesOptReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -8226,30 +8381,30 @@ impl<'r> molecule::prelude::Reader<'r> for WitnessArgsReader<'r> {
         if offsets.windows(2).any(|i| i[0] > i[1]) {
             ve!(Self, OffsetsNotMatch)?;
         }
-        BytesReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        BytesReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        BytesReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        BytesOptReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        BytesOptReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        BytesOptReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
 }
 #[derive(Debug, Default)]
 pub struct WitnessArgsBuilder {
-    pub(crate) lock: Bytes,
-    pub(crate) type_: Bytes,
-    pub(crate) extra: Bytes,
+    pub(crate) lock: BytesOpt,
+    pub(crate) input_type: BytesOpt,
+    pub(crate) output_type: BytesOpt,
 }
 impl WitnessArgsBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn lock(mut self, v: Bytes) -> Self {
+    pub fn lock(mut self, v: BytesOpt) -> Self {
         self.lock = v;
         self
     }
-    pub fn type_(mut self, v: Bytes) -> Self {
-        self.type_ = v;
+    pub fn input_type(mut self, v: BytesOpt) -> Self {
+        self.input_type = v;
         self
     }
-    pub fn extra(mut self, v: Bytes) -> Self {
-        self.extra = v;
+    pub fn output_type(mut self, v: BytesOpt) -> Self {
+        self.output_type = v;
         self
     }
 }
@@ -8259,8 +8414,8 @@ impl molecule::prelude::Builder for WitnessArgsBuilder {
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.lock.as_slice().len()
-            + self.type_.as_slice().len()
-            + self.extra.as_slice().len()
+            + self.input_type.as_slice().len()
+            + self.output_type.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -8268,16 +8423,16 @@ impl molecule::prelude::Builder for WitnessArgsBuilder {
         offsets.push(total_size);
         total_size += self.lock.as_slice().len();
         offsets.push(total_size);
-        total_size += self.type_.as_slice().len();
+        total_size += self.input_type.as_slice().len();
         offsets.push(total_size);
-        total_size += self.extra.as_slice().len();
+        total_size += self.output_type.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
         }
         writer.write_all(self.lock.as_slice())?;
-        writer.write_all(self.type_.as_slice())?;
-        writer.write_all(self.extra.as_slice())?;
+        writer.write_all(self.input_type.as_slice())?;
+        writer.write_all(self.output_type.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
