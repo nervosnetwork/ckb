@@ -69,12 +69,12 @@ impl Spec for SendSecpTxUseDepGroup {
         let witness = WitnessArgs::new_builder()
             .lock(Bytes::from(vec![0u8; 65]).pack())
             .build();
-        let witness_len = witness.as_bytes().len() as u64;
+        let witness_len = witness.as_slice().len() as u64;
         let message = {
             let mut hasher = new_blake2b();
-            hasher.update(&tx_hash.as_bytes());
+            hasher.update(&tx_hash.as_slice());
             hasher.update(&witness_len.to_le_bytes());
-            hasher.update(&witness.as_bytes());
+            hasher.update(&witness.as_slice());
             let mut buf = [0u8; 32];
             hasher.finalize(&mut buf);
             H256::from(buf)
@@ -196,14 +196,14 @@ impl Spec for CheckTypical2In2OutTx {
         let witness = WitnessArgs::new_builder()
             .lock(Bytes::from(vec![0u8; 65]).pack())
             .build();
-        let witness_len = witness.as_bytes().len() as u64;
+        let witness_len = witness.as_slice().len() as u64;
         let witness2 = Bytes::new();
         let witness2_len = witness2.len() as u64;
         let message = {
             let mut hasher = new_blake2b();
             hasher.update(&tx_hash.as_bytes());
             hasher.update(&witness_len.to_le_bytes());
-            hasher.update(&witness.as_bytes());
+            hasher.update(&witness.as_slice());
             hasher.update(&witness2_len.to_le_bytes());
             hasher.update(&witness2);
             let mut buf = [0u8; 32];
