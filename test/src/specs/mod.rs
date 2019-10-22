@@ -23,7 +23,7 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::ChainSpec;
 use ckb_network::{ProtocolId, ProtocolVersion};
 use ckb_sync::NetworkProtocol;
-use ckb_tx_pool::fee_rate::FeeRate;
+use ckb_tx_pool::FeeRate;
 
 #[macro_export]
 macro_rules! name {

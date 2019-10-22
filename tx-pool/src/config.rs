@@ -1,4 +1,4 @@
-use crate::fee_rate::FeeRate;
+use crate::FeeRate;
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::core::Cycle;
 use ckb_types::H256;

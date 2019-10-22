@@ -7,7 +7,7 @@ use ckb_network::{
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_tx_pool::fee_rate::FeeRate;
+use ckb_tx_pool::FeeRate;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,

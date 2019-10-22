@@ -28,7 +28,7 @@ use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_tx_pool::fee_rate::FeeRate;
+use ckb_tx_pool::FeeRate;
 use ckb_types::{
     core::{self},
     packed::{self, Byte32, ProposalShortId},
