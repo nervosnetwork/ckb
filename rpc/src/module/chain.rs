@@ -66,11 +66,12 @@ pub(crate) struct ChainRpcImpl {
 
 impl ChainRpc for ChainRpcImpl {
     fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
-        Ok(self
-            .shared
-            .snapshot()
-            .get_block(&hash.pack())
-            .map(Into::into))
+        let snapshot = self.shared.snapshot();
+        if !snapshot.is_main_chain(&hash.pack()) {
+            return Ok(None);
+        }
+
+        Ok(snapshot.get_block(&hash.pack()).map(Into::into))
     }
 
     fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
@@ -81,11 +82,13 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
-        Ok(self
-            .shared
-            .snapshot()
-            .get_block_header(&hash.pack())
-            .map(Into::into))
+        let snapshot = self.shared.snapshot();
+
+        if !snapshot.is_main_chain(&hash.pack()) {
+            return Ok(None);
+        }
+
+        Ok(snapshot.get_block_header(&hash.pack()).map(Into::into))
     }
 
     fn get_header_by_number(&self, number: BlockNumber) -> Result<Option<HeaderView>> {
@@ -225,6 +228,11 @@ impl ChainRpc for ChainRpcImpl {
 
     fn get_cellbase_output_capacity_details(&self, hash: H256) -> Result<Option<BlockReward>> {
         let snapshot = self.shared.snapshot();
+
+        if !snapshot.is_main_chain(&hash.pack()) {
+            return Ok(None);
+        }
+
         Ok(snapshot.get_block_header(&hash.pack()).and_then(|header| {
             snapshot
                 .get_block_header(&header.data().raw().parent_hash())
