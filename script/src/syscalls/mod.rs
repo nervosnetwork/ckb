@@ -195,7 +195,7 @@ mod tests {
     use ckb_vm::{
         memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
-        CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
+        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use proptest::{collection::size_range, prelude::*};
     use std::collections::HashMap;
@@ -1194,6 +1194,46 @@ mod tests {
         fn test_load_data(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
             _test_load_cell_data(data)?;
         }
+    }
+
+    #[test]
+    fn test_load_overflowed_cell_data_as_code() {
+        let data = vec![0, 1, 2, 3, 4, 5];
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 3); // content offset
+        machine.set_register(A3, u64::max_value() - 1); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell_data = Bytes::from(data);
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_cell_deps = vec![dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCellData::new(
+            &data_loader,
+            &outputs,
+            &resolved_inputs,
+            &resolved_cell_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
+
+        let result = load_code.ecall(&mut machine);
+        assert_eq!(result.unwrap_err(), VMError::OutOfBound);
     }
 
     fn _test_load_cell_data_on_freezed_memory(
