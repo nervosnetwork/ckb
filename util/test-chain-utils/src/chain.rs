@@ -84,7 +84,7 @@ pub fn always_success_cellbase(
 
     let builder = TransactionBuilder::default().input(input).witness(witness);
 
-    if block_number <= consensus.finalization_delay_length() {
+    if block_number < consensus.finalization_delay_length() {
         builder.build()
     } else {
         let output = CellOutput::new_builder()

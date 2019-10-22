@@ -564,7 +564,7 @@ mod tests {
         let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .witness(Script::default().into_witness());
-        if number <= shared.consensus().finalization_delay_length() {
+        if number < shared.consensus().finalization_delay_length() {
             builder.build()
         } else {
             builder

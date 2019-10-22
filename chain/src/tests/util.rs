@@ -118,7 +118,7 @@ pub(crate) fn create_cellbase(
         .input(CellInput::new_cellbase_input(parent.number() + 1))
         .witness(always_success_script.clone().into_witness());
 
-    if (parent.number() + 1) <= consensus.finalization_delay_length() {
+    if (parent.number() + 1) < consensus.finalization_delay_length() {
         builder.build()
     } else {
         builder

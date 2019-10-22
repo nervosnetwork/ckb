@@ -39,7 +39,7 @@ pub(crate) fn create_cellbase(
         .input(CellInput::new_cellbase_input(number))
         .witness(miner_lock.into_witness());
 
-    if (parent.number() + 1) <= consensus.finalization_delay_length() {
+    if (parent.number() + 1) < consensus.finalization_delay_length() {
         builder.build()
     } else {
         builder

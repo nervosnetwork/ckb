@@ -252,7 +252,7 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
     pub fn verify(&self) -> Result<(), Error> {
         let cellbase = &self.resolved[0];
         let no_finalization_target =
-            (self.parent.number() + 1) <= self.context.consensus.finalization_delay_length();
+            (self.parent.number() + 1) < self.context.consensus.finalization_delay_length();
 
         let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
         let output = CellOutput::new_builder()

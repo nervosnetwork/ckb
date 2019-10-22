@@ -176,7 +176,7 @@ impl BlockAssembler {
 
             let witness = cellbase_witness.as_bytes().pack();
             let no_finalization_target =
-                candidate_number <= snapshot.consensus().finalization_delay_length();
+                candidate_number < snapshot.consensus().finalization_delay_length();
             let tx_builder = TransactionBuilder::default().input(input).witness(witness);
             let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
             if no_finalization_target || insufficient_reward_to_create_cell {

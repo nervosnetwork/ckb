@@ -118,7 +118,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     // We store a cellbase for constructing a new transaction later
-    if parent.number() > shared.consensus().finalization_delay_length() {
+    if parent.number() >= shared.consensus().finalization_delay_length() {
         UNSPENT.with(|unspent| {
             *unspent.borrow_mut() = cellbase.hash().unpack();
         });
