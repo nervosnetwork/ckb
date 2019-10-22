@@ -241,8 +241,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         )
     }
 
-    fn build_load_witness(&'a self, group_inputs: &'a [usize]) -> LoadWitness<'a> {
-        LoadWitness::new(self.witnesses(), group_inputs)
+    fn build_load_witness(
+        &'a self,
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
+    ) -> LoadWitness<'a> {
+        LoadWitness::new(self.witnesses(), group_inputs, group_outputs)
     }
 
     fn build_load_script(&self, script: Script) -> LoadScript {
@@ -378,9 +382,10 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .syscall(Box::new(
                 self.build_load_header(&script_group.input_indices),
             ))
-            .syscall(Box::new(
-                self.build_load_witness(&script_group.input_indices),
-            ))
+            .syscall(Box::new(self.build_load_witness(
+                &script_group.input_indices,
+                &script_group.output_indices,
+            )))
             .syscall(Box::new(
                 self.build_load_script(script_group.script.clone()),
             ))

@@ -926,7 +926,7 @@ mod tests {
         }
     }
 
-    fn _test_load_witness(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -935,7 +935,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
+        machine.set_register(A4, u64::from(Source::Transaction(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
         let witness = Bytes::from(data).pack();
@@ -944,7 +944,8 @@ mod tests {
 
         let witnesses = vec![witness.clone()];
         let group_inputs = vec![];
-        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
+        let group_outputs = vec![];
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -970,12 +971,17 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_witness(data)?;
+        fn test_load_witness_by_input(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_witness(data, SourceEntry::Input)?;
+        }
+
+        #[test]
+        fn test_load_witness_by_output(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_witness(data, SourceEntry::Output)?;
         }
     }
 
-    fn _test_load_group_witness(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -984,7 +990,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
+        machine.set_register(A4, u64::from(Source::Group(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
         let witness = Bytes::from(data).pack();
@@ -994,7 +1000,8 @@ mod tests {
         let dummy_witness = Bytes::default().pack();
         let witnesses = vec![dummy_witness, witness.clone()];
         let group_inputs = vec![1];
-        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
+        let group_outputs = vec![1];
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -1020,8 +1027,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_group_witness(data)?;
+        fn test_load_group_witness_by_input(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data, SourceEntry::Input)?;
+        }
+
+        fn test_load_group_witness_by_output(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data, SourceEntry::Output)?;
         }
     }
 

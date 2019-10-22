@@ -15,13 +15,19 @@ use ckb_vm::{
 pub struct LoadWitness<'a> {
     witnesses: BytesVec,
     group_inputs: &'a [usize],
+    group_outputs: &'a [usize],
 }
 
 impl<'a> LoadWitness<'a> {
-    pub fn new(witnesses: BytesVec, group_inputs: &'a [usize]) -> LoadWitness<'a> {
+    pub fn new(
+        witnesses: BytesVec,
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
+    ) -> LoadWitness<'a> {
         LoadWitness {
             witnesses,
             group_inputs,
+            group_outputs,
         }
     }
 
@@ -31,7 +37,12 @@ impl<'a> LoadWitness<'a> {
                 .group_inputs
                 .get(index)
                 .and_then(|actual_index| self.witnesses.get(*actual_index)),
+            Source::Group(SourceEntry::Output) => self
+                .group_outputs
+                .get(index)
+                .and_then(|actual_index| self.witnesses.get(*actual_index)),
             Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
+            Source::Transaction(SourceEntry::Output) => self.witnesses.get(index),
             _ => None,
         }
     }
