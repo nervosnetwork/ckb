@@ -240,23 +240,13 @@ impl ChainSpec {
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
 
-        let initial_primary_epoch_reward = self.params.initial_primary_epoch_reward.as_u64();
-        let secondary_epoch_reward = self.params.secondary_epoch_reward.as_u64();
         let genesis_epoch_length = self.params.genesis_epoch_length;
-        let genesis_primary_issuance = Capacity::shannons({
-            if initial_primary_epoch_reward % genesis_epoch_length != 0 {
-                initial_primary_epoch_reward / genesis_epoch_length + 1
-            } else {
-                initial_primary_epoch_reward / genesis_epoch_length
-            }
-        });
-        let genesis_secondary_issuance = Capacity::shannons({
-            if secondary_epoch_reward % genesis_epoch_length != 0 {
-                secondary_epoch_reward / genesis_epoch_length + 1
-            } else {
-                secondary_epoch_reward / genesis_epoch_length
-            }
-        });
+        let genesis_primary_issuance = calculate_block_reward(
+            self.params.initial_primary_epoch_reward,
+            genesis_epoch_length,
+        );
+        let genesis_secondary_issuance =
+            calculate_block_reward(self.params.secondary_epoch_reward, genesis_epoch_length);
         let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
             &self.genesis.satoshi_gift.satoshi_pubkey_hash,
@@ -598,6 +588,17 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
         .hash_type(ScriptHashType::Type.into())
         .args(script_arg.pack())
         .build()
+}
+
+pub fn calculate_block_reward(epoch_reward: Capacity, epoch_length: BlockNumber) -> Capacity {
+    let epoch_reward = epoch_reward.as_u64();
+    Capacity::shannons({
+        if epoch_reward % epoch_length != 0 {
+            epoch_reward / epoch_length + 1
+        } else {
+            epoch_reward / epoch_length
+        }
+    })
 }
 
 #[cfg(test)]

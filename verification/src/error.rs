@@ -213,9 +213,6 @@ pub enum EpochError {
 
     #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },
-
-    #[fail(display = "AncestorNotFound")]
-    AncestorNotFound,
 }
 
 impl TransactionError {

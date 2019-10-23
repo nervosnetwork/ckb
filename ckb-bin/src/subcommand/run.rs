@@ -11,7 +11,7 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_types::prelude::*;
-use ckb_verification::{BlockVerifier, Verifier};
+use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -144,9 +144,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 }
 
 fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
-    let genesis = shared.consensus().genesis_block();
-    BlockVerifier::new(shared.consensus())
-        .verify(genesis)
+    GenesisVerifier::new()
+        .verify(shared.consensus())
         .map_err(|err| {
             eprintln!("genesis error: {}", err);
             ExitCode::Config
