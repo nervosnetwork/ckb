@@ -294,11 +294,10 @@ impl RpcClient {
             .into()
     }
 
-    pub fn get_cellbase_output_capacity_details(&self, hash: Byte32) -> BlockReward {
+    pub fn get_cellbase_output_capacity_details(&self, hash: Byte32) -> Option<BlockReward> {
         self.inner()
             .get_cellbase_output_capacity_details(hash.unpack())
             .expect("rpc call get_cellbase_output_capacity_details")
-            .expect("get_cellbase_output_capacity_details return none")
     }
 
     pub fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> EstimateResult {
