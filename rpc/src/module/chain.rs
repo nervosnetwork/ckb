@@ -237,10 +237,14 @@ impl ChainRpc for ChainRpcImpl {
             snapshot
                 .get_block_header(&header.data().raw().parent_hash())
                 .and_then(|parent| {
-                    RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
-                        .block_reward(&parent)
-                        .map(|r| r.1.into())
-                        .ok()
+                    if parent.number() < snapshot.consensus().finalization_delay_length() {
+                        None
+                    } else {
+                        RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
+                            .block_reward(&parent)
+                            .map(|r| r.1.into())
+                            .ok()
+                    }
                 })
         }))
     }
