@@ -69,6 +69,8 @@ pub struct Params {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     pub epoch_duration_target: u64,
     pub genesis_epoch_length: BlockNumber,
+    #[serde(default)]
+    pub permanent_difficulty_in_dummy: bool,
 }
 
 impl Default for Params {
@@ -86,6 +88,7 @@ impl Default for Params {
             primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
             epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
             genesis_epoch_length: GENESIS_EPOCH_LENGTH,
+            permanent_difficulty_in_dummy: false,
         }
     }
 }
@@ -230,6 +233,7 @@ impl ChainSpec {
             )
             .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
             .epoch_duration_target(self.params.epoch_duration_target)
+            .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy)
             .build();
 
         Ok(consensus)

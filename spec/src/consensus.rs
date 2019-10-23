@@ -242,6 +242,7 @@ impl ConsensusBuilder {
                 satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+                permanent_difficulty_in_dummy: false,
             },
         }
     }
@@ -368,6 +369,11 @@ impl ConsensusBuilder {
         self.inner.epoch_duration_target = target;
         self
     }
+
+    pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
+        self.inner.permanent_difficulty_in_dummy = permanent;
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -412,6 +418,8 @@ pub struct Consensus {
     // Primary reward is cut in half every halving_interval epoch
     // which will occur approximately every 4 years.
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    // Keep difficulty be permanent if the pow is dummy
+    pub permanent_difficulty_in_dummy: bool,
 }
 
 // genesis difficulty should not be zero
@@ -504,6 +512,10 @@ impl Consensus {
         self.pow.engine()
     }
 
+    pub fn permanent_difficulty(&self) -> bool {
+        self.pow.is_dummy() && self.permanent_difficulty_in_dummy
+    }
+
     pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
     }
@@ -592,6 +604,17 @@ impl Consensus {
         let header_number = header.number();
         if header_number != (last_epoch.start_number() + last_epoch_length - 1) {
             return None;
+        }
+
+        if self.permanent_difficulty() {
+            let dummy_epoch_ext = last_epoch
+                .clone()
+                .into_builder()
+                .number(last_epoch.number() + 1)
+                .last_block_hash_in_previous_epoch(header.hash())
+                .start_number(header_number + 1)
+                .build();
+            return Some(dummy_epoch_ext);
         }
 
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
