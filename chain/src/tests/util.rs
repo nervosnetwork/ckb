@@ -106,7 +106,6 @@ pub(crate) fn calculate_reward(
         .unwrap()
 }
 
-#[allow(clippy::int_plus_one)]
 pub(crate) fn create_cellbase(
     store: &MockStore,
     consensus: &Consensus,

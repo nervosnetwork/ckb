@@ -248,7 +248,6 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
         }
     }
 
-    #[allow(clippy::int_plus_one)]
     pub fn verify(&self) -> Result<(), Error> {
         let cellbase = &self.resolved[0];
         let no_finalization_target =

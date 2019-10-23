@@ -24,7 +24,6 @@ use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 
-#[allow(clippy::int_plus_one)]
 pub(crate) fn create_cellbase(
     parent: &HeaderView,
     miner_lock: Script,
