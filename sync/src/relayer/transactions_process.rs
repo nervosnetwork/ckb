@@ -101,14 +101,15 @@ impl<'a> TransactionsProcess<'a> {
                     if relay_cycles == cache_entry.cycles {
                         if cache_entry.fee < min_fee_rate.fee(tx_size) {
                             debug_target!(
-                                        crate::LOG_TARGET_RELAY,
-                                        "peer {} relay tx lower than min fee rate {} shannons/KB. tx: {:?}  size {} fee {}",
-                                        peer_index,
-                                        min_fee_rate,
-                                        tx_hash,
-                                        tx_size,
-                                        cache_entry.fee,
-                                    );
+                                crate::LOG_TARGET_RELAY,
+                                "peer {} relay tx lower than min fee rate {} shannons/KB. \
+                                 tx: {:?}  size {} fee {}",
+                                peer_index,
+                                min_fee_rate,
+                                tx_hash,
+                                tx_size,
+                                cache_entry.fee,
+                            );
                             continue;
                         }
                         let mut cache = shared.state().tx_hashes();
