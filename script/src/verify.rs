@@ -282,7 +282,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             let cycle = self.verify_script_group(group, max_cycles).map_err(|e| {
                 #[cfg(feature = "logging")]
                 info!(
-                    "Error validating script group {} of transaction {}: {:?}",
+                    "Error validating script group {} of transaction {}: {}",
                     group.script.calc_script_hash(),
                     self.hash(),
                     e
