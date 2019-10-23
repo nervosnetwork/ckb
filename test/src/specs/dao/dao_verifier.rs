@@ -137,10 +137,22 @@ impl DAOVerifier {
 
     #[allow(non_snake_case)]
     pub fn U_out(&self, i: BlockNumber) -> u64 {
+        let satoshi_cell_occupied_ratio = self.consensus.satoshi_cell_occupied_ratio;
+        let satoshi_pubkey_hash = &self.consensus.satoshi_pubkey_hash;
         let mut sum = 0u64;
-        for tx in self.blocks[i as usize].transactions() {
-            for o in tx.output_pts() {
-                sum += self.get_output_occupied_capacity(&o);
+        for (tx_index, tx) in self.blocks[i as usize].transactions().iter().enumerate() {
+            for (out_point, output) in tx.output_pts().iter().zip(tx.outputs().into_iter()) {
+                if i == 0
+                    && tx_index == 0
+                    && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
+                {
+                    sum += Unpack::<Capacity>::unpack(&output.capacity())
+                        .safe_mul_ratio(satoshi_cell_occupied_ratio)
+                        .unwrap()
+                        .as_u64();
+                } else {
+                    sum += self.get_output_occupied_capacity(out_point);
+                }
             }
         }
         sum
@@ -355,25 +367,9 @@ impl DAOVerifier {
         });
         self.blocks.iter().for_each(|block| {
             assert_eq!(
-                self.S(block.number()),
-                extract_dao_data(block.dao()).unwrap().2.as_u64(),
-                "assert S. expected_dao_field: {}",
-                self.expected_dao_field(block.number()),
-            );
-        });
-        self.blocks.iter().for_each(|block| {
-            assert_eq!(
                 self.U(block.number()),
                 extract_dao_data(block.dao()).unwrap().3.as_u64(),
                 "assert U. expected_dao_field: {}",
-                self.expected_dao_field(block.number()),
-            );
-        });
-        self.blocks.iter().for_each(|block| {
-            assert_eq!(
-                self.ar(block.number()),
-                extract_dao_data(block.dao()).unwrap().0,
-                "assert ar. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );
         });
@@ -397,6 +393,22 @@ impl DAOVerifier {
                     i,
                 );
             }
+        });
+        self.blocks.iter().for_each(|block| {
+            assert_eq!(
+                self.ar(block.number()),
+                extract_dao_data(block.dao()).unwrap().0,
+                "assert ar. expected_dao_field: {}",
+                self.expected_dao_field(block.number()),
+            );
+        });
+        self.blocks.iter().for_each(|block| {
+            assert_eq!(
+                self.S(block.number()),
+                extract_dao_data(block.dao()).unwrap().2.as_u64(),
+                "assert S. expected_dao_field: {}",
+                self.expected_dao_field(block.number()),
+            );
         });
     }
 

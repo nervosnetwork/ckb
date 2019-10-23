@@ -18,13 +18,14 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
+use ckb_types::core::EpochNumber;
 
 pub const FLAG_SINCE_RELATIVE: u64 =
     0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 pub const FLAG_SINCE_BLOCK_NUMBER: u64 =
     0b000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
-// pub const FLAG_SINCE_EPOCH_NUMBER: u64 =
-//    0b010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+pub const FLAG_SINCE_EPOCH_NUMBER: u64 =
+    0b010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 pub const FLAG_SINCE_TIMESTAMP: u64 =
     0b100_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
@@ -166,13 +167,13 @@ pub fn since_from_absolute_block_number(block_number: BlockNumber) -> u64 {
     FLAG_SINCE_BLOCK_NUMBER | block_number
 }
 
-// pub fn since_from_relative_epoch_number(epoch_number: EpochNumber) -> u64 {
-//     FLAG_SINCE_RELATIVE | FLAG_SINCE_EPOCH_NUMBER | epoch_number
-// }
-//
-// pub fn since_from_absolute_epoch_number(epoch_number: EpochNumber) -> u64 {
-//     FLAG_SINCE_EPOCH_NUMBER | epoch_number
-// }
+ pub fn since_from_relative_epoch_number(epoch_number: EpochNumber) -> u64 {
+     FLAG_SINCE_RELATIVE | FLAG_SINCE_EPOCH_NUMBER | epoch_number
+ }
+
+ pub fn since_from_absolute_epoch_number(epoch_number: EpochNumber) -> u64 {
+     FLAG_SINCE_EPOCH_NUMBER | epoch_number
+ }
 
 pub fn since_from_relative_timestamp(timestamp: u64) -> u64 {
     FLAG_SINCE_RELATIVE | FLAG_SINCE_TIMESTAMP | timestamp
