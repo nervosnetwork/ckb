@@ -1,17 +1,25 @@
 use ckb_test::specs::*;
-use ckb_test::{Net, Spec};
+use ckb_test::{
+    utils::node_log,
+    worker::{Notify, Workers},
+    Spec,
+};
 use ckb_types::core::ScriptHashType;
+use ckb_util::Mutex;
 use clap::{value_t, App, Arg};
+use crossbeam_channel::unbounded;
 use log::{error, info};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, File};
 use std::io::{BufRead, BufReader};
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
@@ -28,10 +36,11 @@ fn main() {
     let start_port = value_t!(matches, "port", u16).unwrap_or_else(|err| err.exit());
     let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
     let max_time = if matches.is_present("max-time") {
-        Some(value_t!(matches, "max-time", u64).unwrap_or_else(|err| err.exit()))
+        value_t!(matches, "max-time", u64).unwrap_or_else(|err| err.exit())
     } else {
-        None
+        0
     };
+    let worker_count = value_t!(matches, "concurrent", usize).unwrap_or_else(|err| err.exit());
     let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
 
     if matches.is_present("list-specs") {
@@ -45,73 +54,101 @@ fn main() {
 
     let specs = filter_specs(all_specs(), spec_names_to_run);
     let total = specs.len();
+    let worker_count = min(worker_count, total);
+    let specs = Arc::new(Mutex::new(specs));
     let start_time = Instant::now();
-    let mut specs_iter = specs.into_iter().enumerate();
-    let mut rerun_specs = vec![];
     let mut spec_error: Option<Box<dyn Any + Send>> = None;
     let mut panicked_error = false;
+    let mut error_spec_name = String::new();
 
-    for (index, (spec_name, spec)) in &mut specs_iter {
-        let mut net = Net::new(binary, start_port, vendor.clone(), spec.setup());
-        info!(
-            "{}/{} .............. Running {}",
-            index + 1,
-            total,
-            spec_name
-        );
-        let now = Instant::now();
-        let net_dir = net.working_dir().to_owned();
-        let node_dirs: Vec<_> = net
-            .nodes
-            .iter()
-            .map(|node| node.working_dir().to_owned())
-            .collect();
-        info!("Started Net with working dir: {}", net_dir);
+    let (notify_tx, notify_rx) = unbounded();
 
-        let result = run_spec(spec.as_ref(), &mut net);
+    info!("start {} workers...", worker_count);
+    let mut workers = Workers::new(
+        worker_count,
+        Arc::clone(&specs),
+        notify_tx.clone(),
+        start_port,
+        binary.to_string(),
+        vendor.clone(),
+    );
+    workers.start();
 
-        node_dirs.iter().enumerate().for_each(|(i, node_dir)| {
-            info!("Started Node.{} with working dir: {}", i, node_dir);
-        });
-        info!(
-            "{}/{} -------------> Completed {} in {} seconds",
-            index + 1,
-            total,
-            spec_name,
-            now.elapsed().as_secs()
-        );
-
-        spec_error = result.err();
-        panicked_error = nodes_panicked(&node_dirs);
-        if panicked_error {
-            print_panicked_logs(&node_dirs);
-            rerun_specs.push(spec_name);
-            break;
-        } else if spec_error.is_some() {
-            tail_node_logs(node_dirs);
-            rerun_specs.push(spec_name);
-            break;
+    let mut rerun_specs = Vec::new();
+    let mut worker_running = worker_count;
+    let mut done_specs = 0;
+    while worker_running > 0 {
+        if max_time > 0 && start_time.elapsed().as_secs() > max_time {
+            // shutdown, specs running to long
+            workers.shutdown();
         }
 
-        if start_time.elapsed().as_secs() > max_time.unwrap_or_else(u64::max_value) {
-            error!(
-                "Exit ckb-test, because total running time({} seconds) exceeds limit({} seconds)",
-                start_time.elapsed().as_secs(),
-                max_time.unwrap_or_default()
-            );
-            break;
+        let msg = match notify_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(msg) => msg,
+            Err(err) => {
+                if err.is_timeout() {
+                    continue;
+                }
+                panic!(err);
+            }
+        };
+        match msg {
+            Notify::Error {
+                spec_error: err,
+                spec_name,
+                node_dirs,
+            } => {
+                error_spec_name = spec_name.clone();
+                rerun_specs.push(spec_name);
+                workers.shutdown();
+                worker_running -= 1;
+                spec_error = Some(err);
+                tail_node_logs(node_dirs);
+            }
+            Notify::Panick {
+                spec_name,
+                node_dirs,
+            } => {
+                error_spec_name = spec_name.clone();
+                rerun_specs.push(spec_name);
+                workers.shutdown();
+                worker_running -= 1;
+                panicked_error = true;
+                print_panicked_logs(&node_dirs);
+            }
+            Notify::Done { spec_name, seconds } => {
+                done_specs += 1;
+                info!(
+                    "{}/{} .............. Done {} in {} seconds",
+                    done_specs, total, spec_name, seconds
+                );
+            }
+            Notify::Stop => {
+                worker_running -= 1;
+            }
         }
+    }
+    // join all workers threads
+    workers.join_all();
+
+    if max_time > 0 && start_time.elapsed().as_secs() > max_time {
+        error!(
+            "Exit ckb-test, because total running time({} seconds) exceeds limit({} seconds)",
+            start_time.elapsed().as_secs(),
+            max_time
+        );
     }
 
     info!("Total elapsed time: {:?}", start_time.elapsed());
 
-    rerun_specs.extend(specs_iter.map(|t| (t.1).0));
+    rerun_specs.extend(specs.lock().iter().map(|t| t.0.clone()));
+
     if rerun_specs.is_empty() {
         return;
     }
 
     if spec_error.is_some() || panicked_error {
-        error!("ckb-failed on spec {}", rerun_specs[0]);
+        error!("ckb-failed on spec {}", error_spec_name);
         info!("You can rerun remaining specs using following command:");
     } else {
         info!("You can run the skipped specs using following command:");
@@ -130,8 +167,8 @@ fn main() {
     }
 }
 
-type SpecMap = HashMap<&'static str, Box<dyn Spec>>;
-type SpecTuple<'a> = (&'a str, Box<dyn Spec>);
+type SpecMap = HashMap<&'static str, Box<dyn Spec + Send>>;
+type SpecTuple = (String, Box<dyn Spec + Send>);
 
 fn clap_app() -> App<'static, 'static> {
     App::new("ckb-test")
@@ -161,18 +198,29 @@ fn clap_app() -> App<'static, 'static> {
         )
         .arg(Arg::with_name("list-specs").long("list-specs"))
         .arg(Arg::with_name("specs").multiple(true))
+        .arg(
+            Arg::with_name("concurrent")
+                .short("c")
+                .long("concurrent")
+                .takes_value(true)
+                .help("The number of specs can running concurrently")
+                .default_value("4"),
+        )
 }
 
 fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<SpecTuple> {
     if spec_names_to_run.is_empty() {
-        let mut specs: Vec<_> = all_specs.into_iter().collect();
+        let mut specs: Vec<_> = all_specs
+            .into_iter()
+            .map(|(spec_name, spec)| (spec_name.to_string(), spec))
+            .collect();
         specs.shuffle(&mut thread_rng());
         specs
     } else {
         let mut specs = Vec::with_capacity(spec_names_to_run.len());
         for spec_name in spec_names_to_run {
             specs.push((
-                spec_name,
+                spec_name.to_string(),
                 all_specs.remove(spec_name).unwrap_or_else(|| {
                     eprintln!("Unknown spec {}", spec_name);
                     std::process::exit(1);
@@ -196,7 +244,7 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 fn all_specs() -> SpecMap {
-    let specs: Vec<Box<dyn Spec>> = vec![
+    let specs: Vec<Box<dyn Spec + Send>> = vec![
         Box::new(BlockRelayBasic),
         Box::new(BlockSyncFromOne),
         Box::new(BlockSyncForks),
@@ -318,15 +366,6 @@ fn list_specs() {
     }
 }
 
-// grep "panicked at" $node_log_path
-fn nodes_panicked(node_dirs: &[String]) -> bool {
-    node_dirs.iter().any(|node_dir| {
-        read_to_string(&node_log(&node_dir))
-            .expect("failed to read node's log")
-            .contains("panicked at")
-    })
-}
-
 // sed -n ${{panic_ln-300}},${{panic_ln+300}}p $node_log_path
 fn print_panicked_logs(node_dirs: &[String]) {
     for (i, node_dir) in node_dirs.iter().enumerate() {
@@ -386,28 +425,4 @@ fn tail_node_logs(node_dirs: Vec<String>) {
             println!("{}", log);
         }
     }
-}
-
-// node_log=$node_dir/data/logs/run.log
-fn node_log(node_dir: &str) -> PathBuf {
-    PathBuf::from(node_dir)
-        .join("data")
-        .join("logs")
-        .join("run.log")
-}
-
-fn run_spec(spec: &dyn ckb_test::specs::Spec, net: &mut Net) -> ::std::thread::Result<()> {
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.init_config(net);
-    }))?;
-
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.before_run(net);
-    }))?;
-
-    spec.start_node(net);
-
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.run(net);
-    }))
 }
