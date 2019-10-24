@@ -93,7 +93,12 @@ impl ValidSince {
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let cellbase = node.get_tip_block().transactions()[0].clone();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
+        let t1 = faketime::unix_time_as_millis();
         sleep(Duration::from_secs(2));
+        let t2 = faketime::unix_time_as_millis();
+        let debug_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
+        info!("old median time: {} t1: {} t2: {}", old_median_time, t1, t2);
+        info!("old debug median time is {}", debug_median_time);
 
         node.generate_blocks(median_time_block_count as usize);
 
@@ -112,6 +117,10 @@ impl ValidSince {
             .collect();
         timestamps.sort();
         let median_time = timestamps[timestamps.len() >> 1];
+        let debug_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
+        info!("new blocks timestamps {:?}", timestamps);
+        info!("median_time {}", median_time);
+        info!("debug median time {}", debug_median_time);
 
         // Absolute since timestamp in seconds
         let median_time_seconds = (median_time - old_median_time) / 1000;
