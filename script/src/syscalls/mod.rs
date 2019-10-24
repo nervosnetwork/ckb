@@ -560,7 +560,7 @@ mod tests {
 
     struct MockDataLoader {
         headers: HashMap<Byte32, HeaderView>,
-        epoches: HashMap<Byte32, EpochExt>,
+        epochs: HashMap<Byte32, EpochExt>,
     }
 
     impl DataLoader for MockDataLoader {
@@ -574,7 +574,7 @@ mod tests {
             self.headers.get(block_hash).cloned()
         }
         fn get_block_epoch(&self, block_hash: &Byte32) -> Option<EpochExt> {
-            self.epoches.get(block_hash).cloned()
+            self.epochs.get(block_hash).cloned()
         }
     }
 
@@ -602,7 +602,7 @@ mod tests {
         headers.insert(header.hash().clone(), header.clone());
         let data_loader = MockDataLoader {
             headers,
-            epoches: HashMap::default(),
+            epochs: HashMap::default(),
         };
         let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
@@ -678,9 +678,9 @@ mod tests {
 
         let mut headers = HashMap::default();
         headers.insert(header.hash().clone(), header.clone());
-        let mut epoches = HashMap::default();
-        epoches.insert(header.hash().clone(), epoch.clone());
-        let data_loader = MockDataLoader { headers, epoches };
+        let mut epochs = HashMap::default();
+        epochs.insert(header.hash().clone(), epoch.clone());
+        let data_loader = MockDataLoader { headers, epochs };
         let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
