@@ -41,6 +41,14 @@ impl RpcClient {
             .expect("rpc call get_block")
     }
 
+    pub fn get_fork_block(&self, hash: Byte32) -> Option<BlockView> {
+        self.inner
+            .lock()
+            .get_fork_block(hash.unpack())
+            .call()
+            .expect("rpc call get_fork_block")
+    }
+
     pub fn get_block_by_number(&self, number: CoreBlockNumber) -> Option<BlockView> {
         self.inner
             .lock()
@@ -372,6 +380,7 @@ impl RpcClient {
 
 jsonrpc_client!(pub struct Inner {
     pub fn get_block(&mut self, _hash: H256) -> RpcRequest<Option<BlockView>>;
+    pub fn get_fork_block(&mut self, _hash: H256) -> RpcRequest<Option<BlockView>>;
     pub fn get_block_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<BlockView>>;
     pub fn get_header(&mut self, _hash: H256) -> RpcRequest<Option<HeaderView>>;
     pub fn get_header_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<HeaderView>>;

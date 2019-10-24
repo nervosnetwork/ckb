@@ -136,7 +136,7 @@ impl Spec for ForkContainsInvalidBlock {
         assert!(
             wait_until(10, || good_node
                 .rpc_client()
-                .get_block(last_hash.clone())
+                .get_fork_block(last_hash.clone())
                 .is_some()),
             "good_node should store the fork blocks even it contains invalid blocks",
         );
