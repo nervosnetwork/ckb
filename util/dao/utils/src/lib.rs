@@ -24,7 +24,7 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
         txs,
         &H160([0u8; 20]),
         Ratio(1, 1),
-        capacity_bytes!(1000),
+        capacity_bytes!(1_000_000),
         capacity_bytes!(1000),
     )
 }
