@@ -129,7 +129,7 @@ impl NetworkState {
             pending_observed_addrs: RwLock::new(HashSet::default()),
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.to_public_key().peer_id(),
+            local_peer_id: local_private_key.public_key().peer_id(),
             protocol_ids: RwLock::new(HashSet::default()),
         })
     }
@@ -290,7 +290,7 @@ impl NetworkState {
     }
 
     pub fn node_id(&self) -> String {
-        self.local_private_key().to_peer_id().to_base58()
+        self.local_private_key().peer_id().to_base58()
     }
 
     pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
