@@ -52,9 +52,7 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
-                .call()
                 .is_ok(),
             "transaction is ok, tip is equal to relative since block number",
         );
@@ -80,9 +78,7 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
-                .call()
                 .is_ok(),
             "transaction is ok, tip is equal to absolute since block number",
         );
@@ -135,9 +131,7 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
-                    .call()
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );
@@ -180,9 +174,7 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
-                    .call()
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );

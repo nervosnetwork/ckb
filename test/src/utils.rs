@@ -173,9 +173,7 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
     let result = node
         .rpc_client()
         .inner()
-        .lock()
-        .send_transaction(transaction.data().into())
-        .call();
+        .send_transaction(transaction.data().into());
     assert!(
         result.is_err(),
         "expect error \"{}\" but got \"Ok(())\"",
