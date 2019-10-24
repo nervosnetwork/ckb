@@ -1,16 +1,18 @@
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
+use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
 
 pub struct Debugger<'a> {
-    printer: &'a dyn Fn(&str),
+    hash: Byte32,
+    printer: &'a dyn Fn(&Byte32, &str),
 }
 
 impl<'a> Debugger<'a> {
-    pub fn new(printer: &'a dyn Fn(&str)) -> Debugger<'a> {
-        Debugger { printer }
+    pub fn new(hash: Byte32, printer: &'a dyn Fn(&Byte32, &str)) -> Debugger<'a> {
+        Debugger { hash, printer }
     }
 }
 
@@ -42,7 +44,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
 
         machine.add_cycles(transferred_byte_cycles(buffer.len() as u64))?;
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
-        (self.printer)(s.as_str());
+        (self.printer)(&self.hash, s.as_str());
 
         Ok(true)
     }
