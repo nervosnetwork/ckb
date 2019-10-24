@@ -33,6 +33,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use ckb_util::{Condvar, Mutex};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -204,6 +205,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
             Vec::new(),
             shared.consensus().identify_name(),
             "0.1.0".to_string(),
+            Arc::new((Mutex::new(()), Condvar::new())),
         )
         .start::<&str>(Default::default(), None)
         .expect("Start network service failed")
