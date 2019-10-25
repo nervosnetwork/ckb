@@ -11,7 +11,7 @@ use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier 
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
-use ckb_tx_pool::fee_rate::FeeRate;
+use ckb_tx_pool::FeeRate;
 use ckb_util::Mutex;
 use jsonrpc_core::IoHandler;
 use std::sync::Arc;

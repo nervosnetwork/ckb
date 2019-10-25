@@ -282,13 +282,17 @@ pub struct EpochNumberWithFraction(u64);
 
 impl fmt::Display for EpochNumberWithFraction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Epoch {{ number: {}, index: {}, length: {} }}",
-            self.number(),
-            self.index(),
-            self.length()
-        )
+        if f.alternate() {
+            write!(f, "{}({}/{})", self.number(), self.index(), self.length())
+        } else {
+            write!(
+                f,
+                "Epoch {{ number: {}, index: {}, length: {} }}",
+                self.number(),
+                self.index(),
+                self.length()
+            )
+        }
     }
 }
 

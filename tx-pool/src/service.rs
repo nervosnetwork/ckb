@@ -5,11 +5,13 @@ use crate::config::TxPoolConfig;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::{
     BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, ChainReorgProcess,
-    FetchCache, FetchTxRPCProcess, FetchTxsProcess, FetchTxsWithCyclesProcess,
-    FreshProposalsFilterProcess, NewUncleProcess, PackageTxsProcess, PlugEntryProcess, PlugTarget,
-    PreResolveTxsProcess, PrepareUnclesProcess, SubmitTxsProcess, TxPoolInfoProcess,
-    UpdateBlockTemplateCache, UpdateCache, VerifyTxsProcess,
+    EstimateFeeRateProcess, EstimatorProcessBlockProcess, EstimatorTrackTxProcess, FetchCache,
+    FetchTxRPCProcess, FetchTxsProcess, FetchTxsWithCyclesProcess, FreshProposalsFilterProcess,
+    NewUncleProcess, PackageTxsProcess, PlugEntryProcess, PlugTarget, PreResolveTxsProcess,
+    PrepareUnclesProcess, SubmitTxsProcess, TxPoolInfoProcess, UpdateBlockTemplateCache,
+    UpdateCache, VerifyTxsProcess,
 };
+use crate::FeeRate;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_future_executor::{new_executor, Executor};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -87,6 +89,9 @@ pub enum Message {
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+    EstimateFeeRate(Request<usize, FeeRate>),
+    EstimatorTrackTx(Request<(Byte32, FeeRate, u64), ()>),
+    EstimatorProcessBlock(Request<(u64, Vec<Byte32>), ()>),
 }
 
 #[derive(Clone)]
@@ -225,6 +230,39 @@ impl TxPoolController {
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(short_ids, responder);
         sender.try_send(Message::FetchTxsWithCycles(request))?;
+        response.recv().map_err(Into::into)
+    }
+
+    pub fn estimate_fee_rate(&self, expect_confirm_blocks: usize) -> Result<FeeRate, FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = crossbeam_channel::bounded(1);
+        let request = Request::call(expect_confirm_blocks, responder);
+        sender.try_send(Message::EstimateFeeRate(request))?;
+        response.recv().map_err(Into::into)
+    }
+
+    pub fn estimator_track_tx(
+        &self,
+        tx_hash: Byte32,
+        fee_rate: FeeRate,
+        height: u64,
+    ) -> Result<(), FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = crossbeam_channel::bounded(1);
+        let request = Request::call((tx_hash, fee_rate, height), responder);
+        sender.try_send(Message::EstimatorTrackTx(request))?;
+        response.recv().map_err(Into::into)
+    }
+
+    pub fn estimator_process_block(
+        &self,
+        height: u64,
+        txs: impl Iterator<Item = Byte32>,
+    ) -> Result<(), FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = crossbeam_channel::bounded(1);
+        let request = Request::call((height, txs.collect::<Vec<_>>()), responder);
+        sender.try_send(Message::EstimatorProcessBlock(request))?;
         response.recv().map_err(Into::into)
     }
 }
@@ -410,6 +448,40 @@ impl TxPoolService {
                 };
                 future::ok(())
             })),
+            Message::EstimateFeeRate(Request {
+                responder,
+                arguments: expect_confirm_blocks,
+            }) => Box::new(self.estimate_fee_rate(expect_confirm_blocks).and_then(
+                move |fee_rate| {
+                    if let Err(e) = responder.send(fee_rate) {
+                        error!("responder send estimate_fee_rate failed {:?}", e)
+                    };
+                    future::ok(())
+                },
+            )),
+            Message::EstimatorTrackTx(Request {
+                responder,
+                arguments: (tx_hash, fee_rate, height),
+            }) => Box::new(self.estimator_track_tx(tx_hash, fee_rate, height).and_then(
+                move |_| {
+                    if let Err(e) = responder.send(()) {
+                        error!("responder send estimator_track_tx failed {:?}", e)
+                    };
+                    future::ok(())
+                },
+            )),
+            Message::EstimatorProcessBlock(Request {
+                responder,
+                arguments: (height, txs),
+            }) => Box::new(
+                self.estimator_process_block(height, txs)
+                    .and_then(move |_| {
+                        if let Err(e) = responder.send(()) {
+                            error!("responder send estimator_process_block failed {:?}", e)
+                        };
+                        future::ok(())
+                    }),
+            ),
         }
     }
 
@@ -620,5 +692,29 @@ impl TxPoolService {
                 uncle,
             ))
         }
+    }
+
+    pub fn estimate_fee_rate(
+        &self,
+        expect_confirm_blocks: usize,
+    ) -> impl Future<Item = FeeRate, Error = ()> {
+        EstimateFeeRateProcess::new(self.tx_pool.clone(), expect_confirm_blocks)
+    }
+
+    pub fn estimator_track_tx(
+        &self,
+        tx_hash: Byte32,
+        fee_rate: FeeRate,
+        height: u64,
+    ) -> impl Future<Item = (), Error = ()> {
+        EstimatorTrackTxProcess::new(self.tx_pool.clone(), tx_hash, fee_rate, height)
+    }
+
+    pub fn estimator_process_block(
+        &self,
+        height: u64,
+        txs: Vec<Byte32>,
+    ) -> impl Future<Item = (), Error = ()> {
+        EstimatorProcessBlockProcess::new(self.tx_pool.clone(), height, txs)
     }
 }

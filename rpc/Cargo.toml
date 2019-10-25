@@ -15,6 +15,7 @@ ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
+ckb-fee-estimator = { path = "../util/fee-estimator" }
 jsonrpc-core = "10.1"
 jsonrpc-derive = "10.1"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", rev = "7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0" }
@@ -42,3 +43,4 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"
 ckb-dao-utils = { path = "../util/dao/utils" }
+rand = "0.7"

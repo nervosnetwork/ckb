@@ -21,6 +21,7 @@ NOTE: This file is auto-generated. Please don't update this file directly; inste
     *   [`dry_run_transaction`](#dry_run_transaction)
     *   [`_compute_transaction_hash`](#_compute_transaction_hash)
     *   [`calculate_dao_maximum_withdraw`](#calculate_dao_maximum_withdraw)
+    *   [`estimate_fee_rate`](#estimate_fee_rate)
     *   [`_compute_script_hash`](#_compute_script_hash)
 *   [`Indexer`](#indexer)
     *   [`index_lock_hash`](#index_lock_hash)
@@ -895,6 +896,41 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": "0x4a8b4e8a4"
+}
+```
+
+### `estimate_fee_rate`
+
+Estimate a fee rate (capacity/KB) for a transaction that to be committed in expect blocks.
+
+This method estimate fee rate by sample transactions that collected from p2p network
+expected_confirm_blocks must be between 3 and 1000
+an error will return if samples is not enough
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "estimate_fee_rate",
+    "params": [
+        "0xa"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "fee_rate": "0x7d0"
+    }
 }
 ```
 
