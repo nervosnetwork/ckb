@@ -97,7 +97,7 @@ fn deposit_dao_script(dao_type_hash: Byte32) -> Script {
 // Deposit `capacity` into DAO. The target output's type script == dao-script
 fn deposit_dao_output(capacity: Capacity, dao_type_hash: Byte32) -> (CellOutput, Bytes) {
     let always_success_script = always_success_cell().2.clone();
-    let data = Bytes::from(vec![1; 10]);
+    let data = Bytes::from(vec![0; 8]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
         .lock(always_success_script)

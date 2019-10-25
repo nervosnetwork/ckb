@@ -2,6 +2,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
+use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
     bytes::Bytes,
@@ -243,19 +244,25 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             && type_script.code_hash()
                                 == self.consensus.dao_type_hash().expect("No dao system cell")
                     };
+                    let is_withdrawing_input =
+                        |cell_meta: &CellMeta| match self.data_loader.load_cell_data(&cell_meta) {
+                            Some((data, _)) => data.len() == 8 && LittleEndian::read_u64(&data) > 0,
+                            None => false,
+                        };
                     if output
                         .type_()
                         .to_opt()
                         .map(is_dao_type_script)
                         .unwrap_or(false)
+                        && is_withdrawing_input(&cell_meta)
                     {
-                        let deposit_header_hash = cell_meta
+                        let withdraw_header_hash = cell_meta
                             .transaction_info
                             .as_ref()
                             .map(|info| &info.block_hash)
                             .filter(|hash| header_deps.contains(&hash))
                             .ok_or(DaoError::InvalidOutPoint)?;
-                        let withdraw_header_hash = rtx
+                        let deposit_header_hash = rtx
                             .transaction
                             .witnesses()
                             .get(i)
