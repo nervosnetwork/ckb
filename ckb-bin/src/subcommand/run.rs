@@ -40,7 +40,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
-        "chain genesis hash: {}",
+        "chain genesis hash: {:#x}",
         shared.genesis_hash()
     );
 
