@@ -266,13 +266,17 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                                     &witness_data,
                                 ))
                                 .map_err(|_| DaoError::InvalidDaoFormat)?;
-                                let header_deps_index_data: Bytes =
-                                    witness.input_type().to_opt().unwrap().unpack();
-                                if header_deps_index_data.len() != 8 {
-                                    Err(DaoError::InvalidDaoFormat)
-                                } else {
-                                    Ok(LittleEndian::read_u64(&header_deps_index_data))
+                                let header_deps_index_data: Option<Bytes> = witness
+                                    .input_type()
+                                    .to_opt()
+                                    .map(|witness| witness.unpack());
+                                if header_deps_index_data.is_none()
+                                    || header_deps_index_data.clone().map(|data| data.len())
+                                        != Some(8)
+                                {
+                                    return Err(DaoError::InvalidDaoFormat);
                                 }
+                                Ok(LittleEndian::read_u64(&header_deps_index_data.unwrap()))
                             })
                             .and_then(|header_dep_index| {
                                 rtx.transaction
