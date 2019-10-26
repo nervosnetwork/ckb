@@ -11,6 +11,7 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_types::prelude::*;
+use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
+    let exit_condvar = Arc::new((Mutex::new(()), Condvar::new()));
 
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
@@ -40,7 +42,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
-        "chain genesis hash: {}",
+        "chain genesis hash: {:#x}",
         shared.genesis_hash()
     );
 
@@ -103,6 +105,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         protocols,
         shared.consensus().identify_name(),
         version.to_string(),
+        Arc::<(Mutex<()>, Condvar)>::clone(&exit_condvar),
     )
     .start(version, Some("NetworkService"))
     .expect("Start network service failed");
@@ -134,7 +137,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler);
 
-    wait_for_exit();
+    wait_for_exit(exit_condvar);
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 

@@ -1,5 +1,3 @@
-use molecule::faster_hex::hex_string;
-
 use crate::{packed, prelude::*};
 
 macro_rules! impl_std_cmp_eq_and_hash {
@@ -44,16 +42,5 @@ impl ::std::cmp::PartialOrd for packed::Byte32 {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl ::std::fmt::LowerHex for packed::Byte32 {
-    #[inline]
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        let alternate = f.alternate();
-        if alternate {
-            write!(f, "0x")?;
-        }
-        write!(f, "{}", hex_string(self.as_slice()).unwrap())
     }
 }
