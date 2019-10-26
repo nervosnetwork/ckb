@@ -1,7 +1,6 @@
-use crate::utils::wait_until;
+use crate::utils::{sleep, wait_until};
 use crate::{Net, Spec};
 use log::info;
-use std::{thread::sleep, time::Duration};
 
 pub struct IBDProcess;
 
@@ -31,7 +30,7 @@ impl Spec for IBDProcess {
         node0.connect_uncheck(node5);
         node0.connect_uncheck(node6);
 
-        sleep(Duration::from_secs(5));
+        sleep(5);
 
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_4 = wait_until(10, || {

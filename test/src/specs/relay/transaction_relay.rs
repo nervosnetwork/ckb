@@ -1,4 +1,4 @@
-use crate::utils::{build_relay_tx_hashes, build_relay_txs, wait_until};
+use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_sync::{NetworkProtocol, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_types::{
@@ -7,7 +7,6 @@ use ckb_types::{
     prelude::*,
 };
 use log::info;
-use std::thread;
 use std::time::Duration;
 
 pub struct TransactionRelayBasic;
@@ -173,7 +172,7 @@ impl Spec for TransactionRelayTimeout {
         info!("Waiting for {} seconds", wait_seconds);
         // Relay protocol will retry 30 seconds later when same GetRelayTransactions received from other peer
         // (not happend in current test case)
-        thread::sleep(Duration::from_secs(wait_seconds));
+        sleep(wait_seconds);
         assert!(
             !wait_get_relay_txs(&net),
             "should not receive GetRelayTransactions again"
