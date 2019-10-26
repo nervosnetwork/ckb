@@ -64,7 +64,7 @@ matrix:
     - name: PR Integration
       if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
-      script: make CKB_TEST_ARGS="--max-time 1200 -c 1" integration
+      script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
     - name: Linters
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       env: CACHE_NAME=linters

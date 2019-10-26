@@ -47,7 +47,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.38.0-x86_64-pc-windows-msvc'
-      - script: make integration-windows
+      - script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration-windows
         displayName: Run integration tests
         env:
           CI: true
