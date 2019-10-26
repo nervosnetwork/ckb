@@ -190,6 +190,7 @@ impl Spec for RelayInvalidTransaction {
         connect_all: false,
         num_nodes: 1,
         protocols: vec![TestProtocol::relay(), TestProtocol::sync()],
+        retry_failed: 1,
     );
 
     fn run(&self, net: &mut Net) {
@@ -221,10 +222,14 @@ impl Spec for RelayInvalidTransaction {
             build_relay_txs(&[(dummy_tx, 333)]),
         );
 
-        thread::sleep(Duration::from_secs(5));
+        wait_until(20, || node.rpc_client().get_banned_addresses().len() == 1);
         let banned_addrs = node.rpc_client().get_banned_addresses();
-        info!("Banned addresses: {:?}", banned_addrs);
-        assert_eq!(banned_addrs.len(), 1, "Net should be banned");
+        assert_eq!(
+            banned_addrs.len(),
+            1,
+            "Net should be banned: {:?}",
+            banned_addrs
+        );
     }
 }
 
