@@ -4,11 +4,12 @@ use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
+    bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Capacity, CapacityResult, HeaderView, ScriptHashType,
     },
-    packed::{Byte32, CellOutput, OutPoint, Script},
+    packed::{Byte32, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
 };
 use std::collections::HashSet;
@@ -260,15 +261,22 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .get(i)
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                // dao contract stores header deps index as u64 in the last 8 bytes of witness
-                                let witness_len = witness_data.raw_data().len();
-                                if witness_len < 8 {
-                                    Err(DaoError::InvalidDaoFormat)
-                                } else {
-                                    Ok(LittleEndian::read_u64(
-                                        &witness_data.raw_data()[witness_len - 8..],
-                                    ))
+                                // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
+                                let witness = WitnessArgs::from_slice(&Unpack::<Bytes>::unpack(
+                                    &witness_data,
+                                ))
+                                .map_err(|_| DaoError::InvalidDaoFormat)?;
+                                let header_deps_index_data: Option<Bytes> = witness
+                                    .input_type()
+                                    .to_opt()
+                                    .map(|witness| witness.unpack());
+                                if header_deps_index_data.is_none()
+                                    || header_deps_index_data.clone().map(|data| data.len())
+                                        != Some(8)
+                                {
+                                    return Err(DaoError::InvalidDaoFormat);
                                 }
+                                Ok(LittleEndian::read_u64(&header_deps_index_data.unwrap()))
                             })
                             .and_then(|header_dep_index| {
                                 rtx.transaction

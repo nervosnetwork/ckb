@@ -19,7 +19,9 @@ use ckb_types::{
         TransactionBuilder, TransactionView,
     },
     h160, h256,
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
+    packed::{
+        Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script, WitnessArgs,
+    },
     prelude::*,
     utilities::difficulty_to_compact,
     H160, H256, U256,
@@ -444,6 +446,8 @@ pub fn create_2out_transaction(
         .lock(lock.clone())
         .build();
 
+    let inputs_count = cell_inputs.len();
+
     let raw = TransactionBuilder::default()
         .output(cell_output.clone())
         .output(cell_output)
@@ -454,22 +458,35 @@ pub fn create_2out_transaction(
         .build();
 
     let privkey: Privkey = PRIVKEY.into();
+    let witness: WitnessArgs = WitnessArgs::new_builder()
+        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+        .build();
+    let witness_len: u64 = witness.as_bytes().len() as u64;
+    let non_sig_witnesses = vec![Bytes::new(); inputs_count - 1];
 
     let mut blake2b = ckb_hash::new_blake2b();
     let mut message = [0u8; 32];
     blake2b.update(&raw.hash().raw_data()[..]);
+    blake2b.update(&witness_len.to_le_bytes());
+    blake2b.update(&witness.as_bytes());
+    for w in &non_sig_witnesses {
+        let len: u64 = w.len() as u64;
+        blake2b.update(&len.to_le_bytes());
+        blake2b.update(&w);
+    }
     blake2b.finalize(&mut message);
     let message = H256::from(message);
-    let witness: Bytes = privkey
+    let sig: Bytes = privkey
         .sign_recoverable(&message)
         .expect("sign tx")
         .serialize()
         .into();
+    let witness = witness.as_builder().lock(Some(sig).pack()).build();
 
-    raw.as_advanced_builder()
-        .witness(witness.pack())
-        .witness(witness.pack())
-        .build()
+    let mut witnesses = vec![witness.as_bytes().pack()];
+    witnesses.extend(non_sig_witnesses.into_iter().map(|w| w.pack()));
+
+    raw.as_advanced_builder().set_witnesses(witnesses).build()
 }
 
 pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -> Byte32 {
