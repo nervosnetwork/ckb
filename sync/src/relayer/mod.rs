@@ -132,7 +132,11 @@ impl Relayer {
         if let Err(err) = self.try_process(Arc::clone(&nc), peer, message) {
             if let Some(&Error::Misbehavior(ref e)) = err.downcast_ref() {
                 debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", e);
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+                nc.ban_peer(
+                    peer,
+                    BAD_MESSAGE_BAN_TIME,
+                    format!("relay message process error: {}", e),
+                );
                 return;
             }
         }
@@ -552,7 +556,11 @@ impl CKBProtocolHandler for Relayer {
                     "Peer {} sends us a malformed message",
                     peer_index
                 );
-                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                nc.ban_peer(
+                    peer_index,
+                    BAD_MESSAGE_BAN_TIME,
+                    String::from("send us a malformed message"),
+                );
                 return;
             }
         };

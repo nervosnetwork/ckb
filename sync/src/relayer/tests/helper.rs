@@ -223,7 +223,7 @@ impl CKBProtocolContext for MockProtocalContext {
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();
     }
-    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {
+    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {
         unimplemented!();
     }
     fn protocol_id(&self) -> ProtocolId {
