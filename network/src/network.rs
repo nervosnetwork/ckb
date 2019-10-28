@@ -838,6 +838,7 @@ impl NetworkService {
 
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/ping".to_string())
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
                     ping_interval,
@@ -851,6 +852,7 @@ impl NetworkService {
         let (disc_sender, disc_receiver) = mpsc::unbounded();
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/discovery".to_string())
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(
                     DiscoveryProtocol::new(disc_sender.clone())
@@ -864,6 +866,7 @@ impl NetworkService {
             IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/identify".to_string())
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
             })
@@ -873,7 +876,7 @@ impl NetworkService {
         // TODO: versions
         let feeler_meta = MetaBuilder::default()
             .id(FEELER_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/flr/".to_string())
+            .name(move |_| "/ckb/flr".to_string())
             .service_handle({
                 let network_state = Arc::clone(&network_state);
                 move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))

@@ -110,7 +110,7 @@ impl CKBProtocol {
             id,
             network_state,
             handler: Box::new(handler),
-            protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
+            protocol_name: format!("/ckb/{}", protocol_name).to_string(),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
                 versions.sort_by(|a, b| b.cmp(a));
