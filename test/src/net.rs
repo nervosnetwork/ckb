@@ -122,6 +122,7 @@ impl Net {
                     tp.protocol_name,
                     tp.id,
                     &tp.supported_versions,
+                    1024 * 1024,
                     move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
                     Arc::clone(&network_state),
                 )
