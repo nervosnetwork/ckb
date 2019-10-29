@@ -1,12 +1,11 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{HeaderView, SyncSnapshot};
-use crate::{MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
+use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
 use ckb_types::{core, packed};
-use std::cmp::min;
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
@@ -113,17 +112,12 @@ impl BlockFetcher {
         debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
         let mut index_height = fixed_last_common_header.number();
-        // Read up to 128, get_ancestor may be as expensive
-        // as iterating over ~100 entries anyway.
-        let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
+        let mut fetch = Vec::with_capacity(MAX_BLOCKS_IN_TRANSIT_PER_PEER);
 
         {
             let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
-            let count = min(
-                MAX_BLOCKS_IN_TRANSIT_PER_PEER
-                    .saturating_sub(inflight.peer_inflight_count(self.peer)),
-                PER_FETCH_BLOCK_LIMIT,
-            );
+            let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
+                .saturating_sub(inflight.peer_inflight_count(self.peer));
 
             while fetch.len() < count {
                 index_height += 1;
