@@ -141,7 +141,11 @@ impl CKBProtocolHandler for NetTimeProtocol {
             Some(timestamp) => timestamp,
             None => {
                 info!("Peer {} sends us malformed message", peer_index);
-                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                nc.ban_peer(
+                    peer_index,
+                    BAD_MESSAGE_BAN_TIME,
+                    String::from("send us a malformed message"),
+                );
                 return;
             }
         };

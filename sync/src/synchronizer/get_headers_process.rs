@@ -89,7 +89,11 @@ impl<'a> GetHeadersProcess<'a> {
                 warn!("unknown block headers from peer {} {}", self.peer, hash);
             }
             // Got 'headers' message without known blocks
-            self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
+            self.nc.ban_peer(
+                self.peer,
+                SYNC_USELESS_BAN_TIME,
+                String::from("send us headers with unknown-block"),
+            );
         }
         Ok(())
     }

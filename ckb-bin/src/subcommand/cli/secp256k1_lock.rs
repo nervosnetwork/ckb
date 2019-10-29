@@ -25,8 +25,8 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
 
     match matches.value_of(cli::ARG_FORMAT).unwrap() {
         "toml" => {
-            println!("# args = [ \"ckb cli blake160 <compressed-pubkey>\" ]");
-            println!("args = [ \"{:#x}\" ]", pubkey_blake160);
+            println!("# args = \"ckb cli blake160 <compressed-pubkey>\"");
+            println!("args = \"{:#x}\"", pubkey_blake160);
         }
         "cmd" => {
             println!("--ba-arg {:#x}", pubkey_blake160);

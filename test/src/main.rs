@@ -271,11 +271,13 @@ fn all_specs() -> SpecMap {
         // pick from https://github.com/nervosnetwork/ckb/pull/1626
         // TODO: add NervosDAO tests back when we have a way to build longer
         // chains in tests.
+        // TODO: rebuild NervosDAO tests once 2 phase withdraw overflow is
+        // adopted.
         // Box::new(WithdrawDAO),
         // Box::new(WithdrawAndDepositDAOWithinSameTx),
-        Box::new(WithdrawDAOWithNotMaturitySince),
+        // Box::new(WithdrawDAOWithNotMaturitySince),
         // Box::new(WithdrawDAOWithOverflowCapacity),
-        Box::new(WithdrawDAOWithInvalidWitness),
+        // Box::new(WithdrawDAOWithInvalidWitness),
         // Box::new(DAOWithSatoshiCellOccupied),
         Box::new(SpendSatoshiCell::new()),
         Box::new(MiningBasic),

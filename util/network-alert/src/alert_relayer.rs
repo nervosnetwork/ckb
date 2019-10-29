@@ -116,13 +116,21 @@ impl CKBProtocolHandler for AlertRelayer {
                         "Peer {} sends us malformed message: not utf-8 string",
                         peer_index
                     );
-                    nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                    nc.ban_peer(
+                        peer_index,
+                        BAD_MESSAGE_BAN_TIME,
+                        String::from("send us a malformed message: not utf-8 string"),
+                    );
                     return;
                 }
             }
             Err(err) => {
                 info!("Peer {} sends us malformed message: {:?}", peer_index, err);
-                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                nc.ban_peer(
+                    peer_index,
+                    BAD_MESSAGE_BAN_TIME,
+                    String::from("send us a malformed message"),
+                );
                 return;
             }
         };
@@ -135,10 +143,14 @@ impl CKBProtocolHandler for AlertRelayer {
         // verify
         if let Err(err) = self.verifier.verify_signatures(&alert) {
             debug!(
-                "Peer {} sends us a alert with invalid signatures, error {:?}",
+                "Peer {} sends us an alert with invalid signatures, error {:?}",
                 peer_index, err
             );
-            nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+            nc.ban_peer(
+                peer_index,
+                BAD_MESSAGE_BAN_TIME,
+                String::from("send us an alert with invalid signatures"),
+            );
             return;
         }
         // mark sender as known
