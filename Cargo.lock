@@ -657,7 +657,7 @@ dependencies = [
 name = "ckb-network"
 version = "0.24.0-pre"
 dependencies = [
- "bs58 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bs58 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-build-info 0.24.0-pre",
  "ckb-hash 0.24.0-pre",
