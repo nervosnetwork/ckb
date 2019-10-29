@@ -8,7 +8,7 @@ use ckb_shared::{
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_tx_pool::{fee_rate::FeeRate, BlockAssemblerConfig, TxPoolConfig};
+use ckb_tx_pool::{BlockAssemblerConfig, FeeRate, TxPoolConfig};
 use ckb_types::{
     bytes::Bytes,
     core::{

@@ -3,7 +3,7 @@ use crate::{
         entry::{TxEntry, TxModifiedEntries},
         proposed::ProposedPool,
     },
-    fee_rate::FeeRate,
+    FeeRate,
 };
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use std::cmp::max;

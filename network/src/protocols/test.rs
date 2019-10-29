@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ckb_util::{Condvar, Mutex};
 use futures::{
     sync::mpsc::{self, channel},
     Stream,
@@ -201,6 +202,7 @@ fn net_service_start(name: String) -> Node {
         .forever(true)
         .build(EventHandler {
             network_state: Arc::clone(&network_state),
+            exit_condvar: Arc::new((Mutex::new(()), Condvar::new())),
         });
 
     let disc_service = DiscoveryService::new(

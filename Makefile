@@ -1,9 +1,11 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.4.1
+MOLC_VERSION := 0.4.2
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+CKB_TEST_ARGS := -c 4
+INTEGRATION_RUST_LOG := ckb-network=error
 
 ##@ Testing
 .PHONY: test
@@ -33,7 +35,7 @@ submodule-init:
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build
-	cd test && RUST_BACKTRACE=1 cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
+	cd test && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-windows
 integration-windows: submodule-init

@@ -250,7 +250,10 @@ impl SharedBuilder {
         let db = RocksDB::open(config, COLUMNS);
         SharedBuilder {
             db,
-            ..Default::default()
+            consensus: None,
+            tx_pool_config: None,
+            store_config: None,
+            block_assembler_config: None,
         }
     }
 }

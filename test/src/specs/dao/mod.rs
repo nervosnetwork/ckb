@@ -97,7 +97,7 @@ fn deposit_dao_script(dao_type_hash: Byte32) -> Script {
 // Deposit `capacity` into DAO. The target output's type script == dao-script
 fn deposit_dao_output(capacity: Capacity, dao_type_hash: Byte32) -> (CellOutput, Bytes) {
     let always_success_script = always_success_cell().2.clone();
-    let data = Bytes::from(vec![1; 10]);
+    let data = Bytes::from(vec![0; 8]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
         .lock(always_success_script)
@@ -162,7 +162,7 @@ fn withdraw_dao_transaction(
     let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
     header_deps.push(block_hash);
     let withdraw_dao_witness = WitnessArgs::new_builder()
-        .type_(Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack())
+        .input_type(Some(Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec())).pack())
         .build();
     TransactionBuilder::default()
         .cell_deps(cell_deps)

@@ -56,7 +56,7 @@ pub trait CKBProtocolContext: Send {
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
     fn connected_peers(&self) -> Vec<PeerIndex>;
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
-    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration);
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
     fn send_paused(&self) -> bool;
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
@@ -110,7 +110,7 @@ impl CKBProtocol {
             id,
             network_state,
             handler: Box::new(handler),
-            protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
+            protocol_name: format!("/ckb/{}", protocol_name).to_string(),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
                 versions.sort_by(|a, b| b.cmp(a));
@@ -355,9 +355,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         self.network_state
             .report_session(&self.p2p_control, peer_index, behaviour);
     }
-    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration) {
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
         self.network_state
-            .ban_session(&self.p2p_control, peer_index, duration, Default::default());
+            .ban_session(&self.p2p_control, peer_index, duration, reason);
     }
 
     fn protocol_id(&self) -> ProtocolId {

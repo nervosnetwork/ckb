@@ -1,6 +1,7 @@
 use crate::component::entry::TxEntry;
 use crate::error::SubmitTxError;
 use crate::pool::TxPool;
+use crate::FeeRate;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
@@ -219,7 +220,18 @@ impl<'a> SubmitTxsExecutor<'a> {
                 related_dep_out_points,
             );
             if match status {
-                TxStatus::Fresh => self.tx_pool.add_pending(entry),
+                TxStatus::Fresh => {
+                    let tx_hash = entry.transaction.hash();
+                    let inserted = self.tx_pool.add_pending(entry);
+                    if inserted {
+                        let height = self.tx_pool.snapshot().tip_number();
+                        let fee_rate = FeeRate::calculate(fee, tx_size);
+                        self.tx_pool
+                            .fee_estimator
+                            .track_tx(tx_hash, fee_rate, height);
+                    }
+                    inserted
+                }
                 TxStatus::Gap => self.tx_pool.add_gap(entry),
                 TxStatus::Proposed => self.tx_pool.add_proposed(entry),
             } {

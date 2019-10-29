@@ -87,7 +87,11 @@ pub fn update_tx_pool_for_reorg(
     }
 
     for blk in attached_blocks {
-        attached.extend(blk.transactions().iter().skip(1).cloned())
+        attached.extend(blk.transactions().iter().skip(1).cloned());
+        tx_pool.fee_estimator.process_block(
+            blk.header().number(),
+            blk.transactions().iter().skip(1).map(|tx| tx.hash()),
+        );
     }
 
     let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();

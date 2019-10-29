@@ -459,7 +459,7 @@ pub fn create_2out_transaction(
 
     let privkey: Privkey = PRIVKEY.into();
     let witness: WitnessArgs = WitnessArgs::new_builder()
-        .lock(Bytes::from(vec![0u8; 65]).pack())
+        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
         .build();
     let witness_len: u64 = witness.as_bytes().len() as u64;
     let non_sig_witnesses = vec![Bytes::new(); inputs_count - 1];
@@ -481,7 +481,7 @@ pub fn create_2out_transaction(
         .expect("sign tx")
         .serialize()
         .into();
-    let witness = witness.as_builder().lock(sig.pack()).build();
+    let witness = witness.as_builder().lock(Some(sig).pack()).build();
 
     let mut witnesses = vec![witness.as_bytes().pack()];
     witnesses.extend(non_sig_witnesses.into_iter().map(|w| w.pack()));

@@ -195,7 +195,7 @@ mod tests {
     use ckb_vm::{
         memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
-        CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
+        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use proptest::{collection::size_range, prelude::*};
     use std::collections::HashMap;
@@ -560,7 +560,7 @@ mod tests {
 
     struct MockDataLoader {
         headers: HashMap<Byte32, HeaderView>,
-        epoches: HashMap<Byte32, EpochExt>,
+        epochs: HashMap<Byte32, EpochExt>,
     }
 
     impl DataLoader for MockDataLoader {
@@ -574,7 +574,7 @@ mod tests {
             self.headers.get(block_hash).cloned()
         }
         fn get_block_epoch(&self, block_hash: &Byte32) -> Option<EpochExt> {
-            self.epoches.get(block_hash).cloned()
+            self.epochs.get(block_hash).cloned()
         }
     }
 
@@ -602,7 +602,7 @@ mod tests {
         headers.insert(header.hash().clone(), header.clone());
         let data_loader = MockDataLoader {
             headers,
-            epoches: HashMap::default(),
+            epochs: HashMap::default(),
         };
         let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
@@ -678,9 +678,9 @@ mod tests {
 
         let mut headers = HashMap::default();
         headers.insert(header.hash().clone(), header.clone());
-        let mut epoches = HashMap::default();
-        epoches.insert(header.hash().clone(), epoch.clone());
-        let data_loader = MockDataLoader { headers, epoches };
+        let mut epochs = HashMap::default();
+        epochs.insert(header.hash().clone(), epoch.clone());
+        let data_loader = MockDataLoader { headers, epochs };
         let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
@@ -926,7 +926,7 @@ mod tests {
         }
     }
 
-    fn _test_load_witness(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -935,7 +935,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
+        machine.set_register(A4, u64::from(Source::Transaction(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
         let witness = Bytes::from(data).pack();
@@ -944,7 +944,8 @@ mod tests {
 
         let witnesses = vec![witness.clone()];
         let group_inputs = vec![];
-        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
+        let group_outputs = vec![];
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -970,12 +971,17 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_witness(data)?;
+        fn test_load_witness_by_input(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_witness(data, SourceEntry::Input)?;
+        }
+
+        #[test]
+        fn test_load_witness_by_output(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_witness(data, SourceEntry::Output)?;
         }
     }
 
-    fn _test_load_group_witness(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -984,7 +990,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
+        machine.set_register(A4, u64::from(Source::Group(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
         let witness = Bytes::from(data).pack();
@@ -994,7 +1000,8 @@ mod tests {
         let dummy_witness = Bytes::default().pack();
         let witnesses = vec![dummy_witness, witness.clone()];
         let group_inputs = vec![1];
-        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
+        let group_outputs = vec![1];
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -1020,8 +1027,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_group_witness(data)?;
+        fn test_load_group_witness_by_input(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data, SourceEntry::Input)?;
+        }
+
+        fn test_load_group_witness_by_output(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data, SourceEntry::Output)?;
         }
     }
 
@@ -1194,6 +1205,46 @@ mod tests {
         fn test_load_data(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
             _test_load_cell_data(data)?;
         }
+    }
+
+    #[test]
+    fn test_load_overflowed_cell_data_as_code() {
+        let data = vec![0, 1, 2, 3, 4, 5];
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 3); // content offset
+        machine.set_register(A3, u64::max_value() - 1); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell_data = Bytes::from(data);
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_cell_deps = vec![dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCellData::new(
+            &data_loader,
+            &outputs,
+            &resolved_inputs,
+            &resolved_cell_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
+
+        let result = load_code.ecall(&mut machine);
+        assert_eq!(result.unwrap_err(), VMError::OutOfBound);
     }
 
     fn _test_load_cell_data_on_freezed_memory(

@@ -6,6 +6,7 @@ pub mod cache;
 mod contextual_block_verifier;
 mod convert;
 mod error;
+mod genesis_verifier;
 mod header_verifier;
 mod transaction_verifier;
 pub mod txs_verify_cache;
@@ -21,6 +22,7 @@ pub use crate::error::{
     HeaderError, HeaderErrorKind, InvalidParentError, NumberError, PowError, TimestampError,
     TransactionError, UnclesError, UnknownParentError,
 };
+pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
 pub use crate::transaction_verifier::{
     ContextualTransactionVerifier, ScriptVerifier, TransactionVerifier,

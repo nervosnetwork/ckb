@@ -70,7 +70,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             let mut lock = multi_sign_script.to_vec();
             lock.extend(vec![0u8; 65 * self.keys.len()]);
             WitnessArgs::new_builder()
-                .lock(Bytes::from(lock).pack())
+                .lock(Some(Bytes::from(lock)).pack())
                 .build()
         };
         let witness_len = witness.as_slice().len() as u64;
@@ -89,7 +89,10 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             let sig = key.sign_recoverable(&message).expect("sign");
             lock.extend_from_slice(&sig.serialize());
         });
-        let witness = witness.as_builder().lock(Bytes::from(lock).pack()).build();
+        let witness = witness
+            .as_builder()
+            .lock(Some(Bytes::from(lock)).pack())
+            .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)

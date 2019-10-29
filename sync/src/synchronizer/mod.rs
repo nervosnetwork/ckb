@@ -94,7 +94,11 @@ impl Synchronizer {
     ) {
         if let Err(err) = self.try_process(nc, peer, message) {
             debug!("try_process error: {}", err);
-            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+            nc.ban_peer(
+                peer,
+                BAD_MESSAGE_BAN_TIME,
+                format!("sync message process error: {}", err),
+            );
         }
     }
 
@@ -399,7 +403,11 @@ impl CKBProtocolHandler for Synchronizer {
             Ok(msg) => msg.to_enum(),
             _ => {
                 info!("Peer {} sends us a malformed message", peer_index);
-                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                nc.ban_peer(
+                    peer_index,
+                    BAD_MESSAGE_BAN_TIME,
+                    String::from("send us a malformed message"),
+                );
                 return;
             }
         };
@@ -1000,7 +1008,7 @@ mod tests {
             unimplemented!();
         }
         fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
-        fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {}
+        fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {}
         // Other methods
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();

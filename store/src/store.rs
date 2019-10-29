@@ -184,6 +184,10 @@ pub trait ChainStore<'a>: Send + Sync {
             .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(&raw.as_ref()[..]).unpack())
     }
 
+    fn is_main_chain(&'a self, hash: &packed::Byte32) -> bool {
+        self.get_block_number(&hash).is_some()
+    }
+
     fn get_tip_header(&'a self) -> Option<HeaderView> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
             .and_then(|raw| {

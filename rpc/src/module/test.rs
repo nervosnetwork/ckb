@@ -1,9 +1,10 @@
 use crate::error::RPCError;
 use ckb_chain::{chain::ChainController, switch::Switch};
-use ckb_jsonrpc_types::{Block, Cycle, Transaction};
+use ckb_jsonrpc_types::{Block, BlockView, Cycle, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
@@ -25,6 +26,9 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
+
+    #[rpc(name = "get_fork_block")]
+    fn get_fork_block(&self, _hash: H256) -> Result<Option<BlockView>>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -83,5 +87,14 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         } else {
             Ok(hash.unpack())
         }
+    }
+
+    fn get_fork_block(&self, hash: H256) -> Result<Option<BlockView>> {
+        let snapshot = self.shared.snapshot();
+        if snapshot.is_main_chain(&hash.pack()) {
+            return Ok(None);
+        }
+
+        Ok(snapshot.get_block(&hash.pack()).map(Into::into))
     }
 }

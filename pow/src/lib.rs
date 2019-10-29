@@ -37,6 +37,10 @@ impl Pow {
             Pow::Eaglesong => Arc::new(EaglesongPowEngine),
         }
     }
+
+    pub fn is_dummy(&self) -> bool {
+        *self == Pow::Dummy
+    }
 }
 
 pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {

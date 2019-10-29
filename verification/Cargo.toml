@@ -16,6 +16,7 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8
 ckb-traits = { path = "../traits" }
 ckb-chain-spec = { path = "../spec" }
 ckb-dao = { path = "../util/dao" }
+ckb-dao-utils = { path = "../util/dao/utils" }
 ckb-logger = {path = "../util/logger"}
 ckb-reward-calculator= { path = "../util/reward-calculator" }
 failure = "0.1.5"
@@ -30,4 +31,5 @@ ckb-future-executor = { path = "../util/future-executor" }
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
+ckb-resource = { path = "../resource" }
 rand = "0.6"
