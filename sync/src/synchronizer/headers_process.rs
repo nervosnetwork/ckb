@@ -248,7 +248,6 @@ impl<'a> HeadersProcess<'a> {
             // update peer last_block_announcement
         }
 
-        // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
             self.snapshot
@@ -311,19 +310,6 @@ where
         }
     }
 
-    //FIXME: status flag
-    pub fn duplicate_check(&self, _state: &mut ValidationResult) -> Result<(), ()> {
-        // let status = self.synchronizer.get_block_status(&self.header.hash());
-        // if status != BlockStatus::UNKNOWN {
-        //     if (status & BlockStatus::FAILED_MASK) == status {
-        //         state.invalid(Some(ValidationError::FailedMask));
-        //     }
-        //     if (status & BlockStatus::FAILED_MASK) == status {}
-        //     return Err(());
-        // }
-        Ok(())
-    }
-
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         if self.snapshot.contains_block_status(
             &self.header.data().raw().parent_hash(),
@@ -383,15 +369,6 @@ where
                 .state()
                 .peers()
                 .new_header_received(self.peer, &header_view);
-            return result;
-        }
-
-        if self.duplicate_check(&mut result).is_err() {
-            debug!(
-                "HeadersProcess reject duplicate header: {} {}",
-                self.header.number(),
-                self.header.hash()
-            );
             return result;
         }
 
