@@ -343,7 +343,7 @@ dependencies = [
  "ckb-jsonrpc-types 0.24.0-pre",
  "ckb-shared 0.24.0-pre",
  "ckb-store 0.24.0-pre",
- "ckb-system-scripts 0.4.0-alpha.17+multisig-since (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-test-chain-utils 0.24.0-pre",
  "ckb-tx-pool 0.24.0-pre",
  "ckb-types 0.24.0-pre",
@@ -773,7 +773,7 @@ dependencies = [
 name = "ckb-resource"
 version = "0.24.0-pre"
 dependencies = [
- "ckb-system-scripts 0.4.0-alpha.17+multisig-since (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-types 0.24.0-pre",
  "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-system-scripts"
-version = "0.4.0-alpha.17+multisig-since"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "blake2b-rs 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3982,7 +3982,7 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)" = "e8493056968583b0193c1bb04d6f7684586f3726992d6c573261941a895dbd68"
-"checksum ckb-system-scripts 0.4.0-alpha.17+multisig-since (registry+https://github.com/rust-lang/crates.io-index)" = "0b10c233f4191957a1c0517c9823edb129b7c190ea2d2e7f4df108806774280e"
+"checksum ckb-system-scripts 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1572ed1974447f11c7609f34477085a3dceea9241065644298dd2dce65b7b791"
 "checksum ckb-vm 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)" = "410eca836e677ea70f73358b53220c284836c3cbb3ecf9ee531606d926881f59"
 "checksum ckb-vm-definitions 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)" = "201ab0ce4cf5644b3f0cacc9d772011f66c132d5e62ab35918413d9a6c29e6a7"
 "checksum clang-sys 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)" = "81de550971c976f176130da4b2978d3b524eaa0fd9ac31f3ceb5ae1231fb4853"

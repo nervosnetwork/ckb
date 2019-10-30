@@ -4,7 +4,10 @@ use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
-use ckb_network::{CKBProtocol, NetworkService, NetworkState};
+use ckb_network::{
+    CKBProtocol, NetworkService, NetworkState, MAX_FRAME_LENGTH_ALERT, MAX_FRAME_LENGTH_RELAY,
+    MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
+};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
@@ -75,6 +78,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             "syn".to_string(),
             NetworkProtocol::SYNC.into(),
             &["1".to_string()][..],
+            MAX_FRAME_LENGTH_SYNC,
             move || Box::new(synchronizer_clone.clone()),
             Arc::clone(&network_state),
         ),
@@ -82,6 +86,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             "rel".to_string(),
             NetworkProtocol::RELAY.into(),
             &["1".to_string()][..],
+            MAX_FRAME_LENGTH_RELAY,
             move || Box::new(relayer.clone()),
             Arc::clone(&network_state),
         ),
@@ -89,6 +94,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             "tim".to_string(),
             NetworkProtocol::TIME.into(),
             &["1".to_string()][..],
+            MAX_FRAME_LENGTH_TIME,
             move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
         ),
@@ -96,6 +102,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             "alt".to_string(),
             NetworkProtocol::ALERT.into(),
             &["1".to_string()][..],
+            MAX_FRAME_LENGTH_ALERT,
             move || Box::new(alert_relayer.clone()),
             Arc::clone(&network_state),
         ),

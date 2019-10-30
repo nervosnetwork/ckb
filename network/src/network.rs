@@ -15,9 +15,10 @@ use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService,
 };
-use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
+    Behaviour, CKBProtocol, NetworkConfig, Peer, ProtocolId, ProtocolVersion, PublicKey,
+    ServiceControl, MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY,
+    MAX_FRAME_LENGTH_FEELER, MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
 };
 use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
@@ -53,6 +54,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
+use tokio::codec::length_delimited;
 use tokio::runtime;
 
 pub(crate) const PING_PROTOCOL_ID: usize = 0;
@@ -573,7 +575,17 @@ impl ServiceHandle for EventHandler {
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 let message = format!("ProtocolError id={}", proto_id);
-                if let Err(err) = disconnect_with_message(context.control(), id, message.as_str()) {
+                // Ban because misbehave of remote peer
+                if let P2pError::IoError(_) = error {
+                    self.network_state.ban_session(
+                        &context.control(),
+                        id,
+                        Duration::from_secs(300),
+                        message,
+                    );
+                } else if let Err(err) =
+                    disconnect_with_message(context.control(), id, message.as_str())
+                {
                     debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
@@ -839,6 +851,13 @@ impl NetworkService {
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID.into())
             .name(move |_| "/ckb/ping".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_PING)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
                     ping_interval,
@@ -853,6 +872,13 @@ impl NetworkService {
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/discovery".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_DISCOVERY)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(
                     DiscoveryProtocol::new(disc_sender.clone())
@@ -867,6 +893,13 @@ impl NetworkService {
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/identify".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_IDENTIFY)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
             })
@@ -877,6 +910,13 @@ impl NetworkService {
         let feeler_meta = MetaBuilder::default()
             .id(FEELER_PROTOCOL_ID.into())
             .name(move |_| "/ckb/flr".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_FEELER)
+                        .new_codec(),
+                )
+            })
             .service_handle({
                 let network_state = Arc::clone(&network_state);
                 move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
@@ -886,6 +926,13 @@ impl NetworkService {
         let disconnect_message_meta = MetaBuilder::default()
             .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
             .name(move |_| "/ckb/disconnectmsg".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_DISCONNECTMSG)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
             .build();
 
