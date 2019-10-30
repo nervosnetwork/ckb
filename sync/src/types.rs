@@ -76,7 +76,6 @@ pub struct PeerFlags {
 pub struct PeerState {
     pub sync_started: bool,
     pub headers_sync_timeout: Option<u64>,
-    pub last_block_announcement: Option<u64>, //ms
     pub peer_flags: PeerFlags,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
@@ -93,7 +92,6 @@ impl PeerState {
         PeerState {
             sync_started: false,
             headers_sync_timeout: None,
-            last_block_announcement: None,
             peer_flags,
             disconnect: false,
             chain_sync: ChainSyncState::default(),
