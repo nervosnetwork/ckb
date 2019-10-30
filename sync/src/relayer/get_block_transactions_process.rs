@@ -1,8 +1,8 @@
-use crate::relayer::Relayer;
-use ckb_logger::debug_target;
+use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
+use ckb_logger::{debug_target, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
-use failure::Error as FailureError;
+use failure::{err_msg, Error as FailureError};
 use std::sync::Arc;
 
 pub struct GetBlockTransactionsProcess<'a> {
@@ -29,6 +29,27 @@ impl<'a> GetBlockTransactionsProcess<'a> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let snapshot = self.relayer.shared.snapshot();
+        {
+            let get_block_transactions = self.message;
+            if get_block_transactions.indexes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
+                warn!("Peer {} sends us an invalid message, GetBlockTransactions indexes size ({}) is greater than MAX_RELAY_TXS_NUM_PER_BATCH ({})",
+                    self.peer, get_block_transactions.indexes().len(), MAX_RELAY_TXS_NUM_PER_BATCH);
+                return Err(err_msg(
+                    "GetBlockTransactions indexes size is greater than MAX_RELAY_TXS_NUM_PER_BATCH"
+                        .to_owned(),
+                ));
+            }
+            if get_block_transactions.uncle_indexes().len() > snapshot.consensus().max_uncles_num()
+            {
+                warn!("Peer {} sends us an invalid message, GetBlockTransactions uncle_indexes size ({}) is greater than consensus max_uncles_num ({})",
+                    self.peer, get_block_transactions.uncle_indexes().len(), snapshot.consensus().max_uncles_num());
+                return Err(err_msg(
+                    "GetBlockTransactions uncle_indexes size is greater than consensus max_uncles_num"
+                        .to_owned(),
+                ));
+            }
+        }
+
         let block_hash = self.message.block_hash().to_entity();
         debug_target!(
             crate::LOG_TARGET_RELAY,

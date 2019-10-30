@@ -1,11 +1,11 @@
-use crate::relayer::Relayer;
-use ckb_logger::debug_target;
+use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
+use ckb_logger::{debug_target, warn};
 use ckb_network::PeerIndex;
 use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use failure::Error as FailureError;
+use failure::{err_msg, Error as FailureError};
 use std::collections::HashMap;
 
 pub struct TransactionHashesProcess<'a> {
@@ -29,6 +29,18 @@ impl<'a> TransactionHashesProcess<'a> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let state = self.relayer.shared().state();
+        {
+            let relay_transaction_hashes = self.message;
+            if relay_transaction_hashes.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
+                warn!("Peer {} sends us an invalid message, RelayTransactionHashes tx_hashes size ({}) is greater than MAX_RELAY_TXS_NUM_PER_BATCH ({})",
+                    self.peer, relay_transaction_hashes.tx_hashes().len(), MAX_RELAY_TXS_NUM_PER_BATCH);
+                return Err(err_msg(
+                    "RelayTransactionHashes tx_hashes size is greater than MAX_RELAY_TXS_NUM_PER_BATCH"
+                        .to_owned(),
+                ));
+            }
+        }
+
         let hashes: Vec<Byte32> = {
             let tx_filter = state.tx_filter();
             self.message

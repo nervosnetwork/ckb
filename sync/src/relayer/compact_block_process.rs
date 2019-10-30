@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
 use crate::relayer::{ReconstructionError, Relayer};
-use ckb_logger::{self, debug_target};
+use ckb_logger::{self, debug_target, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
@@ -13,7 +13,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_verification::{HeaderVerifier, Verifier};
-use failure::Error as FailureError;
+use failure::{err_msg, Error as FailureError};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -61,6 +61,27 @@ impl<'a> CompactBlockProcess<'a> {
 
     pub fn execute(self) -> Result<Status, FailureError> {
         let snapshot = self.relayer.shared.snapshot();
+        {
+            let compact_block = self.message;
+            if compact_block.uncles().len() > snapshot.consensus().max_uncles_num() {
+                warn!("Peer {} sends us an invalid message, CompactBlock uncles size ({}) is greater than consensus max_uncles_num ({})",
+                    self.peer, compact_block.uncles().len(), snapshot.consensus().max_uncles_num());
+                return Err(err_msg(
+                    "CompactBlock uncles size is greater than consensus max_uncles_num".to_owned(),
+                ));
+            }
+            if (compact_block.proposals().len() as u64)
+                > snapshot.consensus().max_block_proposals_limit()
+            {
+                warn!("Peer {} sends us an invalid message, CompactBlock proposals size ({}) is greater than consensus max_block_proposals_limit ({})",
+                    self.peer, compact_block.proposals().len(), snapshot.consensus().max_block_proposals_limit());
+                return Err(err_msg(
+                    "CompactBlock proposals size is greater than consensus max_block_proposals_limit"
+                        .to_owned(),
+                ));
+            }
+        }
+
         let compact_block = self.message.to_entity();
         let header = compact_block.header().into_view();
         let block_hash = header.hash();
