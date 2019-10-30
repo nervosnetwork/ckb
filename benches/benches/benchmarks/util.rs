@@ -436,7 +436,7 @@ pub fn create_2out_transaction(
     lock: Script,
     cell_deps: Vec<CellDep>,
 ) -> TransactionView {
-    let data: Bytes = (0..255).collect();
+    let data: Bytes = Bytes::new();
 
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
     let cell_output = CellOutput::new_builder()
