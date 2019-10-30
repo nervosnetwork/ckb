@@ -215,8 +215,8 @@ impl From<core::DepType> for DepType {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CellDep {
-    out_point: OutPoint,
-    dep_type: DepType,
+    pub out_point: OutPoint,
+    pub dep_type: DepType,
 }
 
 impl From<packed::CellDep> for CellDep {
