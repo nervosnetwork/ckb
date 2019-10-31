@@ -8,7 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
 // default max tx verify cycles
-const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 10;
+const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
