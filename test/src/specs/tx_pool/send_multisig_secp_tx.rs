@@ -139,7 +139,7 @@ fn gen_multi_sign_script(keys: &[Privkey], threshold: u8, require_first_n: u8) -
         .collect::<Vec<_>>();
     let mut script = vec![0u8, require_first_n, threshold, pubkeys.len() as u8];
     pubkeys.iter().for_each(|pubkey| {
-        script.extend_from_slice(&pubkey.serialize());
+        script.extend_from_slice(&blake160(&pubkey.serialize()).as_bytes());
     });
     script.into()
 }
