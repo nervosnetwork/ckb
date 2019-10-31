@@ -339,7 +339,7 @@ impl TxPoolService {
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
-        let tx_pool_config = tx_pool.config.clone();
+        let tx_pool_config = tx_pool.config;
         Self {
             tx_pool: Lock::new(tx_pool),
             tx_pool_config,
