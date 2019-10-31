@@ -1,7 +1,7 @@
 use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
-    iter::{DBIteratorItem, Direction},
+    iter::{DBIter, IteratorMode},
     Col, DBPinnableSlice,
 };
 use ckb_error::Error;
@@ -124,13 +124,8 @@ impl<'a> ChainStore<'a> for Snapshot {
         self.store.get(col, key)
     }
 
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
-        self.store.get_iter(col, from_key, direction)
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+        self.store.get_iter(col, mode)
     }
 
     fn get_tip_header(&self) -> Option<HeaderView> {
