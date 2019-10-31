@@ -363,6 +363,7 @@ fn all_specs() -> SpecMap {
         Box::new(ConflictInPending),
         Box::new(ConflictInGap),
         Box::new(ConflictInProposed),
+        Box::new(DAOVerify),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
