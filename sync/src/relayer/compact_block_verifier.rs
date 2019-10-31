@@ -43,7 +43,7 @@ impl PrefilledVerifier {
             }
         }
 
-        // Check highest prefilled index is less then length of block transactions
+        // Check highest prefilled index is less than length of block transactions
         if !prefilled_transactions.is_empty() {
             let index: usize = prefilled_transactions
                 .get(prefilled_transactions.len() - 1)

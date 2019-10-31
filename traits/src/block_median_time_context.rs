@@ -5,7 +5,7 @@ use ckb_types::{core::BlockNumber, packed::Byte32};
 pub trait BlockMedianTimeContext {
     fn median_block_count(&self) -> u64;
 
-    /// Return timestamp and block_number of the corresponding bloch_hash, and hash of parent block
+    /// Return timestamp and block_number of the corresponding block_hash, and hash of parent block
     ///
     /// Fake implementation:
     /// ```ignore
