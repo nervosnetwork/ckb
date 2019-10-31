@@ -686,6 +686,18 @@ impl From<core::BlockReward> for BlockReward {
     }
 }
 
+impl From<BlockReward> for core::BlockReward {
+    fn from(json: BlockReward) -> Self {
+        Self {
+            total: json.total.into(),
+            primary: json.primary.into(),
+            secondary: json.secondary.into(),
+            tx_fee: json.tx_fee.into(),
+            proposal_reward: json.proposal_reward.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

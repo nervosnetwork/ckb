@@ -279,6 +279,7 @@ fn assert_proposed_reward(node: &Node, block_hash: Byte32, expected: u64) {
     let actual = node
         .rpc_client()
         .get_cellbase_output_capacity_details(block_hash.clone())
+        .unwrap()
         .proposal_reward
         .value();
     assert_eq!(
@@ -298,6 +299,7 @@ fn assert_committed_reward(node: &Node, block_hash: Byte32, expected: u64) {
     let actual = node
         .rpc_client()
         .get_cellbase_output_capacity_details(block_hash.clone())
+        .unwrap()
         .tx_fee
         .value();
     assert_eq!(
