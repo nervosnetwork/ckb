@@ -4,7 +4,6 @@ import blockchain;
 
 option BoolOpt (Bool);
 option Byte32Opt (Byte32);
-option BytesOpt (Bytes);
 
 array Bool [byte; 1];
 array BeUint32 [byte; 4];

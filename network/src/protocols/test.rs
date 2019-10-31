@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ckb_util::{Condvar, Mutex};
 use futures::{
     sync::mpsc::{self, channel},
     Stream,
@@ -182,7 +183,7 @@ fn net_service_start(name: String) -> Node {
     // Feeler protocol
     let feeler_meta = MetaBuilder::default()
         .id(FEELER_PROTOCOL_ID.into())
-        .name(move |_| "/ckb/flr/".to_string())
+        .name(move |_| "/ckb/flr".to_string())
         .service_handle({
             let network_state = Arc::clone(&network_state);
             move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
@@ -201,6 +202,7 @@ fn net_service_start(name: String) -> Node {
         .forever(true)
         .build(EventHandler {
             network_state: Arc::clone(&network_state),
+            exit_condvar: Arc::new((Mutex::new(()), Condvar::new())),
         });
 
     let disc_service = DiscoveryService::new(

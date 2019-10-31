@@ -27,6 +27,9 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -34,10 +37,17 @@ args = "0x"
 hash_type = "data"
 
 # Dep group cells
-[genesis.dep_groups]
-secp256k1_blake160_sighash_all = [
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_sighash_all"
+files = [
   { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
 ]
 
 # For first 11 block
@@ -76,6 +86,9 @@ cellbase_maturity = 0
 primary_epoch_reward_halving_interval = 8760
 epoch_duration_target = 14400
 genesis_epoch_length = 1000
+# For development and testing purposes only.
+# Keep difficulty be permanent if the pow is Dummy. (default: false)
+# permanent_difficulty_in_dummy = true
 
 [pow]
 func = "Dummy"

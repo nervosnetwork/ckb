@@ -28,7 +28,7 @@ pub use self::blockchain::{
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
-pub use self::experiment::DryRunResult;
+pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
 pub use self::net::{BannedAddr, Node, NodeAddress};
@@ -40,6 +40,6 @@ pub use self::uint32::Uint32;
 pub use self::uint64::Uint64;
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
-    BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, Timestamp, Version,
+    BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, FeeRate, Timestamp, Version,
 };
 pub use serde_derive::{Deserialize, Serialize};

@@ -26,7 +26,7 @@ pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Sen
 use crate::{
     compress::{compress, decompress},
     network::disconnect_with_message,
-    Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
+    Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion,
 };
 
 pub trait CKBProtocolContext: Send {
@@ -56,7 +56,7 @@ pub trait CKBProtocolContext: Send {
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
     fn connected_peers(&self) -> Vec<PeerIndex>;
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
-    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration);
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
     fn send_paused(&self) -> bool;
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
@@ -94,6 +94,7 @@ pub struct CKBProtocol {
     protocol_name: String,
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
+    max_frame_length: usize,
     handler: Box<dyn Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>,
     network_state: Arc<NetworkState>,
 }
@@ -103,14 +104,16 @@ impl CKBProtocol {
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
+        max_frame_length: usize,
         handler: F,
         network_state: Arc<NetworkState>,
     ) -> Self {
         CKBProtocol {
             id,
+            max_frame_length,
             network_state,
             handler: Box::new(handler),
-            protocol_name: format!("/ckb/{}/", protocol_name).to_string(),
+            protocol_name: format!("/ckb/{}", protocol_name).to_string(),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
                 versions.sort_by(|a, b| b.cmp(a));
@@ -133,6 +136,7 @@ impl CKBProtocol {
 
     pub fn build(self) -> ProtocolMeta {
         let protocol_name = self.protocol_name();
+        let max_frame_length = self.max_frame_length;
         let supported_versions = self
             .supported_versions
             .iter()
@@ -141,10 +145,10 @@ impl CKBProtocol {
         MetaBuilder::default()
             .id(self.id)
             .name(move |_| protocol_name.clone())
-            .codec(|| {
+            .codec(move || {
                 Box::new(
                     length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH)
+                        .max_frame_length(max_frame_length)
                         .new_codec(),
                 )
             })
@@ -355,9 +359,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         self.network_state
             .report_session(&self.p2p_control, peer_index, behaviour);
     }
-    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration) {
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
         self.network_state
-            .ban_session(&self.p2p_control, peer_index, duration, Default::default());
+            .ban_session(&self.p2p_control, peer_index, duration, reason);
     }
 
     fn protocol_id(&self) -> ProtocolId {

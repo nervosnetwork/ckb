@@ -1,18 +1,21 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
-use crate::{OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
-use ckb_dao_utils::{genesis_dao_data, genesis_dao_data_with_satoshi_gift};
+use crate::{
+    calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+};
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_types::{
+    bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
         BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
         EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
     },
     h160, h256,
-    packed::{Byte32, CellInput, Script},
+    packed::{Byte32, CellInput, CellOutput, Script},
     prelude::*,
     u256,
     utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
@@ -49,11 +52,11 @@ const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
-pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_200_000;
+pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_500_000;
 // bytes of a typical two-in-two-out tx
-pub const TWO_IN_TWO_OUT_BYTES: u64 = 557;
+pub const TWO_IN_TWO_OUT_BYTES: u64 = 597;
 // count of two-in-two-out txs a block should capable to package
-const TWO_IN_TWO_OUT_COUNT: u64 = 1_600;
+const TWO_IN_TWO_OUT_COUNT: u64 = 1_000;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
@@ -64,7 +67,7 @@ pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
 const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
 // 1.5 * TWO_IN_TWO_OUT_COUNT
-const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 2_400;
+const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
@@ -119,9 +122,19 @@ pub struct ConsensusBuilder {
 impl Default for ConsensusBuilder {
     fn default() -> Self {
         let input = CellInput::new_cellbase_input(0);
+        // at least issue some shannons to make dao field valid.
+        let output = {
+            let empty_output = CellOutput::new_builder().build();
+            let occupied = empty_output
+                .occupied_capacity(Capacity::zero())
+                .expect("default occupied");
+            empty_output.as_builder().capacity(occupied.pack()).build()
+        };
         let witness = Script::default().into_witness();
         let cellbase = TransactionBuilder::default()
             .input(input)
+            .output(output)
+            .output_data(Bytes::new().pack())
             .witness(witness)
             .build();
 
@@ -131,8 +144,19 @@ impl Default for ConsensusBuilder {
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
         );
+        let primary_issuance =
+            calculate_block_reward(INITIAL_PRIMARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
+        let secondary_issuance =
+            calculate_block_reward(DEFAULT_SECONDARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
 
-        let dao = genesis_dao_data(vec![&cellbase]).expect("genesis dao data calculation error!");
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase],
+            &SATOSHI_PUBKEY_HASH,
+            SATOSHI_CELL_OCCUPIED_RATIO,
+            primary_issuance,
+            secondary_issuance,
+        )
+        .expect("genesis dao data calculation error!");
 
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())
@@ -175,9 +199,17 @@ pub fn build_genesis_dao_data(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
+    genesis_primary_issuance: Capacity,
+    genesis_secondary_issuance: Capacity,
 ) -> Byte32 {
-    genesis_dao_data_with_satoshi_gift(txs, satoshi_pubkey_hash, satoshi_cell_occupied_ratio)
-        .expect("genesis dao data calculation error!")
+    genesis_dao_data_with_satoshi_gift(
+        txs,
+        satoshi_pubkey_hash,
+        satoshi_cell_occupied_ratio,
+        genesis_primary_issuance,
+        genesis_secondary_issuance,
+    )
+    .expect("genesis dao data calculation error!")
 }
 
 impl ConsensusBuilder {
@@ -210,6 +242,7 @@ impl ConsensusBuilder {
                 satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+                permanent_difficulty_in_dummy: false,
             },
         }
     }
@@ -336,6 +369,11 @@ impl ConsensusBuilder {
         self.inner.epoch_duration_target = target;
         self
     }
+
+    pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
+        self.inner.permanent_difficulty_in_dummy = permanent;
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -380,6 +418,8 @@ pub struct Consensus {
     // Primary reward is cut in half every halving_interval epoch
     // which will occur approximately every 4 years.
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    // Keep difficulty be permanent if the pow is dummy
+    pub permanent_difficulty_in_dummy: bool,
 }
 
 // genesis difficulty should not be zero
@@ -472,6 +512,10 @@ impl Consensus {
         self.pow.engine()
     }
 
+    pub fn permanent_difficulty(&self) -> bool {
+        self.pow.is_dummy() && self.permanent_difficulty_in_dummy
+    }
+
     pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
     }
@@ -560,6 +604,17 @@ impl Consensus {
         let header_number = header.number();
         if header_number != (last_epoch.start_number() + last_epoch_length - 1) {
             return None;
+        }
+
+        if self.permanent_difficulty() {
+            let dummy_epoch_ext = last_epoch
+                .clone()
+                .into_builder()
+                .number(last_epoch.number() + 1)
+                .last_block_hash_in_previous_epoch(header.hash())
+                .start_number(header_number + 1)
+                .build();
+            return Some(dummy_epoch_ext);
         }
 
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {

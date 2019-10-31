@@ -5,9 +5,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-pub fn wait_for_exit() {
-    let exit = Arc::new((Mutex::new(()), Condvar::new()));
-
+pub fn wait_for_exit(exit: Arc<(Mutex<()>, Condvar)>) {
     // Handle possible exits
     let e = Arc::<(Mutex<()>, Condvar)>::clone(&exit);
     let _ = ctrlc::set_handler(move || {

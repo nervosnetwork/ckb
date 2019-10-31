@@ -1,5 +1,8 @@
 mod block_template;
 mod chain_reorg;
+mod estimate_fee_rate;
+mod estimator_process_block;
+mod estimator_track_tx;
 mod fetch_tx_for_rpc;
 mod fetch_txs;
 mod fetch_txs_with_cycles;
@@ -15,6 +18,9 @@ pub use block_template::{
 };
 pub use chain_reorg::ChainReorgProcess;
 pub use ckb_verification::txs_verify_cache::{FetchCache, UpdateCache};
+pub use estimate_fee_rate::EstimateFeeRateProcess;
+pub use estimator_process_block::EstimatorProcessBlockProcess;
+pub use estimator_track_tx::EstimatorTrackTxProcess;
 pub use fetch_tx_for_rpc::FetchTxRPCProcess;
 pub use fetch_txs::FetchTxsProcess;
 pub use fetch_txs_with_cycles::FetchTxsWithCyclesProcess;

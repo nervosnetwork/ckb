@@ -89,8 +89,11 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         }
         let cell = cell.unwrap();
 
+        let content_end = content_offset
+            .checked_add(content_size)
+            .ok_or(VMError::OutOfBound)?;
         if content_offset >= cell.data_bytes
-            || (content_offset + content_size) > cell.data_bytes
+            || content_end > cell.data_bytes
             || content_size > memory_size
         {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
@@ -105,10 +108,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             addr,
             memory_size,
             FLAG_EXECUTABLE | FLAG_FREEZED,
-            Some(data.slice(
-                content_offset as usize,
-                (content_offset + content_size) as usize,
-            )),
+            Some(data.slice(content_offset as usize, content_end as usize)),
             0,
         )?;
 

@@ -225,8 +225,10 @@ impl Spec for WithdrawDAOWithInvalidWitness {
 
         // Withdraw DAO with witness point to out-of-index dependency. DAO script `ckb_load_header` failed
         {
-            let withdraw_header_index: Bytes = 9u64.to_le_bytes().to_vec().into();
-            let witness: packed::Bytes = withdraw_header_index.pack();
+            let withdraw_header_index: WitnessArgs = WitnessArgs::new_builder()
+                .input_type(Some(Bytes::from(9u64.to_le_bytes().to_vec())).pack())
+                .build();
+            let witness: packed::Bytes = withdraw_header_index.as_bytes().pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()

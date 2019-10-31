@@ -52,9 +52,7 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
-                .call()
                 .is_ok(),
             "transaction is ok, tip is equal to relative since block number",
         );
@@ -80,9 +78,7 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
-                .call()
                 .is_ok(),
             "transaction is ok, tip is equal to absolute since block number",
         );
@@ -91,8 +87,9 @@ impl ValidSince {
     pub fn test_since_relative_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        let cellbase = node.get_tip_block().transactions()[0].clone();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
+        node.generate_block();
+        let cellbase = node.get_tip_block().transactions()[0].clone();
         sleep(Duration::from_secs(2));
 
         node.generate_blocks(median_time_block_count as usize);
@@ -126,9 +123,7 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
-                    .call()
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );
@@ -171,9 +166,7 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
-                    .call()
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );

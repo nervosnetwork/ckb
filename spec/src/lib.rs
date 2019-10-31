@@ -18,7 +18,8 @@ use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -31,7 +32,7 @@ use ckb_types::{
     H160, H256, U128,
 };
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -50,6 +51,7 @@ const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
 pub const OUTPUT_INDEX_DAO: u64 = 2;
 pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
+pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
@@ -69,6 +71,8 @@ pub struct Params {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     pub epoch_duration_target: u64,
     pub genesis_epoch_length: BlockNumber,
+    #[serde(default)]
+    pub permanent_difficulty_in_dummy: bool,
 }
 
 impl Default for Params {
@@ -86,6 +90,7 @@ impl Default for Params {
             primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
             epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
             genesis_epoch_length: GENESIS_EPOCH_LENGTH,
+            permanent_difficulty_in_dummy: false,
         }
     }
 }
@@ -104,7 +109,7 @@ pub struct Genesis {
     pub system_cells: Vec<SystemCell>,
     pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
-    pub dep_groups: BTreeMap<String, Vec<Resource>>,
+    pub dep_groups: Vec<DepGroupResource>,
     #[serde(default)]
     pub satoshi_gift: SatoshiGift,
 }
@@ -126,6 +131,12 @@ pub struct GenesisCell {
 pub struct IssuedCell {
     pub capacity: Capacity,
     pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct DepGroupResource {
+    pub name: String,
+    pub files: Vec<Resource>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -230,6 +241,7 @@ impl ChainSpec {
             )
             .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
             .epoch_duration_target(self.params.epoch_duration_target)
+            .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy)
             .build();
 
         Ok(consensus)
@@ -239,10 +251,20 @@ impl ChainSpec {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
+
+        let genesis_epoch_length = self.params.genesis_epoch_length;
+        let genesis_primary_issuance = calculate_block_reward(
+            self.params.initial_primary_epoch_reward,
+            genesis_epoch_length,
+        );
+        let genesis_secondary_issuance =
+            calculate_block_reward(self.params.secondary_epoch_reward, genesis_epoch_length);
         let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
             &self.genesis.satoshi_gift.satoshi_pubkey_hash,
             self.genesis.satoshi_gift.satoshi_cell_occupied_ratio,
+            genesis_primary_issuance,
+            genesis_secondary_issuance,
         );
 
         let block = BlockBuilder::default()
@@ -348,6 +370,11 @@ impl ChainSpec {
             OUTPUT_INDEX_SECP256K1_DATA as usize,
             &CODE_HASH_SECP256K1_DATA,
         )?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL as usize,
+            &CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+        )?;
 
         Ok(())
     }
@@ -444,9 +471,10 @@ impl ChainSpec {
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
             .genesis
             .dep_groups
-            .values()
-            .map(|files| {
-                let out_points: Vec<_> = files
+            .iter()
+            .map(|dep_group| {
+                let out_points: Vec<_> = dep_group
+                    .files
                     .iter()
                     .map(|res| {
                         let data: Bytes = res.get()?.into_owned().into();
@@ -578,6 +606,17 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
         .hash_type(ScriptHashType::Type.into())
         .args(script_arg.pack())
         .build()
+}
+
+pub fn calculate_block_reward(epoch_reward: Capacity, epoch_length: BlockNumber) -> Capacity {
+    let epoch_reward = epoch_reward.as_u64();
+    Capacity::shannons({
+        if epoch_reward % epoch_length != 0 {
+            epoch_reward / epoch_length + 1
+        } else {
+            epoch_reward / epoch_length
+        }
+    })
 }
 
 #[cfg(test)]

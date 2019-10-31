@@ -15,14 +15,15 @@ use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService,
 };
-use crate::Peer;
 use crate::{
-    Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
+    Behaviour, CKBProtocol, NetworkConfig, Peer, ProtocolId, ProtocolVersion, PublicKey,
+    ServiceControl, MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY,
+    MAX_FRAME_LENGTH_FEELER, MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
 };
 use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_util::{Mutex, RwLock};
+use ckb_util::{Condvar, Mutex, RwLock};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
@@ -53,6 +54,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
+use tokio::codec::length_delimited;
 use tokio::runtime;
 
 pub(crate) const PING_PROTOCOL_ID: usize = 0;
@@ -129,7 +131,7 @@ impl NetworkState {
             pending_observed_addrs: RwLock::new(HashSet::default()),
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.to_public_key().peer_id(),
+            local_peer_id: local_private_key.public_key().peer_id(),
             protocol_ids: RwLock::new(HashSet::default()),
         })
     }
@@ -290,7 +292,7 @@ impl NetworkState {
     }
 
     pub fn node_id(&self) -> String {
-        self.local_private_key().to_peer_id().to_base58()
+        self.local_private_key().peer_id().to_base58()
     }
 
     pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
@@ -506,6 +508,7 @@ impl NetworkState {
 
 pub struct EventHandler {
     pub(crate) network_state: Arc<NetworkState>,
+    pub(crate) exit_condvar: Arc<(Mutex<()>, Condvar)>,
 }
 
 impl EventHandler {
@@ -572,7 +575,17 @@ impl ServiceHandle for EventHandler {
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 let message = format!("ProtocolError id={}", proto_id);
-                if let Err(err) = disconnect_with_message(context.control(), id, message.as_str()) {
+                // Ban because misbehave of remote peer
+                if let P2pError::IoError(_) = error {
+                    self.network_state.ban_session(
+                        &context.control(),
+                        id,
+                        Duration::from_secs(300),
+                        message,
+                    );
+                } else if let Err(err) =
+                    disconnect_with_message(context.control(), id, message.as_str())
+                {
                     debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
@@ -606,13 +619,28 @@ impl ServiceHandle for EventHandler {
             ServiceError::SessionBlocked { session_context } => {
                 debug!("SessionBlocked: {}", session_context.id);
             }
-            err => {
-                debug!("p2p service error: {:?}", err);
+            ServiceError::ProtocolHandleError { proto_id, error } => {
+                debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
                 use sentry::{capture_message, with_scope, Level};
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
-                    || capture_message(&format!("p2p service error: {:?}", err), Level::Warning),
+                    || {
+                        capture_message(
+                            &format!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id),
+                            Level::Warning,
+                        )
+                    },
                 );
+
+                if let P2pError::SessionProtoHandleAbnormallyClosed(id) = error {
+                    self.network_state.ban_session(
+                        &context.control(),
+                        id,
+                        Duration::from_secs(300),
+                        format!("protocol {} panic when process peer message", proto_id),
+                    );
+                }
+                self.exit_condvar.1.notify_all();
             }
         }
     }
@@ -808,6 +836,7 @@ impl NetworkService {
         protocols: Vec<CKBProtocol>,
         name: String,
         client_version: String,
+        exit_condvar: Arc<(Mutex<()>, Condvar)>,
     ) -> NetworkService {
         let config = &network_state.config;
 
@@ -821,6 +850,14 @@ impl NetworkService {
 
         let ping_meta = MetaBuilder::default()
             .id(PING_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/ping".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_PING)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
                     ping_interval,
@@ -834,6 +871,14 @@ impl NetworkService {
         let (disc_sender, disc_receiver) = mpsc::unbounded();
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/discovery".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_DISCOVERY)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(
                     DiscoveryProtocol::new(disc_sender.clone())
@@ -847,6 +892,14 @@ impl NetworkService {
             IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/identify".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_IDENTIFY)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
             })
@@ -856,7 +909,14 @@ impl NetworkService {
         // TODO: versions
         let feeler_meta = MetaBuilder::default()
             .id(FEELER_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/flr/".to_string())
+            .name(move |_| "/ckb/flr".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_FEELER)
+                        .new_codec(),
+                )
+            })
             .service_handle({
                 let network_state = Arc::clone(&network_state);
                 move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
@@ -866,6 +926,13 @@ impl NetworkService {
         let disconnect_message_meta = MetaBuilder::default()
             .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
             .name(move |_| "/ckb/disconnectmsg".to_string())
+            .codec(|| {
+                Box::new(
+                    length_delimited::Builder::new()
+                        .max_frame_length(MAX_FRAME_LENGTH_DISCONNECTMSG)
+                        .new_codec(),
+                )
+            })
             .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
             .build();
 
@@ -887,6 +954,7 @@ impl NetworkService {
         }
         let event_handler = EventHandler {
             network_state: Arc::clone(&network_state),
+            exit_condvar,
         };
         let p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())

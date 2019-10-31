@@ -57,7 +57,11 @@ impl<'a> BlockProcess<'a> {
                 .shared()
                 .state()
                 .insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
-            self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
+            self.nc.ban_peer(
+                self.peer,
+                BAD_MESSAGE_BAN_TIME,
+                String::from("send us an invalid block"),
+            );
         }
 
         Ok(())

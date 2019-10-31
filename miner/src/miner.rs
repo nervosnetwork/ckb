@@ -105,9 +105,9 @@ impl Miner {
             let block = work.block.as_builder().header(header).build().into_view();
             let block_hash = block.hash();
             if self.stderr_is_tty {
-                debug!("Found! #{} {}", block.number(), block_hash);
+                debug!("Found! #{} {:#x}", block.number(), block_hash);
             } else {
-                info!("Found! #{} {}", block.number(), block_hash);
+                info!("Found! #{} {:#x}", block.number(), block_hash);
             }
 
             // submit block and poll new work
@@ -122,7 +122,7 @@ impl Miner {
             {
                 self.nonces_found += 1;
                 self.pb
-                    .println(format!("Found! #{} {}", block.number(), block_hash));
+                    .println(format!("Found! #{} {:#x}", block.number(), block_hash));
                 self.pb
                     .set_message(&format!("Total nonces found: {:>3}", self.nonces_found));
                 self.pb.inc(1);

@@ -319,7 +319,7 @@ impl ChainService {
 
         if new_best_block {
             debug!(
-                "new best block found: {} => {}, difficulty diff = {:#x}",
+                "new best block found: {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(),
                 block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
@@ -344,9 +344,10 @@ impl ChainService {
         if new_best_block {
             let tip_header = block.header().to_owned();
             info!(
-                "block: {}, hash: {}, total_diff: {:#x}, txs: {}",
+                "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 tip_header.number(),
                 tip_header.hash(),
+                tip_header.epoch(),
                 total_difficulty,
                 block.transactions().len()
             );
@@ -389,9 +390,10 @@ impl ChainService {
             }
         } else {
             info!(
-                "uncle: {}, hash: {}, total_diff: {:#x}, txs: {}",
+                "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 block.header().number(),
                 block.header().hash(),
+                block.header().epoch(),
                 cannon_total_difficulty,
                 block.transactions().len()
             );

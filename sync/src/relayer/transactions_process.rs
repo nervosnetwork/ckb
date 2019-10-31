@@ -124,7 +124,11 @@ impl<'a> TransactionsProcess<'a> {
                             relay_cycles,
                         );
 
-                        nc.ban_peer(peer_index, DEFAULT_BAN_TIME);
+                        nc.ban_peer(
+                            peer_index,
+                            DEFAULT_BAN_TIME,
+                            String::from("send us a transaction with wrong cycles"),
+                        );
                         break;
                     }
                 }
@@ -152,7 +156,11 @@ impl<'a> TransactionsProcess<'a> {
                             )
                         },
                     );
-                    nc.ban_peer(peer_index, DEFAULT_BAN_TIME);
+                    nc.ban_peer(
+                        peer_index,
+                        DEFAULT_BAN_TIME,
+                        String::from("send us an invalid transaction"),
+                    );
                 } else {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,

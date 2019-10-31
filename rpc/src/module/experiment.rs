@@ -1,6 +1,9 @@
 use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Capacity, DryRunResult, OutPoint, Script, Transaction};
+use ckb_fee_estimator::MAX_CONFIRM_BLOCKS;
+use ckb_jsonrpc_types::{
+    Capacity, DryRunResult, EstimateResult, OutPoint, Script, Transaction, Uint64,
+};
 use ckb_logger::error;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -31,6 +34,10 @@ pub trait ExperimentRpc {
     #[rpc(name = "calculate_dao_maximum_withdraw")]
     fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256)
         -> Result<Capacity>;
+
+    // Estimate fee
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> Result<EstimateResult>;
 }
 
 pub(crate) struct ExperimentRpcImpl {
@@ -64,6 +71,40 @@ impl ExperimentRpc for ExperimentRpcImpl {
                 Err(Error::internal_error())
             }
         }
+    }
+
+    fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> Result<EstimateResult> {
+        let expect_confirm_blocks = expect_confirm_blocks.value() as usize;
+        // A tx need 1 block to propose, then 2 block to get confirmed
+        // so at least confirm blocks is 3 blocks.
+        if expect_confirm_blocks < 3 || expect_confirm_blocks > MAX_CONFIRM_BLOCKS {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                format!(
+                    "expect_confirm_blocks should between 3 and {}, got {}",
+                    MAX_CONFIRM_BLOCKS, expect_confirm_blocks
+                ),
+            ));
+        }
+
+        let tx_pool = self.shared.tx_pool_controller();
+        let fee_rate = tx_pool.estimate_fee_rate(expect_confirm_blocks);
+        if let Err(e) = fee_rate {
+            error!("send estimate_fee_rate request error {}", e);
+            return Err(Error::internal_error());
+        };
+        let fee_rate = fee_rate.unwrap();
+
+        if fee_rate.as_u64() == 0 {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "collected samples is not enough, please make sure node has peers and try later"
+                    .into(),
+            ));
+        }
+        Ok(EstimateResult {
+            fee_rate: fee_rate.as_u64().into(),
+        })
     }
 }
 
