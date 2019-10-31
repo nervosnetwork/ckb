@@ -7,8 +7,8 @@ use crate::{
     META_TIP_HEADER_KEY,
 };
 use ckb_db::{
-    iter::{DBIterator, DBIteratorItem},
-    Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
+    iter::{DBIter, DBIterator, IteratorMode},
+    Col, DBVector, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_error::Error;
 use ckb_types::{
@@ -34,14 +34,9 @@ impl<'a> ChainStore<'a> for StoreTransaction {
         self.inner.get(col, key).expect("db operation should be ok")
     }
 
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
         self.inner
-            .iter(col, from_key, direction)
+            .iter(col, mode)
             .expect("db operation should be ok")
     }
 }
@@ -62,14 +57,9 @@ impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
         self.inner.get(col, key).expect("db operation should be ok")
     }
 
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
         self.inner
-            .iter(col, from_key, direction)
+            .iter(col, mode)
             .expect("db operation should be ok")
     }
 }
