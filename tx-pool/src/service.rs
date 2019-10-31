@@ -324,6 +324,7 @@ impl TxPoolServiceBuilder {
 #[derive(Clone)]
 pub struct TxPoolService {
     tx_pool: Lock<TxPool>,
+    tx_pool_config: TxPoolConfig,
     block_assembler: Option<BlockAssembler>,
     txs_verify_cache: Lock<TxVerifyCache>,
     last_txs_updated_at: Arc<AtomicU64>,
@@ -338,8 +339,10 @@ impl TxPoolService {
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
+        let tx_pool_config = tx_pool.config.clone();
         Self {
             tx_pool: Lock::new(tx_pool),
+            tx_pool_config,
             block_assembler,
             txs_verify_cache,
             last_txs_updated_at,
@@ -593,13 +596,19 @@ impl TxPoolService {
         let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), keys);
         let txs_verify_cache = self.txs_verify_cache.clone();
         let tx_pool = self.tx_pool.clone();
+        let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
 
         let pre_resolve = PreResolveTxsProcess::new(tx_pool.clone(), txs);
 
         pre_resolve.and_then(move |(tip_hash, snapshot, rtxs, status)| {
             fetched_cache
                 .then(move |cache| {
-                    VerifyTxsProcess::new(snapshot, cache.expect("fetched_cache never fail"), rtxs)
+                    VerifyTxsProcess::new(
+                        snapshot,
+                        cache.expect("fetched_cache never fail"),
+                        rtxs,
+                        max_tx_verify_cycles,
+                    )
                 })
                 .and_then(move |txs| SubmitTxsProcess::new(tx_pool, txs, tip_hash, status))
                 .map(move |(map, cache_entry)| {

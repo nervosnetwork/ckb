@@ -1,12 +1,9 @@
+use super::{new_block_assembler_config, type_lock_script_code_hash};
 use crate::utils::is_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
-use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_jsonrpc_types::JsonBytes;
-use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
-use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
@@ -243,25 +240,5 @@ impl Spec for CheckTypical2In2OutTx {
                 new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
             config.block_assembler = Some(block_assembler);
         })
-    }
-}
-
-fn type_lock_script_code_hash() -> H256 {
-    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
-        .calc_script_hash()
-        .unpack()
-}
-
-fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> BlockAssemblerConfig {
-    let code_hash = if hash_type == ScriptHashType::Data {
-        CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone()
-    } else {
-        type_lock_script_code_hash()
-    };
-    BlockAssemblerConfig {
-        code_hash,
-        hash_type: hash_type.into(),
-        args: JsonBytes::from_bytes(lock_arg),
-        message: Default::default(),
     }
 }

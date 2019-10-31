@@ -1,4 +1,5 @@
 use crate::FeeRate;
+use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::core::Cycle;
 use ckb_types::H256;
@@ -6,6 +7,8 @@ use serde_derive::{Deserialize, Serialize};
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
+// default max tx verify cycles
+const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 10;
 
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -22,6 +25,8 @@ pub struct TxPoolConfig {
     pub max_committed_txs_hash_cache_size: usize,
     // txs with lower fee rate than this will not be relayed or be mined
     pub min_fee_rate: FeeRate,
+    // tx pool rejects txs that cycles greater than max_tx_verify_cycles
+    pub max_tx_verify_cycles: Cycle,
 }
 
 impl Default for TxPoolConfig {
@@ -33,6 +38,7 @@ impl Default for TxPoolConfig {
             max_conflict_cache_size: 1_000,
             max_committed_txs_hash_cache_size: 100_000,
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
+            max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
         }
     }
 }

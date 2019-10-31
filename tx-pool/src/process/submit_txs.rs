@@ -9,7 +9,7 @@ use ckb_types::{
         cell::{
             resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
-        Capacity, TransactionView,
+        Capacity, Cycle, TransactionView,
     },
     packed::Byte32,
 };
@@ -83,6 +83,7 @@ pub struct VerifyTxsProcess {
     pub snapshot: Arc<Snapshot>,
     pub txs_verify_cache: HashMap<Byte32, CacheEntry>,
     pub txs: Option<Vec<ResolvedTransaction>>,
+    pub max_tx_verify_cycles: Cycle,
 }
 
 impl VerifyTxsProcess {
@@ -90,11 +91,13 @@ impl VerifyTxsProcess {
         snapshot: Arc<Snapshot>,
         txs_verify_cache: HashMap<Byte32, CacheEntry>,
         txs: Vec<ResolvedTransaction>,
+        max_tx_verify_cycles: Cycle,
     ) -> VerifyTxsProcess {
         VerifyTxsProcess {
             snapshot,
             txs_verify_cache,
             txs: Some(txs),
+            max_tx_verify_cycles,
         }
     }
 }
@@ -110,6 +113,7 @@ impl Future for VerifyTxsProcess {
             &self.snapshot,
             txs,
             &self.txs_verify_cache,
+            self.max_tx_verify_cycles,
         )?))
     }
 }
@@ -316,6 +320,7 @@ fn verify_rtxs(
     snapshot: &Snapshot,
     txs: Vec<ResolvedTransaction>,
     txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+    max_tx_verify_cycles: Cycle,
 ) -> Result<Vec<(ResolvedTransaction, CacheEntry)>, Error> {
     let tip_header = snapshot.tip_header();
     let tip_number = tip_header.number();
@@ -346,7 +351,7 @@ fn verify_rtxs(
                     consensus,
                     snapshot,
                 )
-                .verify(consensus.max_block_cycles())
+                .verify(max_tx_verify_cycles)
                 .map(|cycles| (tx, cycles))
             }
         })
