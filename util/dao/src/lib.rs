@@ -46,6 +46,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         if target.number() == 0 {
             return Ok(Capacity::zero());
         }
+
         let target_parent_hash = target.data().raw().parent_hash();
         let target_parent = self
             .store
@@ -66,6 +67,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(Capacity::shannons(reward))
     }
 
+    // Used for testing only.
+    //
     // Notice unlike primary_block_reward and secondary_epoch_reward above,
     // this starts calculating from parent, not target header.
     pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, Error> {

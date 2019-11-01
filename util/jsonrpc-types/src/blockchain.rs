@@ -215,8 +215,8 @@ impl From<core::DepType> for DepType {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CellDep {
-    out_point: OutPoint,
-    dep_type: DepType,
+    pub out_point: OutPoint,
+    pub dep_type: DepType,
 }
 
 impl From<packed::CellDep> for CellDep {
@@ -682,6 +682,18 @@ impl From<core::BlockReward> for BlockReward {
             secondary: core.secondary.into(),
             tx_fee: core.tx_fee.into(),
             proposal_reward: core.proposal_reward.into(),
+        }
+    }
+}
+
+impl From<BlockReward> for core::BlockReward {
+    fn from(json: BlockReward) -> Self {
+        Self {
+            total: json.total.into(),
+            primary: json.primary.into(),
+            secondary: json.secondary.into(),
+            tx_fee: json.tx_fee.into(),
+            proposal_reward: json.proposal_reward.into(),
         }
     }
 }

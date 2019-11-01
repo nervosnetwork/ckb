@@ -3,7 +3,7 @@ use ckb_jsonrpc_types::{
     BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint, CellWithStatus, EpochNumber,
     EpochView, HeaderView, OutPoint, TransactionWithStatus,
 };
-use ckb_logger::error;
+use ckb_logger::{error, warn};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -76,9 +76,36 @@ impl ChainRpc for ChainRpcImpl {
 
     fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
         let snapshot = self.shared.snapshot();
-        Ok(snapshot
+        let ret = snapshot
             .get_block_hash(number.into())
-            .and_then(|hash| snapshot.get_block(&hash).map(Into::into)))
+            .and_then(|hash| snapshot.get_block(&hash));
+        if let Some(ref block) = ret {
+            if block.transactions().is_empty() {
+                use sentry::{capture_message, with_scope, Level};
+                let tip_header_hash = snapshot.tip_header().hash();
+                with_scope(
+                    |scope| scope.set_fingerprint(Some(&["ckb-rpc", "get_block_by_number"])),
+                    || {
+                        capture_message(
+                            &format!(
+                                "get_block_by_number transactions is empty {} {} tip_header {}",
+                                block.number(),
+                                block.hash(),
+                                tip_header_hash,
+                            ),
+                            Level::Warning,
+                        )
+                    },
+                );
+                warn!(
+                    "get_block_by_number transactions is empty {} {} tip_header {}",
+                    block.number(),
+                    block.hash(),
+                    tip_header_hash,
+                );
+            }
+        };
+        Ok(ret.map(Into::into))
     }
 
     fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
@@ -237,10 +264,14 @@ impl ChainRpc for ChainRpcImpl {
             snapshot
                 .get_block_header(&header.data().raw().parent_hash())
                 .and_then(|parent| {
-                    RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
-                        .block_reward(&parent)
-                        .map(|r| r.1.into())
-                        .ok()
+                    if parent.number() < snapshot.consensus().finalization_delay_length() {
+                        None
+                    } else {
+                        RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
+                            .block_reward(&parent)
+                            .map(|r| r.1.into())
+                            .ok()
+                    }
                 })
         }))
     }

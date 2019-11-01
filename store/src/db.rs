@@ -6,8 +6,8 @@ use crate::StoreSnapshot;
 use crate::COLUMN_CELL_SET;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
-    iter::{DBIterator, DBIteratorItem},
-    Col, DBPinnableSlice, Direction, RocksDB,
+    iter::{DBIter, DBIterator, IteratorMode},
+    Col, DBPinnableSlice, RocksDB,
 };
 use ckb_error::Error;
 use ckb_types::{
@@ -35,15 +35,8 @@ impl<'a> ChainStore<'a> for ChainDB {
             .expect("db operation should be ok")
     }
 
-    fn get_iter<'i>(
-        &'i self,
-        col: Col,
-        from_key: &'i [u8],
-        direction: Direction,
-    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
-        self.db
-            .iter(col, from_key, direction)
-            .expect("db operation should be ok")
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+        self.db.iter(col, mode).expect("db operation should be ok")
     }
 }
 
@@ -54,6 +47,14 @@ impl ChainDB {
             db,
             cache: Arc::new(cache),
         }
+    }
+
+    pub fn property_value(&self, col: Col, name: &str) -> Result<Option<String>, Error> {
+        self.db.property_value(col, name)
+    }
+
+    pub fn property_int_value(&self, col: Col, name: &str) -> Result<Option<u64>, Error> {
+        self.db.property_int_value(col, name)
     }
 
     pub fn traverse_cell_set<F>(&self, mut callback: F) -> Result<(), Error>

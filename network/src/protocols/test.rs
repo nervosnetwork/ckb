@@ -183,7 +183,7 @@ fn net_service_start(name: String) -> Node {
     // Feeler protocol
     let feeler_meta = MetaBuilder::default()
         .id(FEELER_PROTOCOL_ID.into())
-        .name(move |_| "/ckb/flr/".to_string())
+        .name(move |_| "/ckb/flr".to_string())
         .service_handle({
             let network_state = Arc::clone(&network_state);
             move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))

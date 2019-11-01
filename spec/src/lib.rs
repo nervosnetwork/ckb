@@ -18,7 +18,8 @@ use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -31,7 +32,7 @@ use ckb_types::{
     H160, H256, U128,
 };
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -50,6 +51,7 @@ const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
 pub const OUTPUT_INDEX_DAO: u64 = 2;
 pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
+pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
@@ -107,7 +109,7 @@ pub struct Genesis {
     pub system_cells: Vec<SystemCell>,
     pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
-    pub dep_groups: BTreeMap<String, Vec<Resource>>,
+    pub dep_groups: Vec<DepGroupResource>,
     #[serde(default)]
     pub satoshi_gift: SatoshiGift,
 }
@@ -129,6 +131,12 @@ pub struct GenesisCell {
 pub struct IssuedCell {
     pub capacity: Capacity,
     pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct DepGroupResource {
+    pub name: String,
+    pub files: Vec<Resource>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -362,6 +370,11 @@ impl ChainSpec {
             OUTPUT_INDEX_SECP256K1_DATA as usize,
             &CODE_HASH_SECP256K1_DATA,
         )?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL as usize,
+            &CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+        )?;
 
         Ok(())
     }
@@ -458,9 +471,10 @@ impl ChainSpec {
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
             .genesis
             .dep_groups
-            .values()
-            .map(|files| {
-                let out_points: Vec<_> = files
+            .iter()
+            .map(|dep_group| {
+                let out_points: Vec<_> = dep_group
+                    .files
                     .iter()
                     .map(|res| {
                         let data: Bytes = res.get()?.into_owned().into();
