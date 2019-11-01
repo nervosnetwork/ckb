@@ -407,7 +407,7 @@ pub struct Consensus {
     pub tx_version: Version,
     // "TYPE_ID" in hex
     pub type_id_code_hash: H256,
-    // block version number supported
+    // Limit to the number of proposals per block
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
     // Satoshi's pubkey hash in Bitcoin genesis.
