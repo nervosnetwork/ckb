@@ -77,16 +77,23 @@ impl<'a> TransactionsProcess<'a> {
         }
 
         let mut notify_txs = Vec::with_capacity(txs.len());
-
+        let max_tx_verify_cycles = self.relayer.max_tx_verify_cycles;
         let relay_cycles_vec: Vec<_> = txs
             .into_iter()
-            .map(|(tx, relay_cycles)| {
+            .filter_map(|(tx, relay_cycles)| {
+                // skip txs which consume too much cycles
+                if relay_cycles > max_tx_verify_cycles {
+                    return None;
+                }
                 let tx_hash = tx.hash();
                 let tx_size = tx.data().serialized_size_in_block();
                 notify_txs.push(tx);
-                (tx_hash, relay_cycles, tx_size)
+                Some((tx_hash, relay_cycles, tx_size))
             })
             .collect();
+        if notify_txs.is_empty() {
+            return Ok(());
+        }
         let nc = Arc::clone(&self.nc);
         let peer_index = self.peer;
         let shared = Arc::clone(self.relayer.shared());

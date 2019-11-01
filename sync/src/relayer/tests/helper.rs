@@ -154,7 +154,12 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared));
     (
-        Relayer::new(chain_controller, sync_shared_state, FeeRate::zero()),
+        Relayer::new(
+            chain_controller,
+            sync_shared_state,
+            FeeRate::zero(),
+            std::u64::MAX,
+        ),
         always_success_out_point,
     )
 }

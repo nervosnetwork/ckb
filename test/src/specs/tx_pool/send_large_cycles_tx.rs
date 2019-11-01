@@ -140,8 +140,11 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(result, "node0 can't sync with node1");
         let ret = node0.rpc_client().send_transaction_result(tx.data().into());
         ret.expect("package large cycles tx");
-        info!("Wait for node1 ban node0");
-        node1.connect_and_wait_ban(&node0);
+        info!("Node1 do not accept tx");
+        let result = wait_until(5, || {
+            node1.rpc_client().get_transaction(tx.hash()).is_some()
+        });
+        assert!(!result, "Node1 should ignore tx");
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
