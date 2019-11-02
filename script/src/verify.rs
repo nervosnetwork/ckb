@@ -23,12 +23,13 @@ use ckb_types::{
 #[cfg(has_asm)]
 use ckb_vm::{
     machine::asm::{AsmCoreMachine, AsmMachine},
-    DefaultMachineBuilder, InstructionCycleFunc, SupportMachine, Syscalls,
+    DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
+    Syscalls,
 };
 #[cfg(not(has_asm))]
 use ckb_vm::{
-    DefaultCoreMachine, DefaultMachineBuilder, InstructionCycleFunc, SparseMemory, SupportMachine,
-    Syscalls, TraceMachine, WXorXMemory,
+    DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
+    SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
 };
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -423,7 +424,10 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 }
 
-fn internal_error(error: ckb_vm::Error) -> Error {
+fn internal_error(error: VMInternalError) -> Error {
+    if error == VMInternalError::InvalidCycles {
+        return ScriptError::ExceededMaximumCycles.into();
+    }
     InternalErrorKind::VM.reason(format!("{:?}", error)).into()
 }
 
@@ -455,7 +459,6 @@ mod tests {
         always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
         secp256k1_data_cell, type_lock_script_code_hash,
     };
-    use ckb_vm::Error as VMInternalError;
     use std::fs::File;
     use std::io::Read;
     use std::path::Path;

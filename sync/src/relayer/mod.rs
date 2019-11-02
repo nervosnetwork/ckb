@@ -30,7 +30,7 @@ use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_tx_pool::FeeRate;
 use ckb_types::{
-    core,
+    core::{self, Cycle},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
@@ -61,6 +61,7 @@ pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState>,
     pub(crate) min_fee_rate: FeeRate,
+    pub(crate) max_tx_verify_cycles: Cycle,
 }
 
 impl Relayer {
@@ -68,11 +69,13 @@ impl Relayer {
         chain: ChainController,
         shared: Arc<SyncSharedState>,
         min_fee_rate: FeeRate,
+        max_tx_verify_cycles: Cycle,
     ) -> Self {
         Relayer {
             chain,
             shared,
             min_fee_rate,
+            max_tx_verify_cycles,
         }
     }
 
