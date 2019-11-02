@@ -113,11 +113,6 @@ impl<'a> HeadersProcess<'a> {
         true
     }
 
-    fn received_new_header(&self, headers: &[core::HeaderView]) -> bool {
-        let last = headers.last().expect("empty checked");
-        self.snapshot.unknown_block_status(&last.hash())
-    }
-
     pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
         let parent = self.snapshot.get_header(&first.data().raw().parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, self.snapshot.clone());
@@ -242,10 +237,6 @@ impl<'a> HeadersProcess<'a> {
                 debug!("state: null;");
             }
             debug!("peer: {}", self.peer);
-        }
-
-        if self.received_new_header(&headers) {
-            // update peer last_block_announcement
         }
 
         if headers.len() == MAX_HEADERS_LEN {
