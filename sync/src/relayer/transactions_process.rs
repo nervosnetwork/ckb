@@ -83,6 +83,13 @@ impl<'a> TransactionsProcess<'a> {
             .filter_map(|(tx, relay_cycles)| {
                 // skip txs which consume too much cycles
                 if relay_cycles > max_tx_verify_cycles {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "ignore tx {} which relay cycles({}) is large than max tx verify cycles {}",
+                        tx.hash(),
+                        relay_cycles,
+                        max_tx_verify_cycles
+                    );
                     return None;
                 }
                 let tx_hash = tx.hash();
