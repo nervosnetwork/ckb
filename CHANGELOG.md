@@ -1,3 +1,82 @@
+# [v0.24.0](https://github.com/nervosnetwork/ckb/compare/v0.23.0...v0.24.0) (2019-11-02)
+
+### Breaking Changes
+
+* #1739: Use molecule to serialize witnesses (@jjyr)
+
+    System contracts read witness as serialized `WitnessArgs`
+
+* #1769: Adapt to 2-phase Nervos DAO implementation (@xxuejie)
+
+    Depends on https://github.com/nervosnetwork/ckb-system-scripts/pull/59
+
+* #1726: Tweak consensus params (@zhangsoledad)
+
+    * `TWO_IN_TWO_OUT_COUNT`   3875 ->  1600
+    * `MAX_BLOCK_PROPOSALS_LIMIT` ->  2400
+    * remove useless `HEADER_VERSION`
+    * `BLOCK_VERSION`, `TX_VERSION`, `TYPE_ID_CODE_HASH`  move to `consensus`
+
+* #1707: Resolve uncles hash calculation issue (@quake)
+
+    Uncles hash is the blake2b on concatenated uncle block hashes.
+
+* #1785: Upgrade system script for modified multi-sign lock script (@xxuejie)
+
+    See https://github.com/nervosnetwork/ckb-system-scripts/pull/61 for related changes.
+
+### Features
+
+* #1701: Zeroize  when privkey dropped (@zhangsoledad)
+* #1711: Enable ansi support for windows (@zhangsoledad)
+* #1720: Add load transaction syscall (@xxuejie)
+* #1730: Upgrade CKB VM to 0.18.0 (@xxuejie)
+
+    See https://github.com/nervosnetwork/ckb-vm/releases/tag/0.18.0 for
+    changes in CKB VM 0.18.0
+
+* #1731: Security issuance satoshi cell by use all zeros lock (@jjyr)
+* #1659: Fee estimate RPC (@jjyr)
+
+    This PR adds a new RPC [estimate_fee_rate](https://github.com/nervosnetwork/ckb/pull/1659/files#diff-622e6d119ac5d43f7eb41cb596159f9fR907). It takes the basic idea from bitcoin's [estimatesmartfee](https://bitcoincore.org/en/doc/0.16.0/rpc/util/estimatesmartfee/), however, we ignore the magic numbers and tricks from the original code.
+
+    We estimate the tx fee rate by track txs that entered tx pool. See details https://github.com/nervosnetwork/ckb/pull/1659/files#diff-ff03764a87b23e747dadc645fcf8df8bR21
+
+* #1705: Verify genesis block specific rules on start (@jjyr)
+* #1735: Expose methods to tweak CKB VM with CKB runtime outside CKB (@xxuejie)
+* #1757: Shutdown when protocol handle panic (@driftluo)
+* #1740: Add multisig system script cell (@jjyr)
+
+    https://github.com/nervosnetwork/ckb-system-scripts/pull/60
+
+* #1772: Limit p2p protocol message size (@TheWaWaR)
+
+### Bug Fixes
+
+* #1712: Fix `tx_pool_info` (@u2)
+* #1697: Fix `get_header_view` panic bug (@TheWaWaR)
+
+    Update best headers(peers/global) after update header_map
+
+* #1714: Tx `sorted_keys` order by relation (@u2)
+* #1736: Fix tx pool inconsistent when receive duplicated hash txs. (@jjyr)
+* #1741: Overflow panic in `load_cell_data_as_code` syscall (@xxuejie)
+* #1743: Exclude primary/secondary issuance in genesis (@keroro520)
+* #1742: Ignore fork branch when `get_cellbase_output_capacity_details`, `get_header` and `get_block` rpc (@u2)
+* #1765: Avoids creating tmp folder for db initialization (@quake)
+* #1763: Fix cli output and ban reason (@driftluo)
+* #1752: Return non-zero rewards for the first 11 blocks (@keroro520)
+
+    * fix: Return non-zero rewards for the first 11 blocks
+    * test: Add DAOVerifier to verify the `dao_fields`
+
+### Improvements
+
+* #1515: Change enum from `[byte; 1]` to `byte` (@quake)
+* #1760: Replace non-maintained jsonrpc client (@zhangsoledad)
+* #1768: Unified protocol handshake information format (@driftluo)
+* #1729: Refactor DB iterator interface (@zhangsoledad)
+
 # [v0.23.0](https://github.com/nervosnetwork/ckb/compare/v0.22.0...v0.23.0) (2019-10-05)
 
 ### Features
