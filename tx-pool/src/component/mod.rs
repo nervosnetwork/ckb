@@ -8,7 +8,7 @@ pub(crate) mod proposed;
 
 pub use self::entry::{DefectEntry, TxEntry};
 
-const DEFAULT_BYTES_PER_CYCLES: f64 = 0.000_051f64;
+const DEFAULT_BYTES_PER_CYCLES: f64 = 0.000_17f64;
 
 /// Virtual bytes(aka vbytes) is a concept to unify the size and cycles of a transaction,
 /// tx_pool use vbytes to estimate transaction fee rate.
