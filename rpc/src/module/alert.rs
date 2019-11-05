@@ -66,7 +66,7 @@ impl AlertRpc for AlertRpcImpl {
                 self.notifier.lock().add(Arc::new(alert));
                 Ok(())
             }
-            Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
+            Err(e) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e))),
         }
     }
 }

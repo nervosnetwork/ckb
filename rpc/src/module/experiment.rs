@@ -68,7 +68,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
             Ok(capacity) => Ok(capacity.into()),
             Err(err) => {
                 error!("calculate_dao_maximum_withdraw error {:?}", err);
-                Err(Error::internal_error())
+                Err(RPCError::custom(RPCError::Invalid, format!("{:#}", err)))
             }
         }
     }
