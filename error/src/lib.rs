@@ -30,7 +30,11 @@ pub struct Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(cause) = self.cause() {
-            write!(f, "{}({})", self.kind(), cause)
+            if f.alternate() {
+                write!(f, "{}: {}", self.kind(), cause)
+            } else {
+                write!(f, "{}({})", self.kind(), cause)
+            }
         } else {
             write!(f, "{}", self.kind())
         }

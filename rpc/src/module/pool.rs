@@ -79,7 +79,7 @@ impl PoolRpc for PoolRpcImpl {
                         ));
                     }
                 }
-                Err(RPCError::custom(RPCError::Invalid, e.to_string()))
+                Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)))
             }
         }
     }

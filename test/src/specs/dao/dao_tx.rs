@@ -129,7 +129,7 @@ impl Spec for WithdrawDAOWithNotMaturitySince {
             transaction.as_advanced_builder().set_inputs(inputs).build()
         };
         node0.generate_blocks(20);
-        assert_send_transaction_fail(node0, &transaction, "Script(ValidationFailure(-17))");
+        assert_send_transaction_fail(node0, &transaction, "Script: ValidationFailure(-17)");
     }
 }
 
@@ -194,7 +194,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
                     .set_witnesses(Vec::new())
                     .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
+            assert_send_transaction_fail(node0, &transaction, "Dao: InvalidOutPoint");
         }
 
         // TODO: DAO script does not return ERROR_WRONG_NUMBER_OF_ARGUMENTS now
@@ -220,7 +220,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
                     .set_witnesses(vec![witness])
                     .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(node0, &transaction, "Dao(InvalidDaoFormat)");
+            assert_send_transaction_fail(node0, &transaction, "Dao: InvalidDaoFormat");
         }
 
         // Withdraw DAO with witness point to out-of-index dependency. DAO script `ckb_load_header` failed
@@ -235,7 +235,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
                     .set_witnesses(vec![witness])
                     .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(node0, &transaction, "Dao(InvalidOutPoint)");
+            assert_send_transaction_fail(node0, &transaction, "Dao: InvalidOutPoint");
         }
     }
 }
