@@ -1,5 +1,5 @@
 use crate::utils::{
-    build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
+    build_block, build_get_blocks, build_header, new_block_with_template, sleep, wait_until,
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
@@ -12,7 +12,6 @@ use ckb_types::{
     packed::{self, SyncMessage},
     prelude::*,
 };
-use std::thread::sleep;
 use std::time::Duration;
 
 pub struct BlockSyncFromOne;
@@ -284,7 +283,7 @@ impl Spec for BlockSyncOrphanBlocks {
         });
 
         // Wait for block fetch timer
-        sleep(Duration::from_secs(5));
+        sleep(5);
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);

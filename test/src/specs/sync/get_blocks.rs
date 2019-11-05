@@ -1,11 +1,9 @@
 use super::utils::wait_get_blocks;
-use crate::utils::build_headers;
+use crate::utils::{build_headers, sleep};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::{NetworkProtocol, BLOCK_DOWNLOAD_TIMEOUT};
 use ckb_types::core::HeaderView;
 use log::info;
-use std::thread;
-use std::time::Duration;
 
 pub struct GetBlocksTimeout;
 
@@ -45,7 +43,7 @@ impl Spec for GetBlocksTimeout {
             "should not receive GetBlocks"
         );
         let sleep_secs = block_download_timeout_secs - wait_get_blocks_secs + 2;
-        thread::sleep(Duration::from_secs(sleep_secs));
+        sleep(sleep_secs);
         // After about block_download_timeout_secs seconds later
         info!(
             "After {} seconds receive GetBlocks again from node1",

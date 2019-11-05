@@ -56,6 +56,7 @@ pub struct Setup {
     pub num_nodes: usize,
     pub connect_all: bool,
     pub protocols: Vec<TestProtocol>,
+    pub retry_failed: usize,
 }
 
 impl Default for Setup {
@@ -64,6 +65,7 @@ impl Default for Setup {
             num_nodes: 1,
             connect_all: true,
             protocols: vec![],
+            retry_failed: 0,
         }
     }
 }

@@ -12,9 +12,10 @@ use ckb_types::{
     H256,
 };
 use std::convert::Into;
+use std::env;
 use std::fs::read_to_string;
 use std::path::PathBuf;
-use std::thread::sleep;
+use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
@@ -129,15 +130,27 @@ pub fn wait_until<F>(secs: u64, mut f: F) -> bool
 where
     F: FnMut() -> bool,
 {
+    let timeout = tweaked_duration(secs);
     let start = Instant::now();
-    let timeout = Duration::new(secs, 0);
     while Instant::now().duration_since(start) <= timeout {
         if f() {
             return true;
         }
-        sleep(Duration::new(1, 0));
+        thread::sleep(Duration::new(1, 0));
     }
     false
+}
+
+pub fn sleep(secs: u64) {
+    thread::sleep(tweaked_duration(secs));
+}
+
+fn tweaked_duration(secs: u64) -> Duration {
+    let sec_coefficient = env::var("CKB_TEST_SEC_COEFFICIENT")
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or(1.0);
+    Duration::from_secs((secs as f64 * sec_coefficient) as u64)
 }
 
 // Clear net message channel
