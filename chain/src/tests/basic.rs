@@ -20,7 +20,7 @@ use ckb_types::{
         TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
-    utilities::difficulty_to_compact,
+    utilities::{compact_to_difficulty, difficulty_to_compact},
     U256,
 };
 use std::sync::Arc;
@@ -694,16 +694,16 @@ fn test_orphan_rate_estimation_overflow() {
             .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
-        assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
+        assert_eq!(epoch.length(), 300, "epoch length {}", epoch.length());
 
         // orphan_rate_estimation (22/399 - 1) overflow
         // max((400 + 150) * 1000 / 798000, 1)  last_epoch_hash_rate 1
-        // 14400 * 40 / (41 * 480)
+        // 14400 * 40 / (41 * 300)
         assert_eq!(
             epoch.compact_target(),
-            difficulty_to_compact(U256::from(29u64)),
+            difficulty_to_compact(U256::from(46u64)),
             "epoch compact_target {}",
-            epoch.compact_target()
+            compact_to_difficulty(epoch.compact_target())
         );
     }
 }
@@ -772,7 +772,7 @@ fn test_next_epoch_ext() {
             epoch.compact_target(),
             difficulty_to_compact(U256::from(1186u64)),
             "epoch compact_target {}",
-            epoch.compact_target()
+            compact_to_difficulty(epoch.compact_target())
         );
 
         let consensus = shared.consensus();
@@ -824,7 +824,7 @@ fn test_next_epoch_ext() {
             epoch.compact_target(),
             difficulty_to_compact(U256::from(887u64)), // 887
             "epoch compact_target {}",
-            epoch.compact_target()
+            compact_to_difficulty(epoch.compact_target())
         );
     }
 
@@ -850,16 +850,16 @@ fn test_next_epoch_ext() {
         // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
         // ((150 + 400) * 14400 * 400) / ((40 + 1) * 150 * 7980) = 64
         // lower bound trigger
-        assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
+        assert_eq!(epoch.length(), 300, "epoch length {}", epoch.length());
 
-        // orphan_rate_estimation  399 / 1810
+        // orphan_rate_estimation  399 / 3121
         // (400 + 150) * 1000 / 7980  last_epoch_hash_rate 68
-        // 1801 * 68 * 14400 / (2200 * 480)
+        // 68 * 14400 * 3121 / (3520 * 300 )
         assert_eq!(
             epoch.compact_target(),
-            difficulty_to_compact(U256::from(1670u64)),
+            difficulty_to_compact(U256::from(2894u64)),
             "epoch difficulty {}",
-            epoch.compact_target()
+            compact_to_difficulty(epoch.compact_target())
         );
     }
 }

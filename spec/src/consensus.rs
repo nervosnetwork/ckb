@@ -48,7 +48,7 @@ pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 // o_ideal = 1/40 = 2.5%
 const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("40"));
 
-const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
+const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
 // cycles of a typical two-in-two-out tx
@@ -60,7 +60,7 @@ const TWO_IN_TWO_OUT_COUNT: u64 = 1_000;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 300
 pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
     4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
