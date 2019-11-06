@@ -7,7 +7,7 @@ use crate::config::BlockAssemblerConfig;
 use crate::error::BlockAssemblerError;
 use crate::pool::TxPool;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{Uint32, JsonBytes, BlockTemplate, EpochNumberWithFraction};
 use ckb_logger::info;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -16,7 +16,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView, Version,
     },
-    packed::{CellbaseWitness, ProposalShortId, Script},
+    packed::{RawHeader, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::{cmp, iter};
 use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
+use molecule::prelude::Entity;
 
 type Args = (u64, u64, Version);
 
@@ -273,19 +274,35 @@ impl Future for BlockTemplateBuilder {
         let (bytes_limit, _, version) = self.args;
         let cycles_limit = consensus.max_block_cycles();
         let uncles_count_limit = consensus.max_uncles_num() as u32;
+        let compact_target: Uint32 = self.current_epoch.compact_target().into();
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
+
+        let epoch: EpochNumberWithFraction = self
+            .current_epoch
+            .number_with_fraction(candidate_number)
+            .into();
+
+
+        let raw = RawHeader::new_builder()
+            .version(version.pack())
+            .compact_target(compact_target.pack())
+            .parent_hash(tip_hash.clone())
+            .timestamp(current_time.pack())
+            .number(candidate_number.pack())
+            .epoch(epoch.pack())
+            .dao(dao.clone().into())
+            .build()
+            .as_bytes();
+
         Ok(Async::Ready((
             BlockTemplate {
                 version: version.into(),
-                compact_target: self.current_epoch.compact_target().into(),
+                compact_target: compact_target,
                 current_time: current_time.into(),
                 number: candidate_number.into(),
-                epoch: self
-                    .current_epoch
-                    .number_with_fraction(candidate_number)
-                    .into(),
+                epoch: epoch,
                 parent_hash: tip_hash.unpack(),
                 cycles_limit: cycles_limit.into(),
                 bytes_limit: bytes_limit.into(),
@@ -304,6 +321,7 @@ impl Future for BlockTemplateBuilder {
                 cellbase: BlockAssembler::transform_cellbase(&self.cellbase, None),
                 work_id: (self.work_id.fetch_add(1, Ordering::SeqCst) as u64).into(),
                 dao: dao.into(),
+                raw: JsonBytes::from_bytes(raw),
             },
             self.uncles_updated_at,
             self.txs_updated_at,

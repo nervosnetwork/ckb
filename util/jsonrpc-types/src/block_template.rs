@@ -1,6 +1,7 @@
 use crate::{
     BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
     Transaction, Uint32, Uint64, Version,
+    JsonBytes,
 };
 use ckb_types::{packed, prelude::*, H256};
 use serde_derive::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ pub struct BlockTemplate {
     pub cellbase: CellbaseTemplate,
     pub work_id: Uint64,
     pub dao: Byte32,
+    pub raw: JsonBytes,
 }
 
 impl From<BlockTemplate> for packed::Block {

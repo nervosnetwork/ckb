@@ -30,3 +30,5 @@ crossbeam-channel = "0.3"
 ckb-future-executor = { path = "../util/future-executor" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
+
+molecule = "=0.4.0"
