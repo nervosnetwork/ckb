@@ -232,6 +232,7 @@ impl ChainRpc for ChainRpcImpl {
                                 block_hash: block_hash.unpack(),
                                 capacity: output.capacity().unpack(),
                                 lock: output.lock().clone().into(),
+                                type_: output.type_().to_opt().map(Into::into),
                             });
                         }
                     }

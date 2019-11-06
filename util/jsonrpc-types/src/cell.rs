@@ -15,6 +15,8 @@ pub struct CellOutputWithOutPoint {
     pub block_hash: H256,
     pub capacity: Capacity,
     pub lock: Script,
+    #[serde(rename = "type")]
+    pub type_: Option<Script>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
