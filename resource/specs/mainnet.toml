@@ -1,0 +1,88 @@
+name = "ckb"
+
+[genesis]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+# TODO: set to the timestamp of the last block in testnet v0.24.0
+timestamp = 1572674400069
+# TODO: computed from the last epochs in testnet v0.24.0
+compact_target = 0x1c00e904
+uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+nonce = "0x0"
+hash = "0x32ae1674478cd0e51e73313406ab586ac88e8dfdce7fc4c59956aba3d1bb7275"
+
+[genesis.genesis_cell]
+# TODO: Replace 0x000...00 with the last block hash in testnet v0.24.0
+message = "lina 0x0000000000000000000000000000000000000000000000000000000000000000"
+
+[genesis.genesis_cell.lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# An array list paths to system cell files, which is absolute or relative to
+# the directory containing this config file.
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+create_type_id = true
+capacity = 100_000_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/dao" }
+create_type_id = true
+capacity = 16_000_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_data" }
+create_type_id = false
+capacity = 1_048_617_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
+capacity = 100_000_0000_0000
+
+[genesis.system_cells_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# Dep group cells
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_sighash_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
+]
+
+# For first 11 block
+[genesis.bootstrap_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# Burn
+[[genesis.issued_cells]]
+capacity = 8_400_000_000_00000000
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+lock.hash_type = "data"
+
+# TODO: Other issued cells starts here
+# Public Token Sale: 20%
+# Ecosystem fund: 18.5%
+# Team: 15%
+# Private Sale: 14%
+# Strategic Founding Partners: 5%
+# Foundation Reserve: 2% - genesis message cell - system cells - dep groups
+# Testnet Incentives: 0.5%
+
+[params]
+# TODO: Set to the length of the last epoch of testnet
+genesis_epoch_length = 1000
+
+[pow]
+func = "Eaglesong"

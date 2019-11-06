@@ -726,9 +726,13 @@ pub mod test {
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
-        // remove "ckb_" prefix
-        let base_name = &name[4..];
-        let res = Resource::bundled(format!("specs/{}.toml", base_name));
+        let res = if name == "ckb" {
+            Resource::bundled("specs/mainnet.toml".to_string())
+        } else {
+            let base_name = &name[4..];
+            Resource::bundled(format!("specs/{}.toml", base_name))
+        };
+
         ChainSpec::load_from(&res).expect("load spec by name")
     }
 
