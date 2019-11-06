@@ -9,6 +9,8 @@ use serde_derive::{Deserialize, Serialize};
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
 // default max tx verify cycles
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
+// default max ancestors count
+const DEFAULT_MAX_ANCESTORS_COUNT: usize = 25;
 
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub struct TxPoolConfig {
     pub min_fee_rate: FeeRate,
     // tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
+    // max ancestors size limit for a single tx
+    pub max_ancestors_count: usize,
 }
 
 impl Default for TxPoolConfig {
@@ -39,6 +43,7 @@ impl Default for TxPoolConfig {
             max_committed_txs_hash_cache_size: 100_000,
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
+            max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
         }
     }
 }

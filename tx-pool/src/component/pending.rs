@@ -1,5 +1,6 @@
 use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
+use crate::error::SubmitTxError;
 use crate::FeeRate;
 use ckb_types::{
     core::{
@@ -11,15 +12,15 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct PendingQueue {
     inner: SortedTxMap,
 }
 
 impl PendingQueue {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(max_ancestors_count: usize) -> Self {
         PendingQueue {
-            inner: Default::default(),
+            inner: SortedTxMap::new(max_ancestors_count),
         }
     }
 
@@ -27,7 +28,7 @@ impl PendingQueue {
         self.inner.size()
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Option<TxEntry> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
         self.inner.add_entry(entry)
     }
 
@@ -120,6 +121,8 @@ mod tests {
         packed::{Byte32, CellInput, CellOutputBuilder},
     };
 
+    const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
+
     fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
@@ -145,7 +148,7 @@ mod tests {
         let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
         let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
-        let mut pool = PendingQueue::new();
+        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -153,21 +156,24 @@ mod tests {
             Capacity::shannons(100),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
 
         let txs_sorted_by_fee_rate = pool
             .keys_sorted_by_fee()
@@ -201,7 +207,7 @@ mod tests {
         let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
         let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
-        let mut pool = PendingQueue::new();
+        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -209,28 +215,32 @@ mod tests {
             Capacity::shannons(100),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx4.clone(),
             MOCK_CYCLES,
             Capacity::shannons(400),
             MOCK_SIZE,
             vec![],
-        ));
+        ))
+        .unwrap();
 
         let txs_sorted_by_fee_rate = pool
             .keys_sorted_by_fee()
@@ -279,7 +289,7 @@ mod tests {
         let tx2_3_hash = tx2_3.hash();
         let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
-        let mut pool = PendingQueue::new();
+        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
             pool.add_entry(TxEntry::new(
@@ -288,7 +298,8 @@ mod tests {
                 Capacity::shannons(200),
                 MOCK_SIZE,
                 vec![],
-            ));
+            ))
+            .unwrap();
         }
 
         let txs_sorted_by_fee_rate = pool

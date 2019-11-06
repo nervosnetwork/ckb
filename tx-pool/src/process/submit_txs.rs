@@ -223,10 +223,10 @@ impl<'a> SubmitTxsExecutor<'a> {
                 tx_size,
                 related_dep_out_points,
             );
-            if match status {
+            let inserted = match status {
                 TxStatus::Fresh => {
                     let tx_hash = entry.transaction.hash();
-                    let inserted = self.tx_pool.add_pending(entry);
+                    let inserted = self.tx_pool.add_pending(entry)?;
                     if inserted {
                         let height = self.tx_pool.snapshot().tip_number();
                         let fee_rate = FeeRate::calculate(fee, tx_size);
@@ -236,9 +236,10 @@ impl<'a> SubmitTxsExecutor<'a> {
                     }
                     inserted
                 }
-                TxStatus::Gap => self.tx_pool.add_gap(entry),
-                TxStatus::Proposed => self.tx_pool.add_proposed(entry),
-            } {
+                TxStatus::Gap => self.tx_pool.add_gap(entry)?,
+                TxStatus::Proposed => self.tx_pool.add_proposed(entry)?,
+            };
+            if inserted {
                 self.tx_pool
                     .update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }

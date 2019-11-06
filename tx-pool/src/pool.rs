@@ -4,6 +4,7 @@ use crate::component::orphan::OrphanPool;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
 use crate::config::TxPoolConfig;
+use crate::error::SubmitTxError;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_fee_estimator::Estimator as FeeEstimator;
@@ -76,9 +77,9 @@ impl TxPool {
 
         TxPool {
             config,
-            pending: PendingQueue::new(),
-            gap: PendingQueue::new(),
-            proposed: ProposedPool::new(),
+            pending: PendingQueue::new(config.max_ancestors_count),
+            gap: PendingQueue::new(config.max_ancestors_count),
+            proposed: ProposedPool::new(config.max_ancestors_count),
             orphan: OrphanPool::new(),
             conflict: LruCache::new(conflict_cache_size),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
@@ -147,39 +148,39 @@ impl TxPool {
     }
 
     // If did have this value present, false is returned.
-    pub fn add_pending(&mut self, entry: TxEntry) -> bool {
+    pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
         if self
             .gap
             .contains_key(&entry.transaction.proposal_short_id())
         {
-            return false;
+            return Ok(false);
         }
         trace_target!(
             crate::LOG_TARGET_TX_POOL,
             "add_pending {}",
             entry.transaction.hash()
         );
-        self.pending.add_entry(entry).is_none()
+        self.pending.add_entry(entry).map(|entry| entry.is_none())
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
-    pub fn add_gap(&mut self, entry: TxEntry) -> bool {
+    pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
         trace_target!(
             crate::LOG_TARGET_TX_POOL,
             "add_gap {}",
             entry.transaction.hash()
         );
-        self.gap.add_entry(entry).is_none()
+        self.gap.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    pub fn add_proposed(&mut self, entry: TxEntry) -> bool {
+    pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
         trace_target!(
             crate::LOG_TARGET_TX_POOL,
             "add_proposed {}",
             entry.transaction.hash()
         );
         self.touch_last_txs_updated_at();
-        self.proposed.add_entry(entry).is_none()
+        self.proposed.add_entry(entry).map(|entry| entry.is_none())
     }
 
     pub(crate) fn add_orphan(
@@ -303,10 +304,22 @@ impl TxPool {
     pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
             for entry in self.gap.remove_entry_and_descendants(id) {
-                self.add_pending(entry);
+                if let Err(err) = self.add_pending(entry) {
+                    debug_target!(
+                        crate::LOG_TARGET_TX_POOL,
+                        "move expired gap to pending error {}",
+                        err
+                    );
+                }
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
-                self.add_pending(entry);
+                if let Err(err) = self.add_pending(entry) {
+                    debug_target!(
+                        crate::LOG_TARGET_TX_POOL,
+                        "move expired proposed to pending error {}",
+                        err
+                    );
+                }
             }
         }
     }
@@ -578,7 +591,7 @@ impl TxPool {
             |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
                 let tx_hash = entry.transaction.hash();
-                if tx_pool.add_gap(entry) {
+                if tx_pool.add_gap(entry)? {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated
@@ -609,7 +622,7 @@ impl TxPool {
             tx_result,
             |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
-                tx_pool.add_proposed(entry);
+                tx_pool.add_proposed(entry)?;
                 Ok(())
             },
         )
@@ -638,7 +651,7 @@ impl TxPool {
             |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
                 let tx_hash = entry.transaction.hash();
-                if tx_pool.add_pending(entry) {
+                if tx_pool.add_pending(entry)? {
                     Ok(())
                 } else {
                     Err(InternalErrorKind::PoolTransactionDuplicated

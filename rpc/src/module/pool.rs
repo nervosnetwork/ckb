@@ -69,14 +69,22 @@ impl PoolRpc for PoolRpcImpl {
             }
             Err(e) => {
                 if let Some(e) = e.downcast_ref::<SubmitTxError>() {
-                    if e == &SubmitTxError::LowFeeRate {
-                        return Err(RPCError::custom(
-                            RPCError::Invalid,
-                            format!(
-                                "transaction fee rate lower than min_fee_rate: {} shannons/KB",
-                                self.min_fee_rate
-                            ),
-                        ));
+                    match *e {
+                        SubmitTxError::LowFeeRate => {
+                            return Err(RPCError::custom(
+                                RPCError::Invalid,
+                                format!(
+                                    "transaction fee rate lower than min_fee_rate: {} shannons/KB",
+                                    self.min_fee_rate
+                                ),
+                            ));
+                        }
+                        SubmitTxError::ExceededMaximumAncestorsCount => {
+                            return Err(RPCError::custom(
+                                RPCError::Invalid,
+                                    "transaction exceeded maximum ancestors count limit, try send it later".to_string(),
+                            ));
+                        }
                     }
                 }
                 Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)))

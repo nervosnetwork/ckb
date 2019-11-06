@@ -1,5 +1,6 @@
 use crate::component::container::SortedTxMap;
 use crate::component::entry::TxEntry;
+use crate::error::SubmitTxError;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -80,7 +81,7 @@ impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
     inner: SortedTxMap,
@@ -108,8 +109,11 @@ impl CellProvider for ProposedPool {
 }
 
 impl ProposedPool {
-    pub(crate) fn new() -> Self {
-        ProposedPool::default()
+    pub(crate) fn new(max_ancestors_count: usize) -> Self {
+        ProposedPool {
+            edges: Default::default(),
+            inner: SortedTxMap::new(max_ancestors_count),
+        }
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
@@ -192,7 +196,7 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Option<TxEntry> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
         let inputs = entry.transaction.input_pts_iter();
         let outputs = entry.transaction.output_pts();
 
@@ -274,6 +278,8 @@ mod tests {
         H256,
     };
 
+    const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
+
     fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
@@ -300,7 +306,7 @@ mod tests {
         let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -308,14 +314,16 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
 
         assert_eq!(pool.size(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
@@ -334,7 +342,7 @@ mod tests {
             3,
         );
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -342,14 +350,16 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
 
         assert_eq!(pool.edges.inner_len(), 4);
         assert_eq!(pool.edges.outer_len(), 4);
@@ -374,7 +384,7 @@ mod tests {
         let tx3_hash = tx3.hash();
         let tx5 = build_tx(vec![(&tx1_hash, 2), (&tx3_hash, 0)], 2);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -382,35 +392,40 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx3, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx4.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx4, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx5.clone(),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             get_related_dep_out_points(&tx5, |_| None).unwrap(),
-        ));
+        ))
+        .unwrap();
 
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
@@ -427,7 +442,7 @@ mod tests {
         let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
         let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         let cycles = 5_000_000;
         let size = 200;
@@ -438,21 +453,24 @@ mod tests {
             Capacity::shannons(100),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             cycles,
             Capacity::shannons(300),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             cycles,
             Capacity::shannons(200),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
             iter.map(|entry| entry.transaction.hash().to_owned())
@@ -475,7 +493,7 @@ mod tests {
         let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
         let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         let cycles = 5_000_000;
         let size = 200;
@@ -486,28 +504,32 @@ mod tests {
             Capacity::shannons(100),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             cycles,
             Capacity::shannons(300),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             cycles,
             Capacity::shannons(200),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx4.clone(),
             cycles,
             Capacity::shannons(400),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
             iter.map(|entry| entry.transaction.hash().to_owned())
@@ -538,7 +560,7 @@ mod tests {
         let tx2_3_hash = tx2_3.hash();
         let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         let cycles = 5_000_000;
         let size = 200;
@@ -550,7 +572,8 @@ mod tests {
                 Capacity::shannons(200),
                 size,
                 vec![],
-            ));
+            ))
+            .unwrap();
         }
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
@@ -571,7 +594,7 @@ mod tests {
         let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
         let tx4 = build_tx(vec![(&tx2_hash, 0)], 1);
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         let cycles = 5_000_000;
         let size = 200;
@@ -582,28 +605,32 @@ mod tests {
             Capacity::shannons(100),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx2.clone(),
             cycles,
             Capacity::shannons(300),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx3.clone(),
             cycles,
             Capacity::shannons(200),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
         pool.add_entry(TxEntry::new(
             tx4.clone(),
             cycles,
             Capacity::shannons(400),
             size,
             vec![],
-        ));
+        ))
+        .unwrap();
 
         let ancestors = pool.get_ancestors(&tx4.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]
@@ -702,7 +729,7 @@ mod tests {
             }
         };
 
-        let mut pool = ProposedPool::new();
+        let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
         for tx in &[&tx1, &tx2, &tx3] {
             pool.add_entry(TxEntry::new(
                 (*tx).clone(),
@@ -710,7 +737,8 @@ mod tests {
                 MOCK_FEE,
                 MOCK_SIZE,
                 get_related_dep_out_points(*tx, &get_cell_data).unwrap(),
-            ));
+            ))
+            .unwrap();
         }
 
         let get_deps_len = |pool: &ProposedPool, out_point: &OutPoint| -> usize {

@@ -1,5 +1,6 @@
 use crate::component::entry::TxEntry;
 use crate::pool::TxPool;
+use ckb_logger::error;
 use futures::future::Future;
 use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
@@ -40,12 +41,16 @@ impl Future for PlugEntryProcess {
                 match self.target {
                     PlugTarget::Pending => {
                         for entry in entries {
-                            tx_pool.add_pending(entry);
+                            if let Err(err) = tx_pool.add_pending(entry) {
+                                error!("plug entry error {}", err);
+                            }
                         }
                     }
                     PlugTarget::Proposed => {
                         for entry in entries {
-                            tx_pool.add_proposed(entry);
+                            if let Err(err) = tx_pool.add_proposed(entry) {
+                                error!("plug entry error {}", err);
+                            }
                         }
                     }
                 }

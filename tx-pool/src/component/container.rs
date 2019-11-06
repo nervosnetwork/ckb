@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use crate::component::entry::TxEntry;
+use crate::{component::entry::TxEntry, error::SubmitTxError};
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -126,15 +126,25 @@ impl TxLink {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
     entries: HashMap<ProposalShortId, TxEntry>,
     sorted_index: BTreeSet<AncestorsScoreSortKey>,
     /// A map track transaction ancestors and descendants
     links: HashMap<ProposalShortId, TxLink>,
+    max_ancestors_count: usize,
 }
 
 impl SortedTxMap {
+    pub fn new(max_ancestors_count: usize) -> Self {
+        SortedTxMap {
+            entries: Default::default(),
+            sorted_index: Default::default(),
+            links: Default::default(),
+            max_ancestors_count,
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.entries.len()
     }
@@ -151,14 +161,8 @@ impl SortedTxMap {
         }
     }
 
-    pub fn add_entry(&mut self, mut entry: TxEntry) -> Option<TxEntry> {
+    pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
         let short_id = entry.transaction.proposal_short_id();
-
-        let removed_entry = if self.contains_key(&short_id) {
-            self.remove_entry(&short_id)
-        } else {
-            None
-        };
 
         // find in pool parents
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
@@ -179,6 +183,18 @@ impl SortedTxMap {
         }
         // update ancestor_fields
         self.update_ancestors_stat_for_entry(&mut entry, &parents);
+
+        if entry.ancestors_count > self.max_ancestors_count {
+            return Err(SubmitTxError::ExceededMaximumAncestorsCount);
+        }
+
+        // check duplicate tx
+        let removed_entry = if self.contains_key(&short_id) {
+            self.remove_entry(&short_id)
+        } else {
+            None
+        };
+
         // update parents references
         for parent_id in &parents {
             self.links
@@ -198,7 +214,7 @@ impl SortedTxMap {
         self.sorted_index
             .insert(AncestorsScoreSortKey::from(&entry));
         self.entries.insert(short_id, entry);
-        removed_entry
+        Ok(removed_entry)
     }
 
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
@@ -306,6 +322,8 @@ mod tests {
     use ckb_types::{bytes::Bytes, core::TransactionBuilder, prelude::*};
     use std::mem::size_of;
 
+    const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
+
     #[test]
     fn test_min_fee_and_vbytes() {
         let result = vec![
@@ -391,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_sorted_tx_map_with_conflict_tx_hash() {
-        let mut map = SortedTxMap::default();
+        let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
         let tx1 = TxEntry::new(
             TransactionBuilder::default().build(),
             100,
@@ -413,10 +431,10 @@ mod tests {
             tx1.transaction.witness_hash(),
             tx2.transaction.witness_hash()
         );
-        let ret = map.add_entry(tx1.clone());
+        let ret = map.add_entry(tx1.clone()).unwrap();
         assert!(ret.is_none());
         // tx2 should replace tx1
-        let ret = map.add_entry(tx2.clone()).unwrap();
+        let ret = map.add_entry(tx2.clone()).unwrap().unwrap();
         assert_eq!(
             ret.transaction.witness_hash(),
             tx1.transaction.witness_hash()

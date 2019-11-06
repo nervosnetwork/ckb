@@ -6,6 +6,8 @@ pub enum SubmitTxError {
     /// The fee rate of transaction is lower than min fee rate
     #[fail(display = "LowFeeRate")]
     LowFeeRate,
+    #[fail(display = "ExceededMaximumAncestorsCount")]
+    ExceededMaximumAncestorsCount,
 }
 
 impl From<SubmitTxError> for Error {
