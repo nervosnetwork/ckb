@@ -35,7 +35,7 @@ fn get_version() -> Version {
     #[cfg(docker)]
     let commit_describe = commit_describe.map(|s| s.replace("-dirty", ""));
     let commit_date = option_env!("COMMIT_DATE").map(ToString::to_string);
-    let code_name = Some("rylai-v13".to_string());
+    let code_name = Some("lina".to_string());
     Version {
         major,
         minor,
