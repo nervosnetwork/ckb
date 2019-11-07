@@ -70,6 +70,7 @@ impl PendingQueue {
         &self,
         limit: usize,
         min_fee_rate: FeeRate,
+        exclusion: &HashSet<ProposalShortId>,
         proposals: &mut HashSet<ProposalShortId>,
     ) {
         for key in self.keys_sorted_by_fee() {
@@ -89,7 +90,15 @@ impl PendingQueue {
                     .expect("exists")
             });
             ancestors.push(key.id.clone());
-            proposals.extend(ancestors.into_iter().take(limit - proposals.len()));
+
+            for candidate in ancestors {
+                if proposals.len() == limit {
+                    break;
+                }
+                if !exclusion.contains(&candidate) {
+                    proposals.insert(candidate);
+                }
+            }
         }
     }
 }

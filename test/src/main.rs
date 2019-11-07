@@ -367,6 +367,7 @@ fn all_specs() -> SpecMap {
         Box::new(ConflictInGap),
         Box::new(ConflictInProposed),
         Box::new(DAOVerify),
+        Box::new(AvoidDuplicatedProposalsWithUncles),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
