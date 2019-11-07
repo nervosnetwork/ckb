@@ -62,14 +62,58 @@ pub struct ChainSpec {
     pub pow: Pow,
 }
 
+pub mod default_params {
+    use crate::consensus::{
+        CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
+        DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
+        GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
+    };
+    use ckb_types::core::{Capacity, Cycle, EpochNumber};
+
+    pub fn initial_primary_epoch_reward() -> Capacity {
+        INITIAL_PRIMARY_EPOCH_REWARD
+    }
+
+    pub fn secondary_epoch_reward() -> Capacity {
+        DEFAULT_SECONDARY_EPOCH_REWARD
+    }
+
+    pub fn max_block_cycles() -> Cycle {
+        MAX_BLOCK_CYCLES
+    }
+
+    pub fn cellbase_maturity() -> u64 {
+        CELLBASE_MATURITY.full_value()
+    }
+
+    pub fn primary_epoch_reward_halving_interval() -> EpochNumber {
+        DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL
+    }
+
+    pub fn epoch_duration_target() -> u64 {
+        DEFAULT_EPOCH_DURATION_TARGET
+    }
+
+    pub fn genesis_epoch_length() -> u64 {
+        GENESIS_EPOCH_LENGTH
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
+    #[serde(default = "default_params::initial_primary_epoch_reward")]
     pub initial_primary_epoch_reward: Capacity,
+    #[serde(default = "default_params::secondary_epoch_reward")]
     pub secondary_epoch_reward: Capacity,
+    #[serde(default = "default_params::max_block_cycles")]
     pub max_block_cycles: Cycle,
+    #[serde(default = "default_params::cellbase_maturity")]
     pub cellbase_maturity: u64,
+    #[serde(default = "default_params::primary_epoch_reward_halving_interval")]
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    #[serde(default = "default_params::epoch_duration_target")]
     pub epoch_duration_target: u64,
+    #[serde(default = "default_params::genesis_epoch_length")]
     pub genesis_epoch_length: BlockNumber,
     #[serde(default)]
     pub permanent_difficulty_in_dummy: bool,
@@ -77,19 +121,15 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
-            DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
-            GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
-        };
         Params {
-            initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
-            secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
-            max_block_cycles: MAX_BLOCK_CYCLES,
-            cellbase_maturity: CELLBASE_MATURITY.full_value(),
-            primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
-            epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
-            genesis_epoch_length: GENESIS_EPOCH_LENGTH,
+            initial_primary_epoch_reward: default_params::initial_primary_epoch_reward(),
+            secondary_epoch_reward: default_params::secondary_epoch_reward(),
+            max_block_cycles: default_params::max_block_cycles(),
+            cellbase_maturity: default_params::cellbase_maturity(),
+            primary_epoch_reward_halving_interval:
+                default_params::primary_epoch_reward_halving_interval(),
+            epoch_duration_target: default_params::epoch_duration_target(),
+            genesis_epoch_length: default_params::genesis_epoch_length(),
             permanent_difficulty_in_dummy: false,
         }
     }
@@ -756,5 +796,18 @@ pub mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_default_params() {
+        let test_params: &str = r#"
+            genesis_epoch_length = 100
+        "#;
+
+        let params: Params = toml::from_str(&test_params).unwrap();
+        let mut expected = Params::default();
+        expected.genesis_epoch_length = 100;
+
+        assert_eq!(params, expected);
     }
 }

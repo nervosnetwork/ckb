@@ -367,7 +367,7 @@ impl EpochNumberWithFraction {
         (self.0 >> Self::LENGTH_OFFSET) & Self::LENGTH_MASK
     }
 
-    pub fn full_value(self) -> u64 {
+    pub const fn full_value(self) -> u64 {
         self.0
     }
 
