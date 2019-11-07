@@ -1,11 +1,13 @@
 use crate::relayer::block_proposal_process::{BlockProposalProcess, Status};
 use crate::relayer::tests::helper::{build_chain, new_transaction};
+use ckb_network::PeerIndex;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
 
 #[test]
 fn test_no_unknown() {
     let (relayer, always_success_out_point) = build_chain(5);
+    let peer_index: PeerIndex = 100.into();
 
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
 
@@ -22,7 +24,7 @@ fn test_no_unknown() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, peer_index);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoUnknown));
 }
@@ -30,6 +32,7 @@ fn test_no_unknown() {
 #[test]
 fn test_no_asked() {
     let (relayer, always_success_out_point) = build_chain(5);
+    let peer_index: PeerIndex = 100.into();
 
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
 
@@ -39,7 +42,7 @@ fn test_no_asked() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, peer_index);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
@@ -50,6 +53,7 @@ fn test_no_asked() {
 #[test]
 fn test_ok() {
     let (relayer, always_success_out_point) = build_chain(5);
+    let peer_index: PeerIndex = 100.into();
 
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
     let transactions = vec![transaction.clone()];
@@ -67,7 +71,7 @@ fn test_ok() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, peer_index);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 

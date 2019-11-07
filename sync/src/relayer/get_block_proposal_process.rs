@@ -1,8 +1,8 @@
 use crate::relayer::Relayer;
-use ckb_logger::debug_target;
+use ckb_logger::{debug_target, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
-use failure::Error as FailureError;
+use failure::{err_msg, Error as FailureError};
 use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a> {
@@ -28,6 +28,20 @@ impl<'a> GetBlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
+        let snapshot = self.relayer.shared.snapshot();
+        {
+            let get_block_proposal = self.message;
+            let limit = snapshot.consensus().max_block_proposals_limit()
+                * (snapshot.consensus().max_uncles_num() as u64);
+            if (get_block_proposal.proposals().len() as u64) > limit {
+                warn!("Peer {} sends us an invalid message, GetBlockProposal proposals size ({}) is greater than consensus limit ({})",
+                    self.peer, get_block_proposal.proposals().len(), limit);
+                return Err(err_msg(
+                    "GetBlockProposal proposals size is greater than consensus limit".to_owned(),
+                ));
+            }
+        }
+
         let proposals: Vec<packed::ProposalShortId> =
             self.message.proposals().to_entity().into_iter().collect();
 

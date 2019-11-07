@@ -46,6 +46,8 @@ pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
+pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
+pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionError {
@@ -120,7 +122,7 @@ impl Relayer {
                 GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;
             }
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
-                BlockProposalProcess::new(reader, self).execute()?;
+                BlockProposalProcess::new(reader, self, peer).execute()?;
             }
         }
         Ok(())
@@ -464,6 +466,7 @@ impl Relayer {
                     }
                     !already_known
                 })
+                .take(MAX_RELAY_TXS_NUM_PER_BATCH)
                 .collect::<Vec<_>>();
             if !tx_hashes.is_empty() {
                 debug_target!(
@@ -490,7 +493,7 @@ impl Relayer {
 
     // Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
-        let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
+        let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
             let peer_tx_hashes = self.shared.state().take_tx_hashes();
             let mut known_txs = self.shared.state().known_txs();
@@ -506,8 +509,12 @@ impl Relayer {
                         })
                         .take(MAX_RELAY_PEERS)
                     {
-                        let hashes = selected.entry(peer).or_insert_with(HashSet::default);
-                        hashes.insert(tx_hash.clone());
+                        let hashes = selected
+                            .entry(peer)
+                            .or_insert_with(|| Vec::with_capacity(MAX_RELAY_TXS_NUM_PER_BATCH));
+                        if hashes.len() < MAX_RELAY_TXS_NUM_PER_BATCH {
+                            hashes.push(tx_hash.clone());
+                        }
                     }
                 }
             }
