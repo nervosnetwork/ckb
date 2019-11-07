@@ -1,7 +1,7 @@
 use ckb_bin::run_app;
 use ckb_build_info::Version;
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 

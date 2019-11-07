@@ -66,5 +66,5 @@ members = [
 debug = true
 overflow-checks = true
 
-[target.'cfg(all(unix, not(target_os="macos")))'.dependencies]
+[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 jemallocator = { version = "0.3.0" }
