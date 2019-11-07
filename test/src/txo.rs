@@ -1,5 +1,5 @@
 use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
-use ckb_types::packed::{CellDep, CellInput, CellOutput, OutPoint, Script};
+use ckb_types::packed::{CellDep, CellInput, CellOutput, OutPoint, Script, ScriptOpt};
 use ckb_types::prelude::*;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -22,12 +22,24 @@ impl TXO {
         Self { out_point, output }
     }
 
+    pub fn out_point(&self) -> OutPoint {
+        self.out_point.clone()
+    }
+
+    pub fn output(&self) -> CellOutput {
+        self.output.clone()
+    }
+
     pub fn capacity(&self) -> u64 {
         self.output.capacity().unpack()
     }
 
     pub fn lock(&self) -> Script {
         self.output.lock()
+    }
+
+    pub fn type_(&self) -> ScriptOpt {
+        self.output.type_()
     }
 
     pub fn to_input(&self) -> CellInput {
