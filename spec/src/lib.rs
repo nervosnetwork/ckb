@@ -46,7 +46,6 @@ mod error;
 // Just a random secp256k1 secret key for dep group input cell's lock
 const SPECIAL_CELL_PRIVKEY: H256 =
     h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
-const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
 pub const OUTPUT_INDEX_DAO: u64 = 2;
@@ -289,8 +288,24 @@ impl ChainSpec {
         Ok(consensus)
     }
 
-    fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
-        let cellbase_transaction = self.build_cellbase_transaction()?;
+    pub fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
+        let special_cell_capacity = {
+            let cellbase_transaction_for_special_cell_capacity =
+                self.build_cellbase_transaction(capacity_bytes!(500))?;
+            // build transaction other than cellbase should return inputs for dao statistics
+            let dep_group_transaction_for_special_cell_capacity =
+                self.build_dep_group_transaction(&cellbase_transaction_for_special_cell_capacity)?;
+            dep_group_transaction_for_special_cell_capacity
+                .data()
+                .as_reader()
+                .raw()
+                .outputs()
+                .iter()
+                .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
+                .try_fold(Capacity::zero(), Capacity::safe_add)
+        }?;
+
+        let cellbase_transaction = self.build_cellbase_transaction(special_cell_capacity)?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
 
@@ -421,7 +436,10 @@ impl ChainSpec {
         Ok(())
     }
 
-    fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
+    fn build_cellbase_transaction(
+        &self,
+        special_cell_capacity: Capacity,
+    ) -> Result<TransactionView, Box<dyn Error>> {
         let input = packed::CellInput::new_cellbase_input(0);
         let mut outputs = Vec::<packed::CellOutput>::with_capacity(
             1 + self.genesis.system_cells.len() + self.genesis.issued_cells.len(),
@@ -463,7 +481,7 @@ impl ChainSpec {
             .hash_type(ScriptHashType::Data.into())
             .build();
         let special_issued_cell = packed::CellOutput::new_builder()
-            .capacity(SPECIAL_CELL_CAPACITY.pack())
+            .capacity(special_cell_capacity.pack())
             .lock(special_issued_lock)
             .build();
         outputs.push(special_issued_cell);
@@ -771,6 +789,25 @@ pub mod test {
 
             // dep group tx should be the first tx except cellbase
             let dep_group_tx = block.transaction(1).unwrap();
+
+            // input index of dep group tx
+            let dep_group_tx_input_index = system_cells.len() + 1;
+            let input_capacity: Capacity = cellbase
+                .output(dep_group_tx_input_index)
+                .unwrap()
+                .capacity()
+                .unpack();
+            let outputs_capacity = dep_group_tx
+                .outputs()
+                .into_iter()
+                .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
+                .try_fold(Capacity::zero(), Capacity::safe_add)
+                .unwrap();
+            // capacity for input and outpus should be same
+            assert_eq!(input_capacity, outputs_capacity);
+
+            // dep group tx has only one input
+            assert_eq!(dep_group_tx.inputs().len(), 1);
 
             // all dep groups should be in the spec file
             assert_eq!(
