@@ -9,7 +9,7 @@ timestamp = 1572674400069
 compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
-hash = "0x32ae1674478cd0e51e73313406ab586ac88e8dfdce7fc4c59956aba3d1bb7275"
+hash = "0x8b2419452963c17f64bbda3f7e58ca1152a9d16bf78adb735afaa995709f4e0a"
 
 [genesis.genesis_cell]
 # TODO: Replace 0x000...00 with the last block hash in testnet v0.24.0
