@@ -158,6 +158,8 @@ pub struct Genesis {
 pub struct SystemCell {
     // NOTE: must put `create_type_id` before `file` otherwise this struct can not serialize
     pub create_type_id: bool,
+    // Overwrite the cell capacity. Set to None to use the minimal capacity.
+    pub capacity: Option<u64>,
     pub file: Resource,
 }
 
@@ -617,10 +619,27 @@ impl SystemCell {
         } else {
             None
         };
-        let cell = packed::CellOutput::new_builder()
+        let builder = packed::CellOutput::new_builder()
             .type_(type_script.pack())
-            .lock(lock.clone().into())
-            .build_exact_capacity(Capacity::bytes(data.len())?)?;
+            .lock(lock.clone().into());
+
+        let data_len = Capacity::bytes(data.len())?;
+        let cell = if let Some(capacity) = self.capacity {
+            let cell = builder.capacity(capacity.pack()).build();
+            let occupied_capacity = cell.occupied_capacity(data_len)?.as_u64();
+            if occupied_capacity > capacity {
+                return Err(format!(
+                    "Insufficient capacity to create system cell at index {}, \
+                     occupied / capacity = {} / {}",
+                    output_index, occupied_capacity, capacity
+                )
+                .into());
+            }
+            cell
+        } else {
+            builder.build_exact_capacity(data_len)?
+        };
+
         Ok((cell, data))
     }
 }
