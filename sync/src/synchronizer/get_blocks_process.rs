@@ -1,11 +1,10 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+use crate::{MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::{debug, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
-use failure::Error as FailureError;
-use std::cmp::min;
+use failure::{err_msg, Error as FailureError};
 
 pub struct GetBlocksProcess<'a> {
     message: packed::GetBlocksReader<'a>,
@@ -31,10 +30,16 @@ impl<'a> GetBlocksProcess<'a> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hashes = self.message.block_hashes();
+        // use MAX_HEADERS_LEN as limit, we may increase the value of MAX_BLOCKS_IN_TRANSIT_PER_PEER in the future
+        if block_hashes.len() > MAX_HEADERS_LEN {
+            warn!("Peer {} sends us an invalid message, GetBlocks block_hashes size ({}) is greater than MAX_HEADERS_LEN ({})", self.peer, block_hashes.len(), MAX_HEADERS_LEN);
+            return Err(err_msg(
+                "GetBlocks block_hashes size is greater than MAX_HEADERS_LEN".to_owned(),
+            ));
+        }
         let snapshot = self.synchronizer.shared.snapshot();
 
-        let n_limit = min(MAX_BLOCKS_IN_TRANSIT_PER_PEER as usize, block_hashes.len());
-        for block_hash in block_hashes.iter().take(n_limit) {
+        for block_hash in block_hashes.iter().take(MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
             let block_hash = block_hash.to_entity();
 
@@ -78,10 +83,6 @@ impl<'a> GetBlocksProcess<'a> {
                 debug!("getblocks stopping since {} is not found", block_hash);
                 break;
             }
-        }
-
-        if n_limit < block_hashes.len() {
-            warn!("getblocks stopping at limit {}", n_limit);
         }
 
         Ok(())
