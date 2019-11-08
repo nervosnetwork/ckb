@@ -8,7 +8,7 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xe88f5b9837dd5190bc43dc7086ca19ded7d8eb08677fcf3472b7f287f58d9133"
+hash = "0xc2381d99670cbbe38ee1d13220f11c3e2f6c2ed3fd2dca4f9d56325e9e41ee4b"
 
 [genesis.genesis_cell]
 message = "rylai-v13"
@@ -23,15 +23,19 @@ hash_type = "data"
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
 create_type_id = true
+capacity = 100_000_0000_0000
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/dao" }
 create_type_id = true
+capacity = 16_000_0000_0000
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
+capacity = 1_048_617_0000_0000
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
 create_type_id = true
+capacity = 100_000_0000_0000
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
