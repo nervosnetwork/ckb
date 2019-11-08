@@ -1,17 +1,19 @@
-name = "ckb_testnet"
+name = "ckb"
 
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+# TODO: set to the timestamp of the last block in testnet v0.24.0
 timestamp = 1572674400069
+# TODO: computed from the last epochs in testnet v0.24.0
 compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
-# run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x2d8c530cdb1085db09ca3f4c061174ba740aba05aaaf30098a005eba4307db39"
+hash = "0x8b2419452963c17f64bbda3f7e58ca1152a9d16bf78adb735afaa995709f4e0a"
 
 [genesis.genesis_cell]
-message = "rylai"
+# TODO: Replace 0x000...00 with the last block hash in testnet v0.24.0
+message = "lina 0x0000000000000000000000000000000000000000000000000000000000000000"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -60,31 +62,27 @@ files = [
 [genesis.bootstrap_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
-hash_type = "type"
+hash_type = "data"
 
-# Locks for developers to run tests
+# Burn
 [[genesis.issued_cells]]
-capacity = 50_000_000_00000000
-lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
-lock.args = "0x64257f00b6b63e987609fa9be2d0c86d351020fb"
-lock.hash_type = "type"
-[[genesis.issued_cells]]
-capacity = 50_000_000_00000000
-lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
-lock.args = "0x3f1573b44218d4c12a91919a58a863be415a2bc3"
-lock.hash_type = "type"
-[[genesis.issued_cells]]
-capacity = 50_000_000_00000000
-lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
-lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
-lock.hash_type = "type"
-# Satoshi cell, used to adjust dao issuerance.
-# 60% capacity of this cell is occupied.
-[[genesis.issued_cells]]
-capacity = 50_000_000_00000000
+capacity = 8_400_000_000_00000000
 lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 lock.hash_type = "data"
+
+# TODO: Other issued cells starts here
+# Public Token Sale: 20%
+# Ecosystem fund: 18.5%
+# Team: 15%
+# Private Sale: 14%
+# Strategic Founding Partners: 5%
+# Foundation Reserve: 2% - genesis message cell - system cells - dep groups
+# Testnet Incentives: 0.5%
+
+[params]
+# TODO: Set to the length of the last epoch of testnet
+genesis_epoch_length = 1000
 
 [pow]
 func = "Eaglesong"
