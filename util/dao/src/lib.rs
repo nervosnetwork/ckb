@@ -325,6 +325,10 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .store
             .get_block_header(withdraw_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
+        if deposit_header.number() >= withdraw_header.number() {
+            return Err(DaoError::InvalidOutPoint.into());
+        }
+
         let (deposit_ar, _, _, _) = extract_dao_data(deposit_header.dao())?;
         let (withdraw_ar, _, _, _) = extract_dao_data(withdraw_header.dao())?;
 
