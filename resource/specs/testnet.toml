@@ -8,10 +8,10 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x2d8c530cdb1085db09ca3f4c061174ba740aba05aaaf30098a005eba4307db39"
+hash = "0xf938ad6f48ca78c622a505343e02feda19e67bb7cdc5bf09efd3000949899def"
 
 [genesis.genesis_cell]
-message = "rylai"
+message = "aggron"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
