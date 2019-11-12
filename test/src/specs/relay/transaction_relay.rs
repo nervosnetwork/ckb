@@ -50,7 +50,7 @@ impl Spec for TransactionRelayBasic {
     }
 }
 
-const MIN_CAPACITY: u64 = 60_0000_0000;
+const MIN_CAPACITY: u64 = 61_0000_0000;
 
 pub struct TransactionRelayMultiple;
 
