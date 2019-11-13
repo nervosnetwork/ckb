@@ -23,7 +23,8 @@ fn main() {
     for entry in WalkDir::new("specs").follow_links(true).into_iter() {
         match entry {
             Ok(ref e)
-                if !e.file_type().is_dir() && !e.file_name().to_string_lossy().starts_with(".") =>
+                if !e.file_name().to_string_lossy().starts_with(".")
+                    && e.file_name().to_string_lossy().ends_with(".toml") =>
             {
                 bundled
                     .add_file(e.path(), Compression::Gzip)
