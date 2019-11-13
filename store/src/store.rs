@@ -188,7 +188,7 @@ pub trait ChainStore<'a>: Send + Sync {
     }
 
     fn is_main_chain(&'a self, hash: &packed::Byte32) -> bool {
-        self.get_block_number(&hash).is_some()
+        self.get(COLUMN_INDEX, hash.as_slice()).is_some()
     }
 
     fn get_tip_header(&'a self) -> Option<HeaderView> {

@@ -954,18 +954,26 @@ impl SyncSnapshot {
         let mut index = start.number();
         let mut base = start.hash();
         loop {
-            let header = self.get_ancestor(&base, index).unwrap_or_else(|| {
-                panic!(
-                    "index calculated in get_locator: \
-                     start: {}, base: {}, step: {}, locators({}): {:?}.",
-                    start,
-                    base,
-                    step,
-                    locator.len(),
-                    locator,
-                );
-            });
-            locator.push(header.hash());
+            let header_hash = if self.store().is_main_chain(&base) {
+                self.store()
+                    .get_block_hash(index)
+                    .expect("Can not get a main chain header from snapshot")
+            } else {
+                self.get_ancestor(&base, index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "index calculated in get_locator: \
+                             start: {}, base: {}, step: {}, locators({}): {:?}.",
+                            start,
+                            base,
+                            step,
+                            locator.len(),
+                            locator,
+                        )
+                    })
+                    .hash()
+            };
+            locator.push(header_hash.clone());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -979,7 +987,7 @@ impl SyncSnapshot {
                 break;
             }
             index -= step;
-            base = header.hash();
+            base = header_hash;
         }
         locator
     }
