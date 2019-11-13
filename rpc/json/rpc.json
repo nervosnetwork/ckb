@@ -1076,7 +1076,7 @@
                 "lock_hash": "Cell lock script hash"
             },
             {
-                "page": "Page number"
+                "page": "Page number, starts from 0"
             },
             {
                 "per": "Page size, max value is 50"
@@ -1214,7 +1214,7 @@
                 "lock_hash": "Cell lock script hash"
             },
             {
-                "page": "Page number"
+                "page": "Page number, starts from 0"
             },
             {
                 "per": "Page size, max value is 50"
