@@ -67,7 +67,6 @@ matrix:
       script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
     - name: Linters
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
-      env: CACHE_NAME=linters
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -100,7 +99,6 @@ matrix:
         - make wasm-build-test
 
     - name: Test benchmarks on Linux
-      env: CACHE_NAME=bench
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
       script: make bench-test
