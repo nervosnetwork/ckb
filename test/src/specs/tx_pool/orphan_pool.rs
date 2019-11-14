@@ -1,3 +1,4 @@
+use crate::specs::tx_pool::utils::assert_new_block_committed;
 use crate::{utils::sleep, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_tx_pool::FeeRate;
@@ -5,6 +6,7 @@ use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,
 };
+use log::debug;
 
 const COUNT: usize = 10;
 
@@ -32,11 +34,11 @@ impl Spec for SubmitOrphanTx {
                 .build();
             txs.push(child);
         }
+
         // send last txs
-        let ret = node0
-            .rpc_client()
-            .send_transaction_result(txs.last().unwrap().data().into());
-        assert!(ret.is_ok());
+        let tx = txs.last().unwrap();
+        let ret = node0.rpc_client().send_transaction_result(tx.data().into());
+        debug!("send_transaction ret {:x} {:?}", tx.hash(), ret);
 
         // it should be inserted to orphan pool
         let tx_pool_info = node0.rpc_client().tx_pool_info();
@@ -44,13 +46,20 @@ impl Spec for SubmitOrphanTx {
 
         // submit other txs
         for tx in txs.iter().rev().skip(1) {
-            node0.rpc_client().send_transaction(tx.data().into());
+            let ret = node0.rpc_client().send_transaction_result(tx.data().into());
+            debug!("send_transaction ret {:x} {:?}", tx.hash(), ret);
         }
 
-        // should move all txs from orphan pool to pending pool
+        node0.generate_block();
+        node0.generate_block();
         let tx_pool_info = node0.rpc_client().tx_pool_info();
-        assert_eq!(COUNT as u64, tx_pool_info.pending.value());
-        assert_eq!(0, tx_pool_info.orphan.value());
+        assert_eq!(1, tx_pool_info.proposed.value());
+        assert_new_block_committed(node0, &[txs[0].clone()]);
+        node0.generate_block();
+        node0.generate_block();
+        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        assert_eq!(9, tx_pool_info.proposed.value());
+        assert_new_block_committed(node0, &txs[1..10]);
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
@@ -98,8 +107,7 @@ impl Spec for RelayChainTx {
         // node1 should receive all txs
         sleep(10);
         let tx_pool_info = node1.rpc_client().tx_pool_info();
-        assert_eq!(COUNT as u64, tx_pool_info.pending.value());
-        assert_eq!(0, tx_pool_info.orphan.value());
+        assert_eq!(COUNT as u64, tx_pool_info.pending.value() + tx_pool_info.orphan.value());
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

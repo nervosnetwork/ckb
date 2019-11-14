@@ -1,7 +1,7 @@
-use crate::specs::tx_pool::utils::prepare_tx_family;
+use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family};
 use crate::utils::{blank, propose};
 use crate::{Net, Node, Spec};
-use ckb_types::core::{BlockView, TransactionView};
+use ckb_types::core::BlockView;
 
 pub struct ReorgHandleProposals;
 
@@ -82,29 +82,6 @@ impl Spec for ReorgHandleProposals {
         assert_new_block_committed(node_b, &[family.a().clone()]);
         node_a.generate_block();
         node_b.generate_block();
-    }
-}
-
-fn assert_new_block_committed(node: &Node, committed: &[TransactionView]) {
-    let block = node.new_block(None, None, None);
-    if committed != &block.transactions()[1..] {
-        print_proposals_in_window(node);
-        assert_eq!(committed, &block.transactions()[1..]);
-    }
-}
-
-fn print_proposals_in_window(node: &Node) {
-    let number = node.get_tip_block_number();
-    let window = node.consensus().tx_proposal_window();
-    let proposal_start = number.saturating_sub(window.farthest()) + 1;
-    let proposal_end = number.saturating_sub(window.closest()) + 1;
-    for number in proposal_start..=proposal_end {
-        let block = node.get_block_by_number(number);
-        println!(
-            "\tBlock[#{}].proposals: {:?}",
-            number,
-            block.union_proposal_ids()
-        );
     }
 }
 

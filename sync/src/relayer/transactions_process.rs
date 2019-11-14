@@ -179,7 +179,7 @@ impl<'a> TransactionsProcess<'a> {
                 } else {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
-                        "peer {} relay a conflict or missing input, error: {:?}",
+                        "peer {} relay a conflict or missing input, error: {}",
                         peer_index,
                         err
                     );
