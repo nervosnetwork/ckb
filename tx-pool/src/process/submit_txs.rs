@@ -2,14 +2,13 @@ use crate::component::entry::TxEntry;
 use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use crate::FeeRate;
-use ckb_error::{Error, ErrorKind, InternalErrorKind};
+use ckb_error::{Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
         cell::{
             resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
-        error::OutPointError,
         Capacity, Cycle, TransactionView,
     },
     packed::Byte32,
@@ -51,7 +50,7 @@ impl Future for PreResolveTxsProcess {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.tx_pool.poll_lock() {
-            Async::Ready(mut tx_pool) => {
+            Async::Ready(tx_pool) => {
                 let txs = self.txs.take().expect("cannot execute twice");
                 debug_assert!(!txs.is_empty(), "txs should not be empty!");
                 let snapshot = tx_pool.cloned_snapshot();
@@ -62,10 +61,10 @@ impl Future for PreResolveTxsProcess {
                 let mut txs_provider = TransactionsProvider::default();
                 let resolved = txs
                     .iter()
-                    .filter_map(|tx| {
+                    .map(|tx| {
                         let ret = resolve_tx(&tx_pool, &snapshot, &txs_provider, tx.clone());
                         txs_provider.insert(tx);
-                        orphan_filter(ret, tx.clone(), &mut tx_pool)
+                        ret
                     })
                     .collect::<Result<Vec<(ResolvedTransaction, usize, Capacity, TxStatus)>, _>>(
                     )?;
@@ -263,26 +262,6 @@ fn check_transaction_hash_collision(
         }
     }
     Ok(())
-}
-
-fn orphan_filter(
-    ret: ResolveResult,
-    tx: TransactionView,
-    tx_pool: &mut TxPool,
-) -> Option<ResolveResult> {
-    if let Err(ref error) = ret {
-        if &ErrorKind::OutPoint == error.kind() {
-            if let OutPointError::Unknown(out_points) = error
-                .downcast_ref::<OutPointError>()
-                .expect("error kind checked")
-            {
-                let tx_size = tx.data().serialized_size_in_block();
-                tx_pool.add_orphan(None, tx_size, tx, out_points.to_owned());
-                return None;
-            }
-        }
-    }
-    Some(ret)
 }
 
 fn resolve_tx<'a>(
