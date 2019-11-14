@@ -1,3 +1,66 @@
+# [v0.25.1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.1) (2019-11-15)
+
+Embed lina chain spec
+
+# [v0.25.0](https://github.com/nervosnetwork/ckb/compare/v0.24.0...v0.25.0) (2019-11-14)
+
+### Features
+
+* #1785: Upgrade system script for modified multi-sign lock script (@xxuejie)
+
+    See https://github.com/nervosnetwork/ckb-system-scripts/pull/61 for related changes.
+
+* #1779: Upgrade rocksdb with ReadOnlyDB changes (@xxuejie)
+
+    See https://github.com/nervosnetwork/rust-rocksdb/pull/1 for changes for the rocksdb library.
+
+    While this won't affect CKB, it provides a different rocksdb version that can aid ReadOnly mode when using ckb packages.
+
+* #1784: Support limit `max_tx_verify_cycles` (@jjyr)
+
+    The purpose is to limit max verify cycles on single tx, to reduce DDOS vulnerability.
+
+* #1788: Limit tx max ancestors count (@jjyr)
+
+    Txs with long ancestors chain affect tx pool performance. we limit max ancestors count of a single tx to resolve this issue, tx pool will reject txs which ancestors count large than the limit.
+
+    The default `max_ancestors_count` is 25.
+
+* #1797: Allow specify single consensus param in spec (@zhangsoledad)
+* #1803: Allow overriding system script cell capacity (@doitian)
+
+    This make the system script cell capacity determined.
+
+
+### Bug Fixes
+
+* #1752: Return non-zero rewards for the first 11 blocks (@keroro520)
+
+    * fix: Return non-zero rewards for the first 11 blocks
+    * test: Add DAOVerifier to verify the dao_fields
+
+* #1770: Skip cellbase short-id collision validation (@quake)
+* #1791: Error message on calculate dao max withdraw (@driftluo)
+* #1792: Add missing type script in RPC (@driftluo)
+* #1804: Retrieve few burned ckb in genesis block (@yangby-cryptape)
+* #1805: Proposal table bound (@zhangsoledad)
+* #1801: Calculate interest with older withdraw header (@keroro520)
+
+    This small bug will not cause any validity problems.
+
+* #1813: Fix get locator performance bug (@TheWaWaR)
+
+    When get header from main chain we can get it from snapshot
+
+### Improvements
+
+* #1729: DB iterator interface (@zhangsoledad)
+
+    * get rid of useless lifetimes and unnecessary intermediate conversion code
+    * property api
+
+* #1655: Avoid reproposed uncle proposals (@keroro520)
+
 # [v0.24.0](https://github.com/nervosnetwork/ckb/compare/v0.23.0...v0.24.0) (2019-11-02)
 
 ### Breaking Changes
