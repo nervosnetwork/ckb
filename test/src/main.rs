@@ -302,6 +302,8 @@ fn all_specs() -> SpecMap {
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
+        Box::new(SubmitOrphanTx),
+        Box::new(RelayChainTx),
         Box::new(SendArrowTxs),
         Box::new(FeeEstimate),
         Box::new(DifferentTxsWithSameInput),
