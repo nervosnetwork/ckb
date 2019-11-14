@@ -287,8 +287,7 @@ fn all_specs() -> SpecMap {
         Box::new(PoolResurrect),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
-        // FIXME: There is a probability of failure on low resouce CI server
-        // Box::new(TransactionRelayMultiple),
+        Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
         Box::new(TransactionRelayTimeout),
         Box::new(Discovery),
