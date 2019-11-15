@@ -8,16 +8,27 @@ use std::collections::VecDeque;
 use std::collections::{hash_map, HashMap};
 use std::iter::ExactSizeIterator;
 
+pub(crate) const TTL: u64 = 4 * 60 * 60;
+pub(crate) const PRUNE_THRESHOLD: usize = 1500;
+
 ///not verified, may contain conflict transactions
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
     pub(crate) vertices: HashMap<ProposalShortId, DefectEntry>,
     pub(crate) edges: HashMap<OutPoint, Vec<ProposalShortId>>,
+    pub(crate) prune_threshold: usize,
 }
 
 impl OrphanPool {
     pub(crate) fn new() -> Self {
-        OrphanPool::default()
+        OrphanPool::raw_new(PRUNE_THRESHOLD)
+    }
+
+    pub(crate) fn raw_new(prune_threshold: usize) -> Self {
+        OrphanPool {
+            prune_threshold,
+            ..Default::default()
+        }
     }
 
     pub(crate) fn size(&self) -> usize {
@@ -49,6 +60,7 @@ impl OrphanPool {
         tx: TransactionView,
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) -> Option<DefectEntry> {
+        self.prune();
         let short_id = tx.proposal_short_id();
         let entry = DefectEntry::new(tx, unknown.len(), cache_entry, size);
         for out_point in unknown {
@@ -56,6 +68,30 @@ impl OrphanPool {
             edge.push(short_id.clone());
         }
         self.vertices.insert(short_id, entry)
+    }
+
+    fn prune(&mut self) {
+        if self.size() < self.prune_threshold {
+            return;
+        }
+
+        let now = faketime::unix_time().as_secs();
+        let ids: Vec<ProposalShortId> = self
+            .vertices
+            .iter()
+            .filter_map(|(id, entry)| {
+                if entry.timestamp + TTL < now {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .cloned()
+            .collect();
+
+        for id in ids {
+            self.recursion_remove(&id);
+        }
     }
 
     pub(crate) fn recursion_remove(&mut self, id: &ProposalShortId) {
@@ -118,7 +154,7 @@ impl OrphanPool {
 
 #[cfg(test)]
 mod tests {
-    use super::OrphanPool;
+    use super::{OrphanPool, TTL};
     use ckb_types::{
         bytes::Bytes,
         core::{Capacity, TransactionBuilder, TransactionView},
@@ -263,5 +299,27 @@ mod tests {
         assert!(!pool.contains(&tx2));
         assert!(!pool.contains(&tx3));
         assert!(!pool.contains(&tx4));
+    }
+
+    #[test]
+    fn test_orphan_prune() {
+        let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+        faketime::enable(&faketime_file);
+
+        let mut pool = OrphanPool::raw_new(0);
+
+        let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
+        let tx1_hash = tx1.hash();
+
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+        let tx2_hash = tx2.hash();
+
+        let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
+
+        pool.add_tx(None, MOCK_SIZE, tx2.clone(), tx1.output_pts().into_iter());
+        faketime::write_millis(&faketime_file, (TTL + 1) * 1000).expect("write millis");
+        pool.add_tx(None, MOCK_SIZE, tx3.clone(), tx2.output_pts().into_iter());
+        assert!(!pool.contains(&tx2));
+        assert!(pool.contains(&tx3));
     }
 }
