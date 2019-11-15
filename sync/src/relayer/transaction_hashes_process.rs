@@ -5,8 +5,8 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
+use ckb_util::LinkedHashMap;
 use failure::{err_msg, Error as FailureError};
-use std::collections::HashMap;
 
 pub struct TransactionHashesProcess<'a> {
     message: packed::RelayTransactionHashesReader<'a>,
@@ -53,7 +53,7 @@ impl<'a> TransactionHashesProcess<'a> {
 
         let transit_hashes: Vec<Byte32> = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-            let mut proposals: HashMap<packed::ProposalShortId, Byte32> = hashes
+            let mut proposals: LinkedHashMap<packed::ProposalShortId, Byte32> = hashes
                 .into_iter()
                 .map(|tx_hash| (packed::ProposalShortId::from_tx_hash(&tx_hash), tx_hash))
                 .collect();

@@ -228,6 +228,7 @@ impl SortedTxMap {
     pub fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
         let mut queue = VecDeque::new();
         let mut removed = Vec::new();
+        let tx_link = self.links.get(&id).map(ToOwned::to_owned);
         queue.push_back(id.clone());
         while let Some(id) = queue.pop_front() {
             if let Some(entry) = self.entries.remove(&id) {
@@ -239,6 +240,14 @@ impl SortedTxMap {
                     queue.extend(link.children);
                 }
                 removed.push(entry);
+            }
+        }
+        // update parents links
+        if let Some(link) = tx_link {
+            for p_id in link.parents {
+                self.links
+                    .get_mut(&p_id)
+                    .map(|link| link.children.remove(&id));
             }
         }
         removed
@@ -319,7 +328,12 @@ impl SortedTxMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder, prelude::*};
+    use ckb_types::{
+        bytes::Bytes,
+        core::TransactionBuilder,
+        packed::{CellInput, OutPoint},
+        prelude::*,
+    };
     use std::mem::size_of;
 
     const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
@@ -451,5 +465,70 @@ mod tests {
         for key in map.keys_sorted_by_fee() {
             map.get(&key.id).expect("should consistent");
         }
+    }
+
+    #[test]
+    fn test_remove_entry_and_descendants() {
+        let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let tx1 = TxEntry::new(
+            TransactionBuilder::default().build(),
+            100,
+            Capacity::shannons(100),
+            100,
+            Default::default(),
+        );
+        let tx2 = TxEntry::new(
+            TransactionBuilder::default()
+                .input(
+                    CellInput::new_builder()
+                        .previous_output(
+                            OutPoint::new_builder()
+                                .tx_hash(tx1.transaction.hash())
+                                .index(0u32.pack())
+                                .build(),
+                        )
+                        .build(),
+                )
+                .witness(Bytes::new().pack())
+                .build(),
+            200,
+            Capacity::shannons(200),
+            200,
+            Default::default(),
+        );
+        let tx3 = TxEntry::new(
+            TransactionBuilder::default()
+                .input(
+                    CellInput::new_builder()
+                        .previous_output(
+                            OutPoint::new_builder()
+                                .tx_hash(tx2.transaction.hash())
+                                .index(0u32.pack())
+                                .build(),
+                        )
+                        .build(),
+                )
+                .witness(Bytes::new().pack())
+                .build(),
+            200,
+            Capacity::shannons(200),
+            200,
+            Default::default(),
+        );
+        let tx1_id = tx1.transaction.proposal_short_id();
+        let tx2_id = tx2.transaction.proposal_short_id();
+        let tx3_id = tx3.transaction.proposal_short_id();
+        map.add_entry(tx1.clone()).unwrap();
+        map.add_entry(tx2.clone()).unwrap();
+        map.add_entry(tx3.clone()).unwrap();
+        let descendants_map = map.get_descendants(&tx1_id);
+        assert!(descendants_map.contains(&tx2_id));
+        assert!(descendants_map.contains(&tx3_id));
+        map.remove_entry_and_descendants(&tx2_id);
+        assert!(!map.contains_key(&tx2_id));
+        assert!(!map.contains_key(&tx3_id));
+        let descendants_map = map.get_descendants(&tx1_id);
+        assert!(!descendants_map.contains(&tx2_id));
+        assert!(!descendants_map.contains(&tx3_id));
     }
 }

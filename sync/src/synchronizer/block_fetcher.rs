@@ -41,6 +41,8 @@ impl BlockFetcher {
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
+            // Bootstrap quickly by guessing a parent of our best tip is the forking point.
+            // Guessing wrong in either direction is not a problem.
             } else if best.number() < self.snapshot.tip_header().number() {
                 let last_common_hash = self.snapshot.store().get_block_hash(best.number())?;
                 self.snapshot.store().get_block_header(&last_common_hash)
@@ -49,15 +51,11 @@ impl BlockFetcher {
             }
         }?;
 
+        // If the peer reorganized, our previous last_common_header may not be an ancestor
+        // of its current tip anymore. Go back enough to fix that.
         let fixed_last_common_header = self
             .snapshot
             .last_common_ancestor(&last_common_header, &best.inner())?;
-
-        if fixed_last_common_header != last_common_header {
-            self.synchronizer
-                .peers()
-                .set_last_common_header(self.peer, fixed_last_common_header.clone());
-        }
 
         Some(fixed_last_common_header)
     }
@@ -128,9 +126,11 @@ impl BlockFetcher {
                 let to_fetch = self
                     .snapshot
                     .get_ancestor(&best_known_header.hash(), index_height)?;
-                if self.snapshot
-                    // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                    // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+
+                // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+                // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+                if self
+                    .snapshot
                     .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
                 {
                     continue;

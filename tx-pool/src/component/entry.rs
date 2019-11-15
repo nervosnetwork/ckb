@@ -20,6 +20,8 @@ pub struct DefectEntry {
     pub cache_entry: Option<CacheEntry>,
     /// tx size
     pub size: usize,
+    // timestamp
+    pub timestamp: u64,
 }
 
 impl DefectEntry {
@@ -35,6 +37,7 @@ impl DefectEntry {
             refs_count,
             cache_entry,
             size,
+            timestamp: faketime::unix_time().as_secs(),
         }
     }
 }

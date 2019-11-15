@@ -7,11 +7,11 @@ use ckb_types::{
     packed,
     prelude::*,
 };
+use ckb_util::LinkedHashSet;
 use ckb_verification::cache::CacheEntry;
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use sentry::{capture_message, with_scope, Level};
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -127,7 +127,9 @@ impl<'a> TransactionsProcess<'a> {
                             continue;
                         }
                         let mut cache = shared.state().tx_hashes();
-                        let entry = cache.entry(peer_index).or_insert_with(HashSet::default);
+                        let entry = cache
+                            .entry(peer_index)
+                            .or_insert_with(LinkedHashSet::default);
                         entry.insert(tx_hash);
                     } else {
                         debug_target!(
@@ -179,7 +181,7 @@ impl<'a> TransactionsProcess<'a> {
                 } else {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
-                        "peer {} relay a conflict or missing input, error: {:?}",
+                        "peer {} relay a conflict or missing input, error: {}",
                         peer_index,
                         err
                     );

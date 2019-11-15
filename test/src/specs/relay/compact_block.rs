@@ -180,11 +180,15 @@ impl Spec for CompactBlockMissingFreshTxs {
 
         net.should_receive(
             |data: &Bytes| {
-                RelayMessage::from_slice(&data)
+                let get_block_txns = RelayMessage::from_slice(&data)
                     .map(|message| {
                         message.to_enum().item_name() == packed::GetBlockTransactions::NAME
                     })
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let get_block = SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                    .unwrap_or(false);
+                get_block_txns || get_block
             },
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
@@ -297,11 +301,15 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
         net.should_receive(
             |data: &Bytes| {
-                RelayMessage::from_slice(&data)
+                let get_block_txns = RelayMessage::from_slice(&data)
                     .map(|message| {
                         message.to_enum().item_name() == packed::GetBlockTransactions::NAME
                     })
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let get_block = SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                    .unwrap_or(false);
+                get_block_txns || get_block
             },
             "Node0 should send GetBlockTransactions message for missing transactions",
         );

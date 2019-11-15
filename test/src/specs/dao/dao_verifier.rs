@@ -137,10 +137,22 @@ impl DAOVerifier {
 
     #[allow(non_snake_case)]
     pub fn U_out(&self, i: BlockNumber) -> u64 {
+        let satoshi_cell_occupied_ratio = self.consensus.satoshi_cell_occupied_ratio;
+        let satoshi_pubkey_hash = &self.consensus.satoshi_pubkey_hash;
         let mut sum = 0u64;
-        for tx in self.blocks[i as usize].transactions() {
-            for o in tx.output_pts() {
-                sum += self.get_output_occupied_capacity(&o);
+        for (tx_index, tx) in self.blocks[i as usize].transactions().iter().enumerate() {
+            for (out_point, output) in tx.output_pts().iter().zip(tx.outputs().into_iter()) {
+                if i == 0
+                    && tx_index == 0
+                    && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
+                {
+                    sum += Unpack::<Capacity>::unpack(&output.capacity())
+                        .safe_mul_ratio(satoshi_cell_occupied_ratio)
+                        .unwrap()
+                        .as_u64();
+                } else {
+                    sum += self.get_output_occupied_capacity(out_point);
+                }
             }
         }
         sum
@@ -195,41 +207,32 @@ impl DAOVerifier {
     pub fn I(&self, i: BlockNumber) -> u64 {
         let mut sum = 0u64;
         for tx in self.blocks[i as usize].transactions() {
-            for (o, witness) in tx
-                .input_pts_iter()
-                .zip(tx.witnesses().into_iter())
-                .into_iter()
-            {
+            for o in tx.input_pts_iter().into_iter() {
                 if o.is_null() {
                     continue;
                 }
 
-                let input = self.get_output(&o);
-                if self.is_dao_input(&input) {
-                    let deposit_capacity: u64 =
-                        self.get_output_capacity(&o) - self.get_output_occupied_capacity(&o);
-                    let deposit_ar = self.ar(self.get_tx_block_number(&o.tx_hash()));
-                    let withdraw_ar = {
-                        let withdraw_header_hash =
-                            tx.header_deps()
-                                .get(LittleEndian::read_u64(
-                                    &witness.raw_data()[witness.len() - 8..],
-                                ) as usize)
-                                .unwrap();
-                        let withdraw_header_number = self
-                            .blocks
-                            .iter()
-                            .find(|block| block.hash() == withdraw_header_hash)
-                            .map(|block| block.number())
-                            .unwrap();
-                        self.ar(withdraw_header_number)
-                    };
-                    let withdraw_capacity = u64::try_from(
-                        u128::from(deposit_capacity) * u128::from(withdraw_ar)
+                if self.is_dao_prepare_input(&o) {
+                    // `o` is prepare point, then `o`'s same-position input is deposit point
+                    let prepare_tx = self.get_transaction(&o.tx_hash());
+                    let deposit_out_point = prepare_tx
+                        .inputs()
+                        .get(o.index().unpack())
+                        .unwrap()
+                        .previous_output();
+                    let deposit_header_number =
+                        self.get_tx_block_number(&deposit_out_point.tx_hash());
+                    let prepare_header_number = self.get_tx_block_number(&prepare_tx.hash());
+                    let deposit_ar = self.ar(deposit_header_number);
+                    let prepare_ar = self.ar(prepare_header_number);
+                    let deposit_counted_capacity = self.get_output_capacity(&deposit_out_point)
+                        - self.get_output_occupied_capacity(&o);
+                    let prepare_capacity = u64::try_from(
+                        u128::from(deposit_counted_capacity) * u128::from(prepare_ar)
                             / u128::from(deposit_ar),
                     )
                     .unwrap();
-                    let interest = withdraw_capacity - deposit_capacity;
+                    let interest = prepare_capacity - deposit_counted_capacity;
                     sum += interest
                 }
             }
@@ -237,9 +240,23 @@ impl DAOVerifier {
         sum
     }
 
-    fn is_dao_input(&self, input: &CellOutput) -> bool {
+    fn is_dao_prepare_input(&self, out_point: &OutPoint) -> bool {
+        let input_tx = self.get_transaction(&out_point.tx_hash());
+        let input_data = input_tx
+            .outputs_data()
+            .get(out_point.index().unpack())
+            .unwrap();
+        if input_data.len() != 8 {
+            return false;
+        }
+
+        let deposited_number = LittleEndian::read_u64(&input_data.raw_data()[0..8]);
+        if deposited_number == 0 {
+            return false;
+        }
+
         let dao_type_hash = self.consensus.dao_type_hash().unwrap();
-        input
+        self.get_output(out_point)
             .type_()
             .to_opt()
             .map(|script| script.code_hash() == dao_type_hash)
@@ -355,25 +372,9 @@ impl DAOVerifier {
         });
         self.blocks.iter().for_each(|block| {
             assert_eq!(
-                self.S(block.number()),
-                extract_dao_data(block.dao()).unwrap().2.as_u64(),
-                "assert S. expected_dao_field: {}",
-                self.expected_dao_field(block.number()),
-            );
-        });
-        self.blocks.iter().for_each(|block| {
-            assert_eq!(
                 self.U(block.number()),
                 extract_dao_data(block.dao()).unwrap().3.as_u64(),
                 "assert U. expected_dao_field: {}",
-                self.expected_dao_field(block.number()),
-            );
-        });
-        self.blocks.iter().for_each(|block| {
-            assert_eq!(
-                self.ar(block.number()),
-                extract_dao_data(block.dao()).unwrap().0,
-                "assert ar. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );
         });
@@ -397,6 +398,22 @@ impl DAOVerifier {
                     i,
                 );
             }
+        });
+        self.blocks.iter().for_each(|block| {
+            assert_eq!(
+                self.ar(block.number()),
+                extract_dao_data(block.dao()).unwrap().0,
+                "assert ar. expected_dao_field: {}",
+                self.expected_dao_field(block.number()),
+            );
+        });
+        self.blocks.iter().for_each(|block| {
+            assert_eq!(
+                self.S(block.number()),
+                extract_dao_data(block.dao()).unwrap().2.as_u64(),
+                "assert S. expected_dao_field: {}",
+                self.expected_dao_field(block.number()),
+            );
         });
     }
 

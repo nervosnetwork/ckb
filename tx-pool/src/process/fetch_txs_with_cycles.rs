@@ -2,7 +2,6 @@ use crate::pool::TxPool;
 use ckb_types::core::{Cycle, TransactionView};
 use ckb_types::packed::ProposalShortId;
 use futures::future::Future;
-use std::collections::HashMap;
 use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
 
@@ -24,7 +23,7 @@ impl FetchTxsWithCyclesProcess {
 }
 
 impl Future for FetchTxsWithCyclesProcess {
-    type Item = HashMap<ProposalShortId, (TransactionView, Cycle)>;
+    type Item = Vec<(ProposalShortId, (TransactionView, Cycle))>;
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {

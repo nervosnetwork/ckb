@@ -66,7 +66,7 @@ type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
-type FetchTxsWithCyclesResult = HashMap<ProposalShortId, (TransactionView, Cycle)>;
+type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
 pub type ChainReorgArgs = (
     VecDeque<BlockView>,
@@ -82,9 +82,7 @@ pub enum Message {
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(
-        Request<Vec<ProposalShortId>, HashMap<ProposalShortId, (TransactionView, Cycle)>>,
-    ),
+    FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
@@ -650,7 +648,7 @@ impl TxPoolService {
     fn fetch_txs_with_cycles(
         &self,
         short_ids: Vec<ProposalShortId>,
-    ) -> impl Future<Item = HashMap<ProposalShortId, (TransactionView, Cycle)>, Error = ()> {
+    ) -> impl Future<Item = Vec<(ProposalShortId, (TransactionView, Cycle))>, Error = ()> {
         FetchTxsWithCyclesProcess::new(self.tx_pool.clone(), short_ids)
     }
 

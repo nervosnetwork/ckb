@@ -50,7 +50,7 @@ impl Spec for TransactionRelayBasic {
     }
 }
 
-const MIN_CAPACITY: u64 = 60_0000_0000;
+const MIN_CAPACITY: u64 = 61_0000_0000;
 
 pub struct TransactionRelayMultiple;
 
@@ -60,10 +60,13 @@ impl Spec for TransactionRelayMultiple {
     crate::setup!(num_nodes: 5);
 
     fn run(&self, net: &mut Net) {
-        let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        (0..node0.consensus().tx_proposal_window().farthest() + 2).for_each(|_| {
+            net.exit_ibd_mode();
+        });
+
         info!("Use generated block's cellbase as tx input");
+        let block = node0.get_tip_block();
         let reward: Capacity = block.transactions()[0]
             .outputs()
             .as_reader()
@@ -87,9 +90,10 @@ impl Spec for TransactionRelayMultiple {
             .build();
         let mut tb = temp_transaction
             .as_advanced_builder()
-            .set_outputs(Vec::new());
+            .set_outputs(Vec::new())
+            .set_outputs_data(Vec::new());
         for _ in 0..txs_num {
-            tb = tb.output(output.clone());
+            tb = tb.output(output.clone()).output_data(Default::default());
         }
         let transaction = tb.build();
         node0
@@ -98,7 +102,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(4);
+        net.waiting_for_sync(node0.get_tip_block_number());
 
         info!("Send multiple transactions to node0");
         let tx_hash = transaction.hash().to_owned();
@@ -118,6 +122,7 @@ impl Spec for TransactionRelayMultiple {
                     )
                     .output(output.clone())
                     .input(CellInput::new(OutPoint::new(tx_hash.clone(), i as u32), 0))
+                    .output_data(Default::default())
                     .build();
                 node0.rpc_client().send_transaction(tx.data().into());
             });
@@ -125,7 +130,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(7);
+        net.waiting_for_sync(node0.get_tip_block_number());
 
         info!("All transactions should be relayed and mined");
         node0.assert_tx_pool_size(0, 0);

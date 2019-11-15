@@ -468,6 +468,7 @@ impl Relayer {
                 })
                 .take(MAX_RELAY_TXS_NUM_PER_BATCH)
                 .collect::<Vec<_>>();
+
             if !tx_hashes.is_empty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,

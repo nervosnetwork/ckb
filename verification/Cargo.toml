@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.25.0"
+version = "0.25.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
