@@ -41,6 +41,8 @@ impl BlockFetcher {
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
+            // Bootstrap quickly by guessing a parent of our best tip is the forking point.
+            // Guessing wrong in either direction is not a problem.
             } else if best.number() < self.snapshot.tip_header().number() {
                 let last_common_hash = self.snapshot.store().get_block_hash(best.number())?;
                 self.snapshot.store().get_block_header(&last_common_hash)
@@ -49,6 +51,8 @@ impl BlockFetcher {
             }
         }?;
 
+        // If the peer reorganized, our previous last_common_header may not be an ancestor
+        // of its current tip anymore. Go back enough to fix that.
         let fixed_last_common_header = self
             .snapshot
             .last_common_ancestor(&last_common_header, &best.inner())?;
