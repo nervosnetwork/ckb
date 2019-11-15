@@ -8,7 +8,7 @@ compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xf938ad6f48ca78c622a505343e02feda19e67bb7cdc5bf09efd3000949899def"
+hash = "0x28ab92a897d99b20e9541dd10a03ea5b89784ac51e586ff16ca05f8aa7319e78"
 
 [genesis.genesis_cell]
 message = "aggron"
@@ -62,29 +62,29 @@ code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
 hash_type = "type"
 
+# Burn
+[[genesis.issued_cells]]
+capacity = 8_400_000_000_00000000
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+lock.hash_type = "data"
+
 # Locks for developers to run tests
 [[genesis.issued_cells]]
-capacity = 50_000_000_00000000
+capacity = 8_399_578_345_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x64257f00b6b63e987609fa9be2d0c86d351020fb"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
-capacity = 50_000_000_00000000
+capacity = 8_399_578_345_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x3f1573b44218d4c12a91919a58a863be415a2bc3"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
-capacity = 50_000_000_00000000
+capacity = 8_399_578_347_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
-# Satoshi cell, used to adjust dao issuerance.
-# 60% capacity of this cell is occupied.
-[[genesis.issued_cells]]
-capacity = 50_000_000_00000000
-lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
-lock.hash_type = "data"
 
 [pow]
 func = "Eaglesong"
