@@ -21,6 +21,8 @@ use std::sync::Arc;
 use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
 
+type ResolveResult = Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error>;
+
 pub struct PreResolveTxsProcess {
     pub tx_pool: Lock<TxPool>,
     pub txs: Option<Vec<TransactionView>>,
@@ -267,7 +269,7 @@ fn resolve_tx<'a>(
     snapshot: &Snapshot,
     txs_provider: &'a TransactionsProvider<'a>,
     tx: TransactionView,
-) -> Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error> {
+) -> ResolveResult {
     let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
         return Err(InternalErrorKind::TransactionPoolFull.into());

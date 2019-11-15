@@ -16,6 +16,7 @@ use ckb_types::{
     prelude::*,
     U256,
 };
+use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
@@ -599,7 +600,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_hashes: Mutex<HashMap<PeerIndex, HashSet<Byte32>>>,
+    tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
 }
 
 impl SyncSharedState {
@@ -707,11 +708,11 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, HashSet<Byte32>>> {
+    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
         self.tx_hashes.lock()
     }
 
-    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, HashSet<Byte32>> {
+    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
         let mut map = self.tx_hashes.lock();
         mem::replace(&mut *map, HashMap::default())
     }
