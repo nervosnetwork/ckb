@@ -2,6 +2,13 @@
 
 Embed lina chain spec
 
+# [v0.25.0-p1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.0-p1) (2019-11-15)
+
+### Bug Fixes
+
+* #1817: Fix SortedTxMap inconsistent descendants links error (@jjyr)
+* #1819: Fix: txs relay order (@zhangsoledad)
+
 # [v0.25.0](https://github.com/nervosnetwork/ckb/compare/v0.24.0...v0.25.0) (2019-11-14)
 
 ### Features
