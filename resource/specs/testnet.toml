@@ -3,12 +3,12 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1572674400069
-compact_target = 0x1c00e904
+timestamp = 1573963200000
+compact_target = 0x1e015555
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x28ab92a897d99b20e9541dd10a03ea5b89784ac51e586ff16ca05f8aa7319e78"
+hash = "0xaac7df2cd822df88ebf9929feabb01f7bf56b866c16ccd4e66a8176b74e45cc5"
 
 [genesis.genesis_cell]
 message = "aggron"
