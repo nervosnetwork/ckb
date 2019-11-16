@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test-chain-utils"
-version = "0.25.0-pre"
+version = "0.25.2-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
