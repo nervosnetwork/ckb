@@ -3,4 +3,4 @@
 set -eu
 
 git merge --no-ff --no-commit -s ours master
-git checkout master -- CHANGELOG.md db/src/db.rs src/main.rs resource/specs/testnet.toml .travis.yml azure-pipelines.yml
+git checkout master -- CHANGELOG.md db/src/db.rs src/main.rs resource/specs/testnet.toml resource/specs/mainnet.toml resource/specs/mainnet.toml.asc .travis.yml azure-pipelines.yml

@@ -22,31 +22,31 @@ and start CKB from it.
 First, create a volume.
 
 ```bash
-docker volume create ckb-testnet
+docker volume create ckb-mainnet
 ```
 
-Then init the directory with testnet chain spec.
+Then init the directory with mainnet chain spec.
 
 ```bash
 docker run --rm -it \
-  -v ckb-testnet:/var/lib/ckb \
-  nervos/ckb:latest init --chain testnet --force
+  -v ckb-mainnet:/var/lib/ckb \
+  nervos/ckb:latest init --chain mainnet --force
 ```
 
-Create a container `ckb-testnet-node` to run a node:
+Create a container `ckb-mainnet-node` to run a node:
 
 ```bash
 docker create -it \
-  -v ckb-testnet:/var/lib/ckb \
-  --name ckb-testnet-node \
+  -v ckb-mainnet:/var/lib/ckb \
+  --name ckb-mainnet-node \
   nervos/ckb:latest run
 ```
 
 Copy the generated config files from the container:
 
 ```bash
-docker cp ckb-testnet-node:/var/lib/ckb/ckb.toml .
-docker cp ckb-testnet-node:/var/lib/ckb/ckb-miner.toml .
+docker cp ckb-mainnet-node:/var/lib/ckb/ckb.toml .
+docker cp ckb-mainnet-node:/var/lib/ckb/ckb-miner.toml .
 ```
 
 Edit the config files as you like. If you want to run a miner, remember to
@@ -56,17 +56,17 @@ Copy back the edited config files back to container:
 
 ```bash
 tar --owner=1000 --group=1000 -cf - ckb.toml ckb-miner.toml | \
-  docker cp - ckb-testnet-node:/var/lib/ckb/
+  docker cp - ckb-mainnet-node:/var/lib/ckb/
 ```
 
 Now start the node:
 
 ```bash
-docker start -i ckb-testnet-node
+docker start -i ckb-mainnet-node
 ```
 
 And start the miner in the same container
 
 ```bash
-docker exec ckb-testnet-node ckb miner
+docker exec ckb-mainnet-node ckb miner
 ```
