@@ -1200,7 +1200,7 @@ impl SyncSnapshot {
         let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
         for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as a invalid block as well.
+            // its parent, so we treat it as an invalid block as well.
             if !known_parent(&block) {
                 debug!(
                     "parent-unknown orphan block, block: {}, {}, parent: {}",

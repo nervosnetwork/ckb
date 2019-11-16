@@ -111,7 +111,7 @@ block_uncles_cache_size    = 30
 cellbase_cache_size        = 30
 
 # [indexer]
-# # The minimum time (in milliseconds) between indexing exectuion, default is 500
+# # The minimum time (in milliseconds) between indexing execution, default is 500
 # batch_interval = 500
 # # The maximum number of blocks in a single indexing execution batch, default is 200
 # batch_size = 200

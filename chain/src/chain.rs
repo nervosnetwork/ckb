@@ -175,7 +175,7 @@ impl ChainService {
         let (process_block_sender, process_block_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
 
-        // Mainly for test: give a empty thread_name
+        // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());

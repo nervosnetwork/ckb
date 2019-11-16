@@ -110,7 +110,7 @@ impl AddrInfo {
 
     pub fn mark_connected(&mut self, connected_at_ms: u64) {
         self.last_connected_at_ms = connected_at_ms;
-        // reset attemps
+        // reset attempts
         self.attempts_count = 0;
     }
 }

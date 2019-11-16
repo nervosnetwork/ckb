@@ -527,7 +527,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         );
         assert!(
             wait_until(20, move || node0.get_tip_block().header().number() == old_tip + 1),
-            "node0 should process the new block, even its difficulty is less then best_shared_known",
+            "node0 should process the new block, even its difficulty is less than best_shared_known",
         );
     }
 }

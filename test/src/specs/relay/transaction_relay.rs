@@ -176,7 +176,7 @@ impl Spec for TransactionRelayTimeout {
         let wait_seconds = RETRY_ASK_TX_TIMEOUT_INCREASE.as_secs();
         info!("Waiting for {} seconds", wait_seconds);
         // Relay protocol will retry 30 seconds later when same GetRelayTransactions received from other peer
-        // (not happend in current test case)
+        // (not happened in current test case)
         sleep(wait_seconds);
         assert!(
             !wait_get_relay_txs(&net),
