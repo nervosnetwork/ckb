@@ -20,6 +20,9 @@ ckb init
 
 See how to [configure CKB](configure.md) if you like to tweak the options.
 
+Windows users can double click `ckb-init-mainnet.bat` to initialize a mainnet
+node directory.
+
 ## Start Node
 
 Start the node from the directory
@@ -29,6 +32,8 @@ ckb run
 ```
 
 Restarting in the same directory will reuse the data.
+
+Windows users can double click `ckb-run.bat` to start the node.
 
 ## Use RPC
 
