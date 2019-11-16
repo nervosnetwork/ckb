@@ -43,6 +43,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
+    info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
     info_target!(
         crate::LOG_TARGET_MAIN,
         "chain genesis hash: {:#x}",
