@@ -29,7 +29,7 @@ struct TxRecord {
 /// In inner, we group samples by predefined fee_rate buckets.
 /// To estimator fee_rate for a confirm target(how many blocks that a tx can get committed),
 /// we travel through fee_rate buckets, try to find a fee_rate X to let a tx get committed
-/// with high problities within confirm target blocks.
+/// with high probilities within confirm target blocks.
 ///
 #[derive(Clone)]
 pub struct Estimator {

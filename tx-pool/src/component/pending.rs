@@ -202,7 +202,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         // `keys_sorted_by_fee_and_relation` is same as `txs_sorted_by_fee_rate`,
-        // becasue all the transactions have
+        // because all the transactions have
         // no relation with each others.
         assert_eq!(keys_sorted_by_fee_and_relation, txs_sorted_by_fee_rate);
     }

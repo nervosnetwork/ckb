@@ -69,7 +69,7 @@ pub enum ScriptGroupType {
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
-// future, we might refactor this to share buffer to achive zero-copy
+// future, we might refactor this to share buffer to achieve zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
     debug_printer: Box<dyn Fn(&Byte32, &str)>,
@@ -470,7 +470,7 @@ mod tests {
         tiny_keccak::sha3_256(s.as_ref())
     }
 
-    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate funtions
+    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate functions
     // I try to keep unit test code unmodified as much as possible, and may add it back in future PR.
     // fn open_cell_verify() -> File {
     //     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()

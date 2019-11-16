@@ -83,7 +83,7 @@ pub struct NetworkState {
 
     pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
     /// Node public addresses,
-    /// includes manualy public addrs and remote peer observed addrs
+    /// includes manually public addrs and remote peer observed addrs
     public_addrs: RwLock<HashMap<Multiaddr, u8>>,
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
     /// Send disconnect message but not disconnected yet
@@ -1066,7 +1066,7 @@ impl NetworkService {
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
 
-        // Mainly for test: give a empty thread_name
+        // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
@@ -1272,7 +1272,7 @@ impl Drop for NetworkController {
     }
 }
 
-// Send a optional message before disconnect a peer
+// Send an optional message before disconnect a peer
 pub(crate) fn disconnect_with_message(
     control: &ServiceControl,
     peer_index: SessionId,
