@@ -1,4 +1,4 @@
-pub const DEFAULT_SPEC: &str = "dev";
+pub const DEFAULT_SPEC: &str = "mainnet";
 pub const AVAILABLE_SPECS: &[&str] = &["mainnet", "testnet", "staging", "dev"];
 pub const DEFAULT_RPC_PORT: &str = "8114";
 pub const DEFAULT_P2P_PORT: &str = "8115";

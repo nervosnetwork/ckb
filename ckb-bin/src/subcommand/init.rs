@@ -8,8 +8,8 @@ use ckb_chain_spec::ChainSpec;
 use ckb_db::{db::RocksDB, DBConfig};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
-    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
-    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
+    SPEC_DEV_FILE_NAME,
 };
 use ckb_types::{prelude::*, H256};
 
@@ -211,7 +211,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             println!("cp {} specs/{}.toml", spec_file, args.chain);
             fs::copy(spec_file, target_file)?;
         }
-    } else if args.chain == DEFAULT_SPEC {
+    } else if args.chain == "dev" {
         println!("create {}", SPEC_DEV_FILE_NAME);
         Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
     }
