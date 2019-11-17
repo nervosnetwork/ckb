@@ -1,3 +1,21 @@
+# [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
+
+### Features
+
+* #1824: Switch to mainnet (@doitian)
+
+    - `ckb init` initializes mainnet node by default.
+    - update docs related to mainnet.
+
+
+### Improvements
+
+* #1823: Enhance the binary packages. (@doitian)
+
+    - Static link openssl in macOS package, so it will not require openssl as a runtime dependency.
+    - Add bat files in Windows package to ease starting a node in Windows.
+
+
 # [v0.25.1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.1) (2019-11-15)
 
 Embed lina chain spec
