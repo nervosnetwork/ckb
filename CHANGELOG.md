@@ -1,3 +1,21 @@
+# [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
+
+### Features
+
+* #1824: Switch to mainnet (@doitian)
+
+    - `ckb init` initializes mainnet node by default.
+    - update docs related to mainnet.
+
+
+### Improvements
+
+* #1823: Enhance the binary packages. (@doitian)
+
+    - Static link openssl in macOS package, so it will not require openssl as a runtime dependency.
+    - Add bat files in Windows package to ease starting a node in Windows.
+
+
 # [v0.25.1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.1) (2019-11-15)
 
 Embed lina chain spec
@@ -1205,7 +1223,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - #439: fix mining bug caused by type changes in RPC (@xxuejie)
 - #437: RPC `local_node_info` returns duplicated addr (@rink1969)
 - #418: try to repair a corrupted rocksdb automatically (@yangby-cryptape)
-- #414: clear tx verfy cache when chain reorg (@zhangsoledad)
+- #414: clear tx verify cache when chain reorg (@zhangsoledad)
 
 
 ### Features
@@ -1241,7 +1259,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - RPC `get_live_cell` returns `(null, "unknown")` when looking up null out point before, while returns `(null, "live")` now.
 - RPC uses `string` to encode all 64bit integrers now.
 - The executble `ckb` requires config files now, use `ckb init` to export the default ones.
-- The new features tx valid sicne (#372) and removal of version from Script (#422) have changed the core data structure. They affect both RPC and the P2P messages flatbuffers schema.
+- The new features tx valid since (#372) and removal of version from Script (#422) have changed the core data structure. They affect both RPC and the P2P messages flatbuffers schema.
 
 
 # [v0.9.0](https://github.com/nervosnetwork/ckb/compare/v0.8.0...v0.9.0) (2019-04-22)

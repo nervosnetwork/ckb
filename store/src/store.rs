@@ -201,7 +201,7 @@ pub trait ChainStore<'a>: Send + Sync {
             .map(Into::into)
     }
 
-    /// Get commit transaction and block hash by it's hash
+    /// Get commit transaction and block hash by its hash
     fn get_transaction(
         &'a self,
         hash: &packed::Byte32,

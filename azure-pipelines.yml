@@ -7,7 +7,7 @@ trigger:
     - '*'
 
 variables:
-  CKBClientVersion: v0.25.0
+  CKBClientVersion: v0.25.2
 
 jobs:
   - job: UnitTest
@@ -68,6 +68,7 @@ jobs:
       - powershell: |
           mkdir ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
+          cp devtools/windows/ckb-init-mainnet.bat,devtools/windows/ckb-reinit-mainnet.bat,devtools/windows/ckb-run.bat ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp rpc/README.md ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/docs/rpc.md
           unzip ckb-cli_$(CKBClientVersion)_x86_64-pc-windows-msvc.zip
           mv ckb-cli_$(CKBClientVersion)_x86_64-pc-windows-msvc/ckb-cli.exe ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/

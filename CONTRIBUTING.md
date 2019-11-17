@@ -5,8 +5,8 @@ email, or any other method with the community before making a change. The develo
 ([English] | [Chinese]) should be used to discuss complicated or controversial changes before working
 on a patch set.
 
-[english]: https://groups.google.com/a/nervos.org/d/forum/ckb-dev
-[chinese]: https://groups.google.com/a/nervos.org/d/forum/ckb-dev-zh
+[English]: https://groups.google.com/a/nervos.org/d/forum/ckb-dev
+[Chinese]: https://groups.google.com/a/nervos.org/d/forum/ckb-dev-zh
 
 Please note we have a code of conduct, please follow it in all your interactions with the project.
 

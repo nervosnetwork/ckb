@@ -184,7 +184,7 @@ pub fn update_tx_pool_for_reorg(
         if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,
-                "Failed to add proposed tx {}, reason: {:?}",
+                "Failed to add proposed tx {}, reason: {}",
                 tx_hash,
                 e
             );
@@ -201,7 +201,7 @@ pub fn update_tx_pool_for_reorg(
         if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,
-                "Failed to add tx to gap {}, reason: {:?}",
+                "Failed to add tx to gap {}, reason: {}",
                 tx_hash,
                 e
             );

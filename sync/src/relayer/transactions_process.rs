@@ -154,7 +154,7 @@ impl<'a> TransactionsProcess<'a> {
                 if is_malformed(&err) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
-                        "peer {} relay a invalid tx, error: {:?}",
+                        "peer {} relay an invalid tx, error: {:?}",
                         peer_index,
                         err
                     );

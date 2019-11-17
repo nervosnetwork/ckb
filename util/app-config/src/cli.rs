@@ -145,7 +145,7 @@ fn reset_data() -> App<'static, 'static> {
 pub(crate) fn stats() -> App<'static, 'static> {
     SubCommand::with_name(CMD_STATS)
         .about(
-            "Statics chain infomation\n\
+            "Statics chain information\n\
              Example:\n\
              ckb -C <dir> stats --from 1 --to 500",
         )
@@ -266,7 +266,7 @@ fn cli_secp256k1_lock() -> App<'static, 'static> {
                 .long(ARG_DATA)
                 .required(true)
                 .index(1)
-                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compresed 33 bytes"),
+                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compressed 33 bytes"),
         )
         .arg(
             Arg::with_name(ARG_FORMAT)

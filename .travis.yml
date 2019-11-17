@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.25.0
+    - CKB_CLI_VERSION=v0.25.2
 
 addons:
   apt:
@@ -125,7 +125,7 @@ matrix:
       os: osx
       env: REL_PKG=x86_64-apple-darwin.zip
       script:
-        - make prod
+        - make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include prod
         - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb

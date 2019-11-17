@@ -60,7 +60,7 @@ impl Spec for MissingUncleRequest {
                     .map(|message| message.to_enum().item_name() == packed::BlockTransactions::NAME)
                     .unwrap_or(false)
             },
-            "Node should reponse BlockTransactions message",
+            "Node should response BlockTransactions message",
         );
 
         if let packed::RelayMessageUnionReader::BlockTransactions(reader) =

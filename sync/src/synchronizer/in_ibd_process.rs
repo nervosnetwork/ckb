@@ -35,8 +35,8 @@ impl<'a> InIBDProcess<'a> {
 
             // The node itself needs to ensure the validity of the outbound connection.
             //
-            // If outbound is a ibd node(non-whitelist, non-protect), it should be disconnected automatically.
-            // If inbound is a ibd node, just mark the node does not pass header sync authentication.
+            // If outbound is an ibd node(non-whitelist, non-protect), it should be disconnected automatically.
+            // If inbound is an ibd node, just mark the node does not pass header sync authentication.
             if state.peer_flags.is_outbound {
                 if state.peer_flags.is_whitelist || state.peer_flags.is_protect {
                     self.synchronizer.shared().state().suspend_sync(state);

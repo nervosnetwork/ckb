@@ -107,7 +107,7 @@ impl PeerRegistry {
         Ok(evicted_peer)
     }
 
-    // try to evict a inbound peer
+    // try to evict an inbound peer
     fn try_evict_inbound_peer(&self, _peer_store: &PeerStore) -> Option<SessionId> {
         let mut candidate_peers = {
             self.peers

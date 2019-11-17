@@ -92,7 +92,7 @@ fn always_success_consensus() -> Consensus {
 
 // Construct `Transaction` with an always-success cell
 //
-// The 1st transaction in genesis block, which contains a always_success_cell as the 1st output
+// The 1st transaction in genesis block, which contains an always_success_cell as the 1st output
 fn always_success_transaction() -> TransactionView {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();

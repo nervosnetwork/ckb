@@ -167,7 +167,7 @@ impl PeerStore {
             })
     }
 
-    /// Ban a addr
+    /// Ban an addr
     pub(crate) fn ban_addr(
         &mut self,
         addr: &Multiaddr,

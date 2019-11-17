@@ -21,7 +21,7 @@ impl Spec for ChainContainsInvalidBlock {
     );
 
     // Case:
-    //   1. `bad_node` generate a long chain `CN` contains a invalid block
+    //   1. `bad_node` generate a long chain `CN` contains an invalid block
     //      B[i] is an invalid block.
     //   2. `good_node` synchronizes from `bad_node`. We expect that `good_node`
     //      end synchronizing at B[i-1].

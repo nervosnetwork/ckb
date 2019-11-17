@@ -7,7 +7,7 @@ The provided files should work with systemd version 219 or later.
 The following instructions assume that:
 
 * you want to run ckb as user `ckb` and group `ckb`, and store data in `/var/lib/ckb`.
-* you want to join testnet.
+* you want to join mainnet.
 * you are logging in as a non-root user account that has `sudo` permissions to execute commands as root.
 
 First, get ckb and move the binary into the system binary directory, and setup the appropriate ownership and permissions:
@@ -18,11 +18,11 @@ sudo chown root:root /usr/local/bin/ckb
 sudo chmod 755 /usr/local/bin/ckb
 ```
 
-Setup the directories and generate config files for testnet.
+Setup the directories and generate config files for mainnet.
 
 ```bash
 sudo mkdir /var/lib/ckb
-sudo /usr/local/bin/ckb init -C /var/lib/ckb --chain testnet --log-to stdout
+sudo /usr/local/bin/ckb init -C /var/lib/ckb --chain mainnet --log-to stdout
 ```
 
 Setup the user and group and the appropriate ownership and permissions.

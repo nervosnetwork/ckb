@@ -20,7 +20,7 @@ COPY --from=ckb-docker-builder \
      /usr/lib/x86_64-linux-gnu/libcrypto.so.* \
      /usr/lib/x86_64-linux-gnu/
 COPY --from=ckb-docker-builder /ckb/target/release/ckb /bin/ckb
-RUN /bin/ckb init --force \
+RUN /bin/ckb init --chain dev --force \
  && chown -R ckb:ckb /var/lib/ckb \
  && chmod 755 /var/lib/ckb
 
