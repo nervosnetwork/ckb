@@ -51,9 +51,9 @@ impl fmt::Display for ScriptHashType {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
-    pub args: JsonBytes,
     pub code_hash: H256,
     pub hash_type: ScriptHashType,
+    pub args: JsonBytes,
 }
 
 impl From<Script> for packed::Script {
@@ -155,8 +155,8 @@ impl From<OutPoint> for packed::OutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CellInput {
-    pub previous_output: OutPoint,
     pub since: Uint64,
+    pub previous_output: OutPoint,
 }
 
 impl From<packed::CellInput> for CellInput {
@@ -252,8 +252,8 @@ pub struct Transaction {
     pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-    pub witnesses: Vec<JsonBytes>,
     pub outputs_data: Vec<JsonBytes>,
+    pub witnesses: Vec<JsonBytes>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -396,10 +396,10 @@ impl TxStatus {
 pub struct Header {
     pub version: Version,
     pub compact_target: Uint32,
-    pub parent_hash: H256,
     pub timestamp: Timestamp,
     pub number: BlockNumber,
     pub epoch: EpochNumberWithFraction,
+    pub parent_hash: H256,
     pub transactions_root: H256,
     pub proposals_hash: H256,
     pub uncles_hash: H256,
