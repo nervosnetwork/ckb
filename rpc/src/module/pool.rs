@@ -70,12 +70,12 @@ impl PoolRpc for PoolRpcImpl {
             Err(e) => {
                 if let Some(e) = e.downcast_ref::<SubmitTxError>() {
                     match *e {
-                        SubmitTxError::LowFeeRate => {
+                        SubmitTxError::LowFeeRate(min_fee) => {
                             return Err(RPCError::custom(
                                 RPCError::Invalid,
                                 format!(
-                                    "transaction fee rate lower than min_fee_rate: {} shannons/KB",
-                                    self.min_fee_rate
+                                    "transaction fee rate lower than min_fee_rate: {} shannons/KB, min fee for current tx: {}",
+                                    self.min_fee_rate, min_fee,
                                 ),
                             ));
                         }
