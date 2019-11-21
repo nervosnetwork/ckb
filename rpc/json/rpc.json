@@ -181,7 +181,7 @@
         }
     },
     {
-        "description": "Returns the information about cells collection by the hash of lock script.",
+        "description": "Returns the information about live cells collection by the hash of lock script.",
         "method": "get_cells_by_lock_hash",
         "module": "chain",
         "params": [
@@ -248,6 +248,29 @@
             },
             {
                 "to": "End block number"
+            }
+        ],
+        "returns": [
+            {
+                "block_hash": "Refer to block"
+            },
+            {
+                "capacity": "Cell capacity"
+            },
+            {
+                "cellbase_maturity": "Cellbase maturity, optional boolean, null means non-cellbse"
+            },
+            {
+                "lock": "Cell lock script"
+            },
+            {
+                "out_point": "Refer to this output"
+            },
+            {
+                "output_data_len": "Corresponding output data length"
+            },
+            {
+                "type": "Cell type script"
             }
         ]
     },

@@ -33,6 +33,17 @@ def print_types(case):
         for (key, val) in item.items():
             print("    {} - {}".format(key, val))
 
+def print_returns(case):
+    if case.get("returns") is None:
+        return
+
+    print("#### Returns")
+    newline(1)
+    for item in case["returns"]:
+        if len(item) != 1:
+            raise Exception("Invalid `returns` format, expect one map for only one type: {}".format(item))
+        for (key, val) in item.items():
+            print("    {} - {}".format(key, val))
 
 def print_example(case):
     example = {}
@@ -125,6 +136,7 @@ def main():
         print_title(case)
         print_description(case)
         print_types(case)
+        print_returns(case)
         print_example(case)
         print_result(case)
 
