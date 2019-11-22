@@ -174,6 +174,9 @@ impl CKBProtocolContext for MockProtocalContext {
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }
+    fn remove_notify(&self, _token: u64) -> Result<(), Error> {
+        unimplemented!()
+    }
     fn quick_send_message(
         &self,
         _proto_id: ProtocolId,
