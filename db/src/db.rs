@@ -1,22 +1,16 @@
+use crate::migration::Migrations;
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::{internal_error, Col, DBConfig, Result};
 use ckb_logger::{info, warn};
-use rocksdb::ops::{
-    Get, GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF, Put, SetOptions,
-};
+use rocksdb::ops::{GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF, SetOptions};
 use rocksdb::{
     ffi, ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
     OptimisticTransactionOptions, Options, WriteOptions,
 };
 use std::sync::Arc;
 
-// If any data format in database was changed, we have to update this constant manually.
-//      - If the data can be migrated at startup automatically: update "x.y.z1" to "x.y.z2".
-//      - If the data can be migrated manually: update "x.y1.z" to "x.y2.0".
-//      - If the data can not be migrated: update "x1.y.z" to "x2.0.0".
-pub(crate) const VERSION_KEY: &str = "db-version";
-pub(crate) const VERSION_VALUE: &str = "0.2500.0";
+pub const VERSION_KEY: &str = "db-version";
 
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
@@ -26,8 +20,7 @@ impl RocksDB {
     pub(crate) fn open_with_check(
         config: &DBConfig,
         columns: u32,
-        ver_key: &str,
-        ver_val: &str,
+        migrations: Migrations,
     ) -> Result<Self> {
         let mut opts = Options::default();
         opts.create_if_missing(false);
@@ -51,9 +44,6 @@ impl RocksDB {
                                 err
                             ))
                         })?;
-                    db.put(ver_key, ver_val).map_err(|err| {
-                        internal_error(format!("failed to initiate the database: {}", err))
-                    })?;
                     Ok(db)
                 } else if err.as_ref().starts_with("Corruption:") {
                     warn!("Repairing the rocksdb since {} ...", err);
@@ -86,50 +76,15 @@ impl RocksDB {
                 .map_err(|_| internal_error("failed to set database option"))?;
         }
 
-        let version_bytes = db
-            .get(ver_key)
-            .map_err(|err| {
-                internal_error(format!("failed to check the version of database: {}", err))
-            })?
-            .ok_or_else(|| internal_error("version info about database is lost"))?;
-        let version_str = unsafe { ::std::str::from_utf8_unchecked(&version_bytes) };
-        let version = semver::Version::parse(version_str)
-            .map_err(|err| internal_error(format!("database version is malformed: {}", err)))?;
-        let required_version = semver::Version::parse(ver_val).map_err(|err| {
-            internal_error(format!("required database version is malformed: {}", err))
-        })?;
-        if required_version.major != version.major
-            || required_version.minor != version.minor
-            || required_version.patch < version.patch
-        {
-            return Err(internal_error(format!(
-                "the database version is not matched, require {} but it's {}",
-                required_version, version
-            )));
-        } else if required_version.patch > version.patch {
-            warn!(
-                "Migrating the data from {} to {} ...",
-                required_version, version
-            );
-            // Do data migration here.
-            db.put(ver_key, ver_val).map_err(|err| {
-                internal_error(format!("Failed to update database version: {}", err))
-            })?;
-        }
+        migrations.migrate(&db)?;
 
         Ok(RocksDB {
             inner: Arc::new(db),
         })
     }
 
-    // TODO Change `panic(...)` to `Result<...>`
-    pub fn open(config: &DBConfig, columns: u32) -> Self {
-        Self::open_with_check(config, columns, VERSION_KEY, VERSION_VALUE)
-            .unwrap_or_else(|err| panic!("{}", err))
-    }
-
-    pub fn open_with_error(config: &DBConfig, columns: u32) -> Result<Self> {
-        Self::open_with_check(config, columns, VERSION_KEY, VERSION_VALUE)
+    pub fn open(config: &DBConfig, columns: u32, migrations: Migrations) -> Self {
+        Self::open_with_check(config, columns, migrations).unwrap_or_else(|err| panic!("{}", err))
     }
 
     pub fn open_tmp(columns: u32) -> Self {
@@ -138,7 +93,7 @@ impl RocksDB {
             path: tmp_dir.path().to_path_buf(),
             ..Default::default()
         };
-        Self::open_with_check(&config, columns, VERSION_KEY, VERSION_VALUE)
+        Self::open_with_check(&config, columns, Migrations::default())
             .unwrap_or_else(|err| panic!("{}", err))
     }
 
@@ -203,29 +158,24 @@ pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&Colum
 
 #[cfg(test)]
 mod tests {
-    use super::{DBConfig, Result, RocksDB, VERSION_KEY, VERSION_VALUE};
-    use crate::internal_error;
-    use ckb_error::assert_error_eq;
+    use super::{DBConfig, Result, RocksDB, VERSION_KEY};
+    use crate::migration::{DefaultMigration, Migrations};
+    use rocksdb::ops::Get;
     use std::collections::HashMap;
     use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
-        setup_db_with_check(prefix, columns, VERSION_KEY, VERSION_VALUE).unwrap()
+        setup_db_with_check(prefix, columns).unwrap()
     }
 
-    fn setup_db_with_check(
-        prefix: &str,
-        columns: u32,
-        ver_key: &str,
-        ver_val: &str,
-    ) -> Result<RocksDB> {
+    fn setup_db_with_check(prefix: &str, columns: u32) -> Result<RocksDB> {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
 
-        RocksDB::open_with_check(&config, columns, ver_key, ver_val)
+        RocksDB::open_with_check(&config, columns, Migrations::default())
     }
 
     #[test]
@@ -242,7 +192,7 @@ mod tests {
                 opts
             }),
         };
-        RocksDB::open(&config, 2); // no panic
+        RocksDB::open(&config, 2, Migrations::default()); // no panic
     }
 
     #[test]
@@ -260,7 +210,7 @@ mod tests {
                 opts
             }),
         };
-        RocksDB::open(&config, 2); // panic
+        RocksDB::open(&config, 2, Migrations::default()); // panic
     }
 
     #[test]
@@ -316,34 +266,34 @@ mod tests {
     }
 
     #[test]
-    fn test_version_is_not_matched() {
+    fn test_default_migration() {
         let tmp_dir = tempfile::Builder::new()
-            .prefix("test_version_is_not_matched")
+            .prefix("test_default_migration")
             .tempdir()
             .unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
-        let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.1.0");
-        let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
-        assert_error_eq!(
-            r.err().unwrap(),
-            internal_error("the database version is not matched, require 0.2.0 but it's 0.1.0"),
-        );
-    }
 
-    #[test]
-    fn test_version_is_matched() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_version_is_matched")
-            .tempdir()
-            .unwrap();
-        let config = DBConfig {
-            path: tmp_dir.as_ref().to_path_buf(),
-            ..Default::default()
-        };
-        let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
-        let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
+        {
+            let mut migrations = Migrations::default();
+            migrations.add_migration(Box::new(DefaultMigration::new("0.1.0")));
+            let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
+            assert_eq!(
+                b"0.1.0".to_vec(),
+                r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
+            );
+        }
+        {
+            let mut migrations = Migrations::default();
+            migrations.add_migration(Box::new(DefaultMigration::new("0.1.0")));
+            migrations.add_migration(Box::new(DefaultMigration::new("0.2.0")));
+            let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
+            assert_eq!(
+                b"0.2.0".to_vec(),
+                r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
+            );
+        }
     }
 }

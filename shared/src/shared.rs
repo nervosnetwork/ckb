@@ -2,7 +2,7 @@ use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::{DBConfig, RocksDB};
+use ckb_db::{DBConfig, DefaultMigration, Migrations, RocksDB};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
@@ -245,9 +245,14 @@ impl Default for SharedBuilder {
     }
 }
 
+const DB_VERSION: &str = "0.2500.1";
+
 impl SharedBuilder {
     pub fn with_db_config(config: &DBConfig) -> Self {
-        let db = RocksDB::open(config, COLUMNS);
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Box::new(DefaultMigration::new(DB_VERSION)));
+
+        let db = RocksDB::open(config, COLUMNS, migrations);
         SharedBuilder {
             db,
             consensus: None,
