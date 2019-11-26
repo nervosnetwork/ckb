@@ -184,6 +184,21 @@ union SyncMessage {
     InIBD,
 }
 
+/* -- Obsolete SyncMessage -- */
+table SetFilter {
+}
+
+table AddFilter {
+}
+
+table ClearFilter {
+}
+
+table FilteredBlock {
+}
+/* -- Obsolete SyncMessage -- */
+
+
 table GetHeaders {
     hash_stop:              Byte32,
     block_locator_hashes:   Byte32Vec,
@@ -199,25 +214,6 @@ table SendHeaders {
 
 table SendBlock {
     block:                  Block,
-}
-
-table SetFilter {
-    hash_seed:              Uint32,
-    filter:                 Bytes,
-    num_hashes:             byte,
-}
-
-table AddFilter {
-    filter:                 Bytes,
-}
-
-table ClearFilter {
-}
-
-table FilteredBlock {
-    header:                 Header,
-    transactions:           TransactionVec,
-    proof:                  MerkleProof,
 }
 
 table MerkleProof {
