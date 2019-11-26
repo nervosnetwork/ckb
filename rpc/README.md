@@ -394,7 +394,7 @@ Returns the information about live cells collection by the hash of lock script.
 
     block_hash - Refer to block
     capacity - Cell capacity
-    cellbase_maturity - Cellbase maturity, optional boolean, null means non-cellbse
+    cellbase - Cellbase or not
     lock - Cell lock script
     out_point - Refer to this output
     output_data_len - Corresponding output data length
@@ -426,7 +426,7 @@ http://localhost:8114
         {
             "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
             "capacity": "0x2ca86f2642",
-            "cellbase_maturity": false,
+            "cellbase": true,
             "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -442,7 +442,7 @@ http://localhost:8114
         {
             "block_hash": "0x63b872c02b1c2bd0c1af4f73f68ac04e2a3763a71f9656a823848d346619ffde",
             "capacity": "0x2ca86e3dd4",
-            "cellbase_maturity": false,
+            "cellbase": true,
             "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -458,7 +458,7 @@ http://localhost:8114
         {
             "block_hash": "0x6bbdd9dc71784d500daadf391ca9035900b3ff18ed868d7d4fe4b17fdea88853",
             "capacity": "0x2ca86d5691",
-            "cellbase_maturity": false,
+            "cellbase": true,
             "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",

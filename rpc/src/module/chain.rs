@@ -193,8 +193,6 @@ impl ChainRpc for ChainRpcImpl {
         let lock_hash = lock_hash.pack();
         let mut result = Vec::new();
         let snapshot = self.shared.snapshot();
-        let cellbase_maturity_threshold = snapshot.tip_header().epoch().to_rational()
-            - snapshot.consensus().cellbase_maturity().to_rational();
         let from = from.into();
         let to = to.into();
         if from > to {
@@ -229,11 +227,6 @@ impl ChainRpc for ChainRpcImpl {
                                 .tx_hash(transaction.hash())
                                 .index(i.pack())
                                 .build();
-                            let cellbase_maturity = if transaction_meta.is_cellbase() {
-                                Some(cellbase_maturity_threshold < block.epoch().to_rational())
-                            } else {
-                                None
-                            };
                             result.push(CellOutputWithOutPoint {
                                 out_point: out_point.into(),
                                 block_hash: block_hash.unpack(),
@@ -247,7 +240,7 @@ impl ChainRpc for ChainRpcImpl {
                                     .len()
                                     as u64)
                                     .into(),
-                                cellbase_maturity,
+                                cellbase: transaction_meta.is_cellbase(),
                             });
                         }
                     }

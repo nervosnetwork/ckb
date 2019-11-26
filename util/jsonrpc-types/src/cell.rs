@@ -18,7 +18,7 @@ pub struct CellOutputWithOutPoint {
     #[serde(rename = "type")]
     pub type_: Option<Script>,
     pub output_data_len: Uint64,
-    pub cellbase_maturity: Option<bool>,
+    pub cellbase: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
