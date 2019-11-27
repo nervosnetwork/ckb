@@ -278,20 +278,20 @@ mod tests {
 
         {
             let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("0.1.0")));
+            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
             assert_eq!(
-                b"0.1.0".to_vec(),
+                b"20191116225943".to_vec(),
                 r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
             );
         }
         {
             let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("0.1.0")));
-            migrations.add_migration(Box::new(DefaultMigration::new("0.2.0")));
+            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
+            migrations.add_migration(Box::new(DefaultMigration::new("20191127101121")));
             let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
             assert_eq!(
-                b"0.2.0".to_vec(),
+                b"20191127101121".to_vec(),
                 r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
             );
         }

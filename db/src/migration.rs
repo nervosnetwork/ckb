@@ -30,7 +30,10 @@ impl Migrations {
                 .filter(|m| m.version() > v.as_str())
                 .try_for_each(|m| {
                     info!("Migrating database version to {}", m.version());
-                    m.migrate(db)
+                    m.migrate(db)?;
+                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                        internal_error(format!("failed to migrate the database: {}", err))
+                    })
                 }),
             None => {
                 if let Some(m) = self.migrations.last() {
@@ -48,6 +51,7 @@ impl Migrations {
 
 pub trait Migration {
     fn migrate(&self, db: &OptimisticTransactionDB) -> Result<()>;
+    /// returns migration version, use `yyyymmddhhmmss` timestamp format
     fn version(&self) -> &str;
 }
 
@@ -64,9 +68,8 @@ impl DefaultMigration {
 }
 
 impl Migration for DefaultMigration {
-    fn migrate(&self, db: &OptimisticTransactionDB) -> Result<()> {
-        db.put(VERSION_KEY, &self.version)
-            .map_err(|err| internal_error(format!("failed to migrate the database: {}", err)))
+    fn migrate(&self, _db: &OptimisticTransactionDB) -> Result<()> {
+        Ok(())
     }
 
     fn version(&self) -> &str {

@@ -232,12 +232,12 @@ impl IndexerStore for DefaultIndexerStore {
     }
 }
 
-const DB_VERSION: &str = "0.2500.1";
+const INIT_DB_VERSION: &str = "20191127135521";
 
 impl DefaultIndexerStore {
     pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(DB_VERSION)));
+        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
 
         let db = RocksDB::open(&config.db, COLUMNS, migrations);
         DefaultIndexerStore {

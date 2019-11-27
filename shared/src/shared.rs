@@ -245,12 +245,12 @@ impl Default for SharedBuilder {
     }
 }
 
-const DB_VERSION: &str = "0.2500.1";
+const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     pub fn with_db_config(config: &DBConfig) -> Self {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(DB_VERSION)));
+        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
 
         let db = RocksDB::open(config, COLUMNS, migrations);
         SharedBuilder {
