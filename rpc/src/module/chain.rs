@@ -233,6 +233,14 @@ impl ChainRpc for ChainRpcImpl {
                                 capacity: output.capacity().unpack(),
                                 lock: output.lock().clone().into(),
                                 type_: output.type_().to_opt().map(Into::into),
+                                output_data_len: (transaction
+                                    .outputs_data()
+                                    .get(i)
+                                    .expect("verified tx")
+                                    .len()
+                                    as u64)
+                                    .into(),
+                                cellbase: transaction_meta.is_cellbase(),
                             });
                         }
                     }

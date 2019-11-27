@@ -87,8 +87,10 @@ matrix:
     - name: Security Audit
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
-      rust: nightly
-      script: make security-audit
+      install:
+        - cargo audit --version || travis_retry cargo install cargo-audit
+      script:
+        - make security-audit
 
     - name: WASM build
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'

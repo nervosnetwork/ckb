@@ -113,7 +113,6 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 
 .PHONY: security-audit
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
-	@cargo +nightly install cargo-audit -Z install-upgrade
 	cargo audit
 	# expecting to see "Success No vulnerable packages found"
 
