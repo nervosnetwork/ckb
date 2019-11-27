@@ -63,7 +63,6 @@ members = [
 ]
 
 [profile.release]
-debug = true
 overflow-checks = true
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
