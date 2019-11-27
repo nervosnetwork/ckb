@@ -4,10 +4,10 @@ mod macros;
 mod error;
 
 use ckb_jsonrpc_types::{
-    Alert, BannedAddr, Block, BlockNumber, BlockReward, BlockTemplate, BlockView, Capacity,
-    CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle, DryRunResult,
-    EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LockHashIndexState, Node,
-    OutPoint, PeerState, Timestamp, Transaction, TransactionWithStatus, TxPoolInfo, Uint64,
+    Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
+    BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
+    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LockHashIndexState,
+    Node, OutPoint, PeerState, Timestamp, Transaction, TransactionWithStatus, TxPoolInfo, Uint64,
     Version,
 };
 use ckb_types::core::{
@@ -300,6 +300,12 @@ impl RpcClient {
             .expect("rpc call get_cellbase_output_capacity_details")
     }
 
+    pub fn get_block_economic_state(&self, hash: Byte32) -> Option<BlockEconomicState> {
+        self.inner()
+            .get_block_economic_state(hash.unpack())
+            .expect("rpc call get_block_economic_state")
+    }
+
     pub fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> EstimateResult {
         self.inner()
             .estimate_fee_rate(expect_confirm_blocks)
@@ -366,6 +372,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_lock_hash_index_states(&self) -> Vec<LockHashIndexState>;
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;
     pub fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Option<BlockReward>;
+    pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;
     pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
     pub fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> EstimateResult;
 });

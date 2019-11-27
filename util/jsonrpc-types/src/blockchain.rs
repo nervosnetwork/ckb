@@ -698,6 +698,90 @@ impl From<BlockReward> for core::BlockReward {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockIssuance {
+    pub primary: Capacity,
+    pub secondary: Capacity,
+}
+
+impl From<core::BlockIssuance> for BlockIssuance {
+    fn from(core: core::BlockIssuance) -> Self {
+        Self {
+            primary: core.primary.into(),
+            secondary: core.secondary.into(),
+        }
+    }
+}
+
+impl From<BlockIssuance> for core::BlockIssuance {
+    fn from(json: BlockIssuance) -> Self {
+        Self {
+            primary: json.primary.into(),
+            secondary: json.secondary.into(),
+        }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct MinerReward {
+    pub primary: Capacity,
+    pub secondary: Capacity,
+    pub committed: Capacity,
+    pub proposal: Capacity,
+}
+
+impl From<core::MinerReward> for MinerReward {
+    fn from(core: core::MinerReward) -> Self {
+        Self {
+            primary: core.primary.into(),
+            secondary: core.secondary.into(),
+            committed: core.committed.into(),
+            proposal: core.proposal.into(),
+        }
+    }
+}
+
+impl From<MinerReward> for core::MinerReward {
+    fn from(json: MinerReward) -> Self {
+        Self {
+            primary: json.primary.into(),
+            secondary: json.secondary.into(),
+            committed: json.committed.into(),
+            proposal: json.proposal.into(),
+        }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockEconomicState {
+    pub issuance: BlockIssuance,
+    pub miner_reward: MinerReward,
+    pub txs_fee: Capacity,
+    pub finalized_at: H256,
+}
+
+impl From<core::BlockEconomicState> for BlockEconomicState {
+    fn from(core: core::BlockEconomicState) -> Self {
+        Self {
+            issuance: core.issuance.into(),
+            miner_reward: core.miner_reward.into(),
+            txs_fee: core.txs_fee.into(),
+            finalized_at: core.finalized_at.unpack(),
+        }
+    }
+}
+
+impl From<BlockEconomicState> for core::BlockEconomicState {
+    fn from(json: BlockEconomicState) -> Self {
+        Self {
+            issuance: json.issuance.into(),
+            miner_reward: json.miner_reward.into(),
+            txs_fee: json.txs_fee.into(),
+            finalized_at: json.finalized_at.pack(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

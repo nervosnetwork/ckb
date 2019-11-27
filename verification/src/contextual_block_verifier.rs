@@ -48,7 +48,7 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
     }
 
     fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
-        RewardCalculator::new(self.consensus, self.store).block_reward(parent)
+        RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
     }
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {

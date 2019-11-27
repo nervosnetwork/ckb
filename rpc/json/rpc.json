@@ -752,6 +752,33 @@
         ]
     },
     {
+        "description": "Returns increased issuance, miner reward and total transaction fee of a block.",
+        "method": "get_block_economic_state",
+        "module": "chain",
+        "params": [
+            "0x02530b25ad0ff677acc365cb73de3e8cc09c7ddd58272e879252e199d08df83b"
+        ],
+        "result": {
+            "finalized_at": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+            "issuance": {
+                "primary": "0x18ce922bca",
+                "secondary": "0x7f02ec655"
+            },
+            "miner_reward": {
+                "committed": "0x0",
+                "primary": "0x18ce922bca",
+                "proposal": "0x0",
+                "secondary": "0x17b93605"
+            },
+            "txs_fee": "0x0"
+        },
+        "types": [
+            {
+                "hash": "Block hash"
+            }
+        ]
+    },
+    {
         "description": "Return the transaction pool information",
         "method": "tx_pool_info",
         "module": "pool",
