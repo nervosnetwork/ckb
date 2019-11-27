@@ -482,6 +482,8 @@ impl CKBProtocolHandler for Synchronizer {
                 IBD_BLOCK_FETCH_TOKEN => {
                     if snapshot.is_initial_block_download() {
                         self.find_blocks_to_fetch(nc.as_ref());
+                    } else if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).is_err() {
+                        trace!("remove ibd block fetch fail");
                     }
                 }
                 NOT_IBD_BLOCK_FETCH_TOKEN => {
@@ -939,6 +941,10 @@ mod tests {
         // Interact with underlying p2p service
         fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();
+        }
+
+        fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
+            unimplemented!()
         }
 
         fn future_task(
