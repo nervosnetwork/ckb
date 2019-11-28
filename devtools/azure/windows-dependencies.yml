@@ -8,7 +8,7 @@ steps:
   displayName: Install LLVM
 - script: choco install -y msys2
   displayName: Install msys2
-- script: choco install -y yasm
+- script: choco install --allow-empty-checksums -y yasm
   displayName: Install yasm
 - script: |
     curl -sSf -o rustup-init.exe https://win.rustup.rs
