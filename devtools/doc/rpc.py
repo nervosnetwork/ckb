@@ -3,6 +3,7 @@
 import sys
 import json
 
+
 def newline(n):
     for i in range(0, n):
         print("")
@@ -10,6 +11,7 @@ def newline(n):
 
 def sort_cases_by_module(cases):
     return sorted(cases, key=lambda case: case["module"])
+
 
 def print_title(case):
     print("### `{}`".format(case["method"]))
@@ -29,7 +31,8 @@ def print_types(case):
     newline(1)
     for item in case["types"]:
         if len(item) != 1:
-            raise Exception("Invalid `types` format, expect one map for only one type: {}".format(item))
+            raise Exception(
+                "Invalid `types` format, expect one map for only one type: {}".format(item))
         for (key, val) in item.items():
             print("    {} - {}".format(key, val))
 
@@ -117,6 +120,12 @@ def main():
     print("# CKB JSON-RPC Protocols")
     newline(1)
     print("NOTE: This file is auto-generated. Please don't update this file directly; instead make changes to `rpc/json/rpc.json` and re-run `make gen-rpc-doc`")
+    newline(1)
+    print("The RPC interface shares the version of the node version, which is returned in `local_node_info`. The interface is fully compactible between patch versions, for example, a client for 0.25.0 should work with 0.25.x for any x.")
+    newline(1)
+    print("Allowing arbitrary machines to access the JSON-RPC port (using the `rpc.listen_address` configuration option) is **dangerous and strongly discouraged**. Please strictly limit the access to only trusted machines.")
+    newline(1)
+    print("CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via Nginx or other HTTP servers.")
     newline(2)
 
     print_toc(cases)
