@@ -295,31 +295,31 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-bin 0.25.3-pre",
- "ckb-build-info 0.25.3-pre",
+ "ckb-bin 0.26.0-pre",
+ "ckb-build-info 0.26.0-pre",
  "jemallocator 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-app-config"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-build-info 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-indexer 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-miner 0.25.3-pre",
- "ckb-network 0.25.3-pre",
- "ckb-network-alert 0.25.3-pre",
- "ckb-pow 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-rpc 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
+ "ckb-build-info 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-indexer 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-miner 0.26.0-pre",
+ "ckb-network 0.26.0-pre",
+ "ckb-network-alert 0.26.0-pre",
+ "ckb-pow 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-rpc 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "path-clean 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sentry 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -332,22 +332,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-benches"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-crypto 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
  "ckb-system-scripts 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -356,30 +356,30 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-app-config 0.25.3-pre",
- "ckb-build-info 0.25.3-pre",
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-crypto 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-instrument 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-miner 0.25.3-pre",
- "ckb-network 0.25.3-pre",
- "ckb-network-alert 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-rpc 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-sync 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-app-config 0.26.0-pre",
+ "ckb-build-info 0.26.0-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-instrument 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-miner 0.26.0-pre",
+ "ckb-network 0.26.0-pre",
+ "ckb-network-alert 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-rpc 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-sync 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "ctrlc 3.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -392,27 +392,27 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 
 [[package]]
 name = "ckb-chain"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-proposal-table 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-stop-handler 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-proposal-table 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-stop-handler 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -421,17 +421,17 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-crypto 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-pow 0.25.3-pre",
- "ckb-rational 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-pow 0.26.0-pre",
+ "ckb-rational 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -440,9 +440,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-crypto"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-fixed-hash 0.25.3-pre",
+ "ckb-fixed-hash 0.26.0-pre",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -452,35 +452,35 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-script-data-loader 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-script-data-loader 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
 ]
 
 [[package]]
 name = "ckb-dao-utils"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-error 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "enum-display-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-db"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-error 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
  "libc 0.2.65 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.12.2 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=6cfc2cc)",
  "semver 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -491,35 +491,35 @@ dependencies = [
 
 [[package]]
 name = "ckb-error"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-occupied-capacity 0.25.3-pre",
+ "ckb-occupied-capacity 0.26.0-pre",
  "enum-display-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-fee-estimator"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-logger 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-fixed-hash-core 0.25.3-pre",
- "ckb-fixed-hash-hack 0.25.3-pre",
+ "ckb-fixed-hash-core 0.26.0-pre",
+ "ckb-fixed-hash-hack 0.26.0-pre",
  "proc-macro-hack 0.5.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -528,9 +528,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-hack"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-fixed-hash-core 0.25.3-pre",
+ "ckb-fixed-hash-core 0.26.0-pre",
  "proc-macro-hack 0.5.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-future-executor"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -550,25 +550,25 @@ dependencies = [
 
 [[package]]
 name = "ckb-hash"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "blake2b-rs 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-indexer"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -576,22 +576,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "indicatif 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-types 0.25.3-pre",
+ "ckb-types 0.26.0-pre",
  "faster-hex 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "ansi_term 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "backtrace 0.3.40 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -622,13 +622,13 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-pow 0.25.3-pre",
- "ckb-stop-handler 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-pow 0.26.0-pre",
+ "ckb-stop-handler 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "console 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "eaglesong 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -645,26 +645,26 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-crypto 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-network"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "bs58 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-build-info 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-stop-handler 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
+ "ckb-build-info 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-stop-handler 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -694,16 +694,16 @@ dependencies = [
 
 [[package]]
 name = "ckb-network-alert"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-crypto 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-multisig 0.25.3-pre",
- "ckb-network 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-multisig 0.26.0-pre",
+ "ckb-network 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
@@ -715,16 +715,16 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-occupied-capacity-core 0.25.3-pre",
- "ckb-occupied-capacity-macros 0.25.3-pre",
+ "ckb-occupied-capacity-core 0.26.0-pre",
+ "ckb-occupied-capacity-macros 0.26.0-pre",
  "proc-macro-hack 0.5.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-core"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -732,9 +732,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-occupied-capacity-core 0.25.3-pre",
+ "ckb-occupied-capacity-core 0.26.0-pre",
  "proc-macro-hack 0.5.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -742,11 +742,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-hash 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "eaglesong 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -754,16 +754,16 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain-spec 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
 ]
 
 [[package]]
 name = "ckb-rational"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -771,10 +771,10 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "ckb-system-scripts 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-types 0.25.3-pre",
+ "ckb-types 0.26.0-pre",
  "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "phf 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -786,43 +786,43 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-occupied-capacity 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-occupied-capacity 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
 ]
 
 [[package]]
 name = "ckb-rpc"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-fee-estimator 0.25.3-pre",
- "ckb-indexer 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-network 0.25.3-pre",
- "ckb-network-alert 0.25.3-pre",
- "ckb-reward-calculator 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-sync 0.25.3-pre",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-traits 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-fee-estimator 0.26.0-pre",
+ "ckb-indexer 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-network 0.26.0-pre",
+ "ckb-network-alert 0.26.0-pre",
+ "ckb-reward-calculator 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-sync 0.26.0-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-traits 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-core 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -842,19 +842,19 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-crypto 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-script-data-loader 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-crypto 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-script-data-loader 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "ckb-vm 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -866,50 +866,50 @@ dependencies = [
 
 [[package]]
 name = "ckb-script-data-loader"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-types 0.25.3-pre",
+ "ckb-types 0.26.0-pre",
 ]
 
 [[package]]
 name = "ckb-shared"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "arc-swap 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-proposal-table 0.25.3-pre",
- "ckb-snapshot 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-proposal-table 0.26.0-pre",
+ "ckb-snapshot 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-snapshot"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "arc-swap 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-proposal-table 0.25.3-pre",
- "ckb-reward-calculator 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-traits 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-proposal-table 0.26.0-pre",
+ "ckb-reward-calculator 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-traits 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-stop-handler"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-logger 0.25.3-pre",
+ "ckb-logger 0.26.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -917,14 +917,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-store"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain-spec 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-script-data-loader 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-script-data-loader 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -932,25 +932,25 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-network 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-traits 0.25.3-pre",
- "ckb-tx-pool 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-network 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-traits 0.26.0-pre",
+ "ckb-tx-pool 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -973,45 +973,45 @@ dependencies = [
 
 [[package]]
 name = "ckb-test-chain-utils"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-db 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-traits 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-db 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-traits 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-traits"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-types 0.25.3-pre",
+ "ckb-types 0.26.0-pre",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-fee-estimator 0.25.3-pre",
- "ckb-future-executor 0.25.3-pre",
- "ckb-jsonrpc-types 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-reward-calculator 0.25.3-pre",
- "ckb-snapshot 0.25.3-pre",
- "ckb-stop-handler 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-types 0.25.3-pre",
- "ckb-util 0.25.3-pre",
- "ckb-verification 0.25.3-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-fee-estimator 0.26.0-pre",
+ "ckb-future-executor 0.26.0-pre",
+ "ckb-jsonrpc-types 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-reward-calculator 0.26.0-pre",
+ "ckb-snapshot 0.26.0-pre",
+ "ckb-stop-handler 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
+ "ckb-util 0.26.0-pre",
+ "ckb-verification 0.26.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1024,15 +1024,15 @@ dependencies = [
 
 [[package]]
 name = "ckb-types"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
  "bit-vec 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-error 0.25.3-pre",
- "ckb-fixed-hash 0.25.3-pre",
- "ckb-hash 0.25.3-pre",
- "ckb-occupied-capacity 0.25.3-pre",
- "ckb-rational 0.25.3-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-fixed-hash 0.26.0-pre",
+ "ckb-hash 0.26.0-pre",
+ "ckb-occupied-capacity 0.26.0-pre",
+ "ckb-rational 0.26.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-cbt 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1043,33 +1043,33 @@ dependencies = [
 
 [[package]]
 name = "ckb-util"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-fixed-hash 0.25.3-pre",
+ "ckb-fixed-hash 0.26.0-pre",
  "linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-verification"
-version = "0.25.3-pre"
+version = "0.26.0-pre"
 dependencies = [
- "ckb-chain 0.25.3-pre",
- "ckb-chain-spec 0.25.3-pre",
- "ckb-dao 0.25.3-pre",
- "ckb-dao-utils 0.25.3-pre",
- "ckb-error 0.25.3-pre",
- "ckb-future-executor 0.25.3-pre",
- "ckb-logger 0.25.3-pre",
- "ckb-pow 0.25.3-pre",
- "ckb-resource 0.25.3-pre",
- "ckb-reward-calculator 0.25.3-pre",
- "ckb-script 0.25.3-pre",
- "ckb-shared 0.25.3-pre",
- "ckb-store 0.25.3-pre",
- "ckb-test-chain-utils 0.25.3-pre",
- "ckb-traits 0.25.3-pre",
- "ckb-types 0.25.3-pre",
+ "ckb-chain 0.26.0-pre",
+ "ckb-chain-spec 0.26.0-pre",
+ "ckb-dao 0.26.0-pre",
+ "ckb-dao-utils 0.26.0-pre",
+ "ckb-error 0.26.0-pre",
+ "ckb-future-executor 0.26.0-pre",
+ "ckb-logger 0.26.0-pre",
+ "ckb-pow 0.26.0-pre",
+ "ckb-resource 0.26.0-pre",
+ "ckb-reward-calculator 0.26.0-pre",
+ "ckb-script 0.26.0-pre",
+ "ckb-shared 0.26.0-pre",
+ "ckb-store 0.26.0-pre",
+ "ckb-test-chain-utils 0.26.0-pre",
+ "ckb-traits 0.26.0-pre",
+ "ckb-types 0.26.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "enum-display-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
