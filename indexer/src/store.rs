@@ -1,3 +1,4 @@
+use crate::migrations;
 use crate::types::{
     CellTransaction, IndexerConfig, LiveCell, LockHashCellOutput, LockHashIndex,
     LockHashIndexState, TransactionPoint,
@@ -11,7 +12,7 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, BlockNumber},
-    packed::{self, Byte32, CellOutput, OutPoint},
+    packed::{self, Byte32, LiveCellOutput, OutPoint},
     prelude::*,
 };
 use ckb_util::Mutex;
@@ -26,7 +27,7 @@ const COLUMNS: u32 = 4;
 /// |             Column              |      Key      |          Value           |
 /// +---------------------------------+---------------+--------------------------+
 /// | COLUMN_LOCK_HASH_INDEX_STATE    | Byte32        | LockHashIndexState       |
-/// | COLUMN_LOCK_HASH_LIVE_CELL      | LockHashIndex | CellOutput               |
+/// | COLUMN_LOCK_HASH_LIVE_CELL      | LockHashIndex | LiveCellOutput           |
 /// | COLUMN_LOCK_HASH_TRANSACTION    | LockHashIndex | Option<TransactionPoint> |
 /// | COLUMN_OUT_POINT_LOCK_HASH      | OutPoint      | LockHashCellOutput       |
 /// +---------------------------------+---------------+--------------------------+
@@ -99,14 +100,16 @@ impl IndexerStore for DefaultIndexerStore {
             .take(take_num)
             .take_while(|(key, _)| key.starts_with(lock_hash.as_slice()))
             .map(|(key, value)| {
-                let cell_output = CellOutput::from_slice(&value)
-                    .expect("verify CellOutput in storage should be ok");
+                let live_cell_output = LiveCellOutput::from_slice(&value)
+                    .expect("verify LiveCellOutput in storage should be ok");
                 let lock_hash_index = LockHashIndex::from_packed(
                     packed::LockHashIndexReader::from_slice(&key).unwrap(),
                 );
                 LiveCell {
                     created_by: lock_hash_index.into(),
-                    cell_output,
+                    cell_output: live_cell_output.cell_output(),
+                    output_data_len: live_cell_output.output_data_len().unpack(),
+                    cellbase: live_cell_output.cellbase().unpack(),
                 }
             })
             .collect()
@@ -238,6 +241,9 @@ impl DefaultIndexerStore {
     pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
+        migrations.add_migration(Box::new(migrations::AddFieldsToLiveCell::new(
+            shared.clone(),
+        )));
 
         let db = RocksDB::open(&config.db, COLUMNS, migrations);
         DefaultIndexerStore {
@@ -405,7 +411,18 @@ impl DefaultIndexerStore {
                                     out_point.tx_hash(),
                                     out_point.index().unpack(),
                                 );
-                                txn.generate_live_cell(lock_hash_index, cell_output);
+                                let live_cell_output = LiveCellOutput::new_builder()
+                                    .cell_output(cell_output)
+                                    .output_data_len(
+                                        (tx.outputs_data()
+                                            .get(lock_hash_index.out_point.index().unpack())
+                                            .expect("verified tx")
+                                            .len() as u64)
+                                            .pack(),
+                                    )
+                                    .cellbase(false.pack())
+                                    .build();
+                                txn.generate_live_cell(lock_hash_index, live_cell_output);
                             }
                         }
                     }
@@ -456,12 +473,23 @@ impl DefaultIndexerStore {
                 .into_iter()
                 .enumerate()
                 .for_each(|(index, output)| {
-                    let index = index as u32;
                     let lock_hash = output.calc_lock_hash();
                     if index_lock_hashes.contains(&lock_hash) {
-                        let lock_hash_index =
-                            LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
-                        txn.generate_live_cell(lock_hash_index, output.clone());
+                        let lock_hash_index = LockHashIndex::new(
+                            lock_hash,
+                            block_number,
+                            tx_hash.clone(),
+                            index as u32,
+                        );
+                        let live_cell_output = LiveCellOutput::new_builder()
+                            .cell_output(output)
+                            .output_data_len(
+                                (tx.outputs_data().get(index).expect("verified tx").len() as u64)
+                                    .pack(),
+                            )
+                            .cellbase(tx.is_cellbase().pack())
+                            .build();
+                        txn.generate_live_cell(lock_hash_index, live_cell_output);
                     }
                 });
         })
@@ -473,14 +501,14 @@ struct IndexerStoreTransaction {
 }
 
 impl IndexerStoreTransaction {
-    fn generate_live_cell(&self, lock_hash_index: LockHashIndex, cell_output: CellOutput) {
-        self.insert_lock_hash_live_cell(&lock_hash_index, &cell_output);
+    fn generate_live_cell(&self, lock_hash_index: LockHashIndex, live_cell_output: LiveCellOutput) {
+        self.insert_lock_hash_live_cell(&lock_hash_index, &live_cell_output);
         self.insert_lock_hash_transaction(&lock_hash_index, &None);
 
         let lock_hash_cell_output = LockHashCellOutput {
             lock_hash: lock_hash_index.lock_hash.clone(),
             block_number: lock_hash_index.block_number,
-            cell_output: Some(cell_output),
+            cell_output: Some(live_cell_output.cell_output()),
         };
         self.insert_cell_out_point_lock_hash(&lock_hash_index.out_point, &lock_hash_cell_output);
     }
@@ -494,12 +522,13 @@ impl IndexerStoreTransaction {
             )
             .expect("indexer db read should be ok")
             .map(|value| {
-                CellOutput::from_slice(&value).expect("verify CellOutput in storage should be ok")
+                LiveCellOutput::from_slice(&value)
+                    .expect("verify CellOutput in storage should be ok")
             })
-            .map(|cell_output: CellOutput| LockHashCellOutput {
+            .map(|live_cell_output: LiveCellOutput| LockHashCellOutput {
                 lock_hash: lock_hash_index.lock_hash.clone(),
                 block_number: lock_hash_index.block_number,
-                cell_output: Some(cell_output),
+                cell_output: Some(live_cell_output.cell_output()),
             })
         {
             self.delete_lock_hash_live_cell(&lock_hash_index);
@@ -525,13 +554,13 @@ impl IndexerStoreTransaction {
     fn insert_lock_hash_live_cell(
         &self,
         lock_hash_index: &LockHashIndex,
-        cell_output: &CellOutput,
+        live_cell_output: &LiveCellOutput,
     ) {
         self.txn
             .put(
                 COLUMN_LOCK_HASH_LIVE_CELL,
                 lock_hash_index.pack().as_slice(),
-                cell_output.as_slice(),
+                live_cell_output.as_slice(),
             )
             .expect("txn insert COLUMN_LOCK_HASH_LIVE_CELL failed");
     }
