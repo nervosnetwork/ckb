@@ -299,29 +299,31 @@ mod tests {
         }
     }
 
-    struct CustomizedMigration;
-
-    impl Migration for CustomizedMigration {
-        fn migrate(&self, db: &RocksDB) -> Result<()> {
-            let txn = db.transaction();
-            // append 1u8 to each value of column `0`
-            let migration = |key: &[u8], value: &[u8]| -> Result<()> {
-                let mut new_value = value.to_vec();
-                new_value.push(1);
-                txn.put("0", key, &new_value)?;
-                Ok(())
-            };
-            db.traverse("0", migration)?;
-            txn.commit()
-        }
-
-        fn version(&self) -> &str {
-            "20191127101121"
-        }
-    }
-
     #[test]
     fn test_customized_migration() {
+        struct CustomizedMigration;
+        const COLUMN: &str = "0";
+        const VERSION: &str = "20191127101121";
+
+        impl Migration for CustomizedMigration {
+            fn migrate(&self, db: &RocksDB) -> Result<()> {
+                let txn = db.transaction();
+                // append 1u8 to each value of column `0`
+                let migration = |key: &[u8], value: &[u8]| -> Result<()> {
+                    let mut new_value = value.to_vec();
+                    new_value.push(1);
+                    txn.put(COLUMN, key, &new_value)?;
+                    Ok(())
+                };
+                db.traverse(COLUMN, migration)?;
+                txn.commit()
+            }
+
+            fn version(&self) -> &str {
+                VERSION
+            }
+        }
+
         let tmp_dir = tempfile::Builder::new()
             .prefix("test_customized_migration")
             .tempdir()
@@ -336,8 +338,8 @@ mod tests {
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
             let txn = db.transaction();
-            txn.put("0", &[1, 1], &[1, 1, 1]).unwrap();
-            txn.put("0", &[2, 2], &[2, 2, 2]).unwrap();
+            txn.put(COLUMN, &[1, 1], &[1, 1, 1]).unwrap();
+            txn.put(COLUMN, &[2, 2], &[2, 2, 2]).unwrap();
             txn.commit().unwrap();
         }
         {
@@ -347,11 +349,20 @@ mod tests {
             let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
             assert!(
                 vec![1u8, 1, 1, 1].as_slice()
-                    == db.get_pinned("0", &[1, 1]).unwrap().unwrap().as_ref()
+                    == db.get_pinned(COLUMN, &[1, 1]).unwrap().unwrap().as_ref()
             );
             assert!(
                 vec![2u8, 2, 2, 1].as_slice()
-                    == db.get_pinned("0", &[2, 2]).unwrap().unwrap().as_ref()
+                    == db.get_pinned(COLUMN, &[2, 2]).unwrap().unwrap().as_ref()
+            );
+            assert_eq!(
+                VERSION.as_bytes(),
+                db.inner
+                    .get(VERSION_KEY)
+                    .unwrap()
+                    .unwrap()
+                    .to_vec()
+                    .as_slice()
             );
         }
     }
