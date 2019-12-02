@@ -39,6 +39,8 @@ pub struct LockHashIndex {
 pub struct LiveCell {
     pub created_by: TransactionPoint,
     pub cell_output: CellOutput,
+    pub output_data_len: u64,
+    pub cellbase: bool,
 }
 
 pub struct CellTransaction {
@@ -194,10 +196,14 @@ impl From<LiveCell> for JsonLiveCell {
         let LiveCell {
             created_by,
             cell_output,
+            output_data_len,
+            cellbase,
         } = live_cell;
         JsonLiveCell {
             created_by: created_by.into(),
             cell_output: cell_output.into(),
+            output_data_len: output_data_len.into(),
+            cellbase,
         }
     }
 }
