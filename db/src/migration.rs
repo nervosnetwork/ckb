@@ -1,9 +1,9 @@
-use crate::{db::VERSION_KEY, internal_error, Result};
-use ckb_logger::info;
-use rocksdb::{
-    ops::{Get, Put},
-    OptimisticTransactionDB,
+use crate::{
+    db::{RocksDB, VERSION_KEY},
+    internal_error, Result,
 };
+use ckb_logger::info;
+use rocksdb::ops::{Get, Put};
 
 #[derive(Default)]
 pub struct Migrations {
@@ -15,8 +15,9 @@ impl Migrations {
         self.migrations.push(migration);
     }
 
-    pub fn migrate(&self, db: &OptimisticTransactionDB) -> Result<()> {
+    pub fn migrate(&self, db: &RocksDB) -> Result<()> {
         let db_version = db
+            .inner
             .get(VERSION_KEY)
             .map_err(|err| {
                 internal_error(format!("failed to get the version of database: {}", err))
@@ -31,14 +32,14 @@ impl Migrations {
                 .try_for_each(|m| {
                     info!("Migrating database version to {}", m.version());
                     m.migrate(db)?;
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.inner.put(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })
                 }),
             None => {
                 if let Some(m) = self.migrations.last() {
                     info!("Init database version {}", m.version());
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.inner.put(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })
                 } else {
@@ -50,7 +51,7 @@ impl Migrations {
 }
 
 pub trait Migration {
-    fn migrate(&self, db: &OptimisticTransactionDB) -> Result<()>;
+    fn migrate(&self, db: &RocksDB) -> Result<()>;
     /// returns migration version, use `yyyymmddhhmmss` timestamp format
     fn version(&self) -> &str;
 }
@@ -68,7 +69,7 @@ impl DefaultMigration {
 }
 
 impl Migration for DefaultMigration {
-    fn migrate(&self, _db: &OptimisticTransactionDB) -> Result<()> {
+    fn migrate(&self, _db: &RocksDB) -> Result<()> {
         Ok(())
     }
 

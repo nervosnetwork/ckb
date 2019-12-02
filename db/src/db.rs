@@ -76,11 +76,13 @@ impl RocksDB {
                 .map_err(|_| internal_error("failed to set database option"))?;
         }
 
-        migrations.migrate(&db)?;
-
-        Ok(RocksDB {
+        let rocks_db = RocksDB {
             inner: Arc::new(db),
-        })
+        };
+
+        migrations.migrate(&rocks_db)?;
+
+        Ok(rocks_db)
     }
 
     pub fn open(config: &DBConfig, columns: u32, migrations: Migrations) -> Self {
@@ -159,7 +161,7 @@ pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&Colum
 #[cfg(test)]
 mod tests {
     use super::{DBConfig, Result, RocksDB, VERSION_KEY};
-    use crate::migration::{DefaultMigration, Migrations};
+    use crate::migration::{DefaultMigration, Migration, Migrations};
     use rocksdb::ops::Get;
     use std::collections::HashMap;
     use tempfile;
@@ -293,6 +295,63 @@ mod tests {
             assert_eq!(
                 b"20191127101121".to_vec(),
                 r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
+            );
+        }
+    }
+
+    struct CustomizedMigration;
+
+    impl Migration for CustomizedMigration {
+        fn migrate(&self, db: &RocksDB) -> Result<()> {
+            let txn = db.transaction();
+            // append 1u8 to each value of column `0`
+            let migration = |key: &[u8], value: &[u8]| -> Result<()> {
+                let mut new_value = value.to_vec();
+                new_value.push(1);
+                txn.put("0", key, &new_value)?;
+                Ok(())
+            };
+            db.traverse("0", migration)?;
+            txn.commit()
+        }
+
+        fn version(&self) -> &str {
+            "20191127101121"
+        }
+    }
+
+    #[test]
+    fn test_customized_migration() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_customized_migration")
+            .tempdir()
+            .unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            ..Default::default()
+        };
+
+        {
+            let mut migrations = Migrations::default();
+            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
+            let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
+            let txn = db.transaction();
+            txn.put("0", &[1, 1], &[1, 1, 1]).unwrap();
+            txn.put("0", &[2, 2], &[2, 2, 2]).unwrap();
+            txn.commit().unwrap();
+        }
+        {
+            let mut migrations = Migrations::default();
+            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
+            migrations.add_migration(Box::new(CustomizedMigration));
+            let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
+            assert!(
+                vec![1u8, 1, 1, 1].as_slice()
+                    == db.get_pinned("0", &[1, 1]).unwrap().unwrap().as_ref()
+            );
+            assert!(
+                vec![2u8, 2, 2, 1].as_slice()
+                    == db.get_pinned("0", &[2, 2]).unwrap().unwrap().as_ref()
             );
         }
     }
