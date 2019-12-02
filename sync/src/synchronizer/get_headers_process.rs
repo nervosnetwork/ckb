@@ -70,16 +70,38 @@ impl<'a> GetHeadersProcess<'a> {
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
-            let headers: Vec<core::HeaderView> =
-                snapshot.get_locator_response(block_number, &hash_stop);
+            let header_ctxs: Vec<core::HeaderContext> = snapshot.get_locator_response(
+                block_number,
+                &hash_stop,
+                self.synchronizer.shared().consensus().header_context_type(),
+            );
             // response headers
 
-            debug!("headers len={}", headers.len());
+            debug!("headers len={}", header_ctxs.len());
 
-            let content = packed::SendHeaders::new_builder()
-                .headers(headers.into_iter().map(|x| x.data()).pack())
-                .build();
-            let message = packed::SyncMessage::new_builder().set(content).build();
+            // build send header message
+            let message = if self.synchronizer.shared().consensus().pow.is_poa() {
+                let content = packed::SendPOAHeaders::new_builder()
+                    .headers(
+                        header_ctxs
+                            .into_iter()
+                            .map(|header_ctx| header_ctx.into())
+                            .pack(),
+                    )
+                    .build();
+                packed::SyncMessage::new_builder().set(content).build()
+            } else {
+                let content = packed::SendHeaders::new_builder()
+                    .headers(
+                        header_ctxs
+                            .into_iter()
+                            .map(|header_ctx| header_ctx.header().data())
+                            .pack(),
+                    )
+                    .build();
+                packed::SyncMessage::new_builder().set(content).build()
+            };
+
             let data = message.as_slice().into();
             if let Err(err) = self.nc.send_message_to(self.peer, data) {
                 debug!("synchronizer send Headers error: {:?}", err);

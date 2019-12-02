@@ -15,8 +15,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderContextType, HeaderView,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     h160, h256,
     packed::{
@@ -92,7 +92,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
 pub fn create_always_success_tx() -> TransactionView {
     let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
     TransactionBuilder::default()
-        .witness(script.clone().into_witness())
+        .witness(script.clone().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
@@ -105,7 +105,11 @@ pub fn create_always_success_cellbase(shared: &Shared, parent: &HeaderView) -> T
 
     let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .witness(always_success_script.clone().into_witness());
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        );
 
     if (parent.number() + 1) <= shared.consensus().finalization_delay_length() {
         builder.build()
@@ -253,7 +257,7 @@ pub fn create_secp_tx() -> TransactionView {
     let outputs = vec![secp_data_cell.clone(), secp_cell.clone()];
     let outputs_data = vec![secp_data_cell_data.pack(), secp_cell_data.pack()];
     TransactionBuilder::default()
-        .witness(script.clone().into_witness())
+        .witness(script.clone().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(outputs)
         .outputs_data(outputs_data)
@@ -317,7 +321,11 @@ pub fn create_secp_cellbase(shared: &Shared, parent: &HeaderView) -> Transaction
 
     let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .witness(secp_script.clone().into_witness());
+        .witness(
+            secp_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        );
 
     if (parent.number() + 1) <= shared.consensus().finalization_delay_length() {
         builder.build()

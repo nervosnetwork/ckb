@@ -2,8 +2,8 @@ use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderBuilder, HeaderView,
-        TransactionBuilder,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderBuilder, HeaderContextType,
+        HeaderView, TransactionBuilder,
     },
     packed::{Byte32, CellInput, Script},
     prelude::*,
@@ -87,7 +87,7 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let input = CellInput::new_cellbase_input(0);
-                    let witness = Script::default().into_witness();
+                    let witness = Script::default().into_witness(HeaderContextType::NoneContext);
                     let cellbase = TransactionBuilder::default()
                         .input(input)
                         .witness(witness)

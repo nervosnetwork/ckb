@@ -8,8 +8,8 @@ use ckb_resource::Resource;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, HeaderContextType,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
@@ -56,7 +56,11 @@ pub fn always_success_consensus() -> Consensus {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
-        .witness(always_success_script.clone().into_witness())
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        )
         .build();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
@@ -79,7 +83,9 @@ pub fn always_success_cellbase(
     let (_, _, always_success_script) = always_success_cell();
     let input = CellInput::new_cellbase_input(block_number);
 
-    let witness = always_success_script.to_owned().into_witness();
+    let witness = always_success_script
+        .to_owned()
+        .into_witness(HeaderContextType::NoneContext);
     let data = Bytes::new();
 
     let builder = TransactionBuilder::default().input(input).witness(witness);

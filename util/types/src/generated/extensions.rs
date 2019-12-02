@@ -2181,6 +2181,627 @@ impl<'t: 'r, 'r> ::std::iter::ExactSizeIterator for OutPointVecReaderIterator<'t
     }
 }
 #[derive(Clone)]
+pub struct POAHeader(molecule::bytes::Bytes);
+impl ::std::fmt::LowerHex for POAHeader {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl ::std::fmt::Debug for POAHeader {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::std::fmt::Display for POAHeader {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "header", self.header())?;
+        write!(f, ", {}: {}", "cellbase", self.cellbase())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::std::default::Default for POAHeader {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            32, 1, 0, 0, 12, 0, 0, 0, 220, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0, 0, 64, 0,
+            0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0,
+            0, 0,
+        ];
+        POAHeader::new_unchecked(v.into())
+    }
+}
+impl POAHeader {
+    pub const FIELD_COUNT: usize = 2;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn field_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn header(&self) -> Header {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[0][..]) as usize;
+        let end = molecule::unpack_number(&offsets[1][..]) as usize;
+        Header::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn cellbase(&self) -> Transaction {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[1][..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&offsets[2][..]) as usize;
+            Transaction::new_unchecked(self.0.slice(start, end))
+        } else {
+            Transaction::new_unchecked(self.0.slice_from(start))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> POAHeaderReader<'r> {
+        POAHeaderReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for POAHeader {
+    type Builder = POAHeaderBuilder;
+    const NAME: &'static str = "POAHeader";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        POAHeader(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        POAHeaderReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        POAHeaderReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .header(self.header())
+            .cellbase(self.cellbase())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct POAHeaderReader<'r>(&'r [u8]);
+impl<'r> ::std::fmt::LowerHex for POAHeaderReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl<'r> ::std::fmt::Debug for POAHeaderReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::std::fmt::Display for POAHeaderReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "header", self.header())?;
+        write!(f, ", {}: {}", "cellbase", self.cellbase())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> POAHeaderReader<'r> {
+    pub const FIELD_COUNT: usize = 2;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn field_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn header(&self) -> HeaderReader<'r> {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[0][..]) as usize;
+        let end = molecule::unpack_number(&offsets[1][..]) as usize;
+        HeaderReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn cellbase(&self) -> TransactionReader<'r> {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[1][..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&offsets[2][..]) as usize;
+            TransactionReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            TransactionReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for POAHeaderReader<'r> {
+    type Entity = POAHeader;
+    const NAME: &'static str = "POAHeaderReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        POAHeaderReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
+            return Ok(());
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        let field_count = offset_first / 4 - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let header_size = molecule::NUMBER_SIZE * (field_count + 1);
+        if slice_len < header_size {
+            return ve!(Self, HeaderIsBroken, header_size, slice_len);
+        }
+        let ptr = molecule::unpack_number_vec(&slice[molecule::NUMBER_SIZE..]);
+        let mut offsets: Vec<usize> = ptr[..field_count]
+            .iter()
+            .map(|x| molecule::unpack_number(&x[..]) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        HeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        TransactionReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct POAHeaderBuilder {
+    pub(crate) header: Header,
+    pub(crate) cellbase: Transaction,
+}
+impl POAHeaderBuilder {
+    pub const FIELD_COUNT: usize = 2;
+    pub fn header(mut self, v: Header) -> Self {
+        self.header = v;
+        self
+    }
+    pub fn cellbase(mut self, v: Transaction) -> Self {
+        self.cellbase = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for POAHeaderBuilder {
+    type Entity = POAHeader;
+    const NAME: &'static str = "POAHeaderBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.header.as_slice().len()
+            + self.cellbase.as_slice().len()
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.header.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.cellbase.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.header.as_slice())?;
+        writer.write_all(self.cellbase.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        POAHeader::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct POAHeaderVec(molecule::bytes::Bytes);
+impl ::std::fmt::LowerHex for POAHeaderVec {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl ::std::fmt::Debug for POAHeaderVec {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::std::fmt::Display for POAHeaderVec {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} [", Self::NAME)?;
+        for i in 0..self.len() {
+            if i == 0 {
+                write!(f, "{}", self.get_unchecked(i))?;
+            } else {
+                write!(f, ", {}", self.get_unchecked(i))?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+impl ::std::default::Default for POAHeaderVec {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![4, 0, 0, 0];
+        POAHeaderVec::new_unchecked(v.into())
+    }
+}
+impl POAHeaderVec {
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn item_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn item_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn len(&self) -> usize {
+        self.item_count()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn get(&self, idx: usize) -> Option<POAHeader> {
+        if idx >= self.len() {
+            None
+        } else {
+            Some(self.get_unchecked(idx))
+        }
+    }
+    pub fn get_unchecked(&self, idx: usize) -> POAHeader {
+        let offsets = self.item_offsets();
+        let start = molecule::unpack_number(&offsets[idx][..]) as usize;
+        if idx == self.len() - 1 {
+            POAHeader::new_unchecked(self.0.slice_from(start))
+        } else {
+            let end = molecule::unpack_number(&offsets[idx + 1][..]) as usize;
+            POAHeader::new_unchecked(self.0.slice(start, end))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> POAHeaderVecReader<'r> {
+        POAHeaderVecReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for POAHeaderVec {
+    type Builder = POAHeaderVecBuilder;
+    const NAME: &'static str = "POAHeaderVec";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        POAHeaderVec(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        POAHeaderVecReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        POAHeaderVecReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().extend(self.into_iter())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct POAHeaderVecReader<'r>(&'r [u8]);
+impl<'r> ::std::fmt::LowerHex for POAHeaderVecReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl<'r> ::std::fmt::Debug for POAHeaderVecReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::std::fmt::Display for POAHeaderVecReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} [", Self::NAME)?;
+        for i in 0..self.len() {
+            if i == 0 {
+                write!(f, "{}", self.get_unchecked(i))?;
+            } else {
+                write!(f, ", {}", self.get_unchecked(i))?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+impl<'r> POAHeaderVecReader<'r> {
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn item_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn item_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn len(&self) -> usize {
+        self.item_count()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn get(&self, idx: usize) -> Option<POAHeaderReader<'r>> {
+        if idx >= self.len() {
+            None
+        } else {
+            Some(self.get_unchecked(idx))
+        }
+    }
+    pub fn get_unchecked(&self, idx: usize) -> POAHeaderReader<'r> {
+        let offsets = self.item_offsets();
+        let start = molecule::unpack_number(&offsets[idx][..]) as usize;
+        if idx == self.len() - 1 {
+            POAHeaderReader::new_unchecked(&self.as_slice()[start..])
+        } else {
+            let end = molecule::unpack_number(&offsets[idx + 1][..]) as usize;
+            POAHeaderReader::new_unchecked(&self.as_slice()[start..end])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for POAHeaderVecReader<'r> {
+    type Entity = POAHeaderVec;
+    const NAME: &'static str = "POAHeaderVecReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        POAHeaderVecReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len == molecule::NUMBER_SIZE {
+            return Ok(());
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(
+                Self,
+                TotalSizeNotMatch,
+                molecule::NUMBER_SIZE * 2,
+                slice_len
+            );
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        let item_count = offset_first / 4 - 1;
+        let header_size = molecule::NUMBER_SIZE * (item_count + 1);
+        if slice_len < header_size {
+            return ve!(Self, HeaderIsBroken, header_size, slice_len);
+        }
+        let ptr = molecule::unpack_number_vec(&slice[molecule::NUMBER_SIZE..]);
+        let mut offsets: Vec<usize> = ptr[..item_count]
+            .iter()
+            .map(|x| molecule::unpack_number(&x[..]) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        for pair in offsets.windows(2) {
+            let start = pair[0];
+            let end = pair[1];
+            POAHeaderReader::verify(&slice[start..end], compatible)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct POAHeaderVecBuilder(pub(crate) Vec<POAHeader>);
+impl POAHeaderVecBuilder {
+    pub fn set(mut self, v: Vec<POAHeader>) -> Self {
+        self.0 = v;
+        self
+    }
+    pub fn push(mut self, v: POAHeader) -> Self {
+        self.0.push(v);
+        self
+    }
+    pub fn extend<T: ::std::iter::IntoIterator<Item = POAHeader>>(mut self, iter: T) -> Self {
+        for elem in iter {
+            self.0.push(elem);
+        }
+        self
+    }
+}
+impl molecule::prelude::Builder for POAHeaderVecBuilder {
+    type Entity = POAHeaderVec;
+    const NAME: &'static str = "POAHeaderVecBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (self.0.len() + 1)
+            + self
+                .0
+                .iter()
+                .map(|inner| inner.as_slice().len())
+                .sum::<usize>()
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        let item_count = self.0.len();
+        if item_count == 0 {
+            writer.write_all(&molecule::pack_number(
+                molecule::NUMBER_SIZE as molecule::Number,
+            ))?;
+        } else {
+            let (total_size, offsets) = self.0.iter().fold(
+                (
+                    molecule::NUMBER_SIZE * (item_count + 1),
+                    Vec::with_capacity(item_count),
+                ),
+                |(start, mut offsets), inner| {
+                    offsets.push(start);
+                    (start + inner.as_slice().len(), offsets)
+                },
+            );
+            writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+            for offset in offsets.into_iter() {
+                writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+            }
+            for inner in self.0.iter() {
+                writer.write_all(inner.as_slice())?;
+            }
+        }
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        POAHeaderVec::new_unchecked(inner.into())
+    }
+}
+pub struct POAHeaderVecIterator(POAHeaderVec, usize, usize);
+impl ::std::iter::Iterator for POAHeaderVecIterator {
+    type Item = POAHeader;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.1 >= self.2 {
+            None
+        } else {
+            let ret = self.0.get_unchecked(self.1);
+            self.1 += 1;
+            Some(ret)
+        }
+    }
+}
+impl ::std::iter::ExactSizeIterator for POAHeaderVecIterator {
+    fn len(&self) -> usize {
+        self.2 - self.1
+    }
+}
+impl ::std::iter::IntoIterator for POAHeaderVec {
+    type Item = POAHeader;
+    type IntoIter = POAHeaderVecIterator;
+    fn into_iter(self) -> Self::IntoIter {
+        let len = self.len();
+        POAHeaderVecIterator(self, 0, len)
+    }
+}
+impl<'r> POAHeaderVecReader<'r> {
+    pub fn iter<'t>(&'t self) -> POAHeaderVecReaderIterator<'t, 'r> {
+        POAHeaderVecReaderIterator(&self, 0, self.len())
+    }
+}
+pub struct POAHeaderVecReaderIterator<'t, 'r>(&'t POAHeaderVecReader<'r>, usize, usize);
+impl<'t: 'r, 'r> ::std::iter::Iterator for POAHeaderVecReaderIterator<'t, 'r> {
+    type Item = POAHeaderReader<'t>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.1 >= self.2 {
+            None
+        } else {
+            let ret = self.0.get_unchecked(self.1);
+            self.1 += 1;
+            Some(ret)
+        }
+    }
+}
+impl<'t: 'r, 'r> ::std::iter::ExactSizeIterator for POAHeaderVecReaderIterator<'t, 'r> {
+    fn len(&self) -> usize {
+        self.2 - self.1
+    }
+}
+#[derive(Clone)]
 pub struct HeaderView(molecule::bytes::Bytes);
 impl ::std::fmt::LowerHex for HeaderView {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -9911,7 +10532,7 @@ impl SyncMessage {
             1 => SendHeaders::new_unchecked(inner).into(),
             2 => GetBlocks::new_unchecked(inner).into(),
             3 => SendBlock::new_unchecked(inner).into(),
-            4 => SetFilter::new_unchecked(inner).into(),
+            4 => SendPOAHeaders::new_unchecked(inner).into(),
             5 => AddFilter::new_unchecked(inner).into(),
             6 => ClearFilter::new_unchecked(inner).into(),
             7 => FilteredBlock::new_unchecked(inner).into(),
@@ -9983,7 +10604,7 @@ impl<'r> SyncMessageReader<'r> {
             1 => SendHeadersReader::new_unchecked(inner).into(),
             2 => GetBlocksReader::new_unchecked(inner).into(),
             3 => SendBlockReader::new_unchecked(inner).into(),
-            4 => SetFilterReader::new_unchecked(inner).into(),
+            4 => SendPOAHeadersReader::new_unchecked(inner).into(),
             5 => AddFilterReader::new_unchecked(inner).into(),
             6 => ClearFilterReader::new_unchecked(inner).into(),
             7 => FilteredBlockReader::new_unchecked(inner).into(),
@@ -10017,7 +10638,7 @@ impl<'r> molecule::prelude::Reader<'r> for SyncMessageReader<'r> {
             1 => SendHeadersReader::verify(inner_slice, compatible),
             2 => GetBlocksReader::verify(inner_slice, compatible),
             3 => SendBlockReader::verify(inner_slice, compatible),
-            4 => SetFilterReader::verify(inner_slice, compatible),
+            4 => SendPOAHeadersReader::verify(inner_slice, compatible),
             5 => AddFilterReader::verify(inner_slice, compatible),
             6 => ClearFilterReader::verify(inner_slice, compatible),
             7 => FilteredBlockReader::verify(inner_slice, compatible),
@@ -10062,7 +10683,7 @@ pub enum SyncMessageUnion {
     SendHeaders(SendHeaders),
     GetBlocks(GetBlocks),
     SendBlock(SendBlock),
-    SetFilter(SetFilter),
+    SendPOAHeaders(SendPOAHeaders),
     AddFilter(AddFilter),
     ClearFilter(ClearFilter),
     FilteredBlock(FilteredBlock),
@@ -10074,7 +10695,7 @@ pub enum SyncMessageUnionReader<'r> {
     SendHeaders(SendHeadersReader<'r>),
     GetBlocks(GetBlocksReader<'r>),
     SendBlock(SendBlockReader<'r>),
-    SetFilter(SetFilterReader<'r>),
+    SendPOAHeaders(SendPOAHeadersReader<'r>),
     AddFilter(AddFilterReader<'r>),
     ClearFilter(ClearFilterReader<'r>),
     FilteredBlock(FilteredBlockReader<'r>),
@@ -10100,8 +10721,8 @@ impl ::std::fmt::Display for SyncMessageUnion {
             SyncMessageUnion::SendBlock(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, SendBlock::NAME, item)
             }
-            SyncMessageUnion::SetFilter(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SetFilter::NAME, item)
+            SyncMessageUnion::SendPOAHeaders(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendPOAHeaders::NAME, item)
             }
             SyncMessageUnion::AddFilter(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, AddFilter::NAME, item)
@@ -10133,8 +10754,8 @@ impl<'r> ::std::fmt::Display for SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::SendBlock(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, SendBlock::NAME, item)
             }
-            SyncMessageUnionReader::SetFilter(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SetFilter::NAME, item)
+            SyncMessageUnionReader::SendPOAHeaders(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendPOAHeaders::NAME, item)
             }
             SyncMessageUnionReader::AddFilter(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, AddFilter::NAME, item)
@@ -10158,7 +10779,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnion::GetBlocks(ref item) => write!(f, "{}", item),
             SyncMessageUnion::SendBlock(ref item) => write!(f, "{}", item),
-            SyncMessageUnion::SetFilter(ref item) => write!(f, "{}", item),
+            SyncMessageUnion::SendPOAHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnion::AddFilter(ref item) => write!(f, "{}", item),
             SyncMessageUnion::ClearFilter(ref item) => write!(f, "{}", item),
             SyncMessageUnion::FilteredBlock(ref item) => write!(f, "{}", item),
@@ -10173,7 +10794,7 @@ impl<'r> SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::SendHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::GetBlocks(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::SendBlock(ref item) => write!(f, "{}", item),
-            SyncMessageUnionReader::SetFilter(ref item) => write!(f, "{}", item),
+            SyncMessageUnionReader::SendPOAHeaders(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::AddFilter(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::ClearFilter(ref item) => write!(f, "{}", item),
             SyncMessageUnionReader::FilteredBlock(ref item) => write!(f, "{}", item),
@@ -10201,9 +10822,9 @@ impl ::std::convert::From<SendBlock> for SyncMessageUnion {
         SyncMessageUnion::SendBlock(item)
     }
 }
-impl ::std::convert::From<SetFilter> for SyncMessageUnion {
-    fn from(item: SetFilter) -> Self {
-        SyncMessageUnion::SetFilter(item)
+impl ::std::convert::From<SendPOAHeaders> for SyncMessageUnion {
+    fn from(item: SendPOAHeaders) -> Self {
+        SyncMessageUnion::SendPOAHeaders(item)
     }
 }
 impl ::std::convert::From<AddFilter> for SyncMessageUnion {
@@ -10246,9 +10867,9 @@ impl<'r> ::std::convert::From<SendBlockReader<'r>> for SyncMessageUnionReader<'r
         SyncMessageUnionReader::SendBlock(item)
     }
 }
-impl<'r> ::std::convert::From<SetFilterReader<'r>> for SyncMessageUnionReader<'r> {
-    fn from(item: SetFilterReader<'r>) -> Self {
-        SyncMessageUnionReader::SetFilter(item)
+impl<'r> ::std::convert::From<SendPOAHeadersReader<'r>> for SyncMessageUnionReader<'r> {
+    fn from(item: SendPOAHeadersReader<'r>) -> Self {
+        SyncMessageUnionReader::SendPOAHeaders(item)
     }
 }
 impl<'r> ::std::convert::From<AddFilterReader<'r>> for SyncMessageUnionReader<'r> {
@@ -10279,7 +10900,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(item) => item.as_bytes(),
             SyncMessageUnion::GetBlocks(item) => item.as_bytes(),
             SyncMessageUnion::SendBlock(item) => item.as_bytes(),
-            SyncMessageUnion::SetFilter(item) => item.as_bytes(),
+            SyncMessageUnion::SendPOAHeaders(item) => item.as_bytes(),
             SyncMessageUnion::AddFilter(item) => item.as_bytes(),
             SyncMessageUnion::ClearFilter(item) => item.as_bytes(),
             SyncMessageUnion::FilteredBlock(item) => item.as_bytes(),
@@ -10292,7 +10913,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(item) => item.as_slice(),
             SyncMessageUnion::GetBlocks(item) => item.as_slice(),
             SyncMessageUnion::SendBlock(item) => item.as_slice(),
-            SyncMessageUnion::SetFilter(item) => item.as_slice(),
+            SyncMessageUnion::SendPOAHeaders(item) => item.as_slice(),
             SyncMessageUnion::AddFilter(item) => item.as_slice(),
             SyncMessageUnion::ClearFilter(item) => item.as_slice(),
             SyncMessageUnion::FilteredBlock(item) => item.as_slice(),
@@ -10305,7 +10926,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(_) => 1,
             SyncMessageUnion::GetBlocks(_) => 2,
             SyncMessageUnion::SendBlock(_) => 3,
-            SyncMessageUnion::SetFilter(_) => 4,
+            SyncMessageUnion::SendPOAHeaders(_) => 4,
             SyncMessageUnion::AddFilter(_) => 5,
             SyncMessageUnion::ClearFilter(_) => 6,
             SyncMessageUnion::FilteredBlock(_) => 7,
@@ -10318,7 +10939,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(_) => "SendHeaders",
             SyncMessageUnion::GetBlocks(_) => "GetBlocks",
             SyncMessageUnion::SendBlock(_) => "SendBlock",
-            SyncMessageUnion::SetFilter(_) => "SetFilter",
+            SyncMessageUnion::SendPOAHeaders(_) => "SendPOAHeaders",
             SyncMessageUnion::AddFilter(_) => "AddFilter",
             SyncMessageUnion::ClearFilter(_) => "ClearFilter",
             SyncMessageUnion::FilteredBlock(_) => "FilteredBlock",
@@ -10331,7 +10952,7 @@ impl SyncMessageUnion {
             SyncMessageUnion::SendHeaders(item) => item.as_reader().into(),
             SyncMessageUnion::GetBlocks(item) => item.as_reader().into(),
             SyncMessageUnion::SendBlock(item) => item.as_reader().into(),
-            SyncMessageUnion::SetFilter(item) => item.as_reader().into(),
+            SyncMessageUnion::SendPOAHeaders(item) => item.as_reader().into(),
             SyncMessageUnion::AddFilter(item) => item.as_reader().into(),
             SyncMessageUnion::ClearFilter(item) => item.as_reader().into(),
             SyncMessageUnion::FilteredBlock(item) => item.as_reader().into(),
@@ -10347,7 +10968,7 @@ impl<'r> SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::SendHeaders(item) => item.as_slice(),
             SyncMessageUnionReader::GetBlocks(item) => item.as_slice(),
             SyncMessageUnionReader::SendBlock(item) => item.as_slice(),
-            SyncMessageUnionReader::SetFilter(item) => item.as_slice(),
+            SyncMessageUnionReader::SendPOAHeaders(item) => item.as_slice(),
             SyncMessageUnionReader::AddFilter(item) => item.as_slice(),
             SyncMessageUnionReader::ClearFilter(item) => item.as_slice(),
             SyncMessageUnionReader::FilteredBlock(item) => item.as_slice(),
@@ -10360,7 +10981,7 @@ impl<'r> SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::SendHeaders(_) => 1,
             SyncMessageUnionReader::GetBlocks(_) => 2,
             SyncMessageUnionReader::SendBlock(_) => 3,
-            SyncMessageUnionReader::SetFilter(_) => 4,
+            SyncMessageUnionReader::SendPOAHeaders(_) => 4,
             SyncMessageUnionReader::AddFilter(_) => 5,
             SyncMessageUnionReader::ClearFilter(_) => 6,
             SyncMessageUnionReader::FilteredBlock(_) => 7,
@@ -10373,194 +10994,12 @@ impl<'r> SyncMessageUnionReader<'r> {
             SyncMessageUnionReader::SendHeaders(_) => "SendHeaders",
             SyncMessageUnionReader::GetBlocks(_) => "GetBlocks",
             SyncMessageUnionReader::SendBlock(_) => "SendBlock",
-            SyncMessageUnionReader::SetFilter(_) => "SetFilter",
+            SyncMessageUnionReader::SendPOAHeaders(_) => "SendPOAHeaders",
             SyncMessageUnionReader::AddFilter(_) => "AddFilter",
             SyncMessageUnionReader::ClearFilter(_) => "ClearFilter",
             SyncMessageUnionReader::FilteredBlock(_) => "FilteredBlock",
             SyncMessageUnionReader::InIBD(_) => "InIBD",
         }
-    }
-}
-#[derive(Clone)]
-pub struct SetFilter(molecule::bytes::Bytes);
-impl ::std::fmt::LowerHex for SetFilter {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        use molecule::faster_hex::hex_string;
-        if f.alternate() {
-            write!(f, "0x")?;
-        }
-        write!(f, "{}", hex_string(self.as_slice()).unwrap())
-    }
-}
-impl ::std::fmt::Debug for SetFilter {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}({:#x})", Self::NAME, self)
-    }
-}
-impl ::std::fmt::Display for SetFilter {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ".. ({} fields)", extra_count)?;
-        }
-        write!(f, " }}")
-    }
-}
-impl ::std::default::Default for SetFilter {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
-        SetFilter::new_unchecked(v.into())
-    }
-}
-impl SetFilter {
-    pub const FIELD_COUNT: usize = 0;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn field_offsets(&self) -> &[[u8; 4]] {
-        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
-    pub fn as_reader<'r>(&'r self) -> SetFilterReader<'r> {
-        SetFilterReader::new_unchecked(self.as_slice())
-    }
-}
-impl molecule::prelude::Entity for SetFilter {
-    type Builder = SetFilterBuilder;
-    const NAME: &'static str = "SetFilter";
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        SetFilter(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SetFilterReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SetFilterReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-    }
-}
-#[derive(Clone, Copy)]
-pub struct SetFilterReader<'r>(&'r [u8]);
-impl<'r> ::std::fmt::LowerHex for SetFilterReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        use molecule::faster_hex::hex_string;
-        if f.alternate() {
-            write!(f, "0x")?;
-        }
-        write!(f, "{}", hex_string(self.as_slice()).unwrap())
-    }
-}
-impl<'r> ::std::fmt::Debug for SetFilterReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}({:#x})", Self::NAME, self)
-    }
-}
-impl<'r> ::std::fmt::Display for SetFilterReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ".. ({} fields)", extra_count)?;
-        }
-        write!(f, " }}")
-    }
-}
-impl<'r> SetFilterReader<'r> {
-    pub const FIELD_COUNT: usize = 0;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn field_offsets(&self) -> &[[u8; 4]] {
-        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for SetFilterReader<'r> {
-    type Entity = SetFilter;
-    const NAME: &'static str = "SetFilterReader";
-    fn to_entity(&self) -> Self::Entity {
-        Self::Entity::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        SetFilterReader(slice)
-    }
-    fn as_slice(&self) -> &'r [u8] {
-        self.0
-    }
-    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
-        use molecule::verification_error as ve;
-        let slice_len = slice.len();
-        if slice_len < molecule::NUMBER_SIZE {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
-        }
-        let total_size = molecule::unpack_number(slice) as usize;
-        if slice_len != total_size {
-            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
-        }
-        if slice_len > molecule::NUMBER_SIZE && !compatible {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, !0);
-        }
-        Ok(())
-    }
-}
-#[derive(Debug, Default)]
-pub struct SetFilterBuilder {}
-impl SetFilterBuilder {
-    pub const FIELD_COUNT: usize = 0;
-}
-impl molecule::prelude::Builder for SetFilterBuilder {
-    type Entity = SetFilter;
-    const NAME: &'static str = "SetFilterBuilder";
-    fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        writer.write_all(&molecule::pack_number(
-            molecule::NUMBER_SIZE as molecule::Number,
-        ))?;
-        Ok(())
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        SetFilter::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
@@ -12583,6 +13022,249 @@ impl molecule::prelude::Builder for InIBDBuilder {
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         InIBD::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct SendPOAHeaders(molecule::bytes::Bytes);
+impl ::std::fmt::LowerHex for SendPOAHeaders {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl ::std::fmt::Debug for SendPOAHeaders {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::std::fmt::Display for SendPOAHeaders {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "headers", self.headers())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::std::default::Default for SendPOAHeaders {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0];
+        SendPOAHeaders::new_unchecked(v.into())
+    }
+}
+impl SendPOAHeaders {
+    pub const FIELD_COUNT: usize = 1;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn field_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn headers(&self) -> POAHeaderVec {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[0][..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&offsets[1][..]) as usize;
+            POAHeaderVec::new_unchecked(self.0.slice(start, end))
+        } else {
+            POAHeaderVec::new_unchecked(self.0.slice_from(start))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> SendPOAHeadersReader<'r> {
+        SendPOAHeadersReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for SendPOAHeaders {
+    type Builder = SendPOAHeadersBuilder;
+    const NAME: &'static str = "SendPOAHeaders";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        SendPOAHeaders(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        SendPOAHeadersReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        SendPOAHeadersReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().headers(self.headers())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct SendPOAHeadersReader<'r>(&'r [u8]);
+impl<'r> ::std::fmt::LowerHex for SendPOAHeadersReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use molecule::faster_hex::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()).unwrap())
+    }
+}
+impl<'r> ::std::fmt::Debug for SendPOAHeadersReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::std::fmt::Display for SendPOAHeadersReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "headers", self.headers())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> SendPOAHeadersReader<'r> {
+    pub const FIELD_COUNT: usize = 1;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn field_offsets(&self) -> &[[u8; 4]] {
+        molecule::unpack_number_vec(&self.as_slice()[molecule::NUMBER_SIZE..])
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn headers(&self) -> POAHeaderVecReader<'r> {
+        let offsets = self.field_offsets();
+        let start = molecule::unpack_number(&offsets[0][..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&offsets[1][..]) as usize;
+            POAHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            POAHeaderVecReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for SendPOAHeadersReader<'r> {
+    type Entity = SendPOAHeaders;
+    const NAME: &'static str = "SendPOAHeadersReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        SendPOAHeadersReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
+            return Ok(());
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        let field_count = offset_first / 4 - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let header_size = molecule::NUMBER_SIZE * (field_count + 1);
+        if slice_len < header_size {
+            return ve!(Self, HeaderIsBroken, header_size, slice_len);
+        }
+        let ptr = molecule::unpack_number_vec(&slice[molecule::NUMBER_SIZE..]);
+        let mut offsets: Vec<usize> = ptr[..field_count]
+            .iter()
+            .map(|x| molecule::unpack_number(&x[..]) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        POAHeaderVecReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct SendPOAHeadersBuilder {
+    pub(crate) headers: POAHeaderVec,
+}
+impl SendPOAHeadersBuilder {
+    pub const FIELD_COUNT: usize = 1;
+    pub fn headers(mut self, v: POAHeaderVec) -> Self {
+        self.headers = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for SendPOAHeadersBuilder {
+    type Entity = SendPOAHeaders;
+    const NAME: &'static str = "SendPOAHeadersBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.headers.as_slice().len()
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.headers.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.headers.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        SendPOAHeaders::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]

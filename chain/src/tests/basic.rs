@@ -16,8 +16,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMeta, CellProvider, CellStatus},
-        BlockBuilder, BlockView, Capacity, EpochExt, HeaderView, TransactionBuilder,
-        TransactionInfo,
+        BlockBuilder, BlockView, Capacity, EpochExt, HeaderContextType, HeaderView,
+        TransactionBuilder, TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
     utilities::{compact_to_difficulty, difficulty_to_compact},
@@ -62,7 +62,7 @@ fn repeat_process_block() {
 fn test_genesis_transaction_spend() {
     // let data: Vec<packed::Bytes> = ;
     let tx = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutputBuilder::default()
@@ -353,7 +353,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 #[test]
 fn test_genesis_transaction_fetch() {
     let tx = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutputBuilder::default()
@@ -567,7 +567,7 @@ fn prepare_context_chain(
 #[test]
 fn test_epoch_hash_rate_dampening() {
     let cellbase = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
@@ -657,7 +657,7 @@ fn test_epoch_hash_rate_dampening() {
 #[test]
 fn test_orphan_rate_estimation_overflow() {
     let cellbase = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
@@ -711,7 +711,7 @@ fn test_orphan_rate_estimation_overflow() {
 #[test]
 fn test_next_epoch_ext() {
     let cellbase = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();

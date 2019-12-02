@@ -12,7 +12,8 @@ use ckb_types::{
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
         BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
-        EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        EpochNumberWithFraction, HeaderContextType, HeaderView, Ratio, TransactionBuilder,
+        TransactionView, Version,
     },
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
@@ -130,7 +131,7 @@ impl Default for ConsensusBuilder {
                 .expect("default occupied");
             empty_output.as_builder().capacity(occupied.pack()).build()
         };
-        let witness = Script::default().into_witness();
+        let witness = Script::default().into_witness(HeaderContextType::NoneContext);
         let cellbase = TransactionBuilder::default()
             .input(input)
             .output(output)
@@ -755,6 +756,13 @@ impl Consensus {
                     .map(|script| script.calc_script_hash())
             })
             .expect("Can not find secp script")
+    }
+
+    pub fn header_context_type(&self) -> HeaderContextType {
+        match self.pow {
+            Pow::POA(_) => HeaderContextType::Cellbase,
+            _ => HeaderContextType::NoneContext,
+        }
     }
 
     fn primary_epoch_reward_of_next_epoch(&self, epoch: &EpochExt) -> Capacity {

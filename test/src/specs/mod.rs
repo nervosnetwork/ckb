@@ -7,6 +7,7 @@ mod p2p;
 mod relay;
 mod sync;
 mod tx_pool;
+mod poa;
 
 pub use alert::*;
 pub use consensus::*;
@@ -17,6 +18,7 @@ pub use p2p::*;
 pub use relay::*;
 pub use sync::*;
 pub use tx_pool::*;
+pub use poa::*;
 
 use crate::Net;
 use ckb_app_config::CKBAppConfig;

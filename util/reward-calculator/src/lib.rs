@@ -6,8 +6,8 @@ use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockReward, Capacity, HeaderView},
-    packed::{Byte32, CellbaseWitness, ProposalShortId, Script},
+    core::{BlockReward, Capacity, HeaderContextType, HeaderView},
+    packed::{Byte32, CellbaseExtWitness, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use std::cmp;
@@ -40,17 +40,24 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             .and_then(|hash| self.store.get_block_header(&hash))
             .expect("block hash checked before involving get_ancestor");
 
-        let target_lock = CellbaseWitness::from_slice(
-            &store
+        let target_lock = {
+            let witness = store
                 .get_cellbase(&target.hash())
                 .expect("target cellbase exist")
                 .witnesses()
                 .get(0)
                 .expect("target witness exist")
-                .raw_data(),
-        )
-        .expect("cellbase loaded from store should has non-empty witness")
-        .lock();
+                .raw_data();
+            let expect_msg = "cellbase loaded from store should has non-empty witness";
+            match self.consensus.header_context_type() {
+                HeaderContextType::NoneContext => CellbaseWitness::from_slice(&witness)
+                    .expect(expect_msg)
+                    .lock(),
+                HeaderContextType::Cellbase => CellbaseExtWitness::from_slice(&witness)
+                    .expect(expect_msg)
+                    .lock(),
+            }
+        };
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;

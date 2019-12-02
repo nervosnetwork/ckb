@@ -7,12 +7,12 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_types::core::{HeaderView, Version};
+use ckb_types::core::{HeaderContext, HeaderView, Version};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 
 pub trait HeaderResolver {
-    fn header(&self) -> &HeaderView;
+    fn header_ctx(&self) -> &HeaderContext;
     /// resolves parent header
     fn parent(&self) -> Option<&HeaderView>;
 }
@@ -36,10 +36,11 @@ impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
 impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<'a, T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
-        let header = target.header();
+        let header_ctx = target.header_ctx();
+        let header = header_ctx.header();
         VersionVerifier::new(header, self.consensus.block_version()).verify()?;
         // POW check first
-        PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
+        PowVerifier::new(header_ctx, self.consensus.pow_engine().as_ref()).verify()?;
         let parent = target.parent().ok_or_else(|| UnknownParentError {
             parent_hash: header.parent_hash().to_owned(),
         })?;
@@ -136,17 +137,17 @@ impl<'a> NumberVerifier<'a> {
 }
 
 pub struct PowVerifier<'a> {
-    header: &'a HeaderView,
+    header_ctx: &'a HeaderContext,
     pow: &'a dyn PowEngine,
 }
 
 impl<'a> PowVerifier<'a> {
-    pub fn new(header: &'a HeaderView, pow: &'a dyn PowEngine) -> Self {
-        PowVerifier { header, pow }
+    pub fn new(header_ctx: &'a HeaderContext, pow: &'a dyn PowEngine) -> Self {
+        PowVerifier { header_ctx, pow }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.pow.verify(&self.header.data()) {
+        if self.pow.verify(self.header_ctx) {
             Ok(())
         } else {
             Err(PowError::InvalidNonce.into())

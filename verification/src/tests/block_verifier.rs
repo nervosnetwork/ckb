@@ -9,7 +9,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochExt, HeaderBuilder,
-        TransactionBuilder, TransactionView,
+        HeaderContextType, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
@@ -27,7 +27,7 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
                 .build(),
         )
         .output_data(Bytes::new().pack())
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build()
 }
 
@@ -40,7 +40,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> TransactionV
                 .build(),
         )
         .output_data(Bytes::new().pack())
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build()
 }
 
@@ -53,7 +53,7 @@ fn create_cellbase_transaction_with_non_empty_output_data() -> TransactionView {
                 .build(),
         )
         .output_data(Bytes::from("123").pack())
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build()
 }
 
@@ -71,7 +71,7 @@ fn create_cellbase_transaction_with_two_output() -> TransactionView {
                 .build(),
         )
         .output_data(Bytes::new().pack())
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build()
 }
 
@@ -85,7 +85,7 @@ fn create_cellbase_transaction_with_two_output_data() -> TransactionView {
         )
         .output_data(Bytes::new().pack())
         .output_data(Bytes::new().pack())
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build()
 }
 
@@ -111,7 +111,7 @@ pub fn test_block_without_cellbase() {
         .header(HeaderBuilder::default().number(1u64.pack()).build())
         .transaction(TransactionBuilder::default().build())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
@@ -128,7 +128,7 @@ pub fn test_block_with_one_cellbase_at_first() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -139,7 +139,7 @@ pub fn test_block_with_correct_cellbase_number() {
         .transaction(create_cellbase_transaction_with_block_number(2))
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -150,7 +150,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
         .transaction(create_cellbase_transaction_with_block_number(3))
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidInput,
@@ -165,7 +165,7 @@ pub fn test_block_with_one_cellbase_at_last() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidPosition,
@@ -178,7 +178,7 @@ pub fn test_cellbase_with_non_empty_output_data() {
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(create_cellbase_transaction_with_non_empty_output_data())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputData,
@@ -190,32 +190,32 @@ pub fn test_cellbase_without_output() {
     // without_output
     let cellbase_without_output = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(2u64))
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .build();
     let block = BlockBuilder::default()
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(HeaderContextType::NoneContext).verify(&block);
     assert!(result.is_ok(), "Unexpected error {:?}", result);
 
     // only output_data
     let cellbase_without_output = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(2u64))
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .output_data(Bytes::new().pack())
         .build();
     let block = BlockBuilder::default()
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(HeaderContextType::NoneContext).verify(&block);
     assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 
     // only output
     let cellbase_without_output = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(2u64))
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
@@ -226,7 +226,7 @@ pub fn test_cellbase_without_output() {
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(HeaderContextType::NoneContext).verify(&block);
     assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 }
 
@@ -236,7 +236,7 @@ pub fn test_cellbase_with_two_output() {
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(create_cellbase_transaction_with_two_output())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputQuantity,
@@ -249,7 +249,7 @@ pub fn test_cellbase_with_two_output_data() {
         .header(HeaderBuilder::default().number(2u64.pack()).build())
         .transaction(create_cellbase_transaction_with_two_output_data())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputQuantity,
@@ -331,7 +331,7 @@ pub fn test_block_with_two_cellbases() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
@@ -349,7 +349,7 @@ pub fn test_cellbase_with_less_reward() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -364,7 +364,7 @@ pub fn test_cellbase_with_fee() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(HeaderContextType::NoneContext);
     assert!(verifier.verify(&block).is_ok());
 }
 

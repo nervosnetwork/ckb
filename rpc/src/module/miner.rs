@@ -5,7 +5,12 @@ use ckb_logger::{debug, error};
 use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{
+    core::{self, BuildHeaderContext},
+    packed,
+    prelude::*,
+    H256,
+};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use faketime::unix_time_as_millis;
 use jsonrpc_core::{Error, Result};
@@ -78,11 +83,13 @@ impl MinerRpc for MinerRpcImpl {
         debug!("[{}] submit block", work_id);
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
-        let header = block.header();
+        let header_ctx = block
+            .data()
+            .build_header_context(self.shared.consensus().header_context_type());
 
         // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
-        let resolver = HeaderResolverWrapper::new(&header, snapshot);
+        let resolver = HeaderResolverWrapper::new(&header_ctx, snapshot);
         HeaderVerifier::new(snapshot, &self.shared.consensus())
             .verify(&resolver)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
@@ -97,8 +104,8 @@ impl MinerRpc for MinerRpcImpl {
         if is_new {
             debug!(
                 "[block_relay] announce new block {} {} {}",
-                header.number(),
-                header.hash(),
+                header_ctx.header().number(),
+                header_ctx.header().hash(),
                 unix_time_as_millis()
             );
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
@@ -112,7 +119,7 @@ impl MinerRpc for MinerRpcImpl {
             }
         }
 
-        Ok(header.hash().unpack())
+        Ok(header_ctx.header().hash().unpack())
     }
 }
 

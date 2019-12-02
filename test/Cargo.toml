@@ -24,6 +24,7 @@ ckb-dao = { path = "../util/dao" }
 ckb-dao-utils = { path = "../util/dao/utils" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 ckb-resource = { path = "../resource" }
+ckb-pow = { path = "../pow" }
 tempfile = "3.0"
 reqwest = "0.9"
 rand = "0.6"

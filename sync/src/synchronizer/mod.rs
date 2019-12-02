@@ -12,6 +12,7 @@ use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
+use crate::send_headers_message::SendHeadersMessage;
 use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState, SyncSnapshot};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
@@ -61,12 +62,16 @@ impl Synchronizer {
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) -> Result<(), FailureError> {
+        let consensus = self.shared().consensus();
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
                 GetHeadersProcess::new(reader, self, peer, nc).execute()?;
             }
-            packed::SyncMessageUnionReader::SendHeaders(reader) => {
-                HeadersProcess::new(reader, self, peer, nc).execute()?;
+            packed::SyncMessageUnionReader::SendHeaders(reader) if !consensus.pow.is_poa() => {
+                HeadersProcess::new(SendHeadersMessage::POW(reader), self, peer, nc).execute()?;
+            }
+            packed::SyncMessageUnionReader::SendPOAHeaders(reader) if consensus.pow.is_poa() => {
+                HeadersProcess::new(SendHeadersMessage::POA(reader), self, peer, nc).execute()?;
             }
             packed::SyncMessageUnionReader::GetBlocks(reader) => {
                 GetBlocksProcess::new(reader, self, peer, nc).execute()?;
@@ -529,7 +534,8 @@ mod tests {
         bytes::Bytes,
         core::{
             cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt,
-            HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
+            HeaderBuilder, HeaderContextType, HeaderView as CoreHeaderView, TransactionBuilder,
+            TransactionView,
         },
         packed::{
             Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
@@ -571,7 +577,7 @@ mod tests {
 
         let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .witness(Script::default().into_witness());
+            .witness(Script::default().into_witness(HeaderContextType::NoneContext));
         if number <= shared.consensus().finalization_delay_length() {
             builder.build()
         } else {
@@ -897,17 +903,21 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let headers = synchronizer
-            .shared
-            .snapshot()
-            .get_locator_response(180, &Byte32::zero());
+        let headers = synchronizer.shared.snapshot().get_locator_response(
+            180,
+            &Byte32::zero(),
+            HeaderContextType::NoneContext,
+        );
 
-        assert_eq!(headers.first().unwrap(), &blocks[180].header());
-        assert_eq!(headers.last().unwrap(), &blocks[199].header());
+        assert_eq!(headers.first().unwrap().header(), &blocks[180].header());
+        assert_eq!(headers.last().unwrap().header(), &blocks[199].header());
 
         for window in headers.windows(2) {
-            if let [parent, header] = &window {
-                assert_eq!(header.data().raw().parent_hash(), parent.hash());
+            if let [parent_ctx, header_ctx] = &window {
+                assert_eq!(
+                    header_ctx.header().data().raw().parent_hash(),
+                    parent_ctx.header().hash()
+                );
             }
         }
     }
@@ -1059,22 +1069,23 @@ mod tests {
             .locate_latest_common_block(&Byte32::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
-        let headers = synchronizer2
-            .shared
-            .snapshot()
-            .get_locator_response(192, &Byte32::zero());
+        let headers = synchronizer2.shared.snapshot().get_locator_response(
+            192,
+            &Byte32::zero(),
+            HeaderContextType::NoneContext,
+        );
 
         assert_eq!(
-            headers.first().unwrap().hash(),
+            headers.first().unwrap().header().hash(),
             shared2.store().get_block_hash(193).unwrap()
         );
         assert_eq!(
-            headers.last().unwrap().hash(),
+            headers.last().unwrap().header().hash(),
             shared2.store().get_block_hash(200).unwrap()
         );
 
         let sendheaders = SendHeadersBuilder::default()
-            .headers(headers.iter().map(|h| h.data()).pack())
+            .headers(headers.iter().map(|h| h.header().data()).pack())
             .build();
 
         let mock_nc = mock_network_context(4);
@@ -1082,13 +1093,21 @@ mod tests {
         let peer2: PeerIndex = 2.into();
         synchronizer1.on_connected(&mock_nc, peer1);
         synchronizer1.on_connected(&mock_nc, peer2);
-        HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc)
-            .execute()
-            .expect("Process headers from peer1 failed");
+        HeadersProcess::new(
+            sendheaders.as_reader().into(),
+            &synchronizer1,
+            peer1,
+            &mock_nc,
+        )
+        .execute()
+        .expect("Process headers from peer1 failed");
 
         let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
-        assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
+        assert_eq!(
+            best_known_header.unwrap().inner(),
+            headers.last().unwrap().header()
+        );
 
         let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer1).unwrap();
 

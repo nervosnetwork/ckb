@@ -1,4 +1,5 @@
 use crate::block_status::BlockStatus;
+use crate::send_headers_message::SendHeadersMessage;
 use crate::synchronizer::Synchronizer;
 use crate::types::SyncSnapshot;
 use crate::MAX_HEADERS_LEN;
@@ -7,7 +8,8 @@ use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
-    core::{self, BlockNumber},
+    bytes::Bytes,
+    core::{self, BlockNumber, HeaderContext},
     packed::{self, Byte32},
     prelude::*,
 };
@@ -15,7 +17,7 @@ use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerif
 use failure::Error as FailureError;
 
 pub struct HeadersProcess<'a> {
-    message: packed::SendHeadersReader<'a>,
+    message: SendHeadersMessage<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -24,19 +26,19 @@ pub struct HeadersProcess<'a> {
 
 pub struct VerifierResolver<'a> {
     snapshot: SyncSnapshot,
-    header: &'a core::HeaderView,
+    header_ctx: &'a HeaderContext,
     parent: Option<&'a core::HeaderView>,
 }
 
 impl<'a> VerifierResolver<'a> {
     pub fn new(
         parent: Option<&'a core::HeaderView>,
-        header: &'a core::HeaderView,
+        header_ctx: &'a HeaderContext,
         snapshot: SyncSnapshot,
     ) -> Self {
         VerifierResolver {
             parent,
-            header,
+            header_ctx,
             snapshot,
         }
     }
@@ -46,7 +48,7 @@ impl<'a> ::std::clone::Clone for VerifierResolver<'a> {
     fn clone(&self) -> Self {
         VerifierResolver {
             parent: self.parent,
-            header: self.header,
+            header_ctx: self.header_ctx,
             snapshot: self.snapshot.clone(),
         }
     }
@@ -71,8 +73,8 @@ impl<'a> BlockMedianTimeContext for VerifierResolver<'a> {
 }
 
 impl<'a> HeaderResolver for VerifierResolver<'a> {
-    fn header(&self) -> &core::HeaderView {
-        self.header
+    fn header_ctx(&self) -> &HeaderContext {
+        self.header_ctx
     }
 
     fn parent(&self) -> Option<&core::HeaderView> {
@@ -82,7 +84,7 @@ impl<'a> HeaderResolver for VerifierResolver<'a> {
 
 impl<'a> HeadersProcess<'a> {
     pub fn new(
-        message: packed::SendHeadersReader<'a>,
+        message: SendHeadersMessage<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -97,14 +99,14 @@ impl<'a> HeadersProcess<'a> {
         }
     }
 
-    fn is_continuous(&self, headers: &[core::HeaderView]) -> bool {
+    fn is_continuous(&self, headers: &[HeaderContext]) -> bool {
         for window in headers.windows(2) {
-            if let [parent, header] = &window {
-                if header.data().raw().parent_hash() != parent.hash() {
+            if let [parent_ctx, header_ctx] = &window {
+                if header_ctx.header().data().raw().parent_hash() != parent_ctx.header().hash() {
                     debug!(
                         "header.parent_hash {} parent.hash {}",
-                        header.parent_hash(),
-                        parent.hash()
+                        header_ctx.header().parent_hash(),
+                        parent_ctx.header().hash()
                     );
                     return false;
                 }
@@ -113,12 +115,14 @@ impl<'a> HeadersProcess<'a> {
         true
     }
 
-    pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
-        let parent = self.snapshot.get_header(&first.data().raw().parent_hash());
-        let resolver = VerifierResolver::new(parent.as_ref(), &first, self.snapshot.clone());
+    pub fn accept_first(&self, first: &HeaderContext) -> ValidationResult {
+        let parent = self
+            .snapshot
+            .get_header(&first.header().data().raw().parent_hash());
+        let resolver = VerifierResolver::new(parent.as_ref(), first, self.snapshot.clone());
         let verifier = HeaderVerifier::new(&resolver, &self.snapshot.consensus());
         let acceptor = HeaderAcceptor::new(
-            first,
+            first.header(),
             self.peer,
             resolver.clone(),
             verifier,
@@ -130,13 +134,7 @@ impl<'a> HeadersProcess<'a> {
     pub fn execute(self) -> Result<(), FailureError> {
         debug!("HeadersProcess begin");
 
-        let headers = self
-            .message
-            .headers()
-            .to_entity()
-            .into_iter()
-            .map(packed::Header::into_view)
-            .collect::<Vec<_>>();
+        let headers = self.message.headers();
 
         if headers.len() > MAX_HEADERS_LEN {
             self.synchronizer
@@ -185,11 +183,15 @@ impl<'a> HeadersProcess<'a> {
         }
 
         for window in headers.windows(2) {
-            if let [parent, header] = &window {
-                let resolver = VerifierResolver::new(Some(&parent), &header, self.snapshot.clone());
+            if let [parent_ctx, header_ctx] = &window {
+                let resolver = VerifierResolver::new(
+                    Some(&parent_ctx.header()),
+                    &header_ctx,
+                    self.snapshot.clone(),
+                );
                 let verifier = HeaderVerifier::new(&resolver, &self.snapshot.consensus());
                 let acceptor = HeaderAcceptor::new(
-                    &header,
+                    header_ctx.header(),
                     self.peer,
                     resolver.clone(),
                     verifier,
@@ -240,7 +242,7 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if headers.len() == MAX_HEADERS_LEN {
-            let start = headers.last().expect("empty checked");
+            let start = headers.last().expect("empty checked").header();
             self.snapshot
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }

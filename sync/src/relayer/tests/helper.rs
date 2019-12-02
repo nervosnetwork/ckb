@@ -13,7 +13,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
-        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
+        HeaderBuilder, HeaderContextType, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
@@ -100,7 +100,11 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
-        .witness(always_success_script.clone().into_witness())
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        )
         .build();
     let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
@@ -140,7 +144,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
                     .build(),
             )
             .output_data(Bytes::new().pack())
-            .witness(Script::default().into_witness())
+            .witness(Script::default().into_witness(HeaderContextType::NoneContext))
             .build();
         let header = new_header_builder(&shared, &parent.header()).build();
         let block = BlockBuilder::default()

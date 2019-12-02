@@ -1,5 +1,6 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::{
+    core::HeaderContext,
     packed::{Byte32, Header},
     prelude::*,
 };
@@ -10,15 +11,18 @@ use std::sync::Arc;
 
 mod dummy;
 mod eaglesong;
+mod poa;
 
 pub use crate::dummy::DummyPowEngine;
 pub use crate::eaglesong::EaglesongPowEngine;
+pub use crate::poa::{POAEngine, POAEngineConfig};
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy,
     Eaglesong,
+    POA(POAEngineConfig),
 }
 
 impl fmt::Display for Pow {
@@ -26,20 +30,30 @@ impl fmt::Display for Pow {
         match self {
             Pow::Dummy => write!(f, "Dummy"),
             Pow::Eaglesong => write!(f, "Eaglesong"),
+            Pow::POA(_) => write!(f, "POA"),
         }
     }
 }
 
 impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
-        match *self {
+        match self.clone() {
             Pow::Dummy => Arc::new(DummyPowEngine),
             Pow::Eaglesong => Arc::new(EaglesongPowEngine),
+            Pow::POA(config) => Arc::new(POAEngine::new(config)),
         }
     }
 
     pub fn is_dummy(&self) -> bool {
         *self == Pow::Dummy
+    }
+
+    pub fn is_poa(&self) -> bool {
+        if let Pow::POA(_) = self {
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -51,7 +65,7 @@ pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
 }
 
 pub trait PowEngine: Send + Sync + AsAny {
-    fn verify(&self, header: &Header) -> bool;
+    fn verify(&self, header_ctx: &HeaderContext) -> bool;
 }
 
 pub trait AsAny {

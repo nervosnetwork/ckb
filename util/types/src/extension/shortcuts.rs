@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    core::{self, BlockNumber},
+    core::{self, BlockNumber, HeaderContextType},
     packed,
     prelude::*,
     utilities::{compact_to_difficulty, merkle_root},
@@ -74,18 +74,37 @@ impl packed::CellInput {
 }
 
 impl packed::Script {
-    pub fn into_witness(self) -> packed::Bytes {
-        packed::CellbaseWitness::new_builder()
-            .lock(self)
-            .build()
-            .as_bytes()
-            .pack()
+    pub fn into_witness(self, header_context_type: HeaderContextType) -> packed::Bytes {
+        match header_context_type {
+            HeaderContextType::NoneContext => packed::CellbaseWitness::new_builder()
+                .lock(self)
+                .build()
+                .as_bytes()
+                .pack(),
+            HeaderContextType::Cellbase => packed::CellbaseExtWitness::new_builder()
+                .lock(self)
+                .build()
+                .as_bytes()
+                .pack(),
+        }
     }
 
-    pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
-        packed::CellbaseWitness::from_slice(&witness.raw_data())
-            .map(|cellbase_witness| cellbase_witness.lock())
-            .ok()
+    pub fn from_witness(
+        witness: packed::Bytes,
+        header_context_type: HeaderContextType,
+    ) -> Option<Self> {
+        match header_context_type {
+            HeaderContextType::NoneContext => {
+                packed::CellbaseWitness::from_slice(&witness.raw_data())
+                    .map(|cellbase_witness| cellbase_witness.lock())
+                    .ok()
+            }
+            HeaderContextType::Cellbase => {
+                packed::CellbaseExtWitness::from_slice(&witness.raw_data())
+                    .map(|cellbase_witness| cellbase_witness.lock())
+                    .ok()
+            }
+        }
     }
 }
 

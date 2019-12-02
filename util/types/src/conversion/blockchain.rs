@@ -1,7 +1,7 @@
 use crate::{
     bytes::Bytes,
     core::{self, Capacity},
-    packed,
+    packed::{self},
     prelude::*,
     H256, U256,
 };
@@ -126,3 +126,4 @@ impl_conversion_for_packed_iterator_pack!(CellInput, CellInputVec);
 impl_conversion_for_packed_iterator_pack!(UncleBlock, UncleBlockVec);
 impl_conversion_for_packed_iterator_pack!(Header, HeaderVec);
 impl_conversion_for_packed_iterator_pack!(Byte32, Byte32Vec);
+impl_conversion_for_packed_iterator_pack!(POAHeader, POAHeaderVec);

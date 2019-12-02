@@ -12,8 +12,8 @@ use ckb_tx_pool::{BlockAssemblerConfig, PlugTarget, TxEntry};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, BlockView, BuildHeaderContext, Capacity, EpochExt,
+        HeaderBuilder, HeaderContextType, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Block, CellInput, CellOutput, CellOutputBuilder, OutPoint},
@@ -73,8 +73,10 @@ fn test_get_block_template() {
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
     let header = block.header();
-
-    let resolver = HeaderResolverWrapper::new(&header, shared.store());
+    let header_ctx = block
+        .data()
+        .build_header_context(HeaderContextType::NoneContext);
+    let resolver = HeaderResolverWrapper::new(&header_ctx, shared.store());
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
         let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());

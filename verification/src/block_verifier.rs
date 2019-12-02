@@ -4,8 +4,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockView, HeaderView},
-    packed::{CellInput, CellbaseWitness},
+    core::{BlockView, HeaderContext, HeaderContextType, HeaderView},
+    packed::{CellInput, CellbaseExtWitness, CellbaseWitness},
     prelude::*,
 };
 use std::collections::HashSet;
@@ -28,20 +28,25 @@ impl<'a> Verifier for BlockVerifier<'a> {
     fn verify(&self, target: &BlockView) -> Result<(), Error> {
         let max_block_proposals_limit = self.consensus.max_block_proposals_limit();
         let max_block_bytes = self.consensus.max_block_bytes();
+        let header_context_type = self.consensus.header_context_type();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
-        CellbaseVerifier::new().verify(target)?;
+        CellbaseVerifier::new(header_context_type).verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
     }
 }
 
 #[derive(Clone)]
-pub struct CellbaseVerifier {}
+pub struct CellbaseVerifier {
+    header_context_type: HeaderContextType,
+}
 
 impl CellbaseVerifier {
-    pub fn new() -> Self {
-        CellbaseVerifier {}
+    pub fn new(header_context_type: HeaderContextType) -> Self {
+        CellbaseVerifier {
+            header_context_type,
+        }
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
@@ -84,11 +89,18 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidOutputData).into());
         }
 
-        if cellbase_transaction
+        if !cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(|witness| CellbaseWitness::from_slice(&witness.raw_data()).ok())
-            .is_none()
+            .map(|witness| match self.header_context_type {
+                HeaderContextType::NoneContext => {
+                    CellbaseWitness::from_slice(&witness.raw_data()).is_ok()
+                }
+                HeaderContextType::Cellbase => {
+                    CellbaseExtWitness::from_slice(&witness.raw_data()).is_ok()
+                }
+            })
+            .unwrap_or(false)
         {
             return Err((CellbaseError::InvalidWitness).into());
         }
@@ -162,27 +174,27 @@ impl MerkleRootVerifier {
 }
 
 pub struct HeaderResolverWrapper<'a> {
-    header: &'a HeaderView,
+    header_ctx: &'a HeaderContext,
     parent: Option<HeaderView>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
+    pub fn new<CS>(header_ctx: &'a HeaderContext, store: &'a CS) -> Self
     where
         CS: ChainStore<'a>,
     {
-        let parent = store.get_block_header(&header.data().raw().parent_hash());
-        HeaderResolverWrapper { parent, header }
+        let parent = store.get_block_header(&header_ctx.header().data().raw().parent_hash());
+        HeaderResolverWrapper { parent, header_ctx }
     }
 
-    pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
-        HeaderResolverWrapper { parent, header }
+    pub fn build(header_ctx: &'a HeaderContext, parent: Option<HeaderView>) -> Self {
+        HeaderResolverWrapper { parent, header_ctx }
     }
 }
 
 impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
-    fn header(&self) -> &HeaderView {
-        self.header
+    fn header_ctx(&self) -> &HeaderContext {
+        self.header_ctx
     }
 
     fn parent(&self) -> Option<&HeaderView> {

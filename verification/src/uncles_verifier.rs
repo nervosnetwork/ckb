@@ -2,7 +2,7 @@ use crate::{PowError, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_types::{
-    core::{BlockNumber, BlockView, EpochExt, HeaderView},
+    core::{BlockNumber, BlockView, EpochExt, HeaderContext, HeaderView},
     packed::Byte32,
 };
 use std::collections::{HashMap, HashSet};
@@ -129,11 +129,12 @@ where
                 return Err((UnclesError::ProposalDuplicate).into());
             }
 
-            if !self
-                .provider
-                .consensus()
-                .pow_engine()
-                .verify(&uncle.data().header())
+            // skip uncles POW verification in POA mode
+            let consensus = self.provider.consensus();
+            if !consensus.pow.is_poa()
+                && !consensus
+                    .pow_engine()
+                    .verify(&HeaderContext::new(uncle.data().header().into_view()))
             {
                 return Err((PowError::InvalidNonce).into());
             }

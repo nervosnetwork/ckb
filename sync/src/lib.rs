@@ -4,6 +4,7 @@
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
 mod block_status;
+mod send_headers_message;
 mod net_time_checker;
 mod orphan_block_pool;
 mod relayer;

@@ -11,8 +11,9 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView,
-        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction,
+        HeaderContextType, HeaderView, ScriptHashType, TransactionBuilder, TransactionView,
+        UncleBlockView,
     },
     packed::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
@@ -37,7 +38,7 @@ pub(crate) fn create_cellbase(
     let capacity = calculate_reward(store, consensus, parent);
     let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .witness(miner_lock.into_witness());
+        .witness(miner_lock.into_witness(HeaderContextType::NoneContext));
 
     if (parent.number() + 1) <= consensus.finalization_delay_length() {
         builder.build()

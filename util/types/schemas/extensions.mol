@@ -19,6 +19,14 @@ option CellOutputOpt (CellOutput);
 vector HeaderVec <Header>;
 vector OutPointVec <OutPoint>;
 
+/* Extension Types for POA Chain */
+table POAHeader {
+    header:                     Header,
+    cellbase:                   Transaction, // cellbase
+}
+
+vector POAHeaderVec <POAHeader>;
+
 /* Types for Storage */
 
 table HeaderView {
@@ -177,7 +185,7 @@ union SyncMessage {
     SendHeaders,
     GetBlocks,
     SendBlock,
-    SetFilter,
+    SendPOAHeaders, // only used in POA testnet
     AddFilter,
     ClearFilter,
     FilteredBlock,
@@ -185,9 +193,6 @@ union SyncMessage {
 }
 
 /* -- Obsolete SyncMessage -- */
-table SetFilter {
-}
-
 table AddFilter {
 }
 
@@ -222,6 +227,11 @@ table MerkleProof {
 }
 
 table InIBD {
+}
+
+/* Types for POA Network/Sync */
+table SendPOAHeaders {
+    headers: POAHeaderVec,
 }
 
 /* Types for Network/Others */

@@ -11,7 +11,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{self, BlockNumber, EpochExt},
+    core::{self, BlockNumber, EpochExt, HeaderContext, HeaderContextType},
     packed::{self, Byte32},
     prelude::*,
     U256,
@@ -1071,7 +1071,8 @@ impl SyncSnapshot {
         &self,
         block_number: BlockNumber,
         hash_stop: &Byte32,
-    ) -> Vec<core::HeaderView> {
+        header_context_type: HeaderContextType,
+    ) -> Vec<HeaderContext> {
         let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
@@ -1080,7 +1081,19 @@ impl SyncSnapshot {
         (block_number + 1..max_height)
             .filter_map(|block_number| self.store.get_block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
-            .filter_map(|block_hash| self.store.get_block_header(&block_hash))
+            .filter_map(|block_hash| match header_context_type {
+                HeaderContextType::NoneContext => self
+                    .store
+                    .get_block_header(&block_hash)
+                    .map(HeaderContext::new),
+                HeaderContextType::Cellbase => {
+                    self.store.get_block_header(&block_hash).and_then(|header| {
+                        self.store
+                            .get_cellbase(&block_hash)
+                            .map(|cb| HeaderContext::with_cellbase(header, cb.data()))
+                    })
+                }
+            })
             .collect()
     }
 
@@ -1254,10 +1267,10 @@ impl SyncSnapshot {
 
     pub(crate) fn new_header_resolver<'a>(
         &'a self,
-        header: &'a core::HeaderView,
+        header_ctx: &'a HeaderContext,
         parent: core::HeaderView,
     ) -> HeaderResolverWrapper<'a> {
-        HeaderResolverWrapper::build(header, Some(parent))
+        HeaderResolverWrapper::build(header_ctx, Some(parent))
     }
 }
 

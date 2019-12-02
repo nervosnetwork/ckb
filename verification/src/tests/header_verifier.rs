@@ -3,7 +3,12 @@ use crate::{BlockErrorKind, NumberError, PowError, TimestampError, ALLOWED_FUTUR
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
-use ckb_types::{constants::BLOCK_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
+use ckb_types::{
+    constants::BLOCK_VERSION,
+    core::{HeaderBuilder, HeaderContext},
+    packed::Header,
+    prelude::*,
+};
 use faketime::unix_time_as_millis;
 
 fn mock_median_time_context() -> MockMedianTime {
@@ -104,7 +109,7 @@ fn test_number() {
 struct FakePowEngine;
 
 impl PowEngine for FakePowEngine {
-    fn verify(&self, _header: &Header) -> bool {
+    fn verify(&self, _header_ctx: &HeaderContext) -> bool {
         false
     }
 }
@@ -112,8 +117,9 @@ impl PowEngine for FakePowEngine {
 #[test]
 fn test_pow_verifier() {
     let header = HeaderBuilder::default().build();
+    let header_ctx = HeaderContext::new(header);
     let fake_pow_engine: &dyn PowEngine = &FakePowEngine;
-    let verifier = PowVerifier::new(&header, fake_pow_engine);
+    let verifier = PowVerifier::new(&header_ctx, fake_pow_engine);
 
     assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }

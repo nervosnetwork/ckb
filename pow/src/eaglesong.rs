@@ -1,11 +1,14 @@
 use super::PowEngine;
-use ckb_types::{packed::Header, prelude::*, utilities::compact_to_target, U256};
+use ckb_types::{
+    core::HeaderContext, packed::Header, prelude::*, utilities::compact_to_target, U256,
+};
 use eaglesong::eaglesong;
 
 pub struct EaglesongPowEngine;
 
 impl PowEngine for EaglesongPowEngine {
-    fn verify(&self, header: &Header) -> bool {
+    fn verify(&self, header_ctx: &HeaderContext) -> bool {
+        let header = header_ctx.header().data();
         let input =
             crate::pow_message(&header.as_reader().calc_pow_hash(), header.nonce().unpack());
         let mut output = [0u8; 32];

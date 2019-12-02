@@ -13,8 +13,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderContextType, HeaderView,
+        TransactionBuilder, TransactionView,
     },
     packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::{difficulty_to_compact, DIFF_TWO},
@@ -27,7 +27,7 @@ const MIN_CAP: Capacity = capacity_bytes!(60);
 pub(crate) fn create_always_success_tx() -> TransactionView {
     let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
     TransactionBuilder::default()
-        .witness(script.clone().into_witness())
+        .witness(script.clone().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
@@ -116,7 +116,11 @@ pub(crate) fn create_cellbase(
     let capacity = calculate_reward(store, consensus, parent);
     let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .witness(always_success_script.clone().into_witness());
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        );
 
     if (parent.number() + 1) <= consensus.finalization_delay_length() {
         builder.build()

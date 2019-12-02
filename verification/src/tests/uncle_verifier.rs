@@ -11,8 +11,8 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::{
-        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
-        TransactionView, UncleBlockView,
+        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderContextType, HeaderView,
+        TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
@@ -51,7 +51,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
 
 fn create_cellbase(number: BlockNumber) -> TransactionView {
     TransactionBuilder::default()
-        .witness(Script::default().into_witness())
+        .witness(Script::default().into_witness(HeaderContextType::NoneContext))
         .input(CellInput::new_cellbase_input(number))
         .output(Default::default())
         .output_data(Default::default())

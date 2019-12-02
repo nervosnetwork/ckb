@@ -19,6 +19,7 @@ macro_rules! impl_std_cmp_eq_and_hash {
     };
 }
 
+impl_std_cmp_eq_and_hash!(Byte20);
 impl_std_cmp_eq_and_hash!(Byte32);
 impl_std_cmp_eq_and_hash!(Uint256);
 impl_std_cmp_eq_and_hash!(ProposalShortId);

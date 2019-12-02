@@ -24,7 +24,8 @@ use ckb_tx_pool::FeeRate;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
-        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
+        EpochNumberWithFraction, HeaderContextType, HeaderView, TransactionBuilder,
+        TransactionView,
     },
     h256,
     packed::{
@@ -100,7 +101,11 @@ fn always_success_transaction() -> TransactionView {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.to_owned().pack())
-        .witness(always_success_script.clone().into_witness())
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        )
         .build()
 }
 

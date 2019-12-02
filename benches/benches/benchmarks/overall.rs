@@ -12,7 +12,8 @@ use ckb_tx_pool::{BlockAssemblerConfig, FeeRate, TxPoolConfig};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
+        capacity_bytes, BlockBuilder, BlockView, BuildHeaderContext, Capacity,
+        EpochNumberWithFraction, HeaderContext, HeaderContextType, ScriptHashType,
         TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
@@ -156,7 +157,10 @@ fn bench(c: &mut Criterion) {
                         let block = raw_block.as_builder().header(header).build().into_view();
 
                         let header_view = block.header();
-                        let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
+                        let header_ctx = block
+                            .data()
+                            .build_header_context(HeaderContextType::NoneContext);
+                        let resolver = HeaderResolverWrapper::new(&header_ctx, snapshot);
                         let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
                         header_verifier.verify(&resolver).expect("header verified");
 

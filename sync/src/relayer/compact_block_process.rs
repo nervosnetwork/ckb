@@ -8,7 +8,7 @@ use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
-    core::{self, BlockNumber},
+    core::{self, BlockNumber, BuildHeaderContext, HeaderContext},
     packed,
     prelude::*,
 };
@@ -170,7 +170,9 @@ impl<'a> CompactBlockProcess<'a> {
                             })
                     }
                 };
-                let resolver = snapshot.new_header_resolver(&header, parent.into_inner());
+                let header_ctx = compact_block
+                    .build_header_context(self.relayer.shared.consensus().header_context_type());
+                let resolver = snapshot.new_header_resolver(&header_ctx, parent.into_inner());
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
                     snapshot: snapshot.store(),

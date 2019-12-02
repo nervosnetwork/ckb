@@ -14,7 +14,10 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::resolve_transaction, BlockBuilder, EpochNumberWithFraction, TransactionBuilder},
+    core::{
+        cell::resolve_transaction, BlockBuilder, EpochNumberWithFraction, HeaderContextType,
+        TransactionBuilder,
+    },
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
     utilities::difficulty_to_compact,
     U256,
@@ -80,7 +83,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .witness(always_success_script.clone().into_witness())
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        )
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
@@ -121,7 +128,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
         let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .witness(always_success_script.to_owned().into_witness());
+            .witness(
+                always_success_script
+                    .to_owned()
+                    .into_witness(HeaderContextType::NoneContext),
+            );
 
         let cellbase = if number <= snapshot.consensus().finalization_delay_length() {
             builder.build()

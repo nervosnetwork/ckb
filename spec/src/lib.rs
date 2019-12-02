@@ -25,7 +25,8 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
-        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
+        EpochNumberWithFraction, HeaderContextType, Ratio, ScriptHashType, TransactionBuilder,
+        TransactionView,
     },
     h256, packed,
     prelude::*,
@@ -245,6 +246,13 @@ impl ChainSpec {
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
+    }
+
+    pub fn header_context_type(&self) -> HeaderContextType {
+        match self.pow {
+            Pow::POA(_) => HeaderContextType::Cellbase,
+            _ => HeaderContextType::NoneContext,
+        }
     }
 
     fn verify_genesis_hash(&self, genesis: &BlockView) -> Result<(), Box<dyn Error>> {
@@ -500,7 +508,7 @@ impl ChainSpec {
         let tx = TransactionBuilder::default()
             .input(input)
             .outputs(outputs)
-            .witness(script.into_witness())
+            .witness(script.into_witness(self.header_context_type()))
             .outputs_data(
                 outputs_data
                     .iter()

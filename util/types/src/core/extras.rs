@@ -1,5 +1,6 @@
 use crate::{
-    core::{BlockNumber, Capacity, EpochNumber},
+    bytes::Bytes,
+    core::{BlockNumber, Capacity, EpochNumber, HeaderView},
     packed,
     prelude::*,
     U256,
@@ -7,6 +8,7 @@ use crate::{
 use ckb_error::Error;
 use ckb_rational::RationalU256;
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
@@ -387,5 +389,90 @@ impl EpochNumberWithFraction {
 
     pub fn to_rational(self) -> RationalU256 {
         RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
+    }
+}
+
+/// Header with verification context
+/// For the mainnet, POW verification do not need extra context,
+/// but for testnets, there may need extra context to do POA or other verification.
+#[derive(Debug)]
+pub struct HeaderContext {
+    header: HeaderView,
+    cellbase: Option<packed::Transaction>,
+}
+
+#[derive(Clone, Debug)]
+pub enum HeaderContextType {
+    NoneContext,
+    Cellbase,
+}
+
+impl HeaderContext {
+    pub fn new(header: HeaderView) -> Self {
+        HeaderContext {
+            header,
+            cellbase: None,
+        }
+    }
+
+    // build header context with cellbase
+    pub fn with_cellbase(header: HeaderView, cellbase: packed::Transaction) -> Self {
+        HeaderContext {
+            header,
+            cellbase: Some(cellbase),
+        }
+    }
+
+    pub fn header(&self) -> &HeaderView {
+        &self.header
+    }
+
+    pub fn cellbase(&self) -> Option<&packed::Transaction> {
+        self.cellbase.as_ref()
+    }
+}
+
+impl Into<packed::POAHeader> for HeaderContext {
+    fn into(self) -> packed::POAHeader {
+        let cellbase = self.cellbase.unwrap_or_else(packed::Transaction::default);
+        packed::POAHeader::new_builder()
+            .header(self.header.data())
+            .cellbase(cellbase)
+            .build()
+    }
+}
+
+pub trait BuildHeaderContext {
+    fn build_header_context(&self, header_context_type: HeaderContextType) -> HeaderContext {
+        match header_context_type {
+            HeaderContextType::NoneContext => HeaderContext::new(self.header()),
+            HeaderContextType::Cellbase => match self.cellbase() {
+                Some(tx) => HeaderContext::with_cellbase(self.header(), tx),
+                None => HeaderContext::new(self.header()),
+            },
+        }
+    }
+
+    fn header(&self) -> HeaderView;
+    fn cellbase(&self) -> Option<packed::Transaction>;
+}
+
+impl BuildHeaderContext for packed::Block {
+    fn header(&self) -> HeaderView {
+        self.header().into_view()
+    }
+    fn cellbase(&self) -> Option<packed::Transaction> {
+        self.transactions().get(0)
+    }
+}
+impl BuildHeaderContext for packed::CompactBlock {
+    fn header(&self) -> HeaderView {
+        self.header().into_view()
+    }
+    fn cellbase(&self) -> Option<packed::Transaction> {
+        self.prefilled_transactions()
+            .into_iter()
+            .find(|i| Unpack::<u32>::unpack(&i.index()) == 0)
+            .map(|i| i.transaction())
     }
 }

@@ -14,9 +14,10 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView, Version,
+        Cycle, EpochExt, HeaderContextType, ScriptHashType, TransactionView, UncleBlockView,
+        Version,
     },
-    packed::{CellbaseWitness, ProposalShortId, Script},
+    packed::{CellbaseExtWitness, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use failure::Error as FailureError;
@@ -118,10 +119,18 @@ impl Future for BuildCellbaseProcess {
             .code_hash(self.config.code_hash.pack())
             .hash_type(hash_type.into())
             .build();
-        let cellbase_witness = CellbaseWitness::new_builder()
-            .lock(cellbase_lock)
-            .message(self.config.message.as_bytes().pack())
-            .build();
+        let cellbase_witness = match self.snapshot.consensus().header_context_type() {
+            HeaderContextType::NoneContext => CellbaseWitness::new_builder()
+                .lock(cellbase_lock)
+                .message(self.config.message.as_bytes().pack())
+                .build()
+                .as_bytes(),
+            HeaderContextType::Cellbase => CellbaseExtWitness::new_builder()
+                .lock(cellbase_lock)
+                .message(self.config.message.as_bytes().pack())
+                .build()
+                .as_bytes(),
+        };
 
         let cellbase =
             BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_witness)?;

@@ -3,7 +3,9 @@
 array Uint32 [byte; 4];
 array Uint64 [byte; 8];
 array Uint128 [byte; 16];
+array Byte20 [byte; 20];
 array Byte32 [byte; 32];
+array Byte65 [byte; 65];
 array Uint256 [byte; 32];
 
 vector Bytes <byte>;
@@ -105,4 +107,18 @@ table WitnessArgs {
     lock:                   BytesOpt,          // Lock args
     input_type:             BytesOpt,          // Type args for input
     output_type:            BytesOpt,          // Type args for output
+}
+
+/* Used for POA testnet */
+table CellbaseExtWitness {
+    lock:    Script,
+    message: Bytes,
+    extension: Bytes,
+}
+
+table POAWitness {
+    signature:              Byte65,
+    transactions_count:     Uint32,
+    raw_transactions_root:  Byte32,            // raw transactions root
+    witnesses_root_proof:   Byte32Vec,         // witnesses root merkle proof of cellbase
 }

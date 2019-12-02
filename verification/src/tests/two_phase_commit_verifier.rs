@@ -12,8 +12,8 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderBuilder,
+        HeaderContextType, HeaderView, TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
@@ -102,7 +102,11 @@ fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let tx = TransactionBuilder::default()
-        .witness(always_success_script.clone().into_witness())
+        .witness(
+            always_success_script
+                .clone()
+                .into_witness(HeaderContextType::NoneContext),
+        )
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .outputs(vec![

@@ -161,7 +161,7 @@ impl BlockAssembler {
     pub(crate) fn build_cellbase(
         snapshot: &Snapshot,
         tip: &HeaderView,
-        cellbase_witness: CellbaseWitness,
+        cellbase_witness: Bytes,
     ) -> Result<TransactionView, FailureError> {
         let candidate_number = tip.number() + 1;
 
@@ -174,7 +174,7 @@ impl BlockAssembler {
                 .lock(target_lock)
                 .build();
 
-            let witness = cellbase_witness.as_bytes().pack();
+            let witness = cellbase_witness.pack();
             let no_finalization_target =
                 candidate_number <= snapshot.consensus().finalization_delay_length();
             let tx_builder = TransactionBuilder::default().input(input).witness(witness);
