@@ -1,7 +1,7 @@
 use crate::synchronizer::Synchronizer;
-use ckb_logger::{debug, info};
+use crate::{Status, StatusCode};
+use ckb_logger::info;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use failure::Error as FailureError;
 
 pub struct InIBDProcess<'a> {
     synchronizer: &'a Synchronizer,
@@ -22,7 +22,7 @@ impl<'a> InIBDProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         info!("getheader with ibd peer {:?}", self.peer);
         if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
             // Don't assume that the peer is sync_started.
@@ -30,7 +30,7 @@ impl<'a> InIBDProcess<'a> {
             //   - Malicious behavior
             //   - Peer sends multiple `InIBD` messages
             if !state.sync_started {
-                return Ok(());
+                return Status::ignored();
             }
 
             // The node itself needs to ensure the validity of the outbound connection.
@@ -41,12 +41,13 @@ impl<'a> InIBDProcess<'a> {
                 if state.peer_flags.is_whitelist || state.peer_flags.is_protect {
                     self.synchronizer.shared().state().suspend_sync(state);
                 } else if let Err(err) = self.nc.disconnect(self.peer, "outbound in ibd") {
-                    debug!("synchronizer disconnect error: {:?}", err);
+                    return StatusCode::Network
+                        .with_context(format!("Disconnect error: {:?}", err));
                 }
             } else {
                 self.synchronizer.shared().state().suspend_sync(state);
             }
         }
-        Ok(())
+        Status::ok()
     }
 }

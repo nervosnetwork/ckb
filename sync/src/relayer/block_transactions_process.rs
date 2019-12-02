@@ -1,11 +1,9 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
-use crate::relayer::error::{Error, Internal, Misbehavior};
-use crate::relayer::{ReconstructionError, Relayer};
-use ckb_logger::debug_target;
+use crate::relayer::{ReconstructionResult, Relayer};
+use crate::{attempt, Status, StatusCode};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
-use failure::Error as FailureError;
 use std::collections::hash_map::Entry;
 use std::mem;
 use std::sync::Arc;
@@ -28,21 +26,6 @@ pub struct BlockTransactionsProcess<'a> {
     peer: PeerIndex,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Status {
-    // BlockTransactionsVerifier has checked it,
-    // so shoud not reach here unless the peer loses the transactions in tx_pool
-    Missing,
-    // The BlockTransaction message includes all the requested transactions.
-    // The peer recovers the whole block and accept it.
-    Accept,
-    // The peer may lose it's cache
-    // or other peer makes some mistakes
-    UnkownRequest,
-    // Maybe short_id collides, re-send get_block_transactions message
-    CollisionAndSendMissingIndexes,
-}
-
 impl<'a> BlockTransactionsProcess<'a> {
     pub fn new(
         message: packed::BlockTransactionsReader<'a>,
@@ -58,7 +41,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<Status, FailureError> {
+    pub fn execute(self) -> Status {
         let snapshot = self.relayer.shared().snapshot();
         let block_transactions = self.message.to_entity();
         let block_hash = block_transactions.block_hash();
@@ -91,16 +74,16 @@ impl<'a> BlockTransactionsProcess<'a> {
                     self.peer
                 );
 
-                BlockTransactionsVerifier::verify(
+                attempt!(BlockTransactionsVerifier::verify(
                     &compact_block,
                     &expected_transaction_indexes,
                     &received_transactions,
-                )?;
-                BlockUnclesVerifier::verify(
+                ));
+                attempt!(BlockUnclesVerifier::verify(
                     &compact_block,
                     &expected_uncle_indexes,
                     &received_uncles,
-                )?;
+                ));
 
                 let ret = self.relayer.reconstruct_block(
                     &snapshot,
@@ -111,41 +94,31 @@ impl<'a> BlockTransactionsProcess<'a> {
                 );
 
                 // Request proposal
-                let proposals: Vec<_> = received_uncles
-                    .into_iter()
-                    .flat_map(|u| u.data().proposals().into_iter())
-                    .collect();
-                if let Err(err) = self.relayer.request_proposal_txs(
-                    self.nc.as_ref(),
-                    self.peer,
-                    block_hash.clone(),
-                    proposals,
-                ) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "[BlockTransactionsProcess] request_proposal_txs: {}",
-                        err
+                {
+                    let proposals: Vec<_> = received_uncles
+                        .into_iter()
+                        .flat_map(|u| u.data().proposals().into_iter())
+                        .collect();
+                    self.relayer.request_proposal_txs(
+                        self.nc.as_ref(),
+                        self.peer,
+                        block_hash.clone(),
+                        proposals,
                     );
-                };
+                }
 
                 match ret {
-                    Ok(block) => {
+                    ReconstructionResult::Block(block) => {
                         pending.remove();
                         self.relayer
                             .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
-                        return Ok(Status::Accept);
+                        return Status::ok();
                     }
-                    Err(ReconstructionError::InvalidTransactionRoot) => {
-                        return Err(Error::Misbehavior(Misbehavior::InvalidTransactionRoot).into());
-                    }
-                    Err(ReconstructionError::InvalidUncle) => {
-                        return Err(Error::Misbehavior(Misbehavior::InvalidUncle).into());
-                    }
-                    Err(ReconstructionError::MissingIndexes(transactions, uncles)) => {
+                    ReconstructionResult::Missing(transactions, uncles) => {
                         missing_transactions = transactions.into_iter().map(|i| i as u32).collect();
                         missing_uncles = uncles.into_iter().map(|i| i as u32).collect();
                     }
-                    Err(ReconstructionError::Collision) => {
+                    ReconstructionResult::Collided => {
                         missing_transactions = compact_block
                             .short_id_indexes()
                             .into_iter()
@@ -154,9 +127,8 @@ impl<'a> BlockTransactionsProcess<'a> {
                         collision = true;
                         missing_uncles = vec![];
                     }
-                    Err(ReconstructionError::Internal(e)) => {
-                        ckb_logger::error!("reconstruct_block internal error: {}", e);
-                        return Err(Error::Internal(Internal::TxPoolInternalError).into());
+                    ReconstructionResult::Error(status) => {
+                        return status;
                     }
                 }
 
@@ -170,20 +142,21 @@ impl<'a> BlockTransactionsProcess<'a> {
                 let message = packed::RelayMessage::new_builder().set(content).build();
                 let data = message.as_slice().into();
                 if let Err(err) = self.nc.send_message_to(self.peer, data) {
-                    ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
+                    return StatusCode::Network
+                        .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
                 }
 
                 mem::replace(expected_transaction_indexes, missing_transactions);
                 mem::replace(expected_uncle_indexes, missing_uncles);
 
                 if collision {
-                    return Ok(Status::CollisionAndSendMissingIndexes);
+                    return StatusCode::ShortIdsCollided.into();
                 } else {
-                    return Ok(Status::Missing);
+                    return StatusCode::MissingTransactions.into();
                 }
             }
         }
 
-        Ok(Status::UnkownRequest)
+        Status::ignored()
     }
 }

@@ -1,10 +1,9 @@
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block_process::{CompactBlockProcess, Status};
-use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
+use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
 use crate::types::InflightBlocks;
-use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
+use crate::{NetworkProtocol, Status, StatusCode};
 use ckb_network::PeerIndex;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
@@ -52,10 +51,9 @@ fn test_in_block_status_map() {
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::BlockInvalid)
+        compact_block_process.execute(),
+        StatusCode::InvalidBlock.into(),
     );
 
     let compact_block_process = CompactBlockProcess::new(
@@ -73,10 +71,9 @@ fn test_in_block_status_map() {
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyStored)
+        compact_block_process.execute(),
+        StatusCode::AlreadyStoredBlock.into(),
     );
 }
 
@@ -110,9 +107,10 @@ fn test_unknow_parent() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::UnknownParent));
+    assert_eq!(
+        compact_block_process.execute(),
+        StatusCode::MissingParent.into()
+    );
 
     let snapshot = relayer.shared.snapshot();
     let header = snapshot.tip_header();
@@ -165,9 +163,7 @@ fn test_accept_not_a_better_block() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::AcceptBlock));
+    assert_eq!(compact_block_process.execute(), Status::ok(),);
 }
 
 #[test]
@@ -207,10 +203,9 @@ fn test_already_in_flight() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyInFlight)
+        compact_block_process.execute(),
+        StatusCode::AlreadyInFlightBlock.into(),
     );
 }
 
@@ -257,10 +252,9 @@ fn test_already_pending() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyPending)
+        compact_block_process.execute(),
+        StatusCode::AlreadyPendingBlock.into(),
     );
 }
 
@@ -296,11 +290,9 @@ fn test_header_invalid() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::HeaderInvalid)
+        compact_block_process.execute(),
+        StatusCode::InvalidHeader.into(),
     );
     // Assert block_status_map update
     assert_eq!(
@@ -362,10 +354,9 @@ fn test_inflight_blocks_reach_limit() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Internal(Internal::InflightBlocksReachLimit)
+        compact_block_process.execute(),
+        StatusCode::InflightBlocksReachLimit.into(),
     );
 }
 
@@ -421,9 +412,10 @@ fn test_send_missing_indexes() {
         .state()
         .inflight_proposals()
         .contains(&proposal_id));
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::SendMissingIndexes));
+    assert_eq!(
+        compact_block_process.execute(),
+        StatusCode::MissingTransactions.into()
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
@@ -506,9 +498,7 @@ fn test_accept_block() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::AcceptBlock));
+    assert_eq!(compact_block_process.execute(), Status::ok(),);
 }
 
 #[test]
@@ -541,10 +531,9 @@ fn test_ignore_a_too_old_block() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::TooOldBlock)
+        compact_block_process.execute(),
+        StatusCode::StaledCompactBlock.into(),
     );
 }
 
@@ -577,11 +566,9 @@ fn test_invalid_transaction_root() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::InvalidTransactionRoot)
+        compact_block_process.execute(),
+        StatusCode::UnmatchedTransactionRoot.into(),
     );
 }
 
@@ -660,9 +647,10 @@ fn test_collision() {
         .state()
         .inflight_proposals()
         .contains(&proposal_id));
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::CollisionAndSendMissingIndexes));
+    assert_eq!(
+        compact_block_process.execute(),
+        StatusCode::ShortIdsCollided.into(),
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())

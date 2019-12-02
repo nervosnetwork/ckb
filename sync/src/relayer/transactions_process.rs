@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use crate::{Status, StatusCode};
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -10,7 +11,6 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::CacheEntry;
 use ckb_verification::TransactionError;
-use failure::Error as FailureError;
 use sentry::{capture_message, with_scope, Level};
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,7 +39,7 @@ impl<'a> TransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         let shared_state = self.relayer.shared().state();
         let txs: Vec<(TransactionView, Cycle)> = {
             let tx_filter = shared_state.tx_filter();
@@ -58,7 +58,7 @@ impl<'a> TransactionsProcess<'a> {
         };
 
         if txs.is_empty() {
-            return Ok(());
+            return Status::ok();
         }
 
         // Insert tx_hash into `already_known`
@@ -99,7 +99,7 @@ impl<'a> TransactionsProcess<'a> {
             })
             .collect();
         if notify_txs.is_empty() {
-            return Ok(());
+            return Status::ok();
         }
         let nc = Arc::clone(&self.nc);
         let peer_index = self.peer;
@@ -191,10 +191,11 @@ impl<'a> TransactionsProcess<'a> {
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
         if let Err(err) = tx_pool.notify_txs(notify_txs, Some(callback)) {
-            ckb_logger::debug!("relayer send future task error: {:?}", err);
+            return StatusCode::Internal
+                .with_context(format!("TxPool notify_txs error: {:?}", err));
         }
 
-        Ok(())
+        Status::ok()
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH};
-use ckb_logger::{debug_target, trace_target, warn};
+use crate::{attempt, Status, StatusCode};
+use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
-use failure::{err_msg, Error as FailureError};
 use std::sync::Arc;
 
 pub struct GetTransactionsProcess<'a> {
@@ -27,15 +27,14 @@ impl<'a> GetTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         {
             let get_transactions = self.message;
             if get_transactions.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                warn!("Peer {} sends us an invalid message, GetTransactions tx_hashes size ({}) is greater than MAX_RELAY_TXS_NUM_PER_BATCH ({})",
-                    self.peer, get_transactions.tx_hashes().len(), MAX_RELAY_TXS_NUM_PER_BATCH);
-                return Err(err_msg(
-                    "GetTransactions tx_hashes size is greater than MAX_RELAY_TXS_NUM_PER_BATCH"
-                        .to_owned(),
+                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                    "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
+                    get_transactions.tx_hashes().len(),
+                    MAX_RELAY_TXS_NUM_PER_BATCH,
                 ));
             }
         }
@@ -65,7 +64,7 @@ impl<'a> GetTransactionsProcess<'a> {
                     "relayer tx_pool_controller send fetch_txs_with_cycles error: {:?}",
                     e,
                 );
-                return Ok(());
+                return Status::ok();
             };
 
             fetch_txs_with_cycles
@@ -94,13 +93,13 @@ impl<'a> GetTransactionsProcess<'a> {
                 }
             }
             if !relay_txs.is_empty() {
-                self.send_relay_transactions(relay_txs);
+                attempt!(self.send_relay_transactions(relay_txs));
             }
         }
-        Ok(())
+        Status::ok()
     }
 
-    fn send_relay_transactions(&self, txs: Vec<packed::RelayTransaction>) {
+    fn send_relay_transactions(&self, txs: Vec<packed::RelayTransaction>) -> Status {
         let message = packed::RelayMessage::new_builder()
             .set(
                 packed::RelayTransactions::new_builder()
@@ -110,11 +109,9 @@ impl<'a> GetTransactionsProcess<'a> {
             .build();
         let data = message.as_slice().into();
         if let Err(err) = self.nc.send_message_to(self.peer, data) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "relayer send Transactions error: {:?}",
-                err,
-            );
+            return StatusCode::Network
+                .with_context(format!("Send RelayTransactions error: {:?}", err));
         }
+        Status::ok()
     }
 }
