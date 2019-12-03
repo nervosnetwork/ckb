@@ -131,12 +131,26 @@ impl Relayer {
         peer: PeerIndex,
         message: packed::RelayMessageUnionReader<'r>,
     ) {
+        let item_name = message.item_name();
         let status = self.try_process(Arc::clone(&nc), peer, message);
         if let Some(ban_time) = status.should_ban() {
-            error_target!(crate::LOG_TARGET_RELAY, "peer: {}, {}", peer, status);
+            error_target!(
+                crate::LOG_TARGET_RELAY,
+                "receive {} from {}, ban {:?} for {}",
+                item_name,
+                peer,
+                ban_time,
+                status
+            );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if !status.is_ok() {
-            debug_target!(crate::LOG_TARGET_RELAY, "peer: {}, {}", peer, status);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "receive {} from {}, {}",
+                item_name,
+                peer,
+                status
+            );
         }
     }
 

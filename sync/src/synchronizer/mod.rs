@@ -88,12 +88,16 @@ impl Synchronizer {
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) {
+        let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
         if let Some(ban_time) = status.should_ban() {
-            error!("ban peer({}) for {:?}, {}", peer, ban_time, status);
+            error!(
+                "receive {} from {}, ban {:?} for {}",
+                item_name, peer, ban_time, status
+            );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if !status.is_ok() {
-            debug!("peer: {}, {}", peer, status);
+            debug!("receive {} from {}, {}", item_name, peer, status);
         }
     }
 
