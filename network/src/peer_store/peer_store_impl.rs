@@ -159,11 +159,13 @@ impl PeerStore {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
         let ban_list = self.ban_list.borrow();
+        let peers = self.peers.borrow();
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 !ban_list.is_addr_banned(&peer_addr.addr)
-                    && peer_addr.had_connected(addr_expired_ms)
+                    && (peers.contains_key(&peer_addr.peer_id)
+                        || peer_addr.had_connected(addr_expired_ms))
             })
     }
 
