@@ -89,6 +89,10 @@ prod-docker:
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 
+.PHONY: prod-with-debug
+prod-with-debug:
+	devtools/release/make-with-debug-symbols prod
+
 .PHONY: docker
 docker: ## Build docker image
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:$$(git describe) .

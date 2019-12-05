@@ -80,6 +80,10 @@ discovery_local_address = false # {{
 bootnode_mode = false
 
 [rpc]
+# By default RPC only binds to localhost, thus it only allows accessing from the same machine.
+#
+# Allowing arbitrary machines to access the JSON-RPC port is dangerous and strongly discouraged.
+# Please strictly limit the access to only trusted machines.
 listen_address = "127.0.0.1:8114" # {{
 # _ => listen_address = "127.0.0.1:{rpc_port}"
 # }}
