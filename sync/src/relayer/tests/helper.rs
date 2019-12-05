@@ -225,6 +225,9 @@ impl CKBProtocolContext for MockProtocalContext {
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
         unimplemented!();
     }
+    fn with_peer_mut(&self, _peer_index: PeerIndex, _f: Box<dyn FnOnce(&mut Peer)>) {
+        unimplemented!();
+    }
     fn connected_peers(&self) -> Vec<PeerIndex> {
         unimplemented!();
     }

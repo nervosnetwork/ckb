@@ -750,7 +750,7 @@ impl ServiceHandle for EventHandler {
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
-        // For special protocols: ping/discovery/identify
+        // For special protocols: ping/discovery/identify/disconnect_message
         match event {
             ProtocolEvent::Connected {
                 session_context,
@@ -781,8 +781,15 @@ impl ServiceHandle for EventHandler {
                     }
                 }
             }
-            ProtocolEvent::Disconnected { .. } => {
-                // Do nothing
+            ProtocolEvent::Disconnected {
+                session_context,
+                proto_id,
+            } => {
+                self.network_state.with_peer_registry_mut(|reg| {
+                    let _ = reg.get_peer_mut(session_context.id).map(|peer| {
+                        peer.protocols.remove(&proto_id);
+                    });
+                });
             }
             ProtocolEvent::Received {
                 session_context, ..
