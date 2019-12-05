@@ -26,10 +26,10 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
-        eprintln!("Config files already exists, use --force to overwrite.");
+        eprintln!("Config files already exist, use --force to overwrite.");
 
         if args.interactive {
-            let input = prompt("Overwrite config file now? ");
+            let input = prompt("Overwrite config files now? ");
 
             if !["y", "Y"].contains(&input.trim()) {
                 return Err(ExitCode::Failure);
