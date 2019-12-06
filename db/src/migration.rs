@@ -22,7 +22,9 @@ impl Migrations {
             .map_err(|err| {
                 internal_error(format!("failed to get the version of database: {}", err))
             })?
-            .map(|version_bytes| unsafe { String::from_utf8_unchecked(version_bytes.to_vec()) });
+            .map(|version_bytes| {
+                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+            });
 
         match db_version {
             Some(v) => self

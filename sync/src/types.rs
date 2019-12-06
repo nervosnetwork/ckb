@@ -945,6 +945,13 @@ impl SyncSnapshot {
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
+        // shortcut to return a ancestor block
+        if self.store().is_main_chain(&base) {
+            return self
+                .store()
+                .get_block_hash(number)
+                .and_then(|hash| self.get_header_view(&hash).map(HeaderView::into_inner));
+        }
         self.get_header_view(base)?
             .get_ancestor(number, |hash| self.get_header_view(hash))
     }
@@ -955,25 +962,20 @@ impl SyncSnapshot {
         let mut index = start.number();
         let mut base = start.hash();
         loop {
-            let header_hash = if self.store().is_main_chain(&base) {
-                self.store()
-                    .get_block_hash(index)
-                    .expect("Can not get a main chain header from snapshot")
-            } else {
-                self.get_ancestor(&base, index)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "index calculated in get_locator: \
-                             start: {}, base: {}, step: {}, locators({}): {:?}.",
-                            start,
-                            base,
-                            step,
-                            locator.len(),
-                            locator,
-                        )
-                    })
-                    .hash()
-            };
+            let header_hash = self
+                .get_ancestor(&base, index)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "index calculated in get_locator: \
+                         start: {}, base: {}, step: {}, locators({}): {:?}.",
+                        start,
+                        base,
+                        step,
+                        locator.len(),
+                        locator,
+                    )
+                })
+                .hash();
             locator.push(header_hash.clone());
 
             if locator.len() >= 10 {

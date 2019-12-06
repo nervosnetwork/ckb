@@ -140,8 +140,9 @@ fn test_fetch_random_addrs() {
     let peer_id = PeerId::random();
     let addr2 = "/ip4/225.0.0.2/tcp/42".parse::<Multiaddr>().unwrap();
     let peer_id2 = PeerId::random();
+    let addr3 = "/ip4/225.0.0.3/tcp/42".parse::<Multiaddr>().unwrap();
+    let peer_id3 = PeerId::random();
     let duplicated_addr = "/ip4/225.0.0.1/tcp/41".parse::<Multiaddr>().unwrap();
-    peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     // random should not return peer that we have never connected to
     assert!(peer_store.fetch_random_addrs(1).is_empty());
     // can't get peer addr from inbound
@@ -165,6 +166,24 @@ fn test_fetch_random_addrs() {
         .unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 2);
     assert_eq!(peer_store.fetch_random_addrs(1).len(), 1);
+
+    // return old peer's addr
+    peer_store
+        .add_addr(peer_id3.clone(), addr3.clone())
+        .unwrap();
+    peer_store
+        .add_connected_peer(peer_id3.clone(), addr3.clone(), SessionType::Outbound)
+        .unwrap();
+    // set last_connected_at_ms to an expired timestamp
+    // should still return peer's addr
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr3.extract_ip_addr().unwrap())
+        .unwrap()
+        .last_connected_at_ms = 0;
+    assert_eq!(peer_store.fetch_random_addrs(3).len(), 3);
+    peer_store.remove_disconnected_peer(&peer_id3);
+    assert_eq!(peer_store.fetch_random_addrs(3).len(), 2);
 }
 
 #[test]
