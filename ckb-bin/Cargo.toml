@@ -34,5 +34,4 @@ ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
 ckb-verification = { path = "../verification" }
 faster-hex = "0.4"
-ckb-db = { path = "../db" }
 base64 = "0.10.1"

@@ -8,10 +8,10 @@ compact_target = 0x1e015555
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xaac7df2cd822df88ebf9929feabb01f7bf56b866c16ccd4e66a8176b74e45cc5"
+hash = "0x184ac4658ed0c04a126551257990db132366cac22ab6270bbbc1f8c3220f302d"
 
 [genesis.genesis_cell]
-message = "aggron"
+message = "aggron-v2"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"

@@ -1,11 +1,9 @@
 use std::fs;
 use std::io::{self, Read};
-use std::path::PathBuf;
 
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
-use ckb_db::{db::RocksDB, DBConfig};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
@@ -15,30 +13,6 @@ use ckb_types::{prelude::*, H256};
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
-
-fn check_db_compatibility(path: PathBuf) {
-    if path.exists() {
-        let config = DBConfig {
-            path: path.clone(),
-            ..Default::default()
-        };
-        if let Some(err) = RocksDB::open_with_error(&config, 1).err() {
-            if err
-                .to_string()
-                .contains("the database version is not matched")
-            {
-                let input =
-                    prompt(format!("Database is not incompatible, remove {:?}? ", path).as_str());
-
-                if ["y", "Y"].contains(&input.trim()) {
-                    if let Some(e) = fs::remove_dir_all(path).err() {
-                        eprintln!("{}", e);
-                    }
-                }
-            }
-        }
-    }
-}
 
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     let mut args = args;
@@ -52,10 +26,10 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
-        eprintln!("Config files already exists, use --force to overwrite.");
+        eprintln!("Config files already exist, use --force to overwrite.");
 
         if args.interactive {
-            let input = prompt("Overwrite config file now? ");
+            let input = prompt("Overwrite config files now? ");
 
             if !["y", "Y"].contains(&input.trim()) {
                 return Err(ExitCode::Failure);
@@ -66,13 +40,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     if args.interactive {
-        let data_dir = args.root_dir.join("data");
-        let db_path = data_dir.join("db");
-        let indexer_db_path = data_dir.join("indexer_db");
-
-        check_db_compatibility(db_path);
-        check_db_compatibility(indexer_db_path);
-
         let in_block_assembler_code_hash = prompt("code hash: ");
         let in_args = prompt("args: ");
         let in_hash_type = prompt("hash_type: ");

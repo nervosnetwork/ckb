@@ -2,7 +2,10 @@ use crate::types::{
     CellTransaction, IndexerConfig, LiveCell, LockHashCellOutput, LockHashIndex,
     LockHashIndexState, TransactionPoint,
 };
-use ckb_db::{db::RocksDB, Col, DBIterator, Direction, IteratorMode, RocksDBTransaction};
+use ckb_db::{
+    db::RocksDB, Col, DBIterator, DefaultMigration, Direction, IteratorMode, Migrations,
+    RocksDBTransaction,
+};
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -229,9 +232,14 @@ impl IndexerStore for DefaultIndexerStore {
     }
 }
 
+const INIT_DB_VERSION: &str = "20191127135521";
+
 impl DefaultIndexerStore {
     pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
-        let db = RocksDB::open(&config.db, COLUMNS);
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
+
+        let db = RocksDB::open(&config.db, COLUMNS, migrations);
         DefaultIndexerStore {
             db: Arc::new(db),
             shared,
