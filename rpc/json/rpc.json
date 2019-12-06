@@ -772,6 +772,32 @@
             },
             "txs_fee": "0x0"
         },
+        "returns": [
+            {
+                "finalized_at": "The hash of the block which finalized"
+            },
+            {
+                "issuance::primary": "Primary issuance in this block"
+            },
+            {
+                "issuance::secondary": "Secondary issuance in this block"
+            },
+            {
+                "miner_reward::committed": "Committed fee in miner reward"
+            },
+            {
+                "miner_reward::proposal": "Proposal fee in miner reward"
+            },
+            {
+                "miner_reward::primary": "Primary issuance in miner reward"
+            },
+            {
+                "miner_reward::secondary": "Secondary issuance in miner reward"
+            },
+            {
+                "txs_fee": "The total transaction fee of all transactions in the this block"
+            }
+        ],
         "types": [
             {
                 "hash": "Block hash"
