@@ -104,6 +104,12 @@ table LockHashIndexState {
     block_hash:     Byte32,
 }
 
+table LiveCellOutput {
+    cell_output: CellOutput,
+    output_data_len: Uint64,
+    cellbase: Bool,
+}
+
 /* Types for Network/Relay */
 
 union RelayMessage {
