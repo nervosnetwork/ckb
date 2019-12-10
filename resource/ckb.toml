@@ -142,28 +142,19 @@ cellbase_cache_size        = 30
 # key pair, which can be used in CKB as well. CKB CLI provides the function for
 # you to convert the public key into block assembler configuration parameters.
 #
-# Here is an example using OpenSSL to generate the key pair:
+# Here is an example using ckb-cli to generate an account, this command will
+# print the block assembler args(lock_arg) to screen:
 #
-# **WARNING**: This command will print the private key to screen.
+#     ckb-cli account new
 #
-#    openssl ecparam -genkey -name secp256k1 -text -noout -outform DER | \
-#       xxd -p -c 1000 | \
-#       sed 's/41534e31204f49443a20736563703235366b310a30740201010420/PrivKey: /' | \
-#       sed 's/a00706052b8104000aa144034200/\'$'\nPubKey: /'
+# If you already have a raw secp256k1 private key, you can get the lock_arg by:
 #
-# Once you get your public key, generate the args for block assembler:
-#
-#     ckb cli secp256k1-lock <pubkey>
+#     ckb-cli util key-info --privkey-path <privkey-path>
 #
 # The command `ckb init` also accepts options to generate the block assembler
-# directly. See `ckb init --help` for details. And `ckb cli secp256k1-lock` can
-# also prints the command line options for `ckb init`.
+# directly. See `ckb init --help` for details.
 #
-#     ckb cli secp256k1-lock <pubkey> --format cmd
-#
-# The two commands can be combined together:
-#
-#     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+#     ckb init <lock_arg>
 #
 # # {{
 # _ => {block_assembler}
