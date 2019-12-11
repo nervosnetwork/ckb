@@ -10,9 +10,10 @@ use p2p::{
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 const MAX_RETURN_LISTEN_ADDRS: usize = 10;
+const BAN_ON_NOT_SAME_NET: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub(crate) struct IdentifyCallback {
@@ -56,7 +57,15 @@ impl Callback for IdentifyCallback {
         identify: &[u8],
     ) -> MisbehaveResult {
         match self.identify.verify(identify) {
-            None => MisbehaveResult::Disconnect,
+            None => {
+                self.network_state.ban_session(
+                    context.control(),
+                    context.session.id,
+                    BAN_ON_NOT_SAME_NET,
+                    "The nodes are not on the same network".to_string(),
+                );
+                MisbehaveResult::Disconnect
+            }
             Some((flags, client_version)) => {
                 let registry_client_version = |version: String| {
                     self.network_state.with_peer_registry_mut(|registry| {
