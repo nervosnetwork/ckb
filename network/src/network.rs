@@ -459,7 +459,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            DialProtocol::Single(FEELER_PROTOCOL_ID.into()),
+            DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
             false,
         ) {
             debug!("dial_feeler error {}", err);

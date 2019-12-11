@@ -5,7 +5,7 @@ use ckb_types::{bytes::Bytes, packed, prelude::*};
 use p2p::{
     context::ProtocolContextMutRef,
     multiaddr::{Multiaddr, Protocol},
-    secio::PeerId,
+    secio::{PeerId, PublicKey},
     service::{SessionType, TargetProtocol},
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
@@ -69,7 +69,21 @@ impl Callback for IdentifyCallback {
                 };
 
                 if context.session.ty.is_outbound() {
-                    if flags.contains(self.identify.flags) {
+                    let peer_id = context
+                        .session
+                        .remote_pubkey
+                        .as_ref()
+                        .map(PublicKey::peer_id)
+                        .expect("Secio must enabled");
+                    if self
+                        .network_state
+                        .with_peer_registry(|reg| reg.is_feeler(&peer_id))
+                    {
+                        let _ = context.open_protocols(
+                            context.session.id,
+                            TargetProtocol::Single(FEELER_PROTOCOL_ID.into()),
+                        );
+                    } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
 
                         // The remote end can support all local protocols.
