@@ -113,6 +113,10 @@ impl AddrInfo {
         // reset attempts
         self.attempts_count = 0;
     }
+
+    pub fn multiaddr(&self) -> Result<Multiaddr, Error> {
+        self.addr.attach_p2p(&self.peer_id)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
