@@ -1,5 +1,5 @@
 use crate::{Timestamp, Uint64};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 // TODO add more fields from PeerIdentifyInfo
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

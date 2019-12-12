@@ -1,5 +1,5 @@
 use crate::{Timestamp, Uint32};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PeerState {

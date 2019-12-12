@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use log::{LevelFilter, Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, panic, thread};

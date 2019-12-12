@@ -1,6 +1,6 @@
 use crate::{BlockNumber, CellOutput, Uint64};
 use ckb_types::H256;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 // This is used as return value of get_live_cells_by_lock_hash RPC
 #[derive(Debug, Serialize, Deserialize)]

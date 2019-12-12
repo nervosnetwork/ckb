@@ -4,7 +4,7 @@ use ckb_types::{
     prelude::Unpack,
     H256,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 // This is used as return value of get_cells_by_lock_hash RPC:
 // it contains both OutPoint data used for referencing a cell, as well as

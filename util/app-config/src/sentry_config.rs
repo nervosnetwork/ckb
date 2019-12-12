@@ -6,7 +6,7 @@ use sentry::{
     protocol::Event,
     ClientOptions, Level,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 

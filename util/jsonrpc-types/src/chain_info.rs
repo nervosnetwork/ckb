@@ -1,6 +1,6 @@
 use crate::{AlertMessage, EpochNumber, Timestamp};
 use ckb_types::U256;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ChainInfo {

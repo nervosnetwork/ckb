@@ -3,7 +3,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_resource::{Resource, AVAILABLE_SPECS};
 use ckb_types::{packed::CellOutput, prelude::*, H256};
 use clap::ArgMatches;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
