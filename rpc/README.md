@@ -1903,19 +1903,11 @@ http://localhost:8114
 
 ### `send_transaction`
 
-Send new transaction into transaction pool
-
-If <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.
+Send new transaction into transaction pool.
 
 #### Parameters
 
-    transaction - The transaction object
-    version - Transaction version
-    cell_deps - Cell dependencies
-    header_deps - Header dependencies
-    inputs - Transaction inputs
-    outputs - Transaction outputs
-    witnesses - Witnesses
+    transaction - The transaction object, struct reference: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0019-data-structures/0019-data-structures.md#Transaction
 
 #### Examples
 
