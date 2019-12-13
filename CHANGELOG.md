@@ -1,3 +1,34 @@
+# [v0.26.0](https://github.com/nervosnetwork/ckb/compare/v0.25.2...v0.26.0) (2019-12-13)
+
+### Features
+
+* #1836: Include calculated minimal fee in RPC's error response (@xxuejie)
+* #1838: Add `output_data_len` and `cellbase` to `get_cells_by_lock_hash` rpc (@quake)
+* #1864: Add `output_data_len` and `cellbase` to `get_live_cells_by_lock_hash` rpc (@quake)
+* #1851: upgrade p2p to 0.2.7 (@driftluo)
+    * Upgrade moleculec to 0.4.2
+    * Add transport connection number limit on listener
+* #1854: Upgrade ckb-vm to 0.18.1 (@xxuejie)
+    * Tweak slot calculation algorithm
+
+### Bug Fixes
+
+* #1863: `fetch_random_addrs` should be able to return peers addrs (@jjyr)
+
+### Improvements
+
+* #1839: After exiting the IBD mode, the invalid notify should be removed (@driftluo)
+* #1840: DB migration (@quake)
+
+    Database migration may involve multiple iterations and different db (indexer/chain store), this PR added a `Migration` trait and improve the API.
+
+* #1862: Move main chain shortcut to `get_ancestor` (@jjyr)
+
+    Move the main chain shortcut from `get_locator` to `get_ancestor`, there are bunch functions other than `get_locator` call `get_ancestor` directly, this change saves many DB queries when the base block on main chain.
+
+* #1853: Update error message and prompt of ckb init subcommand (@ashchan)
+* #1849: No debug symbols as default and add a command to build with debug symbols (@yangby-cryptape)
+
 # [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
 
 ### Features
