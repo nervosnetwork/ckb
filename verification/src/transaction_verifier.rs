@@ -389,7 +389,7 @@ const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
 const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
 const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
-enum SinceMetric {
+pub enum SinceMetric {
     BlockNumber(u64),
     EpochNumberWithFraction(EpochNumberWithFraction),
     Timestamp(u64),
@@ -397,7 +397,7 @@ enum SinceMetric {
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Since(pub(crate) u64);
+pub struct Since(pub u64);
 
 impl Since {
     pub fn is_absolute(self) -> bool {
@@ -414,7 +414,7 @@ impl Since {
             && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)
     }
 
-    fn extract_metric(self) -> Option<SinceMetric> {
+    pub fn extract_metric(self) -> Option<SinceMetric> {
         let value = self.0 & VALUE_MASK;
         match self.0 & METRIC_TYPE_FLAG_MASK {
             //0b0000_0000
