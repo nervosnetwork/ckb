@@ -743,7 +743,7 @@ pub mod test {
 
             Forget to generate docs/hashes.toml? Try to run;
 
-                ckb cli hashes -b > docs/hashes.toml
+                ckb list-hashes -b > docs/hashes.toml
         "#;
 
         let spec_hashes: HashMap<String, SpecHashes> =
