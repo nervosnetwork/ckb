@@ -7,6 +7,8 @@ use serde_derive::{Deserialize, Serialize};
 pub struct LiveCell {
     pub created_by: TransactionPoint,
     pub cell_output: CellOutput,
+    pub output_data_len: Uint64,
+    pub cellbase: bool,
 }
 
 // This is used as return value of get_transactions_by_lock_hash RPC

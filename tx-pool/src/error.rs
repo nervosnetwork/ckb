@@ -5,7 +5,7 @@ use failure::Fail;
 pub enum SubmitTxError {
     /// The fee rate of transaction is lower than min fee rate
     #[fail(display = "LowFeeRate")]
-    LowFeeRate,
+    LowFeeRate(u64),
     #[fail(display = "ExceededMaximumAncestorsCount")]
     ExceededMaximumAncestorsCount,
 }

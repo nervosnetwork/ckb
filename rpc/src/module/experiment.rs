@@ -66,10 +66,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let calculator = DaoCalculator::new(consensus, snapshot);
         match calculator.maximum_withdraw(&out_point.into(), &hash.pack()) {
             Ok(capacity) => Ok(capacity.into()),
-            Err(err) => {
-                error!("calculate_dao_maximum_withdraw error {:?}", err);
-                Err(RPCError::custom(RPCError::Invalid, format!("{:#}", err)))
-            }
+            Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", err))),
         }
     }
 

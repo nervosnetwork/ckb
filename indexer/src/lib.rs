@@ -1,3 +1,4 @@
+mod migrations;
 mod store;
 mod types;
 

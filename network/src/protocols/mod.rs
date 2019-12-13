@@ -32,6 +32,7 @@ use crate::{
 pub trait CKBProtocolContext: Send {
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
+    fn remove_notify(&self, token: u64) -> Result<(), Error>;
     fn quick_send_message(
         &self,
         proto_id: ProtocolId,
@@ -267,6 +268,11 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
         self.p2p_control
             .set_service_notify(self.proto_id, interval, token)?;
+        Ok(())
+    }
+    fn remove_notify(&self, token: u64) -> Result<(), Error> {
+        self.p2p_control
+            .remove_service_notify(self.proto_id, token)?;
         Ok(())
     }
     fn quick_send_message(

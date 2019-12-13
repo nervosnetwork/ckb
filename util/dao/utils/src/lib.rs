@@ -112,3 +112,47 @@ pub fn pack_dao_data(ar: u64, c: Capacity, s: Capacity, u: Capacity) -> Byte32 {
     LittleEndian::write_u64(&mut buf[24..32], u.as_u64());
     Byte32::from_slice(&buf).expect("impossible: fail to read array")
 }
+
+mod tests {
+    pub use super::{extract_dao_data, pack_dao_data};
+    pub use ckb_types::core::Capacity;
+    pub use ckb_types::packed::Byte32;
+    pub use ckb_types::prelude::Pack;
+    pub use ckb_types::{h256, H256};
+
+    #[test]
+    #[allow(clippy::unreadable_literal)]
+    fn test_dao_data() {
+        let cases = vec![
+            (
+                // mainnet block[0]
+                h256!("0x8874337e541ea12e0000c16ff286230029bfa3320800000000710b00c0fefe06"),
+                10000000000000000,
+                Capacity::shannons(3360000145238488200),
+                Capacity::shannons(35209330473),
+                Capacity::shannons(504120308900000000),
+            ),
+            (
+                // mainnet block[1]
+                h256!("0x10e9164f761ea12ea5f6ff75f28623007b7f682a0f00000000710b00c0fefe06"),
+                10000000104789669,
+                Capacity::shannons(3360000290476976400),
+                Capacity::shannons(65136000891),
+                Capacity::shannons(504120308900000000),
+            ),
+            (
+                // mainnet block[5892]
+                h256!("0x95b47fdcff26a42ed0fb76e081872300bb585ebd10a000000043c2f76b5eff06"),
+                10000616071298000,
+                Capacity::shannons(3360854102283105429),
+                Capacity::shannons(175993756997819),
+                Capacity::shannons(504225501100000000),
+            ),
+        ];
+        for (dao_h256, ar, c, s, u) in cases {
+            let dao_byte32: Byte32 = dao_h256.pack();
+            assert_eq!((ar, c, s, u), extract_dao_data(dao_byte32.clone()).unwrap());
+            assert_eq!(dao_byte32, pack_dao_data(ar, c, s, u,));
+        }
+    }
+}

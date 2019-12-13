@@ -1,6 +1,6 @@
 [package]
 name = "ckb-reward-calculator"
-version = "0.25.2"
+version = "0.26.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

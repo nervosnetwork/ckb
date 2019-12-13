@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.25.2"
+version = "0.26.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -63,7 +63,6 @@ members = [
 ]
 
 [profile.release]
-debug = true
 overflow-checks = true
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]

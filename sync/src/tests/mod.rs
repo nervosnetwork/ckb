@@ -154,6 +154,10 @@ impl CKBProtocolContext for TestNetworkContext {
         Ok(())
     }
 
+    fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+
     fn future_task(
         &self,
         task: Box<

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-db"
-version = "0.25.2"
+version = "0.26.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,7 +9,6 @@ edition = "2018"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-logger = { path = "../util/logger" }
-semver = "0.9"
 tempfile = "3.0"
 ckb-error = { path = "../error" }
 libc = "0.2"

@@ -89,6 +89,10 @@ prod-docker:
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 
+.PHONY: prod-with-debug
+prod-with-debug:
+	devtools/release/make-with-debug-symbols prod
+
 .PHONY: docker
 docker: ## Build docker image
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:$$(git describe) .
@@ -113,7 +117,6 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 
 .PHONY: security-audit
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
-	@cargo +nightly install cargo-audit -Z install-upgrade
 	cargo audit
 	# expecting to see "Success No vulnerable packages found"
 

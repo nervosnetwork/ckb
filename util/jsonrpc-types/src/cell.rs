@@ -1,4 +1,4 @@
-use crate::{Capacity, CellOutput, JsonBytes, OutPoint, Script};
+use crate::{Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint64};
 use ckb_types::{
     core::cell::{CellMeta, CellStatus},
     prelude::Unpack,
@@ -17,6 +17,8 @@ pub struct CellOutputWithOutPoint {
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
+    pub output_data_len: Uint64,
+    pub cellbase: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
