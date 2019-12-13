@@ -4,7 +4,7 @@ use crate::{
     Timestamp, Uint128, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 

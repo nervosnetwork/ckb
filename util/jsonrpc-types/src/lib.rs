@@ -42,4 +42,4 @@ pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
     BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, FeeRate, Timestamp, Version,
 };
-pub use serde_derive::{Deserialize, Serialize};
+pub use serde::{Deserialize, Serialize};

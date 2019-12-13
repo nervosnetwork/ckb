@@ -1,5 +1,5 @@
 use ckb_types::core::Capacity;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// shannons per kilobytes
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

@@ -20,8 +20,7 @@ ckb-hash = {path = "../util/hash"}
 ckb-vm = { version = "0.18.1", default-features = false }
 faster-hex = "0.4"
 ckb-logger = { path = "../util/logger", optional = true }
-serde = "1.0"
-serde_derive = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error" }
 failure = "0.1.5"
 ckb-chain-spec = { path = "../spec" }

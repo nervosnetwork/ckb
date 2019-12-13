@@ -11,7 +11,7 @@ pub use std::io::{Error, Result};
 use self::template::Template;
 use ckb_types::H256;
 use includedir::Files;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt;
 use std::fs;

@@ -7,7 +7,7 @@ use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
 

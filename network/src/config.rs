@@ -9,7 +9,7 @@ use p2p::{
 };
 use rand;
 use rand::Rng;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::io::Write;

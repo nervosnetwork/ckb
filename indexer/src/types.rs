@@ -8,7 +8,7 @@ use ckb_types::{
     packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Indexer configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
