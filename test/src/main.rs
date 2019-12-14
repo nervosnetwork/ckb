@@ -360,6 +360,7 @@ fn all_specs() -> SpecMap {
         Box::new(ConflictInProposed),
         Box::new(DAOVerify),
         Box::new(AvoidDuplicatedProposalsWithUncles),
+        Box::new(TemplateTxSelect),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
