@@ -180,14 +180,14 @@ impl RpcClient {
     }
 
     pub fn send_transaction(&self, tx: Transaction) -> Byte32 {
-        self.inner
-            .send_transaction(tx)
+        self.send_transaction_result(tx)
             .expect("rpc call send_transaction")
             .pack()
     }
 
     pub fn send_transaction_result(&self, tx: Transaction) -> Result<H256, Error> {
-        self.inner.send_transaction(tx)
+        self.inner
+            .send_transaction(tx, Some("passthrough".to_string()))
     }
 
     pub fn dry_run_transaction(&self, tx: Transaction) -> DryRunResult {
@@ -350,7 +350,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_peers_state(&self) -> Vec<PeerState>;
     pub fn compute_transaction_hash(&self, tx: Transaction) -> H256;
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
-    pub fn send_transaction(&self, tx: Transaction) -> H256;
+    pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
 
     pub fn send_alert(&self, alert: Alert) -> ();

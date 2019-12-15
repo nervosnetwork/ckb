@@ -219,7 +219,12 @@ impl Spec for CheckTypical2In2OutTx {
             .build();
 
         info!("Send 1 secp tx use dep group");
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        let tx_hash = node
+            .rpc_client()
+            .inner()
+            .send_transaction(tx.data().into(), None)
+            .expect("should pass default outputs validator")
+            .pack();
         node.generate_blocks(20);
 
         let tx_status = node

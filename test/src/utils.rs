@@ -186,8 +186,7 @@ pub fn since_from_absolute_timestamp(timestamp: u64) -> u64 {
 pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, message: &str) {
     let result = node
         .rpc_client()
-        .inner()
-        .send_transaction(transaction.data().into());
+        .send_transaction_result(transaction.data().into());
     assert!(
         result.is_err(),
         "expect error \"{}\" but got \"Ok(())\"",
