@@ -13,13 +13,11 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellProvider, CellStatus, HeaderChecker},
-        BlockNumber, BlockReward, EpochExt, HeaderView, TransactionMeta,
+        BlockNumber, BlockReward, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint, Script},
-    prelude::*,
     U256,
 };
-use im::hashmap::HashMap as HamtMap;
 use std::sync::Arc;
 
 pub struct SnapshotMgr {
@@ -54,7 +52,6 @@ pub struct Snapshot {
     total_difficulty: U256,
     epoch_ext: EpochExt,
     store: StoreSnapshot,
-    cell_set: HamtMap<Byte32, TransactionMeta>,
     proposals: ProposalView,
     consensus: Arc<Consensus>,
 }
@@ -66,7 +63,6 @@ impl Snapshot {
         total_difficulty: U256,
         epoch_ext: EpochExt,
         store: StoreSnapshot,
-        cell_set: HamtMap<Byte32, TransactionMeta>,
         proposals: ProposalView,
         consensus: Arc<Consensus>,
     ) -> Snapshot {
@@ -75,7 +71,6 @@ impl Snapshot {
             total_difficulty,
             epoch_ext,
             store,
-            cell_set,
             proposals,
             consensus,
         }
@@ -90,7 +85,6 @@ impl Snapshot {
             tip_header: self.tip_header.clone(),
             total_difficulty: self.total_difficulty.clone(),
             epoch_ext: self.epoch_ext.clone(),
-            cell_set: self.cell_set.clone(),
             proposals: self.proposals.clone(),
             consensus: Arc::clone(&self.consensus),
         }
@@ -114,10 +108,6 @@ impl Snapshot {
 
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
-    }
-
-    pub fn cell_set(&self) -> &HamtMap<Byte32, TransactionMeta> {
-        &self.cell_set
     }
 
     pub fn proposals(&self) -> &ProposalView {
@@ -162,25 +152,7 @@ impl<'a> ChainStore<'a> for Snapshot {
 
 impl CellProvider for Snapshot {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        let index = out_point.index().unpack();
-        match self.cell_set().get(&tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
-                Some(false) => {
-                    let mut cell_meta = self
-                        .store
-                        .get_cell_meta(&tx_hash, index)
-                        .expect("store should be consistent with cell_set");
-                    if with_data {
-                        cell_meta.mem_cell_data = self.store.get_cell_data(&tx_hash, index);
-                    }
-                    CellStatus::live_cell(cell_meta)
-                }
-                Some(true) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            },
-            None => CellStatus::Unknown,
-        }
+        self.store.cell_provider().cell(out_point, with_data)
     }
 }
 

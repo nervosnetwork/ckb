@@ -15,8 +15,5 @@ ckb-db = { path = "../../db" }
 ckb-traits = { path = "../../traits" }
 ckb-error = { path = "../../error" }
 ckb-proposal-table = { path = "../proposal-table" }
-# DO NOT UPDATE "im", until clippy#4121 be solved
-# https://github.com/rust-lang/rust-clippy/issues/4121
-im = "~12.3"
 arc-swap = "0.4"
 ckb-reward-calculator = { path = "../reward-calculator" }
