@@ -1,5 +1,4 @@
 // use crate::peer_store::Behaviour;
-use crate::peer_store::types::AddrInfo;
 use crate::NetworkState;
 use ckb_logger::{debug, error, trace, warn};
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
@@ -8,7 +7,7 @@ use std::{sync::Arc, time::Duration};
 
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
-    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
+    multiaddr::Multiaddr,
     secio::PeerId,
     traits::ServiceProtocol,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
@@ -231,18 +230,16 @@ impl DiscoveryService {
                 let addrs = fetch_random_addrs
                     .into_iter()
                     .filter_map(|paddr| {
-                        let AddrInfo {
-                            mut addr, peer_id, ..
-                        } = paddr;
-                        if !self.is_valid_addr(&addr) {
+                        if !self.is_valid_addr(&paddr.addr) {
                             return None;
                         }
-                        Multihash::from_bytes(peer_id.into_bytes())
-                            .ok()
-                            .map(move |peer_id_hash| {
-                                addr.push(Protocol::P2p(peer_id_hash));
-                                addr
-                            })
+                        match paddr.multiaddr() {
+                            Ok(addr) => Some(addr),
+                            Err(err) => {
+                                error!("return discovery addresses error: {:?}", err);
+                                None
+                            }
+                        }
                     })
                     .collect();
                 trace!("discovery send random addrs: {:?}", addrs);
