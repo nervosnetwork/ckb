@@ -602,7 +602,7 @@ impl CKBProtocolHandler for Relayer {
 
     fn connected(
         &mut self,
-        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         version: &str,
     ) {
@@ -612,16 +612,29 @@ impl CKBProtocolHandler for Relayer {
             version,
             peer_index
         );
-        // do nothing
+        let protocol = nc.protocol_id();
+        let version = version.to_string();
+        nc.with_peer_mut(
+            peer_index,
+            Box::new(move |peer| {
+                peer.protocols.insert(protocol, version);
+            }),
+        );
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    fn disconnected(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info_target!(
             crate::LOG_TARGET_RELAY,
             "RelayProtocol.disconnected peer={}",
             peer_index
         );
-        // TODO
+        let protocol = nc.protocol_id();
+        nc.with_peer_mut(
+            peer_index,
+            Box::new(move |peer| {
+                peer.protocols.remove(&protocol);
+            }),
+        );
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

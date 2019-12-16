@@ -237,6 +237,7 @@ impl CKBProtocolContext for TestNetworkContext {
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
         None
     }
+    fn with_peer_mut(&self, _peer_index: PeerIndex, _f: Box<dyn FnOnce(&mut Peer)>) {}
     fn connected_peers(&self) -> Vec<PeerIndex> {
         self.msg_senders.keys().map(|k| k.1).collect::<Vec<_>>()
     }
