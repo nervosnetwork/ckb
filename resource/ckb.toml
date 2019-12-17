@@ -96,6 +96,10 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
 # }}
 
+# By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.
+# tcp_listen_address = "127.0.0.1:18114"
+# ws_listen_address = "127.0.0.1:28114"
+
 [tx_pool]
 max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
