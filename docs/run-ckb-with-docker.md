@@ -6,6 +6,14 @@ Start latest CKB release with default configuration:
 docker run --rm -it nervos/ckb:latest run
 ```
 
+Starting from v0.26.1, the docker container connects to mainnet by default,
+which can be overrode by the environment variable `CKB_CHAIN`, for example
+
+
+```bash
+docker run -e CKB_CHAIN=testnet --rm -it nervos/ckb:latest run
+```
+
 See other
 [tags](https://hub.docker.com/r/nervos/ckb/tags)
 listed in DockerHub.
