@@ -4,7 +4,7 @@ use ckb_types::{prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 
-#[rpc]
+#[rpc(server)]
 pub trait IndexerRpc {
     #[rpc(name = "get_live_cells_by_lock_hash")]
     fn get_live_cells_by_lock_hash(

@@ -8,7 +8,7 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait StatsRpc {
     #[rpc(name = "get_blockchain_info")]
     fn get_blockchain_info(&self) -> Result<ChainInfo>;

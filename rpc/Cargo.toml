@@ -17,7 +17,6 @@ ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 jsonrpc-core = "14.0"
-jsonrpc-core-client = "14.0"
 jsonrpc-derive = "14.0"
 jsonrpc-http-server = "14.0"
 jsonrpc-tcp-server = "14.0"
