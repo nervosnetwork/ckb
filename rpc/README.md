@@ -34,6 +34,7 @@ CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via N
     *   [`get_lock_hash_index_states`](#get_lock_hash_index_states)
     *   [`get_live_cells_by_lock_hash`](#get_live_cells_by_lock_hash)
     *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
+    *   [`get_capacity_by_lock_hash`](#get_capacity_by_lock_hash)
     *   [`deindex_lock_hash`](#deindex_lock_hash)
 *   [`Miner`](#miner)
     *   [`get_block_template`](#get_block_template)
@@ -1514,6 +1515,47 @@ http://localhost:8114
             }
         }
     ]
+}
+```
+
+### `get_capacity_by_lock_hash`
+
+Returns the total capacity by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+#### Returns
+
+    capacity - Total capacity
+    cells_count - Total cells
+    block_number - At which block capacity was calculated
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_capacity_by_lock_hash",
+    "params": [
+        "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_number": "0x400",
+        "capacity": "0xb00fb84df292",
+        "cells_count": "0x3f5"
+    }
 }
 ```
 

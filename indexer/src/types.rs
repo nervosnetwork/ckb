@@ -1,10 +1,10 @@
 use ckb_db::DBConfig;
 use ckb_jsonrpc_types::{
     CellTransaction as JsonCellTransaction, LiveCell as JsonLiveCell,
-    TransactionPoint as JsonTransactionPoint,
+    LockHashCapacity as JsonLockHashCapacity, TransactionPoint as JsonTransactionPoint,
 };
 use ckb_types::{
-    core::BlockNumber,
+    core::{BlockNumber, Capacity},
     packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
 };
@@ -67,6 +67,13 @@ pub struct LockHashCellOutput {
 pub struct LockHashIndexState {
     pub block_number: BlockNumber,
     pub block_hash: Byte32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockHashCapacity {
+    pub capacity: Capacity,
+    pub cells_count: u64,
+    pub block_number: BlockNumber,
 }
 
 impl Pack<packed::LockHashIndex> for LockHashIndex {
@@ -232,6 +239,21 @@ impl From<TransactionPoint> for JsonTransactionPoint {
             block_number: block_number.into(),
             tx_hash: tx_hash.unpack(),
             index: u64::from(index).into(),
+        }
+    }
+}
+
+impl From<LockHashCapacity> for JsonLockHashCapacity {
+    fn from(lock_hash_capacity: LockHashCapacity) -> JsonLockHashCapacity {
+        let LockHashCapacity {
+            capacity,
+            cells_count,
+            block_number,
+        } = lock_hash_capacity;
+        JsonLockHashCapacity {
+            capacity: capacity.into(),
+            cells_count: cells_count.into(),
+            block_number: block_number.into(),
         }
     }
 }

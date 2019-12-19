@@ -1,5 +1,7 @@
 use ckb_indexer::IndexerStore;
-use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Uint64};
+use ckb_jsonrpc_types::{
+    BlockNumber, CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, Uint64,
+};
 use ckb_types::{prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -36,6 +38,9 @@ pub trait IndexerRpc {
 
     #[rpc(name = "get_lock_hash_index_states")]
     fn get_lock_hash_index_states(&self) -> Result<Vec<LockHashIndexState>>;
+
+    #[rpc(name = "get_capacity_by_lock_hash")]
+    fn get_capacity_by_lock_hash(&self, _lock_hash: H256) -> Result<Option<LockHashCapacity>>;
 }
 
 pub(crate) struct IndexerRpcImpl<WS> {
@@ -119,5 +124,10 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
             })
             .collect();
         Ok(states)
+    }
+
+    fn get_capacity_by_lock_hash(&self, lock_hash: H256) -> Result<Option<LockHashCapacity>> {
+        let lock_hash = lock_hash.pack();
+        Ok(self.store.get_capacity(&lock_hash).map(Into::into))
     }
 }
