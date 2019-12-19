@@ -1,4 +1,4 @@
-use crate::{BlockNumber, CellOutput, Uint64};
+use crate::{BlockNumber, Capacity, CellOutput, Uint64};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
@@ -30,4 +30,11 @@ pub struct LockHashIndexState {
     pub lock_hash: H256,
     pub block_number: BlockNumber,
     pub block_hash: H256,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LockHashCapacity {
+    pub capacity: Capacity,
+    pub cells_count: Uint64,
+    pub block_number: BlockNumber,
 }

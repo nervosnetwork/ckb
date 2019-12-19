@@ -1278,6 +1278,35 @@
         ]
     },
     {
+        "description": "Returns the total capacity by the hash of lock script.",
+        "method": "get_capacity_by_lock_hash",
+        "module": "indexer",
+        "params": [
+            "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
+        ],
+        "result": {
+            "capacity": "0xb00fb84df292",
+            "cells_count": "0x3f5",
+            "block_number": "0x400"
+        },
+        "types": [
+            {
+                "lock_hash": "Cell lock script hash"
+            }
+        ],
+        "returns": [
+            {
+                "capacity": "Total capacity"
+            },
+            {
+                "cells_count": "Total cells"
+            },
+            {
+                "block_number": "At which block capacity was calculated"
+            }
+        ]
+    },
+    {
         "description": "Remove index for live cells and transactions by the hash of lock script.",
         "method": "deindex_lock_hash",
         "module": "indexer",
