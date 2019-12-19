@@ -17,7 +17,7 @@ ckb-script-data-loader = { path = "data-loader" }
 byteorder = "1.3.1"
 ckb-types = {path = "../util/types"}
 ckb-hash = {path = "../util/hash"}
-ckb-vm = { version = "0.18.1", default-features = false }
+ckb-vm = { version = "0.18.2", default-features = false }
 faster-hex = "0.4"
 ckb-logger = { path = "../util/logger", optional = true }
 serde = { version = "1.0", features = ["derive"] }
