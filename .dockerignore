@@ -6,3 +6,4 @@ data/
 specs/
 docs/
 docker/
+!docker/docker-entrypoint.sh
