@@ -13,6 +13,7 @@ use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
 };
+use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -221,28 +222,28 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
         indexer_store
     };
+
+    let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
     let alert_notifier = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
-            Default::default(),
+            notify_controller,
             AlertSignatureConfig::default(),
         );
         let alert_notifier = alert_relayer.notifier();
-        let alert = Arc::new(
-            AlertBuilder::default()
-                .raw(
-                    RawAlertBuilder::default()
-                        .id(42u32.pack())
-                        .min_version(Some("0.0.1".to_string()).pack())
-                        .max_version(Some("1.0.0".to_string()).pack())
-                        .priority(1u32.pack())
-                        .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
-                        .message("An example alert message!".pack())
-                        .build(),
-                )
-                .build(),
-        );
-        alert_notifier.lock().add(alert);
+        let alert = AlertBuilder::default()
+            .raw(
+                RawAlertBuilder::default()
+                    .id(42u32.pack())
+                    .min_version(Some("0.0.1".to_string()).pack())
+                    .max_version(Some("1.0.0".to_string()).pack())
+                    .priority(1u32.pack())
+                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
+                    .message("An example alert message!".pack())
+                    .build(),
+            )
+            .build();
+        alert_notifier.lock().add(&alert);
         Arc::clone(alert_notifier)
     };
 

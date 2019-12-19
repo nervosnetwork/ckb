@@ -698,6 +698,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-notify"
+version = "0.26.1-pre"
+dependencies = [
+ "ckb-jsonrpc-types 0.26.1-pre",
+ "ckb-logger 0.26.1-pre",
+ "ckb-stop-handler 0.26.1-pre",
+ "ckb-types 0.26.1-pre",
+ "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ckb-occupied-capacity"
 version = "0.26.2-pre"
 dependencies = [

@@ -63,7 +63,7 @@ impl AlertRpc for AlertRpcImpl {
                     error!("Broadcast alert failed: {:?}", err);
                 }
                 // set self node notifier
-                self.notifier.lock().add(Arc::new(alert));
+                self.notifier.lock().add(&alert);
                 Ok(())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e))),

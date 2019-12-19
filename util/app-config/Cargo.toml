@@ -26,6 +26,7 @@ ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
 ckb-indexer = { path = "../../indexer" }
 ckb-tx-pool = { path = "../../tx-pool" }
+ckb-notify = { path = "../../notify" }
 
 [dev-dependencies]
 tempfile = "3.0"

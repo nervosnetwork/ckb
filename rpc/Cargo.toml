@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
+ckb-notify = { path = "../notify" }
 ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }

@@ -6,12 +6,13 @@
 //! A cli to generate alert message,
 //! A config option to set alert messages to broard cast.
 //
-use crate::config::{NotifierConfig, SignatureConfig};
+use crate::config::SignatureConfig;
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
 use lru_cache::LruCache;
@@ -32,11 +33,11 @@ pub struct AlertRelayer {
 impl AlertRelayer {
     pub fn new(
         client_version: String,
-        notifier_config: NotifierConfig,
+        notify_controller: NotifyController,
         signature_config: SignatureConfig,
     ) -> Self {
         AlertRelayer {
-            notifier: Arc::new(Mutex::new(Notifier::new(client_version, notifier_config))),
+            notifier: Arc::new(Mutex::new(Notifier::new(client_version, notify_controller))),
             verifier: Arc::new(Verifier::new(signature_config)),
             known_lists: LruCache::new(KNOWN_LIST_SIZE),
         }
@@ -94,7 +95,7 @@ impl CKBProtocolHandler for AlertRelayer {
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
-        let alert: Arc<packed::Alert> = match packed::AlertReader::from_slice(&data) {
+        let alert: packed::Alert = match packed::AlertReader::from_slice(&data) {
             Ok(alert) => {
                 if alert.raw().message().is_utf8()
                     && alert
@@ -110,7 +111,7 @@ impl CKBProtocolHandler for AlertRelayer {
                         .map(|x| x.is_utf8())
                         .unwrap_or(true)
                 {
-                    Arc::new(alert.to_entity())
+                    alert.to_entity()
                 } else {
                     info!(
                         "Peer {} sends us malformed message: not utf-8 string",
@@ -165,6 +166,6 @@ impl CKBProtocolHandler for AlertRelayer {
             debug!("alert broadcast error: {:?}", err);
         }
         // add to received alerts
-        self.notifier.lock().add(alert);
+        self.notifier.lock().add(&alert);
     }
 }
