@@ -131,17 +131,6 @@ function check_dependencies_for() {
             fi
             if [ "${depcnt}" -eq 0 ]; then
                 case "${dependency}" in
-                    serde)
-                        tmpcnt=$({\
-                            ${GREP} -rh "serde_derive" "${cargo_toml}" \
-                                || true; }\
-                            | wc -l)
-                        if [ "${tmpcnt}" -eq 0 ]; then
-                            printf "Error: [%s::%s] in <%s>\n" \
-                                "${deptype}" "${dependency}" "${pkgroot}"
-                            ERRCNT=$((ERRCNT + 1))
-                        fi
-                        ;;
                     generic_channel | phf)
                         # We cann't handle these crates.
                         printf "Warn: [%s::%s] in <%s>\n" \

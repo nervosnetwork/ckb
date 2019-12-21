@@ -1,7 +1,7 @@
 use crate::worker::{DummyConfig, EaglesongSimpleConfig};
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::H256;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MinerConfig {

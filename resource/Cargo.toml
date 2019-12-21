@@ -1,6 +1,6 @@
 [package]
 name = "ckb-resource"
-version = "0.26.0"
+version = "0.26.1-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,8 +10,7 @@ build = "build.rs"
 phf = "0.7.21"
 includedir = "0.5.0"
 tempfile = "3.0"
-serde = "1.0"
-serde_derive = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 ckb-types = { path = "../util/types" }
 ckb-system-scripts = { version = "= 0.5.1" }
 

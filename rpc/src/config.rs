@@ -1,4 +1,4 @@
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Module {

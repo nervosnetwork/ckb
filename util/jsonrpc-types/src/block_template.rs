@@ -3,7 +3,7 @@ use crate::{
     Transaction, Uint32, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::convert::From;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

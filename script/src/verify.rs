@@ -31,7 +31,7 @@ use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
     SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 

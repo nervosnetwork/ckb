@@ -1,7 +1,7 @@
 use super::uint32::Uint32;
 use crate::{bytes::JsonBytes, Timestamp};
 use ckb_types::{packed, prelude::*};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 pub type AlertId = Uint32;
 pub type AlertPriority = Uint32;

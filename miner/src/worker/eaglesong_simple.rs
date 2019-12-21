@@ -5,7 +5,7 @@ use ckb_types::{packed::Byte32, U256};
 use crossbeam_channel::{Receiver, Sender};
 use eaglesong::eaglesong;
 use indicatif::ProgressBar;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::{Duration, Instant};
 
