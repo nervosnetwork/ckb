@@ -65,7 +65,7 @@ pub mod default_params {
     use crate::consensus::{
         CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
-        GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
+        GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_BYTES, MAX_BLOCK_CYCLES,
     };
     use ckb_types::core::{Capacity, Cycle, EpochNumber};
 
@@ -79,6 +79,10 @@ pub mod default_params {
 
     pub fn max_block_cycles() -> Cycle {
         MAX_BLOCK_CYCLES
+    }
+
+    pub fn max_block_bytes() -> u64 {
+        MAX_BLOCK_BYTES
     }
 
     pub fn cellbase_maturity() -> u64 {
@@ -106,6 +110,8 @@ pub struct Params {
     pub secondary_epoch_reward: Capacity,
     #[serde(default = "default_params::max_block_cycles")]
     pub max_block_cycles: Cycle,
+    #[serde(default = "default_params::max_block_bytes")]
+    pub max_block_bytes: u64,
     #[serde(default = "default_params::cellbase_maturity")]
     pub cellbase_maturity: u64,
     #[serde(default = "default_params::primary_epoch_reward_halving_interval")]
@@ -124,6 +130,7 @@ impl Default for Params {
             initial_primary_epoch_reward: default_params::initial_primary_epoch_reward(),
             secondary_epoch_reward: default_params::secondary_epoch_reward(),
             max_block_cycles: default_params::max_block_cycles(),
+            max_block_bytes: default_params::max_block_bytes(),
             cellbase_maturity: default_params::cellbase_maturity(),
             primary_epoch_reward_halving_interval:
                 default_params::primary_epoch_reward_halving_interval(),
@@ -274,6 +281,7 @@ impl ChainSpec {
             ))
             .secondary_epoch_reward(self.params.secondary_epoch_reward)
             .max_block_cycles(self.params.max_block_cycles)
+            .max_block_bytes(self.params.max_block_bytes)
             .pow(self.pow.clone())
             .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
             .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
@@ -860,6 +868,10 @@ pub mod test {
 
     #[test]
     fn test_default_params() {
+        let params: Params = toml::from_str("").unwrap();
+        let expected = Params::default();
+        assert_eq!(params, expected);
+
         let test_params: &str = r#"
             genesis_epoch_length = 100
         "#;
@@ -867,6 +879,16 @@ pub mod test {
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
         expected.genesis_epoch_length = 100;
+
+        assert_eq!(params, expected);
+
+        let test_params: &str = r#"
+            max_block_bytes = 100
+        "#;
+
+        let params: Params = toml::from_str(&test_params).unwrap();
+        let mut expected = Params::default();
+        expected.max_block_bytes = 100;
 
         assert_eq!(params, expected);
     }
