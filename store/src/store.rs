@@ -249,36 +249,37 @@ pub trait ChainStore<'a>: Send + Sync {
         self.get_transaction_info_packed(&tx_hash)
             .and_then(|tx_info| {
                 self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-                    .map(|slice| {
+                    .and_then(|slice| {
                         let reader =
                             packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                        let cell_output = reader
+                        reader
                             .data()
                             .raw()
                             .outputs()
                             .get(index as usize)
-                            .expect("inconsistent index")
-                            .to_entity();
-                        let data_bytes = reader
-                            .data()
-                            .raw()
-                            .outputs_data()
-                            .get(index as usize)
-                            .expect("inconsistent index")
-                            .raw_data()
-                            .len() as u64;
-                        let out_point = packed::OutPoint::new_builder()
-                            .tx_hash(tx_hash.to_owned())
-                            .index(index.pack())
-                            .build();
-                        // notice mem_cell_data is set to None, the cell data should be load in need
-                        CellMeta {
-                            cell_output,
-                            out_point,
-                            transaction_info: Some(tx_info.unpack()),
-                            data_bytes,
-                            mem_cell_data: None,
-                        }
+                            .map(|cell_output| {
+                                let cell_output = cell_output.to_entity();
+                                let data_bytes = reader
+                                    .data()
+                                    .raw()
+                                    .outputs_data()
+                                    .get(index as usize)
+                                    .expect("inconsistent index")
+                                    .raw_data()
+                                    .len() as u64;
+                                let out_point = packed::OutPoint::new_builder()
+                                    .tx_hash(tx_hash.to_owned())
+                                    .index(index.pack())
+                                    .build();
+                                // notice mem_cell_data is set to None, the cell data should be load in need
+                                CellMeta {
+                                    cell_output,
+                                    out_point,
+                                    transaction_info: Some(tx_info.unpack()),
+                                    data_bytes,
+                                    mem_cell_data: None,
+                                }
+                            })
                     })
             })
     }
