@@ -11,7 +11,7 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait IntegrationTestRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"add_node","params": ["QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS", "/ip4/192.168.2.100/tcp/30002"]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "add_node")]

@@ -291,7 +291,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         }
         .to_delegate(),
     );
-    let server = ServerBuilder::new(io)
+    let http = ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![
             AccessControlAllowOrigin::Null,
             AccessControlAllowOrigin::Any,
@@ -300,7 +300,11 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .max_request_body_size(20_000_000)
         .start_http(&"127.0.0.1:0".parse().unwrap())
         .expect("JsonRpc initialize");
-    let rpc_server = RpcServer { server };
+    let rpc_server = RpcServer {
+        http,
+        tcp: None,
+        ws: None,
+    };
 
     (shared, chain_controller, rpc_server)
 }
@@ -494,8 +498,8 @@ fn test_rpc() {
     let client = reqwest::Client::new();
     let uri = format!(
         "http://{}:{}/",
-        server.server.address().ip(),
-        server.server.address().port()
+        server.http.address().ip(),
+        server.http.address().port()
     );
 
     // Assert the params of jsonrpc requests
@@ -546,6 +550,4 @@ fn test_rpc() {
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
         }
     }
-
-    server.close();
 }

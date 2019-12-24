@@ -18,7 +18,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
 
-#[rpc]
+#[rpc(server)]
 pub trait ExperimentRpc {
     #[rpc(name = "_compute_transaction_hash")]
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256>;

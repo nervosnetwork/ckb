@@ -10,7 +10,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait PoolRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "send_transaction")]

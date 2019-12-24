@@ -13,7 +13,7 @@ use jsonrpc_derive::rpc;
 
 pub const PAGE_SIZE: u64 = 100;
 
-#[rpc]
+#[rpc(server)]
 pub trait ChainRpc {
     #[rpc(name = "get_block")]
     fn get_block(&self, _hash: H256) -> Result<Option<BlockView>>;

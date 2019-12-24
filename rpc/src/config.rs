@@ -16,6 +16,10 @@ pub enum Module {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub listen_address: String,
+    #[serde(default)]
+    pub tcp_listen_address: Option<String>,
+    #[serde(default)]
+    pub ws_listen_address: Option<String>,
     pub max_request_body_size: usize,
     pub threads: Option<usize>,
     pub modules: Vec<Module>,
