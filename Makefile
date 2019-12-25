@@ -151,7 +151,7 @@ check-dirty-hashes-toml: gen-hashes
 .PHONY: gen
 GEN_MOL_IN_DIR := util/types/schemas
 GEN_MOL_OUT_DIR := util/types/src/generated
-GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs
+GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs ${GEN_MOL_OUT_DIR}/protocols.rs
 gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 
 .PHONY: check-moleculec-version
@@ -161,7 +161,10 @@ check-moleculec-version:
 ${GEN_MOL_OUT_DIR}/blockchain.rs: ${GEN_MOL_IN_DIR}/blockchain.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
-${GEN_MOL_OUT_DIR}/extensions.rs: ${GEN_MOL_IN_DIR}//extensions.mol
+${GEN_MOL_OUT_DIR}/extensions.rs: ${GEN_MOL_IN_DIR}/extensions.mol
+	${MOLC} --language rust --schema-file $< | rustfmt > $@
+
+${GEN_MOL_OUT_DIR}/protocols.rs: ${GEN_MOL_IN_DIR}/protocols.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
 ##@ Cleanup
