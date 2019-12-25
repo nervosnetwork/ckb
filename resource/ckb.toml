@@ -125,7 +125,7 @@ cellbase_cache_size        = 30
 # batch_size = 200
 
 # [notifier]
-# # Execute command when the new tip block changes, first arg is block struct in json format string.
+# # Execute command when the new tip block changes, first arg is block hash.
 # new_block_notify_script = "your_new_block_notify_script.sh"
 # # Execute command when node received an network alert, first arg is alert message string.
 # network_alert_notify_script = "your_network_alert_notify_script.sh"

@@ -6,7 +6,6 @@ use ckb_types::{
 };
 use crossbeam_channel::{bounded, select, Receiver, RecvError, Sender};
 use serde::{Deserialize, Serialize};
-use serde_json::to_string;
 use std::collections::HashMap;
 use std::process::Command;
 use std::thread;
@@ -112,12 +111,11 @@ impl NotifyService {
                 }
                 // notify script
                 if let Some(script) = self.config.new_block_notify_script.as_ref() {
-                    let block_json: ckb_jsonrpc_types::BlockView = block.into();
-                    let args = [to_string(&block_json).expect("serializing should be ok")];
+                    let args = [format!("{:#x}", block.hash())];
                     if let Err(err) = Command::new(script).args(&args).status() {
                         error!(
-                            "failed to run new_block_notify_script, script: {}, error: {}",
-                            script, err
+                            "failed to run new_block_notify_script: {} {}, error: {}",
+                            script, args[0], err
                         );
                     }
                 }
@@ -163,8 +161,8 @@ impl NotifyService {
                         .to_owned()];
                     if let Err(err) = Command::new(script).args(&args).status() {
                         error!(
-                            "failed to run network_alert_notify_script, script: {}, error: {}",
-                            script, err
+                            "failed to run network_alert_notify_script: {} {}, error: {}",
+                            script, args[0], err
                         );
                     }
                 }
