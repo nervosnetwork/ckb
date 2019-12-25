@@ -116,8 +116,8 @@ impl NotifyService {
                     let args = [to_string(&block_json).expect("serializing should be ok")];
                     if let Err(err) = Command::new(script).args(&args).status() {
                         error!(
-                            "failed to run new_block_notify_script script, error: {}",
-                            err
+                            "failed to run new_block_notify_script, script: {}, error: {}",
+                            script, err
                         );
                     }
                 }
@@ -163,8 +163,8 @@ impl NotifyService {
                         .to_owned()];
                     if let Err(err) = Command::new(script).args(&args).status() {
                         error!(
-                            "failed to run network_alert_notify_script script, error: {}",
-                            err
+                            "failed to run network_alert_notify_script, script: {}, error: {}",
+                            script, err
                         );
                     }
                 }
