@@ -12,7 +12,7 @@ impl BlockUnclesVerifier {
         let expected_uncles = block.uncles();
         let expected_ids: Vec<packed::Byte32> = indexes
             .iter()
-            .filter_map(|index| expected_uncles.get(*index as usize).clone())
+            .filter_map(|index| expected_uncles.get(*index as usize))
             .collect();
 
         if expected_ids.len() != uncles.len() {

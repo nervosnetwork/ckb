@@ -59,7 +59,7 @@ where
         w: &mut W,
         context: &TemplateContext<'c>,
     ) -> io::Result<()> {
-        let spec_branch = format!("# {} => ", context.spec).to_string();
+        let spec_branch = format!("# {} => ", context.spec);
 
         let mut state = TemplateState::SearchStartMarker;
         for line in self.0.as_ref().lines() {

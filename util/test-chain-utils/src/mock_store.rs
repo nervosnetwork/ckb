@@ -64,7 +64,6 @@ impl CellProvider for MockStore {
                         .outputs_data()
                         .get(out_point.index().unpack())
                         .expect("output data");
-                    let cell = cell.to_owned();
                     CellStatus::live_cell(
                         CellMetaBuilder::from_cell_output(cell, data.unpack())
                             .out_point(out_point.to_owned())

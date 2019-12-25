@@ -361,7 +361,7 @@ impl DefaultIndexerStore {
                     }
                     let index_state = LockHashIndexState {
                         block_number: block.header().number() - 1,
-                        block_hash: block.header().parent_hash().to_owned(),
+                        block_hash: block.header().parent_hash(),
                     };
                     txn.insert_lock_hash_index_state(lock_hash, &index_state);
                 });

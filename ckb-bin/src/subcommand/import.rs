@@ -12,7 +12,7 @@ pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
             ExitCode::Failure
         })?;
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared, table);
     let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));
 
     Import::new(chain_controller, args.source)

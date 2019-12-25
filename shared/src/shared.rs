@@ -170,7 +170,7 @@ impl Shared {
             }
             None => store.init(&consensus).map(|_| {
                 (
-                    consensus.genesis_block().header().to_owned(),
+                    consensus.genesis_block().header(),
                     consensus.genesis_epoch_ext().to_owned(),
                 )
             }),

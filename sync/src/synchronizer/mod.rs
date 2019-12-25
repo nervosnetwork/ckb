@@ -291,7 +291,7 @@ impl Synchronizer {
         let tip = {
             let (header, total_difficulty) = {
                 (
-                    snapshot.tip_header().to_owned(),
+                    snapshot.tip_header(),
                     snapshot.total_difficulty().to_owned(),
                 )
             };

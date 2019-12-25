@@ -60,9 +60,9 @@ impl<'a> ServiceBuilder<'a> {
         if enable && self.config.miner_enable() {
             self.io_handler.extend_with(
                 MinerRpcImpl {
-                    shared: shared.clone(),
-                    chain: chain.clone(),
-                    network_controller: network_controller.clone(),
+                    shared,
+                    chain,
+                    network_controller,
                 }
                 .to_delegate(),
             );
