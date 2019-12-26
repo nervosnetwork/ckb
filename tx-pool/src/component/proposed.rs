@@ -95,7 +95,7 @@ impl CellProvider for ProposedPool {
             } else {
                 let (output, data) = self.get_output_with_data(out_point).expect("output");
                 CellStatus::live_cell(
-                    CellMetaBuilder::from_cell_output(output.to_owned(), data)
+                    CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.clone())
                         .build(),
                 )

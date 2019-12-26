@@ -109,7 +109,7 @@ impl CellProvider for PendingQueue {
         if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
             match x.transaction.output_with_data(out_point.index().unpack()) {
                 Some((output, data)) => CellStatus::live_cell(
-                    CellMetaBuilder::from_cell_output(output.to_owned(), data)
+                    CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.to_owned())
                         .build(),
                 ),

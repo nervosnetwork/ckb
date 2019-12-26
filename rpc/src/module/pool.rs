@@ -58,7 +58,7 @@ impl PoolRpc for PoolRpcImpl {
             Ok(_) => {
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
-                let hash = tx.hash().to_owned();
+                let hash = tx.hash();
                 self.sync_shared_state
                     .state()
                     .tx_hashes()

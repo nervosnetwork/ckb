@@ -328,7 +328,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
                     parse_dep_group_data(&data).map_err(|err| format!("Invalid data: {}", err))?;
                 out_points.extend(sub_out_points.into_iter());
             }
-            out_points.push(out_point.clone());
+            out_points.push(out_point);
             Ok(out_points)
         },
     )
@@ -416,7 +416,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                return Err(OutPointError::Dead(out_point.clone()).into());
+                return Err(OutPointError::Dead(out_point).into());
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(*cell_meta);

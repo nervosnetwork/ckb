@@ -41,7 +41,7 @@ impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifi
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent = target.parent().ok_or_else(|| UnknownParentError {
-            parent_hash: header.parent_hash().to_owned(),
+            parent_hash: header.parent_hash(),
         })?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(self.block_median_time_context, header).verify()?;

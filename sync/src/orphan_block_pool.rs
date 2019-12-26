@@ -25,8 +25,8 @@ impl OrphanBlockPool {
 
     /// Insert orphaned block, for which we have already requested its parent block
     pub fn insert(&self, block: core::BlockView) {
-        let hash = block.header().hash().clone();
-        let parent_hash = block.data().header().raw().parent_hash().clone();
+        let hash = block.header().hash();
+        let parent_hash = block.data().header().raw().parent_hash();
         self.blocks
             .write()
             .entry(parent_hash.clone())

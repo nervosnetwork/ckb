@@ -249,7 +249,7 @@ impl NetworkState {
         let mut peer_store = self.peer_store.lock();
         let accept_peer_result = {
             self.peer_registry.write().accept_peer(
-                peer_id.clone(),
+                peer_id,
                 session_context.address.clone(),
                 session_context.id,
                 session_context.ty,
@@ -330,7 +330,7 @@ impl NetworkState {
         peer_id: &PeerId,
         address: Multiaddr,
     ) {
-        self.dial_identify(p2p_control, peer_id, address.clone());
+        self.dial_identify(p2p_control, peer_id, address);
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -869,7 +869,7 @@ impl NetworkService {
                 ProtocolHandle::Both(Box::new(PingHandler::new(
                     ping_interval,
                     ping_timeout,
-                    ping_sender.clone(),
+                    ping_sender,
                 )))
             })
             .build();
@@ -908,7 +908,7 @@ impl NetworkService {
                 )
             })
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
+                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
             })
             .build();
 
@@ -1212,7 +1212,7 @@ impl NetworkController {
             .with_peer_registry(|reg| reg.peers().values().cloned().collect::<Vec<_>>());
         peers
             .into_iter()
-            .map(|peer| (peer.peer_id.clone(), peer.clone()))
+            .map(|peer| (peer.peer_id.clone(), peer))
             .collect()
     }
 
@@ -1253,13 +1253,13 @@ impl NetworkController {
 
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids.clone());
+        let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids.clone());
+        let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
     }
 

@@ -585,10 +585,10 @@ impl ChainSpec {
         .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
         let cell_deps = vec![
             packed::CellDep::new_builder()
-                .out_point(secp_data_out_point.clone())
+                .out_point(secp_data_out_point)
                 .build(),
             packed::CellDep::new_builder()
-                .out_point(secp_blake160_out_point.clone())
+                .out_point(secp_blake160_out_point)
                 .build(),
         ];
         let tx = TransactionBuilder::default()

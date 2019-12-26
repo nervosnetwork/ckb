@@ -522,7 +522,7 @@ impl HeaderView {
                 }
             }
         }
-        Some(current.clone()).map(HeaderView::into_inner)
+        Some(current).map(HeaderView::into_inner)
     }
 
     pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
@@ -1236,7 +1236,7 @@ impl SyncSnapshot {
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
             self.state
-                .insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
+                .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
         } else {
             // Clear the newly inserted block from block_status_map.
             //
@@ -1248,7 +1248,7 @@ impl SyncSnapshot {
             self.state.remove_header_view(&block.as_ref().hash());
             self.state
                 .peers()
-                .set_last_common_header(peer, block.header().clone());
+                .set_last_common_header(peer, block.header());
         }
 
         Ok(ret?)

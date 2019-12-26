@@ -33,7 +33,7 @@ impl StatsRpc for StatsRpcImpl {
             (tip_header, median_time)
         };
         let epoch = tip_header.epoch();
-        let difficulty = tip_header.difficulty().clone();
+        let difficulty = tip_header.difficulty();
         let is_initial_block_download = self
             .synchronizer
             .shared

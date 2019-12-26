@@ -89,7 +89,7 @@ impl<'a> CompactBlockProcess<'a> {
         // Only accept blocks with a height greater than tip - N
         // where N is the current epoch length
 
-        let tip = snapshot.tip_header().clone();
+        let tip = snapshot.tip_header();
         let epoch_length = snapshot.epoch_ext().length();
         let lowest_number = tip.number().saturating_sub(epoch_length);
 
