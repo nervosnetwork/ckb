@@ -75,6 +75,8 @@ impl PeerStore {
         create_dir_all(&path)?;
         // dump file to temp dir
         let tmp_dir = tempfile::tempdir()?;
+        // make sure temp dir exists
+        create_dir_all(tmp_dir.path())?;
         let tmp_addr_manager = tmp_dir.path().join(DEFAULT_ADDR_MANAGER_DB);
         let tmp_ban_list = tmp_dir.path().join(DEFAULT_BAN_LIST_DB);
         self.addr_manager().dump(
