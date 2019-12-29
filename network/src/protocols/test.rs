@@ -291,20 +291,21 @@ fn test_identify_behavior() {
     let node2 = net_service_start("/test/2".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-
-    wait_connect_state(&node1, 0);
-    wait_connect_state(&node2, 0);
-
     node1.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node3, 1);
 
+    // identify will ban node when they are on the different net
     node2.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
+
+    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 0);
 
     let sessions = node3.connected_sessions();
     assert_eq!(sessions.len(), 1);
