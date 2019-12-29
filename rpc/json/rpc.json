@@ -1490,5 +1490,45 @@
                 "block": "new block"
             }
         ]
+    },
+    {
+        "description": "Subscribe to a topic, if successful it returns the subscription id. For each event that matches the subscription a notification with relevant data (JSON-formatted string) is send together with the subscription id. Example: {\"jsonrpc\":\"2.0\",\"method\":\"subscribe\",\"params\":{\"result\":\"...block header JSON-formatted string...\",\"subscription\":42}}",
+        "method": "subscribe",
+        "module": "subscription",
+        "params": [
+            "new_tip_header"
+        ],
+        "result": 42,
+        "types": [
+            {
+                "topic": "Subscription topic (enum: new_tip_header | new_tip_block)"
+            }
+        ],
+        "returns": [
+            {
+                "id": "Subscription id"
+            }
+        ],
+        "skip": true
+    },
+    {
+        "description": "unsubscribe from a subscribed topic",
+        "method": "unsubscribe",
+        "module": "subscription",
+        "params": [
+            42
+        ],
+        "result": true,
+        "types": [
+            {
+                "id": "Subscription id"
+            }
+        ],
+        "returns": [
+            {
+                "result": "Unsubscribe result"
+            }
+        ],
+        "skip": true
     }
 ]
