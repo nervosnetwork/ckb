@@ -17,6 +17,9 @@ unsafe impl Sync for RocksDBSnapshot {}
 unsafe impl Send for RocksDBSnapshot {}
 
 impl RocksDBSnapshot {
+    /// # Safety
+    ///
+    /// This function is unsafe because it take raw pointer as arguments
     pub unsafe fn new(
         db: &Arc<OptimisticTransactionDB>,
         ptr: *const ffi::rocksdb_snapshot_t,

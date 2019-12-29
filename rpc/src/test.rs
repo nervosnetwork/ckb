@@ -133,7 +133,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     };
     BlockBuilder::default()
         .transaction(cellbase)
-        .parent_hash(parent.hash().to_owned())
+        .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
@@ -266,7 +266,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
-            synchronizer: synchronizer.clone(),
+            synchronizer,
             alert_notifier,
         }
         .to_delegate(),
@@ -287,7 +287,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         MinerRpcImpl {
             shared: shared.clone(),
             chain: chain_controller.clone(),
-            network_controller: network_controller.clone(),
+            network_controller,
         }
         .to_delegate(),
     );
@@ -543,7 +543,7 @@ fn test_rpc() {
             } else {
                 expected.push((method.clone(), result_of(&client, &uri, &method, params)));
             }
-            actual.push((method.clone(), result));
+            actual.push((method, result));
         });
         if actual != expected {
             print_document(None, Some(&expected));

@@ -64,7 +64,7 @@ impl Spec for ChainContainsInvalidBlock {
 
         // good_node mine the next block
         good_node.generate_block();
-        let valid_hash = good_node.get_tip_block().header().hash().clone();
+        let valid_hash = good_node.get_tip_block().header().hash();
         let valid_number = invalid_number + 1;
 
         assert!(
@@ -118,7 +118,7 @@ impl Spec for ForkContainsInvalidBlock {
         good_node.generate_block();
         net.connect(&good_node);
         let (pi, _, _) = net.receive();
-        let headers: Vec<_> = bad_chain.iter().map(|b| b.header().clone()).collect();
+        let headers: Vec<_> = bad_chain.iter().map(|b| b.header()).collect();
         net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
         assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks",);
 

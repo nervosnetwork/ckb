@@ -116,7 +116,7 @@ impl Spec for FeeEstimate {
             txs.iter().all(|(tx, _)| {
                 node0
                     .rpc_client()
-                    .get_transaction(tx.hash().clone())
+                    .get_transaction(tx.hash())
                     .map(|r| r.tx_status.status == Status::Committed)
                     .unwrap_or(false)
             })

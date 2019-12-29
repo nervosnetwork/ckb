@@ -43,7 +43,7 @@ mod tests {
         let proposal3 = [3; 10].pack();
         let proposals1 = vec![proposal1.clone()].pack();
         let proposals2 = vec![proposal1.clone(), proposal2.clone()].pack();
-        let proposals3 = vec![proposal1.clone(), proposal2.clone(), proposal3.clone()].pack();
+        let proposals3 = vec![proposal1, proposal2, proposal3].pack();
         let uncle0 = packed::UncleBlock::new_builder().build();
         let uncle1 = packed::UncleBlock::new_builder()
             .proposals(proposals1)
@@ -60,12 +60,7 @@ mod tests {
             uncle0.clone(),
             uncle0.clone(),
         ];
-        let mut uncles = vec![
-            uncle0.clone(),
-            uncle1.clone(),
-            uncle2.clone(),
-            uncle3.clone(),
-        ];
+        let mut uncles = vec![uncle0, uncle1, uncle2, uncle3];
         loop {
             let block_with_empty_uncles = packed::Block::new_builder()
                 .uncles(empty_uncles.clone().pack())

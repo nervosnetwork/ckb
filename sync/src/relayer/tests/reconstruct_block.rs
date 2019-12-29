@@ -100,7 +100,7 @@ fn test_reconstruct_transactions_and_uncles() {
     let entries = pool_transactions
         .iter()
         .cloned()
-        .map(|tx| TxEntry::new(tx.clone(), 0, Capacity::shannons(0), 0, vec![]))
+        .map(|tx| TxEntry::new(tx, 0, Capacity::shannons(0), 0, vec![]))
         .collect();
     relayer
         .shared
@@ -120,7 +120,7 @@ fn test_reconstruct_transactions_and_uncles() {
         .reconstruct_block(
             &relayer.shared().snapshot(),
             &compact,
-            short_transactions.clone(),
+            short_transactions,
             &[],
             &[]
         )

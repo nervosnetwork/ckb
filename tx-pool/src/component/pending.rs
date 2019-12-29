@@ -193,7 +193,7 @@ mod tests {
             tx3.proposal_short_id(),
             tx1.proposal_short_id(),
         ];
-        assert_eq!(txs_sorted_by_fee_rate, expect_result.clone());
+        assert_eq!(txs_sorted_by_fee_rate, expect_result);
 
         let keys_sorted_by_fee_and_relation = pool
             .keys_sorted_by_fee_and_relation()

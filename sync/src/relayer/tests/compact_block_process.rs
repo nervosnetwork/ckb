@@ -49,7 +49,7 @@ fn test_in_block_status_map() {
         relayer
             .shared
             .state()
-            .insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
+            .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
     let r = compact_block_process.execute();
@@ -70,7 +70,7 @@ fn test_in_block_status_map() {
         relayer
             .shared
             .state()
-            .insert_block_status(block.header().hash().clone(), BlockStatus::BLOCK_STORED);
+            .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
     let r = compact_block_process.execute();
@@ -137,7 +137,7 @@ fn test_accept_not_a_better_block() {
     let (relayer, _) = build_chain(5);
     let header = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     // The timestamp is random, so it may be not a better block.
@@ -175,7 +175,7 @@ fn test_already_in_flight() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     // Better block
@@ -197,7 +197,7 @@ fn test_already_in_flight() {
 
     // Already in flight
     let mut in_flight_blocks = InflightBlocks::default();
-    in_flight_blocks.insert(peer_index, block.header().hash().clone());
+    in_flight_blocks.insert(peer_index, block.header().hash());
     *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
 
     let compact_block_process = CompactBlockProcess::new(
@@ -219,7 +219,7 @@ fn test_already_pending() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     // Better block
@@ -242,7 +242,7 @@ fn test_already_pending() {
     {
         let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().into_view().hash().clone(),
+            compact_block.header().into_view().hash(),
             (
                 compact_block.clone(),
                 HashMap::from_iter(vec![(1.into(), (vec![0], vec![]))]),
@@ -269,7 +269,7 @@ fn test_header_invalid() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     // Better block but block number is invalid
@@ -317,14 +317,14 @@ fn test_inflight_blocks_reach_limit() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
     // Better block including one missing transaction
     let block = BlockBuilder::default()
-        .header(header.clone())
+        .header(header)
         .transaction(TransactionBuilder::default().build())
         .transaction(
             TransactionBuilder::default()
@@ -350,7 +350,7 @@ fn test_inflight_blocks_reach_limit() {
     {
         let mut in_flight_blocks = InflightBlocks::default();
         for i in 0..=MAX_PEERS_PER_BLOCK {
-            in_flight_blocks.insert(i.into(), block.header().hash().clone());
+            in_flight_blocks.insert(i.into(), block.header().hash());
         }
         *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
     }
@@ -374,7 +374,7 @@ fn test_send_missing_indexes() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
@@ -385,7 +385,7 @@ fn test_send_missing_indexes() {
 
     // Better block including one missing transaction
     let block = BlockBuilder::default()
-        .header(header.clone())
+        .header(header)
         .transaction(TransactionBuilder::default().build())
         .transaction(
             TransactionBuilder::default()
@@ -397,7 +397,7 @@ fn test_send_missing_indexes() {
                 .output_data(Bytes::new().pack())
                 .build(),
         )
-        .uncle(uncle.clone().as_uncle())
+        .uncle(uncle.as_uncle())
         .proposal(proposal_id.clone())
         .build();
 
@@ -467,7 +467,7 @@ fn test_accept_block() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
@@ -478,7 +478,7 @@ fn test_accept_block() {
         .build();
 
     let block = BlockBuilder::default()
-        .header(header.clone())
+        .header(header)
         .transaction(TransactionBuilder::default().build())
         .uncle(uncle.clone().as_uncle())
         .build();
@@ -516,7 +516,7 @@ fn test_ignore_a_too_old_block() {
     let (relayer, _) = build_chain(1804);
 
     let snapshot = relayer.shared.snapshot();
-    let parent = snapshot.tip_header().clone();
+    let parent = snapshot.tip_header();
     let parent = snapshot.get_ancestor(&parent.hash(), 2).unwrap();
 
     let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
@@ -553,7 +553,7 @@ fn test_invalid_transaction_root() {
     let (relayer, _) = build_chain(5);
     let parent = {
         let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
+        snapshot.tip_header()
     };
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
@@ -608,7 +608,6 @@ fn test_collision() {
 
     let fake_hash = missing_tx
         .hash()
-        .clone()
         .as_builder()
         .nth31(0u8.into())
         .nth30(0u8.into())
@@ -623,11 +622,11 @@ fn test_collision() {
 
     let parent = {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
-        let entry = TxEntry::new(missing_tx.clone(), 0, Capacity::shannons(0), 0, vec![]);
+        let entry = TxEntry::new(missing_tx, 0, Capacity::shannons(0), 0, vec![]);
         tx_pool
             .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
-        relayer.shared.snapshot().tip_header().clone()
+        relayer.shared.snapshot().tip_header()
     };
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();

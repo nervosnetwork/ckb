@@ -40,7 +40,7 @@ impl TemplateTxSelect {
                     n as usize,
                 );
                 let hash = node.rpc_client().send_transaction(tx.data().into());
-                txs_hash.push(hash.clone());
+                txs_hash.push(hash);
             });
 
         // skip proposal window

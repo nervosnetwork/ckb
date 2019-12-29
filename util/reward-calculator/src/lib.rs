@@ -272,13 +272,13 @@ mod tests {
             .build()
             .as_uncle();
         let uncle2 = BlockBuilder::default()
-            .proposal(proposal2.clone())
-            .proposal(proposal3.clone())
+            .proposal(proposal2)
+            .proposal(proposal3)
             .build()
             .as_uncle();
 
         let block = BlockBuilder::default()
-            .proposal(proposal1.clone())
+            .proposal(proposal1)
             .uncles(vec![uncle1, uncle2])
             .build();
 
@@ -312,7 +312,7 @@ mod tests {
         ];
         let ext = BlockExt {
             received_at: block.timestamp(),
-            total_difficulty: block.difficulty().to_owned(),
+            total_difficulty: block.difficulty(),
             total_uncles_count: block.data().uncles().len() as u64,
             verified: Some(true),
             txs_fees: ext_tx_fees,
@@ -392,7 +392,7 @@ mod tests {
                     .parent_hash(block_10.hash())
                     .build(),
             )
-            .proposal(p2.clone())
+            .proposal(p2)
             .uncle(uncle)
             .build();
 
@@ -405,10 +405,7 @@ mod tests {
             )
             .build();
 
-        let uncle = BlockBuilder::default()
-            .proposal(p6.clone())
-            .build()
-            .as_uncle();
+        let uncle = BlockBuilder::default().proposal(p6).build().as_uncle();
         let block_13 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
@@ -416,7 +413,7 @@ mod tests {
                     .parent_hash(block_12.hash())
                     .build(),
             )
-            .proposals(vec![p1.clone(), p3.clone(), p4.clone(), p5.clone()])
+            .proposals(vec![p1, p3, p4.clone(), p5])
             .uncle(uncle)
             .build();
 
@@ -427,7 +424,7 @@ mod tests {
                     .parent_hash(block_13.hash())
                     .build(),
             )
-            .proposal(p4.clone())
+            .proposal(p4)
             .transaction(TransactionBuilder::default().build())
             .transactions(vec![tx1, tx2, tx3])
             .build();
@@ -440,7 +437,7 @@ mod tests {
                     .build(),
             )
             .transaction(TransactionBuilder::default().build())
-            .transaction(tx4.clone())
+            .transaction(tx4)
             .build();
         let block_16 = BlockBuilder::default()
             .header(
@@ -466,7 +463,7 @@ mod tests {
                     .build(),
             )
             .transaction(TransactionBuilder::default().build())
-            .transactions(vec![tx5.clone(), tx6.clone()])
+            .transactions(vec![tx5, tx6])
             .build();
 
         let ext_tx_fees_14 = vec![

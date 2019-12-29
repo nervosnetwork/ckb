@@ -45,7 +45,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         info!("Generate 20 block on node");
         node.generate_blocks(20);
 
-        let secp_out_point = OutPoint::new(node.dep_group_tx_hash().clone(), 1);
+        let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 1);
         let block = node.get_tip_block();
         let cellbase_hash = block.transactions()[0].hash();
 

@@ -518,9 +518,9 @@ mod tests {
         let tx1_id = tx1.transaction.proposal_short_id();
         let tx2_id = tx2.transaction.proposal_short_id();
         let tx3_id = tx3.transaction.proposal_short_id();
-        map.add_entry(tx1.clone()).unwrap();
-        map.add_entry(tx2.clone()).unwrap();
-        map.add_entry(tx3.clone()).unwrap();
+        map.add_entry(tx1).unwrap();
+        map.add_entry(tx2).unwrap();
+        map.add_entry(tx3).unwrap();
         let descendants_map = map.get_descendants(&tx1_id);
         assert!(descendants_map.contains(&tx2_id));
         assert!(descendants_map.contains(&tx3_id));

@@ -537,7 +537,7 @@ mod tests {
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
-        let transaction = TransactionBuilder::default().input(input.clone()).build();
+        let transaction = TransactionBuilder::default().input(input).build();
 
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
@@ -587,7 +587,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
+            .out_point(dep_out_point)
             .build();
 
         let script = Script::new_builder()
@@ -598,7 +598,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
+            .input(input)
             .cell_dep(cell_dep)
             .build();
 
@@ -667,7 +667,7 @@ mod tests {
         let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
+            .out_point(dep_out_point)
             .build();
 
         let script = Script::new_builder()
@@ -678,7 +678,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
+            .input(input)
             .cell_dep(cell_dep)
             .build();
 
@@ -737,7 +737,7 @@ mod tests {
         let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
             .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
+            .out_point(dep_out_point)
             .build();
 
         let dep_out_point2 = OutPoint::new(h256!("0x1234").pack(), 8);
@@ -758,7 +758,7 @@ mod tests {
             .build();
         let dep_cell2 = CellMetaBuilder::from_cell_output(output2, data)
             .transaction_info(default_transaction_info())
-            .out_point(dep_out_point2.clone())
+            .out_point(dep_out_point2)
             .build();
 
         let script = Script::new_builder()
@@ -769,7 +769,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
+            .input(input)
             .cell_dep(cell_dep)
             .cell_dep(cell_dep2)
             .build();
@@ -817,14 +817,12 @@ mod tests {
 
         let code_hash = blake2b_256(&buffer);
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
-        let cell_dep = CellDep::new_builder()
-            .out_point(dep_out_point.clone())
-            .build();
+        let cell_dep = CellDep::new_builder().out_point(dep_out_point).build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
+        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
             .build();
 
@@ -836,7 +834,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
+            .input(input)
             .cell_dep(cell_dep)
             .build();
 
@@ -844,7 +842,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -878,9 +876,7 @@ mod tests {
         args.extend(&to_hex_signature(&signature));
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
-        let cell_dep = CellDep::new_builder()
-            .out_point(dep_out_point.clone())
-            .build();
+        let cell_dep = CellDep::new_builder().out_point(dep_out_point).build();
 
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
@@ -890,7 +886,7 @@ mod tests {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
+            .input(input)
             .cell_dep(cell_dep)
             .build();
 
@@ -938,7 +934,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(always_success_script.clone())
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
         let always_success_cell = CellMetaBuilder::from_cell_output(
@@ -972,16 +968,16 @@ mod tests {
             let output = CellOutputBuilder::default()
                 .capacity(Capacity::bytes(data.len()).unwrap().pack())
                 .build();
-            CellMetaBuilder::from_cell_output(output.to_owned(), data)
+            CellMetaBuilder::from_cell_output(output, data)
                 .transaction_info(default_transaction_info())
-                .out_point(dep_out_point.clone())
+                .out_point(dep_out_point)
                 .build()
         };
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
-            .output(output.clone())
-            .output_data(output_data.clone().pack())
+            .input(input)
+            .output(output)
+            .output_data(output_data.pack())
             .cell_dep(cell_dep)
             .build();
 
@@ -1021,7 +1017,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(always_success_script.clone())
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
         let always_success_cell = CellMetaBuilder::from_cell_output(
@@ -1041,9 +1037,7 @@ mod tests {
             .build();
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
-        let cell_dep = CellDep::new_builder()
-            .out_point(dep_out_point.clone())
-            .build();
+        let cell_dep = CellDep::new_builder().out_point(dep_out_point).build();
         let dep_cell = {
             let dep_cell_data = Bytes::from(buffer);
             let output = CellOutputBuilder::default()
@@ -1055,8 +1049,8 @@ mod tests {
         };
 
         let transaction = TransactionBuilder::default()
-            .input(input.clone())
-            .output(output.clone())
+            .input(input)
+            .output(output)
             .output_data(Bytes::new().pack())
             .cell_dep(cell_dep)
             .build();
@@ -1109,7 +1103,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
+            .out_point(dep_out_point)
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1121,7 +1115,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
             .lock(script.clone())
-            .type_(Some(script.clone()).pack())
+            .type_(Some(script).pack())
             .build();
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
@@ -1166,7 +1160,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1180,13 +1174,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1226,7 +1220,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1240,13 +1234,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1297,7 +1291,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1311,13 +1305,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1351,7 +1345,7 @@ mod tests {
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let output_cell = CellOutputBuilder::default()
@@ -1370,13 +1364,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1430,7 +1424,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1444,13 +1438,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1510,7 +1504,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1524,13 +1518,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1578,7 +1572,7 @@ mod tests {
         let output_cell2 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script.clone()).pack())
+            .type_(Some(type_id_script).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -1593,13 +1587,13 @@ mod tests {
             .build();
 
         let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-            .out_point(input.previous_output().clone())
+            .out_point(input.previous_output())
             .build();
         let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
-        .out_point(always_success_out_point.clone())
+        .out_point(always_success_out_point)
         .build();
 
         let rtx = ResolvedTransaction {
@@ -1627,7 +1621,7 @@ mod tests {
         let secp_out_point = OutPoint::new(dep_group_tx_hash, 0);
 
         let cell_dep = CellDep::new_builder()
-            .out_point(secp_out_point.clone())
+            .out_point(secp_out_point)
             .dep_type(DepType::DepGroup.into())
             .build();
 
@@ -1643,13 +1637,13 @@ mod tests {
         let lock_arg2 = Bytes::from(&blake2b_256(&pubkey_data2)[0..20]);
 
         let lock = Script::new_builder()
-            .args(lock_arg.clone().pack())
+            .args(lock_arg.pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(ScriptHashType::Type.into())
             .build();
 
         let lock2 = Script::new_builder()
-            .args(lock_arg2.clone().pack())
+            .args(lock_arg2.pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(ScriptHashType::Type.into())
             .build();
@@ -1663,11 +1657,11 @@ mod tests {
             .lock(lock2.clone())
             .build();
         let tx = TransactionBuilder::default()
-            .cell_dep(cell_dep.clone())
+            .cell_dep(cell_dep)
             .input(input1.clone())
             .input(input2.clone())
-            .output(output1.clone())
-            .output(output2.clone())
+            .output(output1)
+            .output(output2)
             .output_data(Default::default())
             .output_data(Default::default())
             .build();
@@ -1727,40 +1721,37 @@ mod tests {
         let (secp256k1_blake160_cell, secp256k1_blake160_cell_data) =
             secp256k1_blake160_sighash_cell(consensus.clone());
 
-        let (secp256k1_data_cell, secp256k1_data_cell_data) =
-            secp256k1_data_cell(consensus.clone());
+        let (secp256k1_data_cell, secp256k1_data_cell_data) = secp256k1_data_cell(consensus);
 
         let input_cell1 = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
-            .lock(lock.clone())
+            .lock(lock)
             .build();
 
         let resolved_input_cell1 =
             CellMetaBuilder::from_cell_output(input_cell1, Default::default())
-                .out_point(input1.previous_output().clone())
+                .out_point(input1.previous_output())
                 .build();
 
         let input_cell2 = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
-            .lock(lock2.clone())
+            .lock(lock2)
             .build();
 
         let resolved_input_cell2 =
             CellMetaBuilder::from_cell_output(input_cell2, Default::default())
-                .out_point(input2.previous_output().clone())
+                .out_point(input2.previous_output())
                 .build();
 
         let resolved_secp256k1_blake160_cell = CellMetaBuilder::from_cell_output(
-            secp256k1_blake160_cell.clone(),
-            secp256k1_blake160_cell_data.to_owned(),
+            secp256k1_blake160_cell,
+            secp256k1_blake160_cell_data,
         )
         .build();
 
-        let resolved_secp_data_cell = CellMetaBuilder::from_cell_output(
-            secp256k1_data_cell.clone(),
-            secp256k1_data_cell_data.to_owned(),
-        )
-        .build();
+        let resolved_secp_data_cell =
+            CellMetaBuilder::from_cell_output(secp256k1_data_cell, secp256k1_data_cell_data)
+                .build();
 
         let rtx = ResolvedTransaction {
             transaction: tx,

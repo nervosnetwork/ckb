@@ -180,7 +180,7 @@ pub fn update_tx_pool_for_reorg(
     }
 
     for (cycles, size, tx) in entries {
-        let tx_hash = tx.hash().to_owned();
+        let tx_hash = tx.hash();
         if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,
@@ -197,7 +197,7 @@ pub fn update_tx_pool_for_reorg(
             "tx proposed, add to gap {}",
             tx.hash()
         );
-        let tx_hash = tx.hash().to_owned();
+        let tx_hash = tx.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,

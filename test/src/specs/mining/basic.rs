@@ -53,7 +53,6 @@ impl MiningBasic {
             .header(
                 block1
                     .header()
-                    .to_owned()
                     .as_advanced_builder()
                     .timestamp((block1.header().timestamp() + 1).pack())
                     .build(),

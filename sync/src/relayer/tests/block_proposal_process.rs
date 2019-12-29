@@ -15,10 +15,7 @@ fn test_no_unknown() {
 
     // known tx
     {
-        relayer
-            .shared
-            .state()
-            .mark_as_known_tx(transaction.hash().to_owned());
+        relayer.shared.state().mark_as_known_tx(transaction.hash());
     }
     let content = packed::BlockProposal::new_builder()
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())

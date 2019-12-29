@@ -67,10 +67,10 @@ fn main() {
     let mut workers = Workers::new(
         worker_count,
         Arc::clone(&specs),
-        notify_tx.clone(),
+        notify_tx,
         start_port,
         binary.to_string(),
-        vendor.clone(),
+        vendor,
     );
     workers.start();
 
