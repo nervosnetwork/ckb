@@ -550,4 +550,6 @@ fn test_rpc() {
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
         }
     }
+
+    server.close();
 }
