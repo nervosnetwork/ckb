@@ -875,7 +875,11 @@ dependencies = [
  "ckb-db 0.26.2-pre",
  "ckb-error 0.26.2-pre",
  "ckb-logger 0.26.2-pre",
+<<<<<<< HEAD
  "ckb-notify 0.26.2-pre",
+=======
+ "ckb-notify 0.26.1-pre",
+>>>>>>> chore: rebase with develop
  "ckb-proposal-table 0.26.2-pre",
  "ckb-snapshot 0.26.2-pre",
  "ckb-store 0.26.2-pre",
