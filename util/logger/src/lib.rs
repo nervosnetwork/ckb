@@ -163,22 +163,15 @@ impl Logger {
                         })
                 });
 
-                loop {
-                    match receiver.recv() {
-                        Ok(Message::Record(record)) => {
-                            let removed_color = sanitize_color(record.as_ref());
-                            let output = if color { record } else { removed_color.clone() };
-                            if let Some(mut file) = file.as_ref() {
-                                let _ = file.write_all(removed_color.as_bytes());
-                                let _ = file.write_all(b"\n");
-                            };
-                            if log_to_stdout {
-                                println!("{}", output);
-                            }
-                        }
-                        Ok(Message::Terminate) | Err(_) => {
-                            break;
-                        }
+                while let Ok(Message::Record(record)) = receiver.recv() {
+                    let removed_color = sanitize_color(record.as_ref());
+                    let output = if color { record } else { removed_color.clone() };
+                    if let Some(mut file) = file.as_ref() {
+                        let _ = file.write_all(removed_color.as_bytes());
+                        let _ = file.write_all(b"\n");
+                    };
+                    if log_to_stdout {
+                        println!("{}", output);
                     }
                 }
             })

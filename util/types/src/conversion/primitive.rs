@@ -149,6 +149,11 @@ impl<'r> packed::BytesReader<'r> {
         ::std::str::from_utf8(self.raw_data())
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe because it does not check that the bytes passed to
+    /// it are valid UTF-8. If this constraint is violated, undefined behavior
+    /// results, as the rest of Rust assumes that [`&str`]s are valid UTF-8.
     pub unsafe fn as_utf8_unchecked(&self) -> &str {
         ::std::str::from_utf8_unchecked(self.raw_data())
     }

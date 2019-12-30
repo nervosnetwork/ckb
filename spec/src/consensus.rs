@@ -818,7 +818,7 @@ pub mod test {
             .build();
         let genesis_epoch = consensus.genesis_epoch_ext();
 
-        let get_block_header = |_hash: &Byte32| Some(genesis.header().clone());
+        let get_block_header = |_hash: &Byte32| Some(genesis.header());
         let total_uncles_count = |_hash: &Byte32| Some(0);
         let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
 

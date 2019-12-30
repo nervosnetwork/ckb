@@ -151,56 +151,56 @@ fn _test_add(a: RationalU256, b: RationalU256, c: U256) {
     assert_eq!((&a + &b).into_u256(), c);
     assert_eq!((a.clone() + b.clone()).into_u256(), c);
     assert_eq!((a.clone() + &b).into_u256(), c);
-    assert_eq!((&a + b.clone()).into_u256(), c);
+    assert_eq!((&a + b).into_u256(), c);
 }
 
 fn _test_add_u256(a: RationalU256, b: U256, c: U256) {
     assert_eq!((&a + &b).into_u256(), c);
     assert_eq!((a.clone() + b.clone()).into_u256(), c);
     assert_eq!((a.clone() + &b).into_u256(), c);
-    assert_eq!((&a + b.clone()).into_u256(), c);
+    assert_eq!((&a + b).into_u256(), c);
 }
 
 fn _test_mul(a: RationalU256, b: RationalU256, c: U256) {
     assert_eq!((&a * &b).into_u256(), c);
     assert_eq!((a.clone() * b.clone()).into_u256(), c);
     assert_eq!((a.clone() * &b).into_u256(), c);
-    assert_eq!((&a * b.clone()).into_u256(), c);
+    assert_eq!((&a * b).into_u256(), c);
 }
 
 fn _test_mul_u256(a: RationalU256, b: U256, c: U256) {
     assert_eq!((&a * &b).into_u256(), c);
     assert_eq!((a.clone() * b.clone()).into_u256(), c);
     assert_eq!((a.clone() * &b).into_u256(), c);
-    assert_eq!((&a * b.clone()).into_u256(), c);
+    assert_eq!((&a * b).into_u256(), c);
 }
 
 fn _test_div(a: RationalU256, b: RationalU256, c: U256) {
     assert_eq!((&a / &b).into_u256(), c);
     assert_eq!((a.clone() / b.clone()).into_u256(), c);
     assert_eq!((a.clone() / &b).into_u256(), c);
-    assert_eq!((&a / b.clone()).into_u256(), c);
+    assert_eq!((&a / b).into_u256(), c);
 }
 
 fn _test_div_u256(a: RationalU256, b: U256, c: U256) {
     assert_eq!((&a / &b).into_u256(), c);
     assert_eq!((a.clone() / b.clone()).into_u256(), c);
     assert_eq!((a.clone() / &b).into_u256(), c);
-    assert_eq!((&a / b.clone()).into_u256(), c);
+    assert_eq!((&a / b).into_u256(), c);
 }
 
 fn _test_sub(a: RationalU256, b: RationalU256, c: U256) {
     assert_eq!((&a - &b).into_u256(), c);
     assert_eq!((a.clone() - b.clone()).into_u256(), c);
     assert_eq!((a.clone() - &b).into_u256(), c);
-    assert_eq!((&a - b.clone()).into_u256(), c);
+    assert_eq!((&a - b).into_u256(), c);
 }
 
 fn _test_sub_u256(a: RationalU256, b: U256, c: U256) {
     assert_eq!((&a - &b).into_u256(), c);
     assert_eq!((a.clone() - b.clone()).into_u256(), c);
     assert_eq!((a.clone() - &b).into_u256(), c);
-    assert_eq!((&a - b.clone()).into_u256(), c);
+    assert_eq!((&a - b).into_u256(), c);
 }
 
 fn _test_saturating_sub(a: RationalU256, b: RationalU256, c: U256) {
@@ -227,7 +227,7 @@ proptest! {
             RationalU256::new(c.clone(), d),
             r,
         );
-        _test_add_u256(RationalU256::new(a.clone(), b.clone()), c, e);
+        _test_add_u256(RationalU256::new(a, b), c, e);
     }
 }
 
@@ -247,7 +247,7 @@ proptest! {
             RationalU256::new(c.clone(), d),
             r,
         );
-        _test_mul_u256(RationalU256::new(a.clone(), b.clone()), c, e);
+        _test_mul_u256(RationalU256::new(a, b), c, e);
     }
 }
 
@@ -267,7 +267,7 @@ proptest! {
             RationalU256::new(c.clone(), d),
             r,
         );
-        _test_div_u256(RationalU256::new(a.clone(), b.clone()), c, e);
+        _test_div_u256(RationalU256::new(a, b), c, e);
     }
 }
 
@@ -289,7 +289,7 @@ proptest! {
                 RationalU256::new(c.clone(), d),
                 r,
             );
-            _test_sub_u256(RationalU256::new(a.clone(), b.clone()), c, e);
+            _test_sub_u256(RationalU256::new(a, b), c, e);
         }
     }
 }
@@ -310,6 +310,6 @@ proptest! {
             RationalU256::new(c.clone(), d),
             r,
         );
-        _test_saturating_sub_u256(RationalU256::new(a.clone(), b.clone()), c, e);
+        _test_saturating_sub_u256(RationalU256::new(a, b), c, e);
     }
 }

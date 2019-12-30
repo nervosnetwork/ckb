@@ -70,7 +70,7 @@ impl Spec for BlockSyncWithUncle {
 
         let new_builder = node1.new_block_builder(None, None, None);
         let new_block1 = new_builder.clone().nonce(0.pack()).build();
-        let new_block2 = new_builder.clone().nonce(1.pack()).build();
+        let new_block2 = new_builder.nonce(1.pack()).build();
 
         node1.submit_block(&new_block1);
         node1.submit_block(&new_block2);
@@ -83,12 +83,7 @@ impl Spec for BlockSyncWithUncle {
 
         let block_builder = node1.new_block_builder(None, None, None);
 
-        node1.submit_block(
-            &block_builder
-                .clone()
-                .set_uncles(vec![uncle.clone()])
-                .build(),
-        );
+        node1.submit_block(&block_builder.set_uncles(vec![uncle.clone()]).build());
 
         target.connect(node1);
         target.waiting_for_sync(node1, 3);
@@ -241,7 +236,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, peer_id, &block);
-        let hash = block.header().hash().clone();
+        let hash = block.header().hash();
         wait_until(10, || rpc_client.get_tip_header().hash == hash.unpack());
     }
 }

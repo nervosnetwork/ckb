@@ -92,7 +92,7 @@ pub(crate) fn gen_block(
         .unwrap_or(last_epoch);
 
     let block = BlockBuilder::default()
-        .parent_hash(parent_header.hash().to_owned())
+        .parent_hash(parent_header.hash())
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
         .compact_target(epoch.compact_target().pack())
@@ -266,7 +266,7 @@ fn finalize_reward() {
         &mock_store,
     );
 
-    parent = block.header().clone();
+    parent = block.header();
 
     chain_controller
         .process_block(Arc::new(block.clone()))
@@ -304,6 +304,6 @@ fn finalize_reward() {
     );
 
     chain_controller
-        .process_block(Arc::new(block.clone()))
+        .process_block(Arc::new(block))
         .expect("process block ok");
 }

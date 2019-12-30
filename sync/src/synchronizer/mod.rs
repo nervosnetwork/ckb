@@ -630,7 +630,7 @@ mod tests {
 
         BlockBuilder::default()
             .transaction(cellbase)
-            .parent_hash(parent_header.hash().to_owned())
+            .parent_hash(parent_header.hash())
             .timestamp(now.pack())
             .epoch(epoch.number_with_fraction(number).pack())
             .number(number.pack())
@@ -675,7 +675,7 @@ mod tests {
             insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
-        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller, shared.clone());
 
         let locator = synchronizer
             .shared
@@ -708,9 +708,9 @@ mod tests {
             insert_block(&chain_controller2, &shared2, u128::from(i + 1), i);
         }
 
-        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
+        let synchronizer1 = gen_synchronizer(chain_controller1, shared1.clone());
 
-        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
+        let synchronizer2 = gen_synchronizer(chain_controller2, shared2);
 
         let locator1 = synchronizer1
             .shared
@@ -731,7 +731,7 @@ mod tests {
             insert_block(&chain_controller3, &shared3, u128::from(j), i);
         }
 
-        let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
+        let synchronizer3 = gen_synchronizer(chain_controller3, shared3);
 
         let latest_common3 = synchronizer3
             .shared
@@ -748,7 +748,7 @@ mod tests {
         let block_number = 200;
 
         let mut blocks: Vec<BlockView> = Vec::new();
-        let mut parent = consensus.genesis_block().header().to_owned();
+        let mut parent = consensus.genesis_block().header();
 
         for i in 1..block_number {
             let snapshot = shared1.snapshot();
@@ -768,7 +768,7 @@ mod tests {
             parent = new_block.header().to_owned();
         }
 
-        parent = blocks[150].header().to_owned();
+        parent = blocks[150].header();
         let fork = parent.number();
         for i in 1..=block_number {
             let snapshot = shared2.snapshot();
@@ -784,8 +784,8 @@ mod tests {
             parent = new_block.header().to_owned();
         }
 
-        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
-        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
+        let synchronizer1 = gen_synchronizer(chain_controller1, shared1.clone());
+        let synchronizer2 = gen_synchronizer(chain_controller2, shared2.clone());
         let locator1 = synchronizer1
             .shared
             .snapshot()
@@ -821,7 +821,7 @@ mod tests {
             insert_block(&chain_controller, &shared, u128::from(i), i);
         }
 
-        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller, shared.clone());
 
         let header = synchronizer
             .shared
@@ -852,7 +852,7 @@ mod tests {
     fn test_process_new_block() {
         let consensus = Consensus::default();
         let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
-        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus));
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
 
@@ -875,7 +875,7 @@ mod tests {
             parent = new_block.header().to_owned();
             blocks.push(new_block);
         }
-        let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
+        let synchronizer = gen_synchronizer(chain_controller2, shared2.clone());
         let chain1_last_block = blocks.last().cloned().unwrap();
         blocks.into_iter().for_each(|block| {
             synchronizer
@@ -913,7 +913,7 @@ mod tests {
             parent = new_block.header().to_owned();
         }
 
-        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller, shared);
 
         let headers = synchronizer
             .shared
@@ -1056,14 +1056,14 @@ mod tests {
     fn test_sync_process() {
         let consensus = Consensus::default();
         let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
-        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus));
         let num = 200;
 
         for i in 1..num {
             insert_block(&chain_controller1, &shared1, u128::from(i), i);
         }
 
-        let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
+        let synchronizer1 = gen_synchronizer(chain_controller1, shared1.clone());
 
         let locator1 = synchronizer1
             .shared
@@ -1075,7 +1075,7 @@ mod tests {
             insert_block(&chain_controller2, &shared2, u128::from(j), i);
         }
 
-        let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
+        let synchronizer2 = gen_synchronizer(chain_controller2, shared2.clone());
         let latest_common = synchronizer2
             .shared
             .snapshot()
@@ -1155,7 +1155,7 @@ mod tests {
 
         let (chain_controller, shared) = start_chain(None);
 
-        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller, shared);
 
         let network_context = mock_network_context(5);
         faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
@@ -1213,7 +1213,7 @@ mod tests {
 
         assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
-        let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let synchronizer = gen_synchronizer(chain_controller, shared.clone());
 
         let network_context = mock_network_context(7);
         let peers = synchronizer.peers();

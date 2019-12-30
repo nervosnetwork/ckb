@@ -160,7 +160,7 @@ impl Spec for SendLargeCyclesTxToRelay {
 }
 
 fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView {
-    let secp_out_point = OutPoint::new(node.dep_group_tx_hash().clone(), 0);
+    let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
     let lock = Script::new_builder()
         .args(lock_arg.pack())
         .code_hash(type_lock_script_code_hash().pack())
@@ -177,12 +177,12 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
     };
     let output1 = CellOutput::new_builder()
         .capacity(capacity_bytes!(100).pack())
-        .lock(lock.clone())
+        .lock(lock)
         .build();
     let tx = TransactionBuilder::default()
-        .cell_dep(cell_dep.clone())
-        .input(input1.clone())
-        .output(output1.clone())
+        .cell_dep(cell_dep)
+        .input(input1)
+        .output(output1)
         .output_data(Default::default())
         .build();
     let tx_hash: H256 = tx.hash().unpack();

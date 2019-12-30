@@ -47,7 +47,7 @@ impl Spec for InsufficientReward {
             .as_advanced_builder()
             .output(output)
             .build();
-        let new_block = new_builder.clone().set_transactions(vec![cellbase]).build();
+        let new_block = new_builder.set_transactions(vec![cellbase]).build();
 
         let result = node
             .rpc_client()

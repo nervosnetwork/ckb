@@ -85,7 +85,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
 
     let (shared, table) = SharedBuilder::default()
-        .consensus(consensus.clone())
+        .consensus(consensus)
         .block_assembler_config(Some(block_assembler_config()))
         .tx_pool_config(tx_pool_config)
         .build()

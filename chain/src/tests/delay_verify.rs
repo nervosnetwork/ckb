@@ -20,7 +20,7 @@ fn test_dead_cell_in_same_block() {
 
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent, shared.consensus());
 
     for _ in 1..final_number {
         chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
@@ -32,14 +32,14 @@ fn test_dead_cell_in_same_block() {
 
     let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_transaction(&last_cellbase.hash(), 1);
-    let tx1_hash = tx1.hash().to_owned();
+    let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     let tx3 = create_transaction(&tx1_hash, 3);
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
     chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
-    chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
+    chain2.gen_block_with_commit_txs(txs, &mock_store, true);
 
     for _ in (switch_fork_number + 3)..final_number {
         chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
@@ -76,7 +76,7 @@ fn test_dead_cell_in_different_block() {
 
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent, shared.consensus());
 
     for _ in 1..final_number {
         chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
@@ -94,8 +94,8 @@ fn test_dead_cell_in_different_block() {
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
-    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
-    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, false);
+    chain2.gen_block_with_commit_txs(vec![tx1, tx2], &mock_store, false);
+    chain2.gen_block_with_commit_txs(vec![tx3], &mock_store, false);
     for _ in (switch_fork_number + 4)..final_number {
         chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
@@ -113,7 +113,7 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_error_eq!(
-        OutPointError::Dead(OutPoint::new(tx1_hash.to_owned(), 0)),
+        OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
             .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
@@ -131,7 +131,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent, shared.consensus());
 
     for _ in 1..final_number {
         chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
@@ -151,7 +151,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
     chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
-    chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
+    chain2.gen_block_with_commit_txs(txs, &mock_store, true);
     for _ in (switch_fork_number + 3)..final_number {
         chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
     }
@@ -187,7 +187,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent, shared.consensus());
 
     for _ in 1..final_number {
         chain1.gen_empty_block_with_inc_diff(100u64, &mock_store);
@@ -206,8 +206,8 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
-    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
-    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, true);
+    chain2.gen_block_with_commit_txs(vec![tx1, tx2], &mock_store, false);
+    chain2.gen_block_with_commit_txs(vec![tx3], &mock_store, true);
 
     for _ in (switch_fork_number + 4)..final_number {
         chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);
@@ -226,7 +226,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_error_eq!(
-        OutPointError::Unknown(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
+        OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
         chain_controller
             .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
@@ -260,7 +260,7 @@ fn test_full_dead_transaction() {
     let compact_target = parent.compact_target();
 
     let block = BlockBuilder::default()
-        .parent_hash(parent.hash().to_owned())
+        .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target((compact_target - 1).pack())
         .dao(dao)
@@ -273,7 +273,7 @@ fn test_full_dead_transaction() {
     let root_tx = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_multi_outputs_transaction(&root_tx, vec![0], 1, vec![1]);
 
-    parent = block.header().to_owned();
+    parent = block.header();
     for i in 2..switch_fork_number {
         let compact_target = parent.compact_target();
         let new_block = if i == proposal_number {
@@ -286,7 +286,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -306,7 +306,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -322,7 +322,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -350,7 +350,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -371,7 +371,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -388,7 +388,7 @@ fn test_full_dead_transaction() {
             );
 
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -400,7 +400,7 @@ fn test_full_dead_transaction() {
         parent = new_block.header().to_owned();
     }
 
-    parent = chain2.last().unwrap().header().clone();
+    parent = chain2.last().unwrap().header();
     for i in switch_fork_number..final_number {
         let compact_target = parent.compact_target();
         let new_block = if i == final_number - 3 {
@@ -413,7 +413,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -434,7 +434,7 @@ fn test_full_dead_transaction() {
                 false,
             );
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)
@@ -451,7 +451,7 @@ fn test_full_dead_transaction() {
             );
 
             BlockBuilder::default()
-                .parent_hash(parent.hash().to_owned())
+                .parent_hash(parent.hash())
                 .number((parent.number() + 1).pack())
                 .compact_target((compact_target - 1).pack())
                 .dao(dao)

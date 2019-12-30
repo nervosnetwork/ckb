@@ -105,7 +105,7 @@ impl Spec for TransactionRelayMultiple {
         net.waiting_for_sync(node0.get_tip_block_number());
 
         info!("Send multiple transactions to node0");
-        let tx_hash = transaction.hash().to_owned();
+        let tx_hash = transaction.hash();
         transaction
             .outputs()
             .into_iter()
@@ -120,7 +120,7 @@ impl Spec for TransactionRelayMultiple {
                             .unwrap()
                             .to_entity(),
                     )
-                    .output(output.clone())
+                    .output(output)
                     .input(CellInput::new(OutPoint::new(tx_hash.clone(), i as u32), 0))
                     .output_data(Default::default())
                     .build();

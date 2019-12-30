@@ -45,7 +45,7 @@ fn test_accept_block() {
         .build();
 
     let block = BlockBuilder::default()
-        .transactions(vec![tx1.clone(), tx2.clone()])
+        .transactions(vec![tx1, tx2.clone()])
         .uncle(uncle.clone().as_uncle())
         .build();
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
@@ -70,7 +70,7 @@ fn test_accept_block() {
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .transactions(vec![tx2.data()].pack())
-        .uncles(vec![uncle.clone().as_uncle().data()].pack())
+        .uncles(vec![uncle.as_uncle().data()].pack())
         .build();
 
     let mock_protocal_context = MockProtocalContext::default();
@@ -113,7 +113,7 @@ fn test_unknown_request() {
         .build();
 
     let block = BlockBuilder::default()
-        .transactions(vec![tx1.clone(), tx2.clone()])
+        .transactions(vec![tx1, tx2.clone()])
         .build();
 
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
@@ -199,7 +199,7 @@ fn test_invalid_transaction_root() {
     }
 
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
-        .block_hash(block_hash.clone())
+        .block_hash(block_hash)
         .transactions(vec![tx2.data()].pack())
         .build();
 
@@ -251,7 +251,6 @@ fn test_collision_and_send_missing_indexes() {
 
     let fake_hash = tx3
         .hash()
-        .clone()
         .as_builder()
         .nth31(0u8.into())
         .nth30(0u8.into())
@@ -265,7 +264,7 @@ fn test_collision_and_send_missing_indexes() {
     assert_ne!(tx3.hash(), fake_tx.hash());
 
     let block = BlockBuilder::default()
-        .transactions(vec![tx1.clone(), tx2.clone(), fake_tx])
+        .transactions(vec![tx1, tx2.clone(), fake_tx])
         .build_unchecked();
 
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
@@ -385,7 +384,7 @@ fn test_missing() {
         .build();
 
     let block = BlockBuilder::default()
-        .transactions(vec![tx1.clone(), tx2.clone(), tx3.clone()])
+        .transactions(vec![tx1, tx2.clone(), tx3])
         .build();
 
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());

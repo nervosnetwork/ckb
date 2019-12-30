@@ -173,7 +173,7 @@ impl Node {
         let node_id = node_info.node_id;
         let rpc_client = self.rpc_client();
         rpc_client.add_node(
-            node_id.clone(),
+            node_id,
             format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
     }
@@ -474,8 +474,8 @@ impl Node {
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) {
-        let rpc_port = format!("{}", self.rpc_port).to_string();
-        let p2p_port = format!("{}", self.p2p_port).to_string();
+        let rpc_port = format!("{}", self.rpc_port);
+        let p2p_port = format!("{}", self.p2p_port);
 
         let init_output = Command::new(self.binary.to_owned())
             .args(&[

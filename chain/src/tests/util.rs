@@ -258,7 +258,7 @@ impl<'a> MockChain<'a> {
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(epoch.compact_target().pack())
             .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
@@ -276,7 +276,7 @@ impl<'a> MockChain<'a> {
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
             .dao(dao)
@@ -293,7 +293,7 @@ impl<'a> MockChain<'a> {
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(difficulty + U256::from(inc)).pack())
             .dao(dao)
@@ -319,7 +319,7 @@ impl<'a> MockChain<'a> {
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(epoch.compact_target().pack())
             .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
@@ -347,7 +347,7 @@ impl<'a> MockChain<'a> {
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(epoch.compact_target().pack())
             .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
@@ -387,7 +387,7 @@ impl<'a> MockChain<'a> {
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()
-            .parent_hash(parent.hash().to_owned())
+            .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(epoch.compact_target().pack())
             .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
@@ -410,7 +410,7 @@ impl<'a> MockChain<'a> {
     }
 
     pub fn difficulty(&self) -> U256 {
-        self.tip_header().difficulty().to_owned()
+        self.tip_header().difficulty()
     }
 
     pub fn blocks(&self) -> &Vec<BlockView> {

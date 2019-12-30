@@ -41,7 +41,7 @@ impl Spec for PoolReconcile {
         info!("Tx should be re-added to node0's pool");
         assert!(node0
             .rpc_client()
-            .get_transaction(hash.clone())
+            .get_transaction(hash)
             .unwrap()
             .tx_status
             .block_hash

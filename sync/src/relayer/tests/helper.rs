@@ -51,7 +51,7 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
         .next_epoch_ext(snapshot.consensus(), &parent_epoch, parent)
         .unwrap_or(parent_epoch);
     HeaderBuilder::default()
-        .parent_hash(parent_hash.to_owned())
+        .parent_hash(parent_hash)
         .number((parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())

@@ -116,7 +116,7 @@ impl Spec for IndexerBasic {
         assert_eq!(0, cell_transactions.len());
 
         info!("The block number and hash of index status should be same as tip when gives a higher index from");
-        let index_state = rpc_client.index_lock_hash(lock_hash.clone(), Some(100));
+        let index_state = rpc_client.index_lock_hash(lock_hash, Some(100));
         let tip_header = rpc_client.get_tip_header();
         assert_eq!(index_state.block_number, tip_header.inner.number);
         assert_eq!(index_state.block_hash, tip_header.hash);

@@ -40,10 +40,10 @@ pub fn generate_blocks(
 ) {
     let snapshot = shared.snapshot();
     let parent_number = snapshot.tip_number();
-    let mut parent_hash = snapshot.tip_header().hash().clone();
+    let mut parent_hash = snapshot.tip_header().hash();
     for _ in parent_number..target_tip {
         let block = inherit_block(shared, &parent_hash).build();
-        parent_hash = block.header().hash().to_owned();
+        parent_hash = block.header().hash();
         chain_controller
             .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
@@ -64,7 +64,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
     };
     let dao = {
         let resolved_cellbase = resolve_transaction(
-            cellbase.clone(),
+            cellbase,
             &mut HashSet::new(),
             snapshot.as_ref(),
             snapshot.as_ref(),

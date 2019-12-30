@@ -14,7 +14,7 @@ use std::sync::Arc;
 fn test_insert_new_block() {
     let (shared, chain) = build_chain(2);
     let new_block = {
-        let tip_hash = shared.snapshot().tip_header().hash().to_owned();
+        let tip_hash = shared.snapshot().tip_header().hash();
         let next_block = inherit_block(shared.shared(), &tip_hash).build();
         Arc::new(next_block)
     };
@@ -85,7 +85,7 @@ fn test_insert_parent_unknown_block() {
     let invalid_orphan = {
         let invalid_orphan = block
             .as_advanced_builder()
-            .header(block.header().clone())
+            .header(block.header())
             .number(1000.pack())
             .build();
 
@@ -145,7 +145,7 @@ fn test_insert_parent_unknown_block() {
 fn test_switch_invalid_fork() {
     let (shared, chain) = build_chain(4);
     let make_invalid_block = |shared, parent_hash| -> BlockView {
-        let header = inherit_block(shared, &parent_hash).build().header().clone();
+        let header = inherit_block(shared, &parent_hash).build().header();
         let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
         let invalid_transaction = TransactionBuilder::default().build();
         BlockBuilder::default()
@@ -170,7 +170,7 @@ fn test_switch_invalid_fork() {
             true,
         );
 
-        parent_hash = block.header().hash().to_owned();
+        parent_hash = block.header().hash();
         invalid_fork.push(block);
     }
     for block in invalid_fork.iter() {
@@ -190,7 +190,7 @@ fn test_switch_invalid_fork() {
         {
             break;
         }
-        parent_hash = block.header().hash().to_owned();
+        parent_hash = block.header().hash();
         invalid_fork.push(block);
     }
     // TODO Current implementation dose not write the `block_ext.verified = Some(false)` into
@@ -212,7 +212,7 @@ fn test_switch_invalid_fork() {
 fn test_switch_valid_fork() {
     let (shared, chain) = build_chain(4);
     let make_valid_block = |shared, parent_hash| -> BlockView {
-        let header = inherit_block(shared, &parent_hash).build().header().clone();
+        let header = inherit_block(shared, &parent_hash).build().header();
         let timestamp = header.timestamp() + 3;
         let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
         BlockBuilder::default()
@@ -245,7 +245,7 @@ fn test_switch_valid_fork() {
             true,
         );
 
-        parent_hash = block.header().hash().to_owned();
+        parent_hash = block.header().hash();
         valid_fork.push(block);
     }
     for block in valid_fork.iter() {
@@ -267,7 +267,7 @@ fn test_switch_valid_fork() {
             true,
         );
 
-        parent_hash = block.header().hash().to_owned();
+        parent_hash = block.header().hash();
         valid_fork.push(block);
     }
     for block in valid_fork.iter() {

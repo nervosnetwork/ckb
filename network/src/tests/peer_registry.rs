@@ -32,8 +32,8 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 
     peers
         .accept_peer(
-            whitelist_peer.clone(),
-            addr.clone(),
+            whitelist_peer,
+            addr,
             session_id,
             SessionType::Inbound,
             &mut peer_store,
@@ -98,7 +98,7 @@ fn test_accept_inbound_peer_until_full() {
     let err = peers
         .accept_peer(
             whitelist_peer.clone(),
-            addr.clone(),
+            addr,
             6.into(),
             SessionType::Inbound,
             &mut peer_store,
@@ -106,10 +106,7 @@ fn test_accept_inbound_peer_until_full() {
         .unwrap_err();
     assert_eq!(
         format!("{}", err),
-        format!(
-            "{}",
-            Error::Peer(PeerError::PeerIdExists(whitelist_peer.clone()))
-        ),
+        format!("{}", Error::Peer(PeerError::PeerIdExists(whitelist_peer))),
     );
 }
 
@@ -123,7 +120,7 @@ fn test_accept_inbound_peer_eviction() {
     let mut peer_store = PeerStore::default();
     let whitelist_peer = PeerId::random();
     let evict_target = PeerId::random();
-    let mut evict_targets = vec![evict_target.to_owned()];
+    let mut evict_targets = vec![evict_target];
     let addr1 = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     let addr2 = "/ip4/192.168.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     // prepare protected peers
@@ -133,7 +130,7 @@ fn test_accept_inbound_peer_eviction() {
         (protected_peers_count) as u32,
         3,
         false,
-        vec![whitelist_peer.clone()],
+        vec![whitelist_peer],
     );
     // prepare all peers
     for session_id in 0..protected_peers_count {
@@ -204,7 +201,7 @@ fn test_accept_inbound_peer_eviction() {
     peers_registry
         .accept_peer(
             PeerId::random(),
-            addr1.clone(),
+            addr1,
             2000.into(),
             SessionType::Inbound,
             &mut peer_store,

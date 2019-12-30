@@ -261,7 +261,7 @@ mod tests {
         assert!(record.pubkey != pub2);
 
         let ipv6: IpAddr = "2001:0dc5:72a3:0000:0000:802e:3370:73E4".parse().unwrap();
-        let record = SeedRecord::new(ipv6, port, peer_id.clone(), valid_until, pub1);
+        let record = SeedRecord::new(ipv6, port, peer_id, valid_until, pub1);
         assert!(record.check().is_ok());
     }
 }

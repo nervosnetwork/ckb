@@ -483,7 +483,7 @@ mod tests {
             mem_cell_data: Some((data, data_hash)),
         };
         let outputs = vec![];
-        let resolved_inputs = vec![input_cell.clone()];
+        let resolved_inputs = vec![input_cell];
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
@@ -599,12 +599,12 @@ mod tests {
         let header_correct_data = header_correct_bytes.as_slice();
 
         let mut headers = HashMap::default();
-        headers.insert(header.hash().clone(), header.clone());
+        headers.insert(header.hash(), header.clone());
         let data_loader = MockDataLoader {
             headers,
             epochs: HashMap::default(),
         };
-        let header_deps = vec![header.hash().clone()];
+        let header_deps = vec![header.hash()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
@@ -677,11 +677,11 @@ mod tests {
         LittleEndian::write_u64(&mut correct_data, epoch.number());
 
         let mut headers = HashMap::default();
-        headers.insert(header.hash().clone(), header.clone());
+        headers.insert(header.hash(), header.clone());
         let mut epochs = HashMap::default();
-        epochs.insert(header.hash().clone(), epoch.clone());
+        epochs.insert(header.hash(), epoch);
         let data_loader = MockDataLoader { headers, epochs };
-        let header_deps = vec![header.hash().clone()];
+        let header_deps = vec![header.hash()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
@@ -891,7 +891,7 @@ mod tests {
             .build();
         input_cell.cell_output = output_with_lock;
         let outputs = vec![];
-        let resolved_inputs = vec![input_cell.clone()];
+        let resolved_inputs = vec![input_cell];
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
@@ -942,7 +942,7 @@ mod tests {
 
         let witness_correct_data = witness.raw_data();
 
-        let witnesses = vec![witness.clone()];
+        let witnesses = vec![witness];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);
@@ -998,7 +998,7 @@ mod tests {
         let witness_correct_data = witness.raw_data();
 
         let dummy_witness = Bytes::default().pack();
-        let witnesses = vec![dummy_witness, witness.clone()];
+        let witnesses = vec![dummy_witness, witness];
         let group_inputs = vec![1];
         let group_outputs = vec![1];
         let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs, &group_outputs);

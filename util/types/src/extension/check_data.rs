@@ -171,12 +171,12 @@ mod tests {
             .type_(script_opt_error.clone())
             .build();
         let output_error3 = packed::CellOutput::new_builder()
-            .lock(script_right.clone())
-            .type_(script_opt_error.clone())
+            .lock(script_right)
+            .type_(script_opt_error)
             .build();
         let output_error4 = packed::CellOutput::new_builder()
-            .lock(script_error.clone())
-            .type_(script_opt_right.clone())
+            .lock(script_error)
+            .type_(script_opt_right)
             .build();
 
         let cell_dep_right = packed::CellDep::new_builder().dep_type(dt_right).build();

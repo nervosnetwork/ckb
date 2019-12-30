@@ -1294,7 +1294,7 @@ mod tests {
 
             let mut view = HeaderView::new(header, U256::zero());
             view.build_skip(|hash| header_map.get(hash).cloned());
-            header_map.insert(view.hash().clone(), view);
+            header_map.insert(view.hash(), view);
         }
 
         for (number, hash) in &hashes {
