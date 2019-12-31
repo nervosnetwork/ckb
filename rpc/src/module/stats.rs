@@ -45,8 +45,8 @@ impl StatsRpc for StatsRpcImpl {
             notifier.clear_expired_alerts(now);
             notifier
                 .noticed_alerts()
-                .iter()
-                .map(|alert| AlertMessage::from(alert.as_ref().to_owned()))
+                .into_iter()
+                .map(Into::into)
                 .collect()
         };
 

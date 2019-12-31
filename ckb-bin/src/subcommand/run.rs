@@ -30,6 +30,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
+        .notify_config(args.config.notify)
         .store_config(args.config.store)
         .block_assembler_config(block_assembler_config)
         .build()
@@ -64,10 +65,9 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     );
     let net_timer = NetTimeProtocol::default();
     let alert_signature_config = args.config.alert_signature.unwrap_or_default();
-    let alert_notifier_config = args.config.alert_notifier.unwrap_or_default();
     let alert_relayer = AlertRelayer::new(
         version.to_string(),
-        alert_notifier_config,
+        shared.notify_controller().clone(),
         alert_signature_config,
     );
 

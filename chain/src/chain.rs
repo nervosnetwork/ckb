@@ -385,6 +385,10 @@ impl ChainService {
                     error!("notify new_uncle error {}", e);
                 }
             }
+            let block_ref: &BlockView = &block;
+            self.shared
+                .notify_controller()
+                .notify_new_block(block_ref.clone());
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }

@@ -1,10 +1,8 @@
-use crate::config::NotifierConfig;
-use ckb_logger::{debug, error, info, warn};
-use ckb_types::{packed, prelude::*};
+use ckb_logger::debug;
+use ckb_notify::NotifyController;
+use ckb_types::{packed::Alert, prelude::*};
 use lru_cache::LruCache;
 use std::collections::HashMap;
-use std::process::Command;
-use std::sync::Arc;
 
 const CANCEL_FILTER_SIZE: usize = 128;
 
@@ -12,25 +10,25 @@ pub struct Notifier {
     /// cancelled alerts
     cancel_filter: LruCache<u32, ()>,
     /// alerts we received
-    received_alerts: HashMap<u32, Arc<packed::Alert>>,
+    received_alerts: HashMap<u32, Alert>,
     /// alerts that self node should notice
-    noticed_alerts: Vec<Arc<packed::Alert>>,
+    noticed_alerts: Vec<Alert>,
     client_version: String,
-    config: NotifierConfig,
+    notify_controller: NotifyController,
 }
 
 impl Notifier {
-    pub fn new(client_version: String, config: NotifierConfig) -> Self {
+    pub fn new(client_version: String, notify_controller: NotifyController) -> Self {
         Notifier {
             cancel_filter: LruCache::new(CANCEL_FILTER_SIZE),
             received_alerts: Default::default(),
             noticed_alerts: Vec::new(),
             client_version,
-            config,
+            notify_controller,
         }
     }
 
-    fn is_version_effective(&self, alert: &Arc<packed::Alert>) -> bool {
+    fn is_version_effective(&self, alert: &Alert) -> bool {
         use semver::Version;
         if let Ok(client_version) = Version::parse(&self.client_version) {
             let test_min_ver_failed = alert
@@ -67,7 +65,7 @@ impl Notifier {
         true
     }
 
-    pub fn add(&mut self, alert: Arc<packed::Alert>) {
+    pub fn add(&mut self, alert: &Alert) {
         let alert_id = alert.raw().id().unpack();
         let alert_cancel = alert.raw().cancel().unpack();
         if self.has_received(alert_id) {
@@ -78,7 +76,7 @@ impl Notifier {
             self.cancel(alert_cancel);
         }
         // add to received alerts
-        self.received_alerts.insert(alert_id, Arc::clone(&alert));
+        self.received_alerts.insert(alert_id, alert.clone());
 
         // check conditions, figure out do we need to notice this alert
         if !self.is_version_effective(&alert) {
@@ -86,31 +84,16 @@ impl Notifier {
             return;
         }
 
-        if self.noticed_alerts.contains(&alert) {
+        if self.noticed_alerts.contains(alert) {
             return;
         }
-        self.notify(&alert);
-        self.noticed_alerts.push(alert);
+        self.notify_controller.notify_network_alert(alert.clone());
+        self.noticed_alerts.push(alert.clone());
         // sort by priority
         self.noticed_alerts.sort_by_key(|a| {
             let priority: u32 = a.raw().priority().unpack();
             std::u32::MAX - priority
         });
-    }
-
-    fn notify(&self, alert: &packed::Alert) {
-        let message = unsafe { alert.as_reader().raw().message().as_utf8_unchecked() }.to_owned();
-        warn!("receive a new alert: {}", message);
-        if let Some(notify_script) = self.config.notify_script.as_ref() {
-            match Command::new(notify_script).args(&[message]).status() {
-                Ok(exit_status) => {
-                    info!("send alert to notify script. {}", exit_status);
-                }
-                Err(err) => {
-                    error!("failed to run notify script: {}", err);
-                }
-            }
-        }
     }
 
     pub fn cancel(&mut self, cancel_id: u32) {
@@ -138,12 +121,12 @@ impl Notifier {
     }
 
     // all unexpired alerts
-    pub fn received_alerts(&self) -> Vec<Arc<packed::Alert>> {
+    pub fn received_alerts(&self) -> Vec<Alert> {
         self.received_alerts.values().cloned().collect()
     }
 
     // alerts that self node should noticed
-    pub fn noticed_alerts(&self) -> Vec<Arc<packed::Alert>> {
+    pub fn noticed_alerts(&self) -> Vec<Alert> {
         self.noticed_alerts.clone()
     }
 }

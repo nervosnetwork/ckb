@@ -60,6 +60,7 @@ members = [
     "ckb-bin",
     "benches",
     "error",
+    "notify",
 ]
 
 [profile.release]
