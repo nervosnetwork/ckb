@@ -156,7 +156,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     pub fn maximum_withdraw(
         &self,
         out_point: &OutPoint,
-        withdraw_header_hash: &Byte32,
+        withdrawing_header_hash: &Byte32,
     ) -> Result<Capacity, Error> {
         let (tx, block_hash) = self
             .store
@@ -174,7 +174,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             &output,
             Capacity::bytes(output_data.len())?,
             &block_hash,
-            withdraw_header_hash,
+            withdrawing_header_hash,
         )
     }
 
@@ -259,7 +259,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                         .unwrap_or(false)
                         && is_withdrawing_input(&cell_meta)
                     {
-                        let withdraw_header_hash = cell_meta
+                        let withdrawing_header_hash = cell_meta
                             .transaction_info
                             .as_ref()
                             .map(|info| &info.block_hash)
@@ -299,7 +299,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             &output,
                             Capacity::bytes(cell_meta.data_bytes as usize)?,
                             &deposit_header_hash,
-                            &withdraw_header_hash,
+                            &withdrawing_header_hash,
                         )
                     } else {
                         Ok(output.capacity().unpack())
@@ -315,28 +315,28 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         output: &CellOutput,
         output_data_capacity: Capacity,
         deposit_header_hash: &Byte32,
-        withdraw_header_hash: &Byte32,
+        withdrawing_header_hash: &Byte32,
     ) -> Result<Capacity, Error> {
         let deposit_header = self
             .store
             .get_block_header(deposit_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
-        let withdraw_header = self
+        let withdrawing_header = self
             .store
-            .get_block_header(withdraw_header_hash)
+            .get_block_header(withdrawing_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
-        if deposit_header.number() >= withdraw_header.number() {
+        if deposit_header.number() >= withdrawing_header.number() {
             return Err(DaoError::InvalidOutPoint.into());
         }
 
         let (deposit_ar, _, _, _) = extract_dao_data(deposit_header.dao())?;
-        let (withdraw_ar, _, _, _) = extract_dao_data(withdraw_header.dao())?;
+        let (withdrawing_ar, _, _, _) = extract_dao_data(withdrawing_header.dao())?;
 
         let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
         let output_capacity: Capacity = output.capacity().unpack();
         let counted_capacity = output_capacity.safe_sub(occupied_capacity)?;
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
-            * u128::from(withdraw_ar)
+            * u128::from(withdrawing_ar)
             / u128::from(deposit_ar);
         let withdraw_capacity =
             Capacity::shannons(withdraw_counted_capacity as u64).safe_add(occupied_capacity)?;
@@ -611,7 +611,7 @@ mod tests {
 
         let out_point = OutPoint::new(tx.hash(), 0);
 
-        let withdraw_header = HeaderBuilder::default()
+        let withdrawing_header = HeaderBuilder::default()
             .number(200.pack())
             .dao(pack_dao_data(
                 10_000_000_001_123_456,
@@ -620,19 +620,19 @@ mod tests {
                 Default::default(),
             ))
             .build();
-        let withdraw_block = BlockBuilder::default().header(withdraw_header).build();
+        let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
         let store = new_store();
         let txn = store.begin_transaction();
         txn.insert_block(&deposit_block).unwrap();
         txn.attach_block(&deposit_block).unwrap();
-        txn.insert_block(&withdraw_block).unwrap();
-        txn.attach_block(&withdraw_block).unwrap();
+        txn.insert_block(&withdrawing_block).unwrap();
+        txn.attach_block(&withdrawing_block).unwrap();
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
         let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdraw_block.hash());
+        let result = calculator.maximum_withdraw(&out_point, &withdrawing_block.hash());
         assert_eq!(result.unwrap(), Capacity::shannons(100_000_000_009_999));
     }
 
@@ -658,7 +658,7 @@ mod tests {
 
         let out_point = OutPoint::new(tx.hash(), 0);
 
-        let withdraw_header = HeaderBuilder::default()
+        let withdrawing_header = HeaderBuilder::default()
             .number(200.pack())
             .dao(pack_dao_data(
                 10_000_000_001_123_456,
@@ -667,21 +667,21 @@ mod tests {
                 Default::default(),
             ))
             .build();
-        let withdraw_block = BlockBuilder::default()
-            .header(withdraw_header.clone())
+        let withdrawing_block = BlockBuilder::default()
+            .header(withdrawing_header.clone())
             .build();
 
         let store = new_store();
         let txn = store.begin_transaction();
         txn.insert_block(&deposit_block).unwrap();
         txn.attach_block(&deposit_block).unwrap();
-        txn.insert_block(&withdraw_block).unwrap();
-        txn.attach_block(&withdraw_block).unwrap();
+        txn.insert_block(&withdrawing_block).unwrap();
+        txn.attach_block(&withdrawing_block).unwrap();
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
         let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdraw_header.hash());
+        let result = calculator.maximum_withdraw(&out_point, &withdrawing_header.hash());
         assert!(result.is_err());
     }
 }
