@@ -41,8 +41,7 @@ use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use rand::{thread_rng, Rng};
 use reqwest;
-use serde::ser::Serialize;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -425,7 +424,9 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         }
         "get_transaction" => vec![transaction_hash],
         "index_lock_hash" => vec![json!(always_success_script_hash), json!("0x400")],
-        "deindex_lock_hash" => vec![json!(always_success_script_hash)],
+        "deindex_lock_hash" | "get_capacity_by_lock_hash" => {
+            vec![json!(always_success_script_hash)]
+        }
         "_compute_code_hash" => vec![json!("0x123456")],
         "_compute_script_hash" => {
             let script = always_success_script.clone();

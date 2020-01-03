@@ -1,6 +1,6 @@
 use crate::migrations;
 use crate::types::{
-    CellTransaction, IndexerConfig, LiveCell, LockHashCellOutput, LockHashIndex,
+    CellTransaction, IndexerConfig, LiveCell, LockHashCapacity, LockHashCellOutput, LockHashIndex,
     LockHashIndexState, TransactionPoint,
 };
 use ckb_db::{
@@ -11,7 +11,7 @@ use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{self, BlockNumber},
+    core::{self, BlockNumber, Capacity},
     packed::{self, Byte32, LiveCellOutput, OutPoint},
     prelude::*,
 };
@@ -53,6 +53,8 @@ pub trait IndexerStore: Sync + Send {
         take_num: usize,
         reverse_order: bool,
     ) -> Vec<CellTransaction>;
+
+    fn get_capacity(&self, lock_hash: &Byte32) -> Option<LockHashCapacity>;
 
     fn get_lock_hash_index_states(&self) -> HashMap<Byte32, LockHashIndexState>;
 
@@ -169,6 +171,50 @@ impl IndexerStore for DefaultIndexerStore {
                 )
             })
             .collect()
+    }
+
+    fn get_capacity(&self, lock_hash: &Byte32) -> Option<LockHashCapacity> {
+        let snapshot = self.db.get_snapshot();
+        let from_key = lock_hash.as_slice();
+        let iter = snapshot
+            .iter(
+                COLUMN_LOCK_HASH_LIVE_CELL,
+                IteratorMode::From(from_key, Direction::Forward),
+            )
+            .expect("indexer db snapshot iter should be ok");
+        snapshot
+            .get_pinned(COLUMN_LOCK_HASH_INDEX_STATE, lock_hash.as_slice())
+            .expect("indexer db snapshot get should be ok")
+            .map(|value| {
+                let index_state = LockHashIndexState::from_packed(
+                    packed::LockHashIndexStateReader::from_slice(&value)
+                        .expect("verify LockHashIndexState in storage should be ok"),
+                );
+
+                let (capacity, cells_count) =
+                    iter.take_while(|(key, _)| key.starts_with(from_key)).fold(
+                        (Capacity::zero(), 0),
+                        |(capacity, cells_count), (_key, value)| {
+                            let cell_output_capacity: Capacity = LiveCellOutput::from_slice(&value)
+                                .expect("verify LiveCellOutput in storage should be ok")
+                                .cell_output()
+                                .capacity()
+                                .unpack();
+                            (
+                                capacity
+                                    .safe_add(cell_output_capacity)
+                                    .expect("capacity should not overflow"),
+                                cells_count + 1,
+                            )
+                        },
+                    );
+
+                LockHashCapacity {
+                    capacity,
+                    cells_count,
+                    block_number: index_state.block_number,
+                }
+            })
     }
 
     fn insert_lock_hash(
@@ -852,6 +898,11 @@ mod tests {
             capacity_bytes!(1000),
             cells[1].cell_output.capacity().unpack()
         );
+        // test get_capacity
+        let lock_hash_capacity = store.get_capacity(&script1.calc_script_hash()).unwrap();
+        assert_eq!(capacity_bytes!(4000), lock_hash_capacity.capacity);
+        assert_eq!(2, lock_hash_capacity.cells_count);
+        assert_eq!(2, lock_hash_capacity.block_number);
 
         let cells = store.get_live_cells(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cells.len());
@@ -888,6 +939,7 @@ mod tests {
         assert_eq!(0, cells.len());
         let cells = store.get_live_cells(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
+        assert!(store.get_capacity(&script1.calc_script_hash()).is_none());
     }
 
     #[test]

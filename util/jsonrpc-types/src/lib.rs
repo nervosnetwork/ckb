@@ -30,7 +30,9 @@ pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::fixed_bytes::Byte32;
-pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
+pub use self::indexer::{
+    CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
+};
 pub use self::net::{BannedAddr, Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
@@ -42,4 +44,4 @@ pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
     BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, FeeRate, Timestamp, Version,
 };
-pub use serde_derive::{Deserialize, Serialize};
+pub use serde::{Deserialize, Serialize};

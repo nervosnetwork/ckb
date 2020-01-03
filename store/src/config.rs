@@ -1,4 +1,4 @@
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct StoreConfig {

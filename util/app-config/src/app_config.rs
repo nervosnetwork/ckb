@@ -8,7 +8,7 @@ use path_clean::PathClean;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;

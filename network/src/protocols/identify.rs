@@ -5,14 +5,15 @@ use ckb_types::{bytes::Bytes, packed, prelude::*};
 use p2p::{
     context::ProtocolContextMutRef,
     multiaddr::{Multiaddr, Protocol},
-    secio::PeerId,
+    secio::{PeerId, PublicKey},
     service::{SessionType, TargetProtocol},
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 const MAX_RETURN_LISTEN_ADDRS: usize = 10;
+const BAN_ON_NOT_SAME_NET: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub(crate) struct IdentifyCallback {
@@ -56,7 +57,15 @@ impl Callback for IdentifyCallback {
         identify: &[u8],
     ) -> MisbehaveResult {
         match self.identify.verify(identify) {
-            None => MisbehaveResult::Disconnect,
+            None => {
+                self.network_state.ban_session(
+                    context.control(),
+                    context.session.id,
+                    BAN_ON_NOT_SAME_NET,
+                    "The nodes are not on the same network".to_string(),
+                );
+                MisbehaveResult::Disconnect
+            }
             Some((flags, client_version)) => {
                 let registry_client_version = |version: String| {
                     self.network_state.with_peer_registry_mut(|registry| {
@@ -69,7 +78,21 @@ impl Callback for IdentifyCallback {
                 };
 
                 if context.session.ty.is_outbound() {
-                    if flags.contains(self.identify.flags) {
+                    let peer_id = context
+                        .session
+                        .remote_pubkey
+                        .as_ref()
+                        .map(PublicKey::peer_id)
+                        .expect("Secio must enabled");
+                    if self
+                        .network_state
+                        .with_peer_registry(|reg| reg.is_feeler(&peer_id))
+                    {
+                        let _ = context.open_protocols(
+                            context.session.id,
+                            TargetProtocol::Single(FEELER_PROTOCOL_ID.into()),
+                        );
+                    } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
 
                         // The remote end can support all local protocols.

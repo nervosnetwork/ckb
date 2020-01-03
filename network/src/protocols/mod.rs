@@ -55,6 +55,7 @@ pub trait CKBProtocolContext: Send {
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     // Interact with NetworkState
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
+    fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
     fn connected_peers(&self) -> Vec<PeerIndex>;
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
@@ -357,6 +358,12 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         self.network_state
             .with_peer_registry(|reg| reg.get_peer(peer_index).cloned())
     }
+    fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            reg.get_peer_mut(peer_index).map(f);
+        })
+    }
+
     fn connected_peers(&self) -> Vec<PeerIndex> {
         self.network_state
             .with_peer_registry(PeerRegistry::connected_peers)

@@ -3,7 +3,7 @@ use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::core::Cycle;
 use ckb_types::H256;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);

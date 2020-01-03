@@ -9,11 +9,7 @@ pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_PROF: &str = "prof";
 pub const CMD_STATS: &str = "stats";
-pub const CMD_CLI: &str = "cli";
-pub const CMD_HASHES: &str = "hashes";
-pub const CMD_BLAKE256: &str = "blake256";
-pub const CMD_BLAKE160: &str = "blake160";
-pub const CMD_SECP256K1_LOCK: &str = "secp256k1-lock";
+pub const CMD_LIST_HASHES: &str = "list-hashes";
 pub const CMD_RESET_DATA: &str = "reset-data";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
@@ -66,7 +62,7 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(miner())
         .subcommand(export())
         .subcommand(import())
-        .subcommand(cli())
+        .subcommand(list_hashes())
         .subcommand(init())
         .subcommand(prof())
         .subcommand(stats())
@@ -212,18 +208,8 @@ fn import() -> App<'static, 'static> {
         )
 }
 
-fn cli() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_CLI)
-        .about("CLI tools")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(cli_hashes())
-        .subcommand(cli_blake256())
-        .subcommand(cli_blake160())
-        .subcommand(cli_secp256k1_lock())
-}
-
-fn cli_hashes() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_HASHES)
+fn list_hashes() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_LIST_HASHES)
         .about("Lists well known hashes")
         .arg(
             Arg::with_name(ARG_BUNDLED)
@@ -232,51 +218,6 @@ fn cli_hashes() -> App<'static, 'static> {
                 .help(
                     "Lists hashes of the bundled chain specs instead of the current effective one.",
                 ),
-        )
-}
-
-fn arg_hex_data() -> Arg<'static, 'static> {
-    Arg::with_name(ARG_DATA)
-        .short("d")
-        .long(ARG_DATA)
-        .value_name("hex")
-        .required(true)
-        .index(1)
-        .help("The data encoded in hex.")
-}
-
-fn cli_blake256() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_BLAKE256)
-        .about("Hashes data using blake2b with CKB personal option, prints first 256 bits.")
-        .arg(arg_hex_data())
-}
-
-fn cli_blake160() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_BLAKE160)
-        .about("Hashes data using blake2b with CKB personal option, prints first 160 bits.")
-        .arg(arg_hex_data())
-}
-
-fn cli_secp256k1_lock() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_SECP256K1_LOCK)
-        .about("Prints lock args from secp256k1 pubkey")
-        .arg(
-            Arg::with_name(ARG_DATA)
-                .short("d")
-                .long(ARG_DATA)
-                .required(true)
-                .index(1)
-                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compressed 33 bytes"),
-        )
-        .arg(
-            Arg::with_name(ARG_FORMAT)
-                .long(ARG_FORMAT)
-                .short("s")
-                .possible_values(&["toml", "cmd"])
-                .default_value("toml")
-                .required(true)
-                .takes_value(true)
-                .help("Output format. toml: ckb.toml, cmd: command line options for `ckb init`"),
         )
 }
 

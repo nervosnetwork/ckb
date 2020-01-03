@@ -1,5 +1,5 @@
 use ckb_jsonrpc_types::JsonBytes;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignatureConfig {

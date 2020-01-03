@@ -1,14 +1,18 @@
 parameters:
   rustup_toolchain: ''
 steps:
+- powershell: Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+  displayName: Install scoop
 - script: |
-    choco install -y llvm
-    set "PATH=%PATH%;C:\Program Files\LLVM\bin"
-    echo "##vso[task.setvariable variable=PATH;]%PATH%;C:\Program Files\LLVM\bin"
+    set PATH=%PATH%;%USERPROFILE%\scoop\shims
+    echo "##vso[task.setvariable variable=PATH;]%PATH%;%USERPROFILE%\scoop\shims"
+    scoop help
+  displayName: Add scoop to path
+- script: scoop install llvm
   displayName: Install LLVM
-- script: choco install -y msys2
+- script: scoop install msys2
   displayName: Install msys2
-- script: choco install --allow-empty-checksums -y yasm
+- script: scoop install yasm
   displayName: Install yasm
 - script: |
     curl -sSf -o rustup-init.exe https://win.rustup.rs

@@ -3,7 +3,7 @@ use ckb_types::{
     packed::{Byte32, Header},
     prelude::*,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt;
 use std::sync::Arc;

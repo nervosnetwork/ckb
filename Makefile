@@ -65,7 +65,7 @@ gen-rpc-doc:  ## Generate rpc documentation
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
-	cargo run cli hashes -b > docs/hashes.toml
+	cargo run list-hashes -b > docs/hashes.toml
 
 ##@ Building
 .PHONY: check
@@ -142,6 +142,10 @@ check-whitespaces:
 .PHONY: check-dirty-rpc-doc
 check-dirty-rpc-doc: gen-rpc-doc
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
+
+.PHONY: check-dirty-hashes-toml
+check-dirty-hashes-toml: gen-hashes
+	git diff --exit-code docs/hashes.toml
 
 ##@ Generates Files
 .PHONY: gen

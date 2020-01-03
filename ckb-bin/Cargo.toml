@@ -1,14 +1,13 @@
 [package]
 name = "ckb-bin"
-version = "0.26.0"
+version = "0.26.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
 clap = { version = "2" }
-serde = "1.0"
-serde_derive = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_plain = "0.3.0"
 toml = "0.5"
 crossbeam-channel = "0.3"
@@ -28,10 +27,7 @@ ckb-resource = { path = "../resource"}
 ckb-network-alert = { path = "../util/network-alert" }
 ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "../sync"}
-ckb-crypto = { path = "../util/crypto"}
 ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
-ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
 ckb-verification = { path = "../verification" }
-faster-hex = "0.4"
 base64 = "0.10.1"

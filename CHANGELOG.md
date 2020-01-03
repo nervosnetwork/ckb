@@ -1,3 +1,31 @@
+# [v0.26.1](https://github.com/nervosnetwork/ckb/compare/v0.26.0...v0.26.1) (2019-12-30)
+
+### Features
+
+* #1875 **P2P:** Move feeler behind identify (@driftluo)
+
+    after this pr, all protocol will open after `identify` open, avoid feeler interacting with different networks and compatible with older versions
+
+* #1888: Add `get_capacity_by_lock_hash` RPC (@quake)
+
+
+### Bug Fixes
+
+* #1874 **P2P:** Remove duplicate p2p phase in discovery protocol (@jjyr)
+
+    * Consider space-efficient, we do not store p2p phase of multiaddr in peer store.
+    * Reattach the p2p phase when we send multiaddr to other nodes.
+
+* #1859 **P2P:** Fix lost sync/relayer protocol registration (@driftluo)
+
+    fix lost sync/relayer protocol registration
+
+* #1873 **P2P:** Ban peer that are not on the same network (@driftluo)
+
+    If it cannot be parser, ban it, only two possibilities:
+    1. message format error（molecule）
+    2. not on same net
+
 # [v0.26.0](https://github.com/nervosnetwork/ckb/compare/v0.25.2...v0.26.0) (2019-12-13)
 
 ### Features

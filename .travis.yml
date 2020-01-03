@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.26.0
+    - CKB_CLI_VERSION=v0.26.1
 
 addons:
   apt:
@@ -84,6 +84,7 @@ matrix:
         - make check-cargotoml
         - make check-whitespaces
         - make check-dirty-rpc-doc
+        - make check-dirty-hashes-toml
     - name: Security Audit
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux

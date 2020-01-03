@@ -34,6 +34,7 @@ CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via N
     *   [`get_lock_hash_index_states`](#get_lock_hash_index_states)
     *   [`get_live_cells_by_lock_hash`](#get_live_cells_by_lock_hash)
     *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
+    *   [`get_capacity_by_lock_hash`](#get_capacity_by_lock_hash)
     *   [`deindex_lock_hash`](#deindex_lock_hash)
 *   [`Miner`](#miner)
     *   [`get_block_template`](#get_block_template)
@@ -1517,6 +1518,47 @@ http://localhost:8114
 }
 ```
 
+### `get_capacity_by_lock_hash`
+
+Returns the total capacity by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+#### Returns
+
+    capacity - Total capacity
+    cells_count - Total cells
+    block_number - At which block capacity was calculated
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_capacity_by_lock_hash",
+    "params": [
+        "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_number": "0x400",
+        "capacity": "0xb00fb84df292",
+        "cells_count": "0x3f5"
+    }
+}
+```
+
 ### `deindex_lock_hash`
 
 Remove index for live cells and transactions by the hash of lock script.
@@ -1903,19 +1945,11 @@ http://localhost:8114
 
 ### `send_transaction`
 
-Send new transaction into transaction pool
-
-If <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.
+Send new transaction into transaction pool.
 
 #### Parameters
 
-    transaction - The transaction object
-    version - Transaction version
-    cell_deps - Cell dependencies
-    header_deps - Header dependencies
-    inputs - Transaction inputs
-    outputs - Transaction outputs
-    witnesses - Witnesses
+    transaction - The transaction object, struct reference: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0019-data-structures/0019-data-structures.md#Transaction
 
 #### Examples
 
