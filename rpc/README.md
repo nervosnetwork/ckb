@@ -2132,7 +2132,7 @@ http://localhost:8114
 
 ### `subscribe`
 
-Subscribe to a topic, if successful it returns the subscription id. For each event that matches the subscription a notification with relevant data (JSON-formatted string) is send together with the subscription id. Example: {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header JSON-formatted string...","subscription":42}}
+Subscribe to a topic, if successful it returns the subscription id. For each event that matches the subscription a notification with relevant data (JSON-formatted string) is send together with the subscription id. Example: {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header JSON-formatted string...","subscription":"0x2a"}}
 
 #### Parameters
 
@@ -2161,7 +2161,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": 42
+    "result": "0x2a"
 }
 ```
 
@@ -2184,7 +2184,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "unsubscribe",
     "params": [
-        42
+        "0x2a"
     ]
 }' \
 | tr -d '\n' \
