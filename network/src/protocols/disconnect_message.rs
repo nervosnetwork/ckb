@@ -1,4 +1,4 @@
-use ckb_logger::debug;
+use ckb_logger::{debug, info};
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
@@ -13,7 +13,7 @@ impl ServiceProtocol for DisconnectMessageProtocol {
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
         let session_id = context.session.id;
         if let Ok(message) = String::from_utf8(data.to_vec()) {
-            debug!(
+            info!(
                 "Received disconnect message from peer={}: {}",
                 session_id, message
             );
