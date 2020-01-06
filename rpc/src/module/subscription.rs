@@ -72,8 +72,10 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 
     fn subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<String>, topic: Topic) {
         if let Some(session) = meta {
-            let id =
-                SubscriptionId::String(format!("{:#x}", self.id_generator.fetch_add(1, Ordering::SeqCst)));
+            let id = SubscriptionId::String(format!(
+                "{:#x}",
+                self.id_generator.fetch_add(1, Ordering::SeqCst)
+            ));
             if let Ok(sink) = subscriber.assign_id(id.clone()) {
                 let mut subscribers = self
                     .subscribers
