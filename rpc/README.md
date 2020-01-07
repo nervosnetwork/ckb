@@ -8,6 +8,8 @@ Allowing arbitrary machines to access the JSON-RPC port (using the `rpc.listen_a
 
 CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via Nginx or other HTTP servers.
 
+Subscriptions require a full duplex connection. CKB offers such connections in the form of tcp (enable with `rpc.tcp_listen_address` configuration option) and websockets (enable with `rpc.ws_listen_address`).
+
 
 *   [`Chain`](#chain)
     *   [`get_tip_block_number`](#get_tip_block_number)
@@ -50,6 +52,9 @@ CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via N
 *   [`Stats`](#stats)
     *   [`get_blockchain_info`](#get_blockchain_info)
     *   [`get_peers_state`](#get_peers_state)
+*   [`Subscription`](#subscription)
+    *   [`subscribe`](#subscribe)
+    *   [`unsubscribe`](#unsubscribe)
 
 ## Chain
 
@@ -2120,5 +2125,77 @@ http://localhost:8114
             "peer": "0x1"
         }
     ]
+}
+```
+
+## Subscription
+
+### `subscribe`
+
+Subscribe to a topic, if successful it returns the subscription id. For each event that matches the subscription a notification with relevant data (JSON-formatted string) is send together with the subscription id. Example: {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header JSON-formatted string...","subscription":"0x2a"}}
+
+#### Parameters
+
+    topic - Subscription topic (enum: new_tip_header | new_tip_block)
+#### Returns
+
+    id - Subscription id
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "subscribe",
+    "params": [
+        "new_tip_header"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0x2a"
+}
+```
+
+### `unsubscribe`
+
+unsubscribe from a subscribed topic
+
+#### Parameters
+
+    id - Subscription id
+#### Returns
+
+    result - Unsubscribe result
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "unsubscribe",
+    "params": [
+        "0x2a"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": true
 }
 ```

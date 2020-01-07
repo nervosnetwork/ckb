@@ -137,10 +137,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer, shared);
+        .enable_indexer(&args.config.indexer, shared.clone());
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(args.config.rpc, io_handler);
+    let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
     wait_for_exit(exit_condvar);
 

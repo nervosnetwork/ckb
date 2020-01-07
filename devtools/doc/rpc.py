@@ -126,6 +126,8 @@ def main():
     print("Allowing arbitrary machines to access the JSON-RPC port (using the `rpc.listen_address` configuration option) is **dangerous and strongly discouraged**. Please strictly limit the access to only trusted machines.")
     newline(1)
     print("CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via Nginx or other HTTP servers.")
+    newline(1)
+    print("Subscriptions require a full duplex connection. CKB offers such connections in the form of tcp (enable with `rpc.tcp_listen_address` configuration option) and websockets (enable with `rpc.ws_listen_address`).")
     newline(2)
 
     print_toc(cases)

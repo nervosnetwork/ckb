@@ -11,6 +11,7 @@ pub enum Module {
     Indexer,
     IntegrationTest,
     Alert,
+    Subscription,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -48,6 +49,10 @@ impl Config {
 
     pub fn stats_enable(&self) -> bool {
         self.modules.contains(&Module::Stats)
+    }
+
+    pub fn subscription_enable(&self) -> bool {
+        self.modules.contains(&Module::Subscription)
     }
 
     pub fn indexer_enable(&self) -> bool {
