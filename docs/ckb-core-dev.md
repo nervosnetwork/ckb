@@ -67,5 +67,5 @@ value       = 5000
 ### Schema Compiler and  Code Generator For Serialization
 
 ```
-cargo install moleculec
+cargo install moleculec --locked
 ```
