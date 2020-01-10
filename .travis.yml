@@ -46,7 +46,6 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}"
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
-  prerelease: true
   overwrite: true
   on:
     tags: true
