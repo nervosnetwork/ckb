@@ -1,3 +1,40 @@
+# [v0.27.0](https://github.com/nervosnetwork/ckb/compare/v0.26.1...v0.27.0) (2020-01-10)
+
+### Features
+
+* #1882: Add tcp and websocket to rpc service (@quake). This is required for #1867.
+* #1890 **spec:** Configurable block bytes limit (@zhangsoledad)
+
+    Provide `max_block_bytes` option supports configurable block bytes limit.
+
+* #1891: Notify service (@quake)
+
+    This PR resolve #1860 and refactor network alert script notification by adding a notify service, and it's required to implement #1867.
+
+    **configuration  file breaking change**
+
+    ```diff
+    -# [alert_notifier]
+    -# # Script will be notified when node received an alert, first arg is alert message string.
+    -# notify_script = "echo"
+    +# [notifier]
+    +# # Execute command when the new tip block changes, first arg is block struct in json format string.
+    +# new_block_notify_script = "your_new_block_notify_script.sh"
+    +# # Execute command when node received an network alert, first arg is alert message string.
+    +# network_alert_notify_script = "your_network_alert_notify_script.sh"
+    ```
+### Bug Fixes
+
+* #1889: `get_cell_meta` should return None if output index does not exist (@jjyr)
+* #1895: Fix peer store saving failed due to temp dir does not exist (@jjyr)
+* #1899 **tests:** Rpc server should explicit close (@zhangsoledad)
+
+### Improvements
+
+* #1894: Reduce useless clone / to_owned use (@driftluo)
+
+    Reduce useless clone / to_owned use
+
 # [v0.26.1](https://github.com/nervosnetwork/ckb/compare/v0.26.0...v0.26.1) (2019-12-30)
 
 ### Features
