@@ -60,7 +60,7 @@ impl<'a> BlockProcess<'a> {
         } else if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
             state
                 .peers()
-                .set_last_common_header(self.peer, block.header().clone());
+                .set_last_common_header(self.peer, block.header());
         }
 
         Ok(())

@@ -13,8 +13,3 @@ impl Default for SignatureConfig {
         toml::from_slice(&alert_config[..]).expect("alert system config")
     }
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct NotifierConfig {
-    pub notify_script: Option<String>,
-}

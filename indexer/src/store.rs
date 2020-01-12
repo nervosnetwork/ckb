@@ -361,7 +361,7 @@ impl DefaultIndexerStore {
                     }
                     let index_state = LockHashIndexState {
                         block_number: block.header().number() - 1,
-                        block_hash: block.header().parent_hash().to_owned(),
+                        block_hash: block.header().parent_hash(),
                     };
                     txn.insert_lock_hash_index_state(lock_hash, &index_state);
                 });
@@ -822,13 +822,13 @@ mod tests {
             .build();
 
         let block2 = BlockBuilder::default()
-            .transaction(tx21.clone())
-            .transaction(tx22.clone())
+            .transaction(tx21)
+            .transaction(tx22)
             .header(
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -856,13 +856,13 @@ mod tests {
             .build();
 
         let block2_fork = BlockBuilder::default()
-            .transaction(tx31.clone())
-            .transaction(tx32.clone())
+            .transaction(tx31)
+            .transaction(tx32)
             .header(
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -1016,7 +1016,7 @@ mod tests {
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -1050,7 +1050,7 @@ mod tests {
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -1183,7 +1183,7 @@ mod tests {
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(4u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -1216,7 +1216,7 @@ mod tests {
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(20u64)).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.header().hash())
                     .build(),
             )
             .build();
@@ -1228,7 +1228,7 @@ mod tests {
                 HeaderBuilder::default()
                     .compact_target(difficulty_to_compact(U256::from(22u64)).pack())
                     .number(3.pack())
-                    .parent_hash(block2_fork.header().hash().to_owned())
+                    .parent_hash(block2_fork.header().hash())
                     .build(),
             )
             .build();

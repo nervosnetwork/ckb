@@ -47,7 +47,7 @@ impl Spec for SizeLimit {
         });
 
         info!("The next tx reach size limit");
-        let tx = node.new_transaction(hash.clone());
+        let tx = node.new_transaction(hash);
         assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
 
         node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
@@ -110,7 +110,7 @@ impl Spec for CyclesLimit {
         });
 
         info!("The next tx reach cycles limit");
-        let tx = node.new_transaction(hash.clone());
+        let tx = node.new_transaction(hash);
         assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
 
         node.assert_tx_pool_cycles(max_tx_num * one_tx_cycles);

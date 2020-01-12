@@ -154,7 +154,7 @@ fn net_service_start(name: String) -> Node {
             ProtocolHandle::Both(Box::new(PingHandler::new(
                 ping_interval,
                 ping_timeout,
-                ping_sender.clone(),
+                ping_sender,
             )))
         })
         .build();
@@ -165,7 +165,7 @@ fn net_service_start(name: String) -> Node {
         .id(DISCOVERY_PROTOCOL_ID.into())
         .service_handle(move || {
             ProtocolHandle::Both(Box::new(
-                DiscoveryProtocol::new(disc_sender.clone()).global_ip_only(false),
+                DiscoveryProtocol::new(disc_sender).global_ip_only(false),
             ))
         })
         .build();
@@ -176,7 +176,7 @@ fn net_service_start(name: String) -> Node {
     let identify_meta = MetaBuilder::default()
         .id(IDENTIFY_PROTOCOL_ID.into())
         .service_handle(move || {
-            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback.clone())))
+            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
         })
         .build();
 
@@ -291,20 +291,21 @@ fn test_identify_behavior() {
     let node2 = net_service_start("/test/2".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-
-    wait_connect_state(&node1, 0);
-    wait_connect_state(&node2, 0);
-
     node1.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node3, 1);
 
+    // identify will ban node when they are on the different net
     node2.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
+
+    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 0);
 
     let sessions = node3.connected_sessions();
     assert_eq!(sessions.len(), 1);
@@ -373,7 +374,7 @@ fn test_discovery_behavior() {
             .lock()
             .fetch_addrs_to_attempt(2)
             .into_iter()
-            .map(|peer| peer.addr.clone())
+            .map(|peer| peer.addr)
             .find(|addr| {
                 match (
                     multiaddr_to_socketaddr(&addr),

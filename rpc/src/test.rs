@@ -13,6 +13,7 @@ use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
 };
+use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -133,7 +134,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     };
     BlockBuilder::default()
         .transaction(cellbase)
-        .parent_hash(parent.hash().to_owned())
+        .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
@@ -221,28 +222,28 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
         indexer_store
     };
+
+    let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
     let alert_notifier = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
-            Default::default(),
+            notify_controller,
             AlertSignatureConfig::default(),
         );
         let alert_notifier = alert_relayer.notifier();
-        let alert = Arc::new(
-            AlertBuilder::default()
-                .raw(
-                    RawAlertBuilder::default()
-                        .id(42u32.pack())
-                        .min_version(Some("0.0.1".to_string()).pack())
-                        .max_version(Some("1.0.0".to_string()).pack())
-                        .priority(1u32.pack())
-                        .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
-                        .message("An example alert message!".pack())
-                        .build(),
-                )
-                .build(),
-        );
-        alert_notifier.lock().add(alert);
+        let alert = AlertBuilder::default()
+            .raw(
+                RawAlertBuilder::default()
+                    .id(42u32.pack())
+                    .min_version(Some("0.0.1".to_string()).pack())
+                    .max_version(Some("1.0.0".to_string()).pack())
+                    .priority(1u32.pack())
+                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
+                    .message("An example alert message!".pack())
+                    .build(),
+            )
+            .build();
+        alert_notifier.lock().add(&alert);
         Arc::clone(alert_notifier)
     };
 
@@ -266,7 +267,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
-            synchronizer: synchronizer.clone(),
+            synchronizer,
             alert_notifier,
         }
         .to_delegate(),
@@ -287,11 +288,11 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         MinerRpcImpl {
             shared: shared.clone(),
             chain: chain_controller.clone(),
-            network_controller: network_controller.clone(),
+            network_controller,
         }
         .to_delegate(),
     );
-    let server = ServerBuilder::new(io)
+    let http = ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![
             AccessControlAllowOrigin::Null,
             AccessControlAllowOrigin::Any,
@@ -300,7 +301,11 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .max_request_body_size(20_000_000)
         .start_http(&"127.0.0.1:0".parse().unwrap())
         .expect("JsonRpc initialize");
-    let rpc_server = RpcServer { server };
+    let rpc_server = RpcServer {
+        http,
+        tcp: None,
+        ws: None,
+    };
 
     (shared, chain_controller, rpc_server)
 }
@@ -494,8 +499,8 @@ fn test_rpc() {
     let client = reqwest::Client::new();
     let uri = format!(
         "http://{}:{}/",
-        server.server.address().ip(),
-        server.server.address().port()
+        server.http.address().ip(),
+        server.http.address().port()
     );
 
     // Assert the params of jsonrpc requests
@@ -539,7 +544,7 @@ fn test_rpc() {
             } else {
                 expected.push((method.clone(), result_of(&client, &uri, &method, params)));
             }
-            actual.push((method.clone(), result));
+            actual.push((method, result));
         });
         if actual != expected {
             print_document(None, Some(&expected));

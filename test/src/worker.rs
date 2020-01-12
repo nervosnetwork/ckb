@@ -115,7 +115,7 @@ impl Worker {
         let binary = self.binary.clone();
         let vendor = self.vendor.clone();
         let outbox = self.outbox.clone();
-        let mut net = Net::new(&binary, start_port, vendor.clone(), spec.setup());
+        let mut net = Net::new(&binary, start_port, vendor, spec.setup());
         let now = Instant::now();
         let node_dirs: Vec<_> = net
             .nodes

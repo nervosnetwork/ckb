@@ -152,7 +152,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
         block = BlockBuilder::default()
             .transaction(cellbase)
-            .parent_hash(block.header().hash().to_owned())
+            .parent_hash(block.header().hash())
             .number(number.pack())
             .epoch(epoch.number_with_fraction(number).pack())
             .timestamp(timestamp.pack())

@@ -112,7 +112,6 @@ impl<'a> BlockTransactionsProcess<'a> {
 
                 // Request proposal
                 let proposals: Vec<_> = received_uncles
-                    .clone()
                     .into_iter()
                     .flat_map(|u| u.data().proposals().into_iter())
                     .collect();

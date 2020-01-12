@@ -96,6 +96,10 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
 # }}
 
+# By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.
+# tcp_listen_address = "127.0.0.1:18114"
+# ws_listen_address = "127.0.0.1:28114"
+
 [tx_pool]
 max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
@@ -120,9 +124,11 @@ cellbase_cache_size        = 30
 # # The maximum number of blocks in a single indexing execution batch, default is 200
 # batch_size = 200
 
-# [alert_notifier]
-# # Script will be notified when node received an alert, first arg is alert message string.
-# notify_script = "echo"
+# [notifier]
+# # Execute command when the new tip block changes, first arg is block hash.
+# new_block_notify_script = "your_new_block_notify_script.sh"
+# # Execute command when node received an network alert, first arg is alert message string.
+# network_alert_notify_script = "your_network_alert_notify_script.sh"
 
 # Set the lock script to protect mined CKB.
 #

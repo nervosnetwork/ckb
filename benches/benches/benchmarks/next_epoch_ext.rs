@@ -66,7 +66,7 @@ fn gen_empty_block(parent: &HeaderView) -> BlockView {
         })
         .collect();
     BlockBuilder::default()
-        .parent_hash(parent.hash().to_owned())
+        .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .uncles(uncles)
         .compact_target(parent.compact_target().pack())
@@ -100,7 +100,7 @@ fn bench(c: &mut Criterion) {
                         .header(header)
                         .build();
 
-                    let mut parent = genesis_block.header().clone();
+                    let mut parent = genesis_block.header();
                     let epoch_ext =
                         build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO, 1000, 14400);
                     let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)

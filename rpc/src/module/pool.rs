@@ -10,7 +10,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait PoolRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "send_transaction")]
@@ -58,7 +58,7 @@ impl PoolRpc for PoolRpcImpl {
             Ok(_) => {
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
-                let hash = tx.hash().to_owned();
+                let hash = tx.hash();
                 self.sync_shared_state
                     .state()
                     .tx_hashes()

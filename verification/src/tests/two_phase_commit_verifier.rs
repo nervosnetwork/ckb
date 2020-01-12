@@ -169,7 +169,7 @@ fn test_proposal() {
     chain_controller
         .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
-    parent = block.header().to_owned();
+    parent = block.header();
 
     let context = dummy_context(&shared);
 
@@ -206,7 +206,7 @@ fn test_proposal() {
     }
 
     //proposal expired
-    let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
+    let block = gen_block(&parent, txs20, vec![], vec![]);
     let verifier = TwoPhaseCommitVerifier::new(&context, &block);
     assert!(verifier.verify().is_ok());
 }
@@ -250,7 +250,7 @@ fn test_uncle_proposal() {
     chain_controller
         .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
-    parent = block.header().to_owned();
+    parent = block.header();
 
     let context = dummy_context(&shared);
 
@@ -283,7 +283,7 @@ fn test_uncle_proposal() {
     }
 
     //proposal expired
-    let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
+    let block = gen_block(&parent, txs20, vec![], vec![]);
     let verifier = TwoPhaseCommitVerifier::new(&context, &block);
     assert!(verifier.verify().is_ok());
 }

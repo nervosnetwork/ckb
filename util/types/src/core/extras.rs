@@ -313,14 +313,13 @@ impl PartialOrd for EpochNumberWithFraction {
 
 impl Ord for EpochNumberWithFraction {
     fn cmp(&self, other: &EpochNumberWithFraction) -> Ordering {
-        if self.number() < other.number() {
-            Ordering::Less
-        } else if self.number() > other.number() {
-            Ordering::Greater
-        } else {
-            let a = self.index() * other.length();
-            let b = other.index() * self.length();
-            a.cmp(&b)
+        match self.number().cmp(&other.number()) {
+            ord @ Ordering::Less | ord @ Ordering::Greater => ord,
+            _ => {
+                let a = self.index() * other.length();
+                let b = other.index() * self.length();
+                a.cmp(&b)
+            }
         }
     }
 }

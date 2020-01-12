@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.26.1"
+version = "0.27.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -20,3 +20,4 @@ ckb-error = { path = "../error" }
 ckb-snapshot = { path = "../util/snapshot" }
 ckb-tx-pool = { path = "../tx-pool" }
 ckb-verification = { path = "../verification" }
+ckb-notify = { path = "../notify" }

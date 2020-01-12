@@ -269,7 +269,7 @@ impl ChainService {
 
         if parent_ext.verified == Some(false) {
             return Err(InvalidParentError {
-                parent_hash: parent_header.hash().to_owned(),
+                parent_hash: parent_header.hash(),
             }
             .into());
         }
@@ -342,7 +342,7 @@ impl ChainService {
         db_txn.commit()?;
 
         if new_best_block {
-            let tip_header = block.header().to_owned();
+            let tip_header = block.header();
             info!(
                 "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 tip_header.number(),
@@ -385,6 +385,10 @@ impl ChainService {
                     error!("notify new_uncle error {}", e);
                 }
             }
+            let block_ref: &BlockView = &block;
+            self.shared
+                .notify_controller()
+                .notify_new_block(block_ref.clone());
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }

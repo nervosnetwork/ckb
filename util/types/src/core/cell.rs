@@ -328,7 +328,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
                     parse_dep_group_data(&data).map_err(|err| format!("Invalid data: {}", err))?;
                 out_points.extend(sub_out_points.into_iter());
             }
-            out_points.push(out_point.clone());
+            out_points.push(out_point);
             Ok(out_points)
         },
     )
@@ -416,7 +416,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                return Err(OutPointError::Dead(out_point.clone()).into());
+                return Err(OutPointError::Dead(out_point).into());
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(*cell_meta);
@@ -673,7 +673,7 @@ mod tests {
             .insert(op_dep.clone(), Some(dep_group_cell));
 
         let dep = CellDep::new_builder()
-            .out_point(op_dep.clone())
+            .out_point(op_dep)
             .dep_type(DepType::DepGroup.into())
             .build();
 
@@ -729,7 +729,7 @@ mod tests {
         header_checker.push_attached(main_chain_block_hash.clone());
 
         let transaction = TransactionBuilder::default()
-            .header_dep(main_chain_block_hash.clone())
+            .header_dep(main_chain_block_hash)
             .header_dep(invalid_block_hash.clone())
             .build();
 
@@ -752,7 +752,7 @@ mod tests {
         let out_point = OutPoint::new(h256!("0x2").pack(), 3);
 
         let tx1 = TransactionBuilder::default()
-            .input(CellInput::new(out_point.clone(), 0))
+            .input(CellInput::new(out_point, 0))
             .output(
                 CellOutput::new_builder()
                     .capacity(capacity_bytes!(2).pack())
@@ -781,7 +781,7 @@ mod tests {
         // tx1 -> tx2
         // resolve err
         {
-            let block = generate_block(vec![tx2.clone(), tx1.clone()]);
+            let block = generate_block(vec![tx2, tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
             assert_error_eq!(
@@ -802,7 +802,7 @@ mod tests {
         // tx1 -> tx3
         // resolve err
         {
-            let block = generate_block(vec![tx3.clone(), tx1.clone()]);
+            let block = generate_block(vec![tx3, tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
             assert_error_eq!(
@@ -826,7 +826,7 @@ mod tests {
 
         let dep = CellDep::new_builder().out_point(out_point.clone()).build();
         let tx = TransactionBuilder::default()
-            .input(CellInput::new(out_point.clone(), 0))
+            .input(CellInput::new(out_point, 0))
             .cell_dep(dep)
             .build();
 
@@ -888,7 +888,7 @@ mod tests {
             let result2 =
                 resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
-            assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
+            assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point));
         }
     }
 }

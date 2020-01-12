@@ -45,7 +45,7 @@ impl Spec for TransactionRelayLowFeeRate {
         let capacity = tx.outputs_capacity().unwrap();
 
         info!("Generate zero fee rate tx");
-        let tx_low_fee = node1.new_transaction(hash.clone());
+        let tx_low_fee = node1.new_transaction(hash);
         // Set to zero fee
         let output = tx_low_fee
             .outputs()

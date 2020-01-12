@@ -424,7 +424,7 @@ fn create_transaction(parent_hash: &Byte32, lock: Script, dep: OutPoint) -> Tran
         .output(
             CellOutput::new_builder()
                 .capacity(capacity_bytes!(50_000).pack())
-                .lock(lock.clone())
+                .lock(lock)
                 .build(),
         )
         .output_data(data.pack())
@@ -443,7 +443,7 @@ pub fn create_2out_transaction(
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
     let cell_output = CellOutput::new_builder()
         .capacity(capacity_bytes!(50_000).pack())
-        .lock(lock.clone())
+        .lock(lock)
         .build();
 
     let inputs_count = cell_inputs.len();

@@ -620,9 +620,7 @@ mod tests {
                 Default::default(),
             ))
             .build();
-        let withdraw_block = BlockBuilder::default()
-            .header(withdraw_header.clone())
-            .build();
+        let withdraw_block = BlockBuilder::default().header(withdraw_header).build();
 
         let store = new_store();
         let txn = store.begin_transaction();
@@ -654,7 +652,7 @@ mod tests {
             ))
             .build();
         let deposit_block = BlockBuilder::default()
-            .header(deposit_header.clone())
+            .header(deposit_header)
             .transaction(tx.clone())
             .build();
 

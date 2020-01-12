@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.26.1"
+version = "0.27.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -26,6 +26,7 @@ ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
 ckb-indexer = { path = "../../indexer" }
 ckb-tx-pool = { path = "../../tx-pool" }
+ckb-notify = { path = "../../notify" }
 
 [dev-dependencies]
 tempfile = "3.0"

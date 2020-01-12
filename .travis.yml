@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.26.1
+    - CKB_CLI_VERSION=v0.27.0
 
 addons:
   apt:
@@ -46,7 +46,6 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}"
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
-  prerelease: true
   overwrite: true
   on:
     tags: true

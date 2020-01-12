@@ -5,6 +5,7 @@ use ckb_chain_spec::SpecError;
 use ckb_db::{DBConfig, DefaultMigration, Migrations, RocksDB};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info_target;
+use ckb_notify::{Config as NotifyConfig, NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
@@ -26,6 +27,7 @@ use std::sync::Arc;
 pub struct Shared {
     pub(crate) store: Arc<ChainDB>,
     pub(crate) tx_pool_controller: TxPoolController,
+    pub(crate) notify_controller: NotifyController,
     pub(crate) txs_verify_cache: PollLock<TxVerifyCache>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
@@ -36,6 +38,7 @@ impl Shared {
         store: ChainDB,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
+        notify_config: NotifyConfig,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
@@ -72,12 +75,15 @@ impl Shared {
 
         let tx_pool_controller = tx_pool_builder.start();
 
+        let notify_controller = NotifyService::new(notify_config).start(Some("NotifyService"));
+
         let shared = Shared {
             store,
             consensus,
             txs_verify_cache,
             snapshot_mgr,
             tx_pool_controller,
+            notify_controller,
         };
 
         Ok((shared, proposal_table))
@@ -170,7 +176,7 @@ impl Shared {
             }
             None => store.init(&consensus).map(|_| {
                 (
-                    consensus.genesis_block().header().to_owned(),
+                    consensus.genesis_block().header(),
                     consensus.genesis_epoch_ext().to_owned(),
                 )
             }),
@@ -183,6 +189,10 @@ impl Shared {
 
     pub fn txs_verify_cache(&self) -> PollLock<TxVerifyCache> {
         self.txs_verify_cache.clone()
+    }
+
+    pub fn notify_controller(&self) -> &NotifyController {
+        &self.notify_controller
     }
 
     pub fn snapshot(&self) -> Guard<Arc<Snapshot>> {
@@ -231,6 +241,7 @@ pub struct SharedBuilder {
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
+    notify_config: Option<NotifyConfig>,
 }
 
 impl Default for SharedBuilder {
@@ -239,6 +250,7 @@ impl Default for SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             consensus: None,
             tx_pool_config: None,
+            notify_config: None,
             store_config: None,
             block_assembler_config: None,
         }
@@ -257,6 +269,7 @@ impl SharedBuilder {
             db,
             consensus: None,
             tx_pool_config: None,
+            notify_config: None,
             store_config: None,
             block_assembler_config: None,
         }
@@ -274,6 +287,11 @@ impl SharedBuilder {
         self
     }
 
+    pub fn notify_config(mut self, config: NotifyConfig) -> Self {
+        self.notify_config = Some(config);
+        self
+    }
+
     pub fn store_config(mut self, config: StoreConfig) -> Self {
         self.store_config = Some(config);
         self
@@ -287,12 +305,14 @@ impl SharedBuilder {
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
+        let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
         let store = ChainDB::new(self.db, store_config);
         Shared::init(
             store,
             consensus,
             tx_pool_config,
+            notify_config,
             self.block_assembler_config,
         )
     }

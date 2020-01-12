@@ -135,11 +135,9 @@ pub fn test_inputs_cellbase_maturity() {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
-        resolved_inputs: vec![
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(30, base_epoch, 0))
-                .build(),
-        ],
+        resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(MockMedianTime::get_transaction_info(30, base_epoch, 0))
+            .build()],
     };
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
@@ -191,11 +189,9 @@ fn test_ignore_genesis_cellbase_maturity() {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
-        resolved_inputs: vec![
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(0, base_epoch, 0))
-                .build(),
-        ],
+        resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(MockMedianTime::get_transaction_info(0, base_epoch, 0))
+            .build()],
     };
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
@@ -239,7 +235,7 @@ pub fn test_deps_cellbase_maturity() {
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(30, base_epoch, 0))
                 .build(),
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+            CellMetaBuilder::from_cell_output(output, Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(40, base_epoch, 1))
                 .build(),
         ],

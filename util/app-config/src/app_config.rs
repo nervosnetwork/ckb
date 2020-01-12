@@ -16,9 +16,8 @@ use ckb_indexer::IndexerConfig;
 use ckb_logger::Config as LogConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
-use ckb_network_alert::config::{
-    NotifierConfig as AlertNotifierConfig, SignatureConfig as AlertSignatureConfig,
-};
+use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
+use ckb_notify::Config as NotifyConfig;
 use ckb_resource::Resource;
 use ckb_rpc::Config as RpcConfig;
 use ckb_store::StoreConfig;
@@ -51,7 +50,8 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub store: StoreConfig,
     pub alert_signature: Option<AlertSignatureConfig>,
-    pub alert_notifier: Option<AlertNotifierConfig>,
+    #[serde(default)]
+    pub notify: NotifyConfig,
 }
 
 // change the order of fields will break integration test, see module doc.

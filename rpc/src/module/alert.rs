@@ -10,7 +10,7 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait AlertRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_alert","params": [{}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "send_alert")]
@@ -63,7 +63,7 @@ impl AlertRpc for AlertRpcImpl {
                     error!("Broadcast alert failed: {:?}", err);
                 }
                 // set self node notifier
-                self.notifier.lock().add(Arc::new(alert));
+                self.notifier.lock().add(&alert);
                 Ok(())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e))),

@@ -8,7 +8,7 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
-#[rpc]
+#[rpc(server)]
 pub trait StatsRpc {
     #[rpc(name = "get_blockchain_info")]
     fn get_blockchain_info(&self) -> Result<ChainInfo>;
@@ -33,7 +33,7 @@ impl StatsRpc for StatsRpcImpl {
             (tip_header, median_time)
         };
         let epoch = tip_header.epoch();
-        let difficulty = tip_header.difficulty().clone();
+        let difficulty = tip_header.difficulty();
         let is_initial_block_download = self
             .synchronizer
             .shared
@@ -45,8 +45,8 @@ impl StatsRpc for StatsRpcImpl {
             notifier.clear_expired_alerts(now);
             notifier
                 .noticed_alerts()
-                .iter()
-                .map(|alert| AlertMessage::from(alert.as_ref().to_owned()))
+                .into_iter()
+                .map(Into::into)
                 .collect()
         };
 

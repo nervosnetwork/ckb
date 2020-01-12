@@ -95,7 +95,7 @@ impl CellProvider for ProposedPool {
             } else {
                 let (output, data) = self.get_output_with_data(out_point).expect("output");
                 CellStatus::live_cell(
-                    CellMetaBuilder::from_cell_output(output.to_owned(), data)
+                    CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.clone())
                         .build(),
                 )
@@ -473,14 +473,10 @@ mod tests {
         .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction.hash().to_owned())
+            iter.map(|entry| entry.transaction.hash())
                 .collect::<Vec<_>>()
         });
-        let expect_result = vec![
-            tx2.hash().to_owned(),
-            tx3.hash().to_owned(),
-            tx1.hash().to_owned(),
-        ];
+        let expect_result = vec![tx2.hash(), tx3.hash(), tx1.hash()];
         assert_eq!(txs_sorted_by_fee_rate, expect_result);
     }
 
@@ -532,15 +528,10 @@ mod tests {
         .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction.hash().to_owned())
+            iter.map(|entry| entry.transaction.hash())
                 .collect::<Vec<_>>()
         });
-        let expect_result = vec![
-            tx4.hash().to_owned(),
-            tx2.hash().to_owned(),
-            tx3.hash().to_owned(),
-            tx1.hash().to_owned(),
-        ];
+        let expect_result = vec![tx4.hash(), tx2.hash(), tx3.hash(), tx1.hash()];
         assert_eq!(txs_sorted_by_fee_rate, expect_result);
     }
 

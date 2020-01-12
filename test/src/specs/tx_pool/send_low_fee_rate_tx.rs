@@ -55,7 +55,7 @@ impl Spec for SendLowFeeRateTx {
         assert!(ret.is_err());
 
         info!("Generate normal fee rate tx");
-        let tx_high_fee = node0.new_transaction(tx_hash_0.clone());
+        let tx_high_fee = node0.new_transaction(tx_hash_0);
         let output = tx_high_fee
             .outputs()
             .get(0)

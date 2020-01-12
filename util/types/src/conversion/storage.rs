@@ -91,7 +91,7 @@ impl Pack<packed::EpochExt> for core::EpochExt {
             .base_block_reward(self.base_block_reward().pack())
             .remainder_reward(self.remainder_reward().pack())
             .previous_epoch_hash_rate(self.previous_epoch_hash_rate().pack())
-            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch().clone())
+            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch())
             .start_number(self.start_number().pack())
             .length(self.length().pack())
             .compact_target(self.compact_target().pack())

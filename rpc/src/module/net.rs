@@ -9,7 +9,7 @@ use std::collections::HashMap;
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
 
-#[rpc]
+#[rpc(server)]
 pub trait NetworkRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "local_node_info")]

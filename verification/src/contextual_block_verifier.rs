@@ -441,7 +441,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .map(|(_, cache_entry)| cache_entry)
             .cloned()
             .collect();
-        let update = UpdateCache::new(txs_verify_cache.clone(), ret.into_iter().collect());
+        let update = UpdateCache::new(txs_verify_cache, ret.into_iter().collect());
         executor.spawn(Box::new(update));
 
         if sum > self.context.consensus.max_block_cycles() {

@@ -67,10 +67,10 @@ fn main() {
     let mut workers = Workers::new(
         worker_count,
         Arc::clone(&specs),
-        notify_tx.clone(),
+        notify_tx,
         start_port,
         binary.to_string(),
-        vendor.clone(),
+        vendor,
     );
     workers.start();
 
@@ -360,6 +360,7 @@ fn all_specs() -> SpecMap {
         Box::new(ConflictInProposed),
         Box::new(DAOVerify),
         Box::new(AvoidDuplicatedProposalsWithUncles),
+        Box::new(TemplateTxSelect),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

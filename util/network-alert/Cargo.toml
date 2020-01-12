@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network-alert"
-version = "0.26.1"
+version = "0.27.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,6 +11,7 @@ ckb-multisig = { path = "../multisig" }
 ckb-types = { path = "../types" }
 ckb-util = { path = ".." }
 ckb-network = { path = "../../network" }
+ckb-notify = { path = "../../notify"}
 ckb-jsonrpc-types = { path = "../jsonrpc-types" }
 ckb-logger = { path = "../logger"}
 faketime = "0.2.0"

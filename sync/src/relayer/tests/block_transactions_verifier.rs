@@ -14,7 +14,6 @@ fn build_compact_block() -> CompactBlock {
     let short_ids = vec![1, 3, 4]
         .into_iter()
         .map(new_index_transaction)
-        .clone()
         .map(|tx| tx.transaction().proposal_short_id());
 
     CompactBlockBuilder::default()

@@ -22,7 +22,7 @@ fn test_add_addr() {
     let peer_id = PeerId::random();
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
     peer_store
-        .add_addr(peer_id.clone(), "/ip4/127.0.0.1/tcp/42".parse().unwrap())
+        .add_addr(peer_id, "/ip4/127.0.0.1/tcp/42".parse().unwrap())
         .unwrap();
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     // we have not connected yet, so return 0
@@ -95,7 +95,7 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
     let mut peer_store: PeerStore = Default::default();
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
-    peer_store.add_addr(peer_id, addr.clone()).unwrap();
+    peer_store.add_addr(peer_id, addr).unwrap();
     let paddr = peer_store.fetch_addrs_to_attempt(1).remove(0);
     let now = faketime::unix_time_as_millis();
 
@@ -123,7 +123,7 @@ fn test_fetch_addrs_to_feeler() {
 
     // ignores connected peers' addrs
     peer_store
-        .add_connected_peer(peer_id.clone(), addr.clone(), SessionType::Outbound)
+        .add_connected_peer(peer_id.clone(), addr, SessionType::Outbound)
         .unwrap();
     assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
 

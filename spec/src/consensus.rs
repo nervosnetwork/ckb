@@ -64,7 +64,7 @@ const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL
 pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
     4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
-const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
+pub const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
 // 1.5 * TWO_IN_TWO_OUT_COUNT
 const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
@@ -329,6 +329,12 @@ impl ConsensusBuilder {
     #[must_use]
     pub fn max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
         self.inner.max_block_cycles = max_block_cycles;
+        self
+    }
+
+    #[must_use]
+    pub fn max_block_bytes(mut self, max_block_bytes: u64) -> Self {
+        self.inner.max_block_bytes = max_block_bytes;
         self
     }
 
@@ -812,7 +818,7 @@ pub mod test {
             .build();
         let genesis_epoch = consensus.genesis_epoch_ext();
 
-        let get_block_header = |_hash: &Byte32| Some(genesis.header().clone());
+        let get_block_header = |_hash: &Byte32| Some(genesis.header());
         let total_uncles_count = |_hash: &Byte32| Some(0);
         let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
 

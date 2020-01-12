@@ -401,7 +401,7 @@ impl TxPool {
     pub(crate) fn try_proposed_orphan_by_ancestor(&mut self, tx: &TransactionView) {
         let entries = self.orphan.remove_by_ancestor(tx);
         for entry in entries {
-            let tx_hash = entry.transaction.hash().to_owned();
+            let tx_hash = entry.transaction.hash();
             if self.contains_proposed(&entry.transaction.proposal_short_id()) {
                 let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
                 if ret.is_err() {

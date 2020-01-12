@@ -56,7 +56,7 @@ impl PeerStore {
         let score = self.score_config.default_score;
         if session_type.is_outbound() {
             self.addr_manager.add(AddrInfo::new(
-                peer_id.to_owned(),
+                peer_id,
                 addr.extract_ip_addr()?,
                 addr.exclude_p2p(),
                 now_ms,
