@@ -61,6 +61,9 @@ members = [
     "benches",
     "error",
     "notify",
+    "protocols/ping",
+    "protocols/identify",
+    "protocols/discovery",
 ]
 
 [profile.release]
