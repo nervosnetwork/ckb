@@ -109,9 +109,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             Arc::clone(&network_state),
         ),
     ];
+
+    let required_protocol_ids = vec![NetworkProtocol::SYNC.into()];
+
     let network_controller = NetworkService::new(
         Arc::clone(&network_state),
         protocols,
+        required_protocol_ids,
         shared.consensus().identify_name(),
         version.to_string(),
         Arc::<(Mutex<()>, Condvar)>::clone(&exit_condvar),

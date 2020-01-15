@@ -203,6 +203,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         NetworkService::new(
             Arc::clone(&network_state),
             Vec::new(),
+            Vec::new(),
             shared.consensus().identify_name(),
             "0.1.0".to_string(),
             Arc::new((Mutex::new(()), Condvar::new())),
