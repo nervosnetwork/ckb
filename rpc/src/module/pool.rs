@@ -145,6 +145,14 @@ struct DefaultOutputsValidator<'a> {
     consensus: &'a Consensus,
 }
 
+#[derive(Debug)]
+enum DefaultOutputsValidatorError {
+    HashType,
+    CodeHash,
+    ArgsLen,
+    ArgsSince,
+}
+
 impl<'a> DefaultOutputsValidator<'a> {
     pub fn new(consensus: &'a Consensus) -> Self {
         Self { consensus }
@@ -155,63 +163,105 @@ impl<'a> DefaultOutputsValidator<'a> {
             .into_iter()
             .enumerate()
             .try_for_each(|(index, output)| {
-                if self.validate_lock_script(&output) && self.validate_type_script(&output) {
-                    Ok(())
-                } else {
-                    Err(format!("output {} is invalid", index))
-                }
+                self.validate_lock_script(&output)
+                    .and(self.validate_type_script(&output))
+                    .map_err(|err| format!("output index: {}, error: {:?}", index, err))
             })
     }
 
-    fn validate_lock_script(&self, output: &packed::CellOutput) -> bool {
+    fn validate_lock_script(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         self.validate_secp256k1_blake160_sighash_all(output)
-            || self.validate_secp256k1_blake160_multisig_all(output)
+            .or_else(|_| self.validate_secp256k1_blake160_multisig_all(output))
     }
 
-    fn validate_type_script(&self, output: &packed::CellOutput) -> bool {
+    fn validate_type_script(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         self.validate_dao(output)
     }
 
-    fn validate_secp256k1_blake160_sighash_all(&self, output: &packed::CellOutput) -> bool {
+    fn validate_secp256k1_blake160_sighash_all(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         let script = output.lock();
-        script.is_hash_type_type()
-            && script.code_hash()
-                == self
-                    .consensus
-                    .secp256k1_blake160_sighash_all_type_hash()
-                    .expect("No secp256k1_blake160_sighash_all system cell")
-            && script.args().len() == BLAKE160_LEN
+        if !script.is_hash_type_type() {
+            Err(DefaultOutputsValidatorError::HashType)
+        } else if script.code_hash()
+            != self
+                .consensus
+                .secp256k1_blake160_sighash_all_type_hash()
+                .expect("No secp256k1_blake160_sighash_all system cell")
+        {
+            Err(DefaultOutputsValidatorError::CodeHash)
+        } else if script.args().len() != BLAKE160_LEN {
+            Err(DefaultOutputsValidatorError::ArgsLen)
+        } else {
+            Ok(())
+        }
     }
 
-    fn validate_secp256k1_blake160_multisig_all(&self, output: &packed::CellOutput) -> bool {
+    fn validate_secp256k1_blake160_multisig_all(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         let script = output.lock();
-        script.is_hash_type_type()
-            && script.code_hash()
-                == self
-                    .consensus
-                    .secp256k1_blake160_multisig_all_type_hash()
-                    .expect("No secp256k1_blake160_multisig_all system cell")
-            && (script.args().len() == BLAKE160_LEN
-                || extract_since_from_secp256k1_blake160_multisig_all_args(&script)
-                    .map_or(false, |since| since.flags_is_valid()))
+        if !script.is_hash_type_type() {
+            Err(DefaultOutputsValidatorError::HashType)
+        } else if script.code_hash()
+            != self
+                .consensus
+                .secp256k1_blake160_multisig_all_type_hash()
+                .expect("No secp256k1_blake160_multisig_all system cell")
+        {
+            Err(DefaultOutputsValidatorError::CodeHash)
+        } else if script.args().len() != BLAKE160_LEN {
+            if script.args().len() == BLAKE160_LEN + SINCE_LEN {
+                if extract_since_from_secp256k1_blake160_multisig_all_args(&script).flags_is_valid()
+                {
+                    Ok(())
+                } else {
+                    Err(DefaultOutputsValidatorError::ArgsSince)
+                }
+            } else {
+                Err(DefaultOutputsValidatorError::ArgsLen)
+            }
+        } else {
+            Ok(())
+        }
     }
 
-    fn validate_dao(&self, output: &packed::CellOutput) -> bool {
+    fn validate_dao(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         match output.type_().to_opt() {
             Some(script) => {
-                script.is_hash_type_type()
-                    && script.code_hash()
-                        == self.consensus.dao_type_hash().expect("No dao system cell")
-                    && extract_since_from_secp256k1_blake160_multisig_all_args(&output.lock())
-                        .map_or(true, |since| {
-                            since.is_absolute()
-                                && match since.extract_metric() {
-                                    Some(SinceMetric::EpochNumberWithFraction(_)) => true,
-                                    _ => false,
-                                }
-                        })
+                if !script.is_hash_type_type() {
+                    Err(DefaultOutputsValidatorError::HashType)
+                } else if script.code_hash()
+                    != self.consensus.dao_type_hash().expect("No dao system cell")
+                {
+                    Err(DefaultOutputsValidatorError::CodeHash)
+                } else if output.lock().args().len() == BLAKE160_LEN + SINCE_LEN {
+                    // https://github.com/nervosnetwork/ckb/wiki/Common-Gotchas#nervos-dao
+                    let since =
+                        extract_since_from_secp256k1_blake160_multisig_all_args(&output.lock());
+                    match since.extract_metric() {
+                        Some(SinceMetric::EpochNumberWithFraction(_)) if since.is_absolute() => {
+                            Ok(())
+                        }
+                        _ => Err(DefaultOutputsValidatorError::ArgsSince),
+                    }
+                } else {
+                    Ok(())
+                }
             }
-            None => true,
+            None => Ok(()),
         }
     }
 }
@@ -219,18 +269,12 @@ impl<'a> DefaultOutputsValidator<'a> {
 const BLAKE160_LEN: usize = 20;
 const SINCE_LEN: usize = 8;
 
-fn extract_since_from_secp256k1_blake160_multisig_all_args(
-    script: &packed::Script,
-) -> Option<Since> {
-    if script.args().len() == BLAKE160_LEN + SINCE_LEN {
-        Some(Since(u64::from_le_bytes(
-            (&script.args().raw_data()[BLAKE160_LEN..])
-                .try_into()
-                .expect("checked len"),
-        )))
-    } else {
-        None
-    }
+fn extract_since_from_secp256k1_blake160_multisig_all_args(script: &packed::Script) -> Since {
+    Since(u64::from_le_bytes(
+        (&script.args().raw_data()[BLAKE160_LEN..])
+            .try_into()
+            .expect("checked len"),
+    ))
 }
 
 #[cfg(test)]
