@@ -159,6 +159,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             sync_shared_state,
             FeeRate::zero(),
             std::u64::MAX,
+            true,
         ),
         always_success_out_point,
     )

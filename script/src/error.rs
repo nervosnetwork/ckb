@@ -18,6 +18,10 @@ pub enum ScriptError {
     /// Non-zero exit code returns by script
     #[fail(display = "ValidationFailure({})", _0)]
     ValidationFailure(i8),
+
+    /// Known bugs are detected in transaction script outputs
+    #[fail(display = "EncounteredKnownBugs({})", _0)]
+    EncounteredKnownBugs(String),
 }
 
 impl From<ScriptError> for Error {

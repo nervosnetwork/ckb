@@ -27,6 +27,8 @@ pub struct TxPoolConfig {
     pub max_committed_txs_hash_cache_size: usize,
     // txs with lower fee rate than this will not be relayed or be mined
     pub min_fee_rate: FeeRate,
+    // Rejects txs with scripts that might trigger known bugs
+    pub reject_known_bugs: bool,
     // tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
     // max ancestors size limit for a single tx
@@ -42,6 +44,7 @@ impl Default for TxPoolConfig {
             max_conflict_cache_size: 1_000,
             max_committed_txs_hash_cache_size: 100_000,
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
+            reject_known_bugs: true,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
         }

@@ -320,6 +320,13 @@ impl Node {
         self.rpc_client().get_tip_block_number()
     }
 
+    pub fn get_block(&self, hash: Byte32) -> BlockView {
+        self.rpc_client()
+            .get_block(hash)
+            .expect("block exists")
+            .into()
+    }
+
     pub fn get_block_by_number(&self, number: BlockNumber) -> BlockView {
         self.rpc_client()
             .get_block_by_number(number)

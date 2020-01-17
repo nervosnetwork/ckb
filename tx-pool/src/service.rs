@@ -594,6 +594,7 @@ impl TxPoolService {
         let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), keys);
         let txs_verify_cache = self.txs_verify_cache.clone();
         let tx_pool = self.tx_pool.clone();
+        let reject_known_bugs = self.tx_pool_config.reject_known_bugs;
         let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
 
         let pre_resolve = PreResolveTxsProcess::new(tx_pool.clone(), txs);
@@ -605,6 +606,7 @@ impl TxPoolService {
                         snapshot,
                         cache.expect("fetched_cache never fail"),
                         rtxs,
+                        reject_known_bugs,
                         max_tx_verify_cycles,
                     )
                 })

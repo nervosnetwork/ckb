@@ -64,6 +64,7 @@ pub struct Relayer {
     pub(crate) shared: Arc<SyncSharedState>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
+    pub(crate) reject_known_bugs: bool,
 }
 
 impl Relayer {
@@ -72,12 +73,14 @@ impl Relayer {
         shared: Arc<SyncSharedState>,
         min_fee_rate: FeeRate,
         max_tx_verify_cycles: Cycle,
+        reject_known_bugs: bool,
     ) -> Self {
         Relayer {
             chain,
             shared,
             min_fee_rate,
             max_tx_verify_cycles,
+            reject_known_bugs,
         }
     }
 

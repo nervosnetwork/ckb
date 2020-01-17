@@ -3,6 +3,7 @@ use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use crate::FeeRate;
 use ckb_error::{Error, InternalErrorKind};
+use ckb_script::KnownBugsChecker;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -85,6 +86,7 @@ pub struct VerifyTxsProcess {
     pub snapshot: Arc<Snapshot>,
     pub txs_verify_cache: HashMap<Byte32, CacheEntry>,
     pub txs: Option<Vec<ResolvedTransaction>>,
+    pub reject_known_bugs: bool,
     pub max_tx_verify_cycles: Cycle,
 }
 
@@ -93,12 +95,14 @@ impl VerifyTxsProcess {
         snapshot: Arc<Snapshot>,
         txs_verify_cache: HashMap<Byte32, CacheEntry>,
         txs: Vec<ResolvedTransaction>,
+        reject_known_bugs: bool,
         max_tx_verify_cycles: Cycle,
     ) -> VerifyTxsProcess {
         VerifyTxsProcess {
             snapshot,
             txs_verify_cache,
             txs: Some(txs),
+            reject_known_bugs,
             max_tx_verify_cycles,
         }
     }
@@ -115,6 +119,7 @@ impl Future for VerifyTxsProcess {
             &self.snapshot,
             txs,
             &self.txs_verify_cache,
+            self.reject_known_bugs,
             self.max_tx_verify_cycles,
         )?))
     }
@@ -323,6 +328,7 @@ fn verify_rtxs(
     snapshot: &Snapshot,
     txs: Vec<ResolvedTransaction>,
     txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+    reject_known_bugs: bool,
     max_tx_verify_cycles: Cycle,
 ) -> Result<Vec<(ResolvedTransaction, CacheEntry)>, Error> {
     let tip_header = snapshot.tip_header();
@@ -332,6 +338,10 @@ fn verify_rtxs(
 
     txs.into_iter()
         .map(|tx| {
+            if reject_known_bugs {
+                KnownBugsChecker::new(&tx.transaction).check()?;
+            }
+
             let tx_hash = tx.transaction.hash();
             if let Some(cache_entry) = txs_verify_cache.get(&tx_hash) {
                 ContextualTransactionVerifier::new(
