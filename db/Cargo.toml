@@ -14,4 +14,4 @@ libc = "0.2"
 
 [dependencies.rocksdb]
 git = "https://github.com/nervosnetwork/rust-rocksdb"
-rev = "6cfc2cc"
+rev = "a8dd2ad"
