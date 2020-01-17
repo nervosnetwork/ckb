@@ -421,9 +421,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             json!(true),
             json!("set_ban example"),
         ],
-        "send_transaction" | "dry_run_transaction" | "_compute_transaction_hash" => {
-            vec![transaction]
-        }
+        "send_transaction" => vec![transaction, json!("passthrough")],
+        "dry_run_transaction" | "_compute_transaction_hash" => vec![transaction],
         "get_transaction" => vec![transaction_hash],
         "index_lock_hash" => vec![json!(always_success_script_hash), json!("0x400")],
         "deindex_lock_hash" | "get_capacity_by_lock_hash" => {

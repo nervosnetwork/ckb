@@ -51,8 +51,7 @@ impl ValidSince {
         // Success to send transaction after cellbase immaturity and since immaturity
         assert!(
             node.rpc_client()
-                .inner()
-                .send_transaction(transaction.data().into())
+                .send_transaction_result(transaction.data().into())
                 .is_ok(),
             "transaction is ok, tip is equal to relative since block number",
         );
@@ -77,8 +76,7 @@ impl ValidSince {
         // Success to send transaction after cellbase immaturity and since immaturity
         assert!(
             node.rpc_client()
-                .inner()
-                .send_transaction(transaction.data().into())
+                .send_transaction_result(transaction.data().into())
                 .is_ok(),
             "transaction is ok, tip is equal to absolute since block number",
         );
@@ -122,8 +120,7 @@ impl ValidSince {
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert!(
                 node.rpc_client()
-                    .inner()
-                    .send_transaction(transaction.data().into())
+                    .send_transaction_result(transaction.data().into())
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );
@@ -165,8 +162,7 @@ impl ValidSince {
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert!(
                 node.rpc_client()
-                    .inner()
-                    .send_transaction(transaction.data().into())
+                    .send_transaction_result(transaction.data().into())
                     .is_ok(),
                 "transaction's since is greater than tip's median time",
             );
