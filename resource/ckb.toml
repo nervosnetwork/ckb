@@ -99,6 +99,7 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment
 # By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.
 # tcp_listen_address = "127.0.0.1:18114"
 # ws_listen_address = "127.0.0.1:28114"
+reject_ill_transactions = true
 
 [tx_pool]
 max_mem_size = 20_000_000 # 20mb
@@ -107,7 +108,6 @@ max_verify_cache_size = 100_000
 max_conflict_cache_size = 1_000
 max_committed_txs_hash_cache_size = 100_000
 min_fee_rate = 1_000 # shannons/KB
-reject_known_bugs = true
 max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
 

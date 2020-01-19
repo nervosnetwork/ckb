@@ -41,10 +41,17 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         sync_shared_state: Arc<SyncSharedState>,
         min_fee_rate: FeeRate,
+        reject_ill_transactions: bool,
     ) -> Self {
         if self.config.pool_enable() {
             self.io_handler.extend_with(
-                PoolRpcImpl::new(shared, sync_shared_state, min_fee_rate).to_delegate(),
+                PoolRpcImpl::new(
+                    shared,
+                    sync_shared_state,
+                    min_fee_rate,
+                    reject_ill_transactions,
+                )
+                .to_delegate(),
             );
         }
         self

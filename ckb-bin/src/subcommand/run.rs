@@ -62,7 +62,6 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(&sync_shared_state),
         args.config.tx_pool.min_fee_rate,
         args.config.tx_pool.max_tx_verify_cycles,
-        args.config.tx_pool.reject_known_bugs,
     );
     let net_timer = NetTimeProtocol::default();
     let alert_signature_config = args.config.alert_signature.unwrap_or_default();
@@ -130,6 +129,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             shared.clone(),
             sync_shared_state,
             args.config.tx_pool.min_fee_rate,
+            args.config.rpc.reject_ill_transactions,
         )
         .enable_miner(
             shared.clone(),

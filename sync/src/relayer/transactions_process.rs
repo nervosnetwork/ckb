@@ -2,7 +2,6 @@ use crate::relayer::Relayer;
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_script::IllTransactionChecker;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed,
@@ -79,7 +78,6 @@ impl<'a> TransactionsProcess<'a> {
 
         let mut notify_txs = Vec::with_capacity(txs.len());
         let max_tx_verify_cycles = self.relayer.max_tx_verify_cycles;
-        let reject_known_bugs = self.relayer.reject_known_bugs;
         let relay_cycles_vec: Vec<_> = txs
             .into_iter()
             .filter_map(|(tx, relay_cycles)| {
@@ -93,18 +91,6 @@ impl<'a> TransactionsProcess<'a> {
                         max_tx_verify_cycles
                     );
                     return None;
-                }
-                // skip txs with known bugs
-                if reject_known_bugs {
-                    if let Err(e) = IllTransactionChecker::new(&tx).check() {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "ignore tx {} with known bug: {:}",
-                            tx.hash(),
-                            e,
-                        );
-                        return None;
-                    }
                 }
                 let tx_hash = tx.hash();
                 let tx_size = tx.data().serialized_size_in_block();

@@ -16,16 +16,16 @@ use log::info;
 pub struct SendDefectedBinary {
     privkey: Privkey,
     name: &'static str,
-    reject_known_bugs: bool,
+    reject_ill_transactions: bool,
 }
 
 impl SendDefectedBinary {
-    pub fn new(name: &'static str, reject_known_bugs: bool) -> Self {
+    pub fn new(name: &'static str, reject_ill_transactions: bool) -> Self {
         let privkey = Generator::random_privkey();
         SendDefectedBinary {
             name,
             privkey,
-            reject_known_bugs,
+            reject_ill_transactions,
         }
     }
 }
@@ -97,7 +97,7 @@ impl Spec for SendDefectedBinary {
 
         let ret = node.rpc_client().send_transaction_result(tx.data().into());
 
-        if self.reject_known_bugs {
+        if self.reject_ill_transactions {
             assert!(ret.is_err());
         } else {
             let tx_hash = ret.expect("transaction should be accepted").pack();
@@ -121,12 +121,12 @@ impl Spec for SendDefectedBinary {
             .expect("Get pubkey failed")
             .serialize();
         let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
-        let reject_known_bugs = self.reject_known_bugs;
+        let reject_ill_transactions = self.reject_ill_transactions;
         Box::new(move |config| {
             let block_assembler =
                 new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
             config.block_assembler = Some(block_assembler);
-            config.tx_pool.reject_known_bugs = reject_known_bugs;
+            config.rpc.reject_ill_transactions = reject_ill_transactions;
         })
     }
 }
