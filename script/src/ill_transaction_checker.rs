@@ -11,30 +11,31 @@ use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
 
 const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
 
-pub struct KnownBugsChecker<'a> {
+pub struct IllTransactionChecker<'a> {
     tx: &'a TransactionView,
 }
 
-impl<'a> KnownBugsChecker<'a> {
+impl<'a> IllTransactionChecker<'a> {
     pub fn new(tx: &'a TransactionView) -> Self {
-        KnownBugsChecker { tx }
+        IllTransactionChecker { tx }
     }
 
     pub fn check(&self) -> Result<(), Error> {
-        for data in self.tx.outputs_data() {
-            KnownScriptBugsChecker::new(&data.raw_data()).check()?;
+        for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
+            IllScriptChecker::new(&data.raw_data(), i).check()?;
         }
         Ok(())
     }
 }
 
-struct KnownScriptBugsChecker<'a> {
+struct IllScriptChecker<'a> {
     data: &'a [u8],
+    index: usize,
 }
 
-impl<'a> KnownScriptBugsChecker<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
-        KnownScriptBugsChecker { data }
+impl<'a> IllScriptChecker<'a> {
+    pub fn new(data: &'a [u8], index: usize) -> Self {
+        IllScriptChecker { data, index }
     }
 
     pub fn check(&self) -> Result<(), Error> {
@@ -61,6 +62,7 @@ impl<'a> KnownScriptBugsChecker<'a> {
                                     if i.rs1() == i.rd() {
                                         return Err(ScriptError::EncounteredKnownBugs(
                                             CKB_VM_ISSUE_92.to_string(),
+                                            self.index,
                                         )
                                         .into());
                                     }
@@ -70,6 +72,7 @@ impl<'a> KnownScriptBugsChecker<'a> {
                                     if i.rs1() == RA {
                                         return Err(ScriptError::EncounteredKnownBugs(
                                             CKB_VM_ISSUE_92.to_string(),
+                                            self.index,
                                         )
                                         .into());
                                     }
@@ -121,7 +124,7 @@ mod tests {
     fn check_good_binary() {
         let data =
             read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap();
-        assert!(KnownScriptBugsChecker::new(&data).check().is_ok());
+        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
     }
 
     #[test]
@@ -130,8 +133,8 @@ mod tests {
             read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/defected_binary"))
                 .unwrap();
         assert_error_eq!(
-            KnownScriptBugsChecker::new(&data).check().unwrap_err(),
-            ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string()),
+            IllScriptChecker::new(&data, 13).check().unwrap_err(),
+            ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string(), 13),
         );
     }
 }

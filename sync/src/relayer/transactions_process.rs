@@ -2,7 +2,7 @@ use crate::relayer::Relayer;
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_script::KnownBugsChecker;
+use ckb_script::IllTransactionChecker;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed,
@@ -96,7 +96,7 @@ impl<'a> TransactionsProcess<'a> {
                 }
                 // skip txs with known bugs
                 if reject_known_bugs {
-                    if let Err(e) = KnownBugsChecker::new(&tx).check() {
+                    if let Err(e) = IllTransactionChecker::new(&tx).check() {
                         debug_target!(
                             crate::LOG_TARGET_RELAY,
                             "ignore tx {} with known bug: {:}",

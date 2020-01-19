@@ -28,6 +28,7 @@ pub struct TxPoolConfig {
     // txs with lower fee rate than this will not be relayed or be mined
     pub min_fee_rate: FeeRate,
     // Rejects txs with scripts that might trigger known bugs
+    #[serde(default)]
     pub reject_known_bugs: bool,
     // tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,

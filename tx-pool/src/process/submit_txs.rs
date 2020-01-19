@@ -3,7 +3,7 @@ use crate::error::SubmitTxError;
 use crate::pool::TxPool;
 use crate::FeeRate;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_script::KnownBugsChecker;
+use ckb_script::IllTransactionChecker;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -339,7 +339,7 @@ fn verify_rtxs(
     txs.into_iter()
         .map(|tx| {
             if reject_known_bugs {
-                KnownBugsChecker::new(&tx.transaction).check()?;
+                IllTransactionChecker::new(&tx.transaction).check()?;
             }
 
             let tx_hash = tx.transaction.hash();
