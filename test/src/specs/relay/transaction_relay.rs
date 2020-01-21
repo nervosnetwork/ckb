@@ -247,3 +247,36 @@ fn wait_get_relay_txs(net: &Net) -> bool {
         false
     })
 }
+
+pub struct TransactionRelayEmptyPeers;
+
+impl Spec for TransactionRelayEmptyPeers {
+    crate::name!("transaction_relay_empty_peers");
+
+    crate::setup!(num_nodes: 2);
+
+    fn run(&self, net: &mut Net) {
+        net.exit_ibd_mode();
+
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+
+        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        info!("Disconnect node1 and generate new transaction on node0");
+        node0.disconnect(&node1);
+        let hash = node0.generate_transaction();
+
+        info!("Transaction should be relayed to node1 when node0's peers become none-empty");
+        node0.connect(node1);
+        let rpc_client = node1.rpc_client();
+        let ret = wait_until(10, || {
+            if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
+                transaction.tx_status.block_hash.is_none()
+            } else {
+                false
+            }
+        });
+        assert!(ret, "Transaction should be relayed to node1");
+    }
+}
