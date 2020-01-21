@@ -16,7 +16,7 @@ steps:
   displayName: Install yasm
 - script: |
     curl -sSf -o rustup-init.exe https://win.rustup.rs
-    rustup-init.exe -y --default-toolchain ${{ parameters.rustup_toolchain }}
+    rustup-init.exe -y --default-host ${{ parameters.rustup_toolchain }}
     set PATH=%PATH%;%USERPROFILE%\.cargo\bin
     echo "##vso[task.setvariable variable=PATH;]%PATH%;%USERPROFILE%\.cargo\bin"
   displayName: Install rust
