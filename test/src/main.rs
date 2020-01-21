@@ -282,6 +282,7 @@ fn all_specs() -> SpecMap {
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
         Box::new(TransactionRelayTimeout),
+        Box::new(TransactionRelayEmptyPeers),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
