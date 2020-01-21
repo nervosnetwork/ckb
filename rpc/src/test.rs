@@ -518,7 +518,7 @@ fn test_rpc() {
             let params = case.get("params").expect("get params");
             actual.push((method.clone(), params.clone()));
             if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
-                expected.push((method.clone(), params.clone()));
+                expected.push((method, params.clone()));
             } else {
                 expected.push((method.clone(), params_of(&shared, &method)));
             }

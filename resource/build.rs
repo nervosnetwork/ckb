@@ -23,7 +23,7 @@ fn main() {
     for entry in WalkDir::new("specs").follow_links(true).into_iter() {
         match entry {
             Ok(ref e)
-                if !e.file_name().to_string_lossy().starts_with(".")
+                if !e.file_name().to_string_lossy().starts_with('.')
                     && e.file_name().to_string_lossy().ends_with(".toml") =>
             {
                 bundled
@@ -39,30 +39,30 @@ fn main() {
     let out_path = Path::new(&env::var("OUT_DIR").unwrap()).join("code_hashes.rs");
     let mut out_file = BufWriter::new(File::create(&out_path).expect("create code_hashes.rs"));
 
-    write!(
+    writeln!(
         &mut out_file,
-        "pub const CODE_HASH_SECP256K1_DATA: H256 = {:?};\n",
+        "pub const CODE_HASH_SECP256K1_DATA: H256 = {:?};",
         H256(CODE_HASH_SECP256K1_DATA)
     )
     .expect("write to code_hashes.rs");
 
-    write!(
+    writeln!(
         &mut out_file,
-        "pub const CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL: H256 = {:?};\n",
+        "pub const CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL: H256 = {:?};",
         H256(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
     )
     .expect("write to code_hashes.rs");
 
-    write!(
+    writeln!(
         &mut out_file,
-        "pub const CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL: H256 = {:?};\n",
+        "pub const CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL: H256 = {:?};",
         H256(CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL)
     )
     .expect("write to code_hashes.rs");
 
-    write!(
+    writeln!(
         &mut out_file,
-        "pub const CODE_HASH_DAO: H256 = {:?};\n",
+        "pub const CODE_HASH_DAO: H256 = {:?};",
         H256(CODE_HASH_DAO)
     )
     .expect("write to code_hashes.rs");
