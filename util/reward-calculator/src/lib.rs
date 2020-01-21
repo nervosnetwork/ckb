@@ -25,23 +25,45 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
-        let consensus = self.consensus;
-        let store = self.store;
-
+    pub fn block_reward_to_finalize(
+        &self,
+        parent: &HeaderView,
+    ) -> Result<(Script, BlockReward), Error> {
         let block_number = parent.number() + 1;
-        let target_number = consensus
+        let target_number = self
+            .consensus
             .finalize_target(block_number)
             .expect("block number checked before involving finalize_target");
-
         let target = self
             .store
             .get_block_hash(target_number)
             .and_then(|hash| self.store.get_block_header(&hash))
             .expect("block hash checked before involving get_ancestor");
+        self.block_reward_internal(&target, parent)
+    }
 
+    pub fn block_reward_for_target(
+        &self,
+        target: &HeaderView,
+    ) -> Result<(Script, BlockReward), Error> {
+        let finalization_parent_number =
+            target.number() + self.consensus.finalization_delay_length() - 1;
+        let parent = self
+            .store
+            .get_block_hash(finalization_parent_number)
+            .and_then(|hash| self.store.get_block_header(&hash))
+            .expect("block hash checked before involving get_ancestor");
+        self.block_reward_internal(target, &parent)
+    }
+
+    fn block_reward_internal(
+        &self,
+        target: &HeaderView,
+        parent: &HeaderView,
+    ) -> Result<(Script, BlockReward), Error> {
         let target_lock = CellbaseWitness::from_slice(
-            &store
+            &self
+                .store
                 .get_cellbase(&target.hash())
                 .expect("target cellbase exist")
                 .witnesses()
@@ -52,9 +74,9 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         .expect("cellbase loaded from store should has non-empty witness")
         .lock();
 
-        let txs_fees = self.txs_fees(&target)?;
-        let proposal_reward = self.proposal_reward(parent, &target)?;
-        let (primary, secondary) = self.base_block_reward(&target)?;
+        let txs_fees = self.txs_fees(target)?;
+        let proposal_reward = self.proposal_reward(parent, target)?;
+        let (primary, secondary) = self.base_block_reward(target)?;
 
         let total = txs_fees
             .safe_add(proposal_reward)?
@@ -64,7 +86,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         debug!(
             "[RewardCalculator] target {} {}\n
              txs_fees {:?}, proposal_reward {:?}, primary {:?}, secondary: {:?}, totol_reward {:?}",
-            target_number,
+            target.number(),
             target.hash(),
             txs_fees,
             proposal_reward,

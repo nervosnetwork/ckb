@@ -24,6 +24,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_live_cell`](#get_live_cell)
     *   [`get_transaction`](#get_transaction)
     *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
+    *   [`get_block_economic_state`](#get_block_economic_state)
     *   [`get_block_by_number`](#get_block_by_number)
 *   [`Experiment`](#experiment)
     *   [`dry_run_transaction`](#dry_run_transaction)
@@ -652,6 +653,61 @@ http://localhost:8114
         "secondary": "0x17b93605",
         "total": "0x18e64b61cf",
         "tx_fee": "0x0"
+    }
+}
+```
+
+### `get_block_economic_state`
+
+Returns increased issuance, miner reward and total transaction fee of a block.
+
+#### Parameters
+
+    hash - Block hash
+#### Returns
+
+    finalized_at - The hash of the block which finalized
+    issuance::primary - Primary issuance in this block
+    issuance::secondary - Secondary issuance in this block
+    miner_reward::committed - Committed fee in miner reward
+    miner_reward::proposal - Proposal fee in miner reward
+    miner_reward::primary - Primary issuance in miner reward
+    miner_reward::secondary - Secondary issuance in miner reward
+    txs_fee - The total transaction fee of all transactions in the this block
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block_economic_state",
+    "params": [
+        "0x02530b25ad0ff677acc365cb73de3e8cc09c7ddd58272e879252e199d08df83b"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "finalized_at": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+        "issuance": {
+            "primary": "0x18ce922bca",
+            "secondary": "0x7f02ec655"
+        },
+        "miner_reward": {
+            "committed": "0x0",
+            "primary": "0x18ce922bca",
+            "proposal": "0x0",
+            "secondary": "0x17b93605"
+        },
+        "txs_fee": "0x0"
     }
 }
 ```

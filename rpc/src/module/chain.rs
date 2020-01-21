@@ -1,13 +1,18 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
-    BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint, CellWithStatus, EpochNumber,
-    EpochView, HeaderView, OutPoint, TransactionWithStatus,
+    BlockEconomicState, BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint,
+    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus,
 };
 use ckb_logger::{error, warn};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_types::{core::cell::CellProvider, packed, prelude::*, H256};
+use ckb_types::{
+    core::{self, cell::CellProvider},
+    packed,
+    prelude::*,
+    H256,
+};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 
@@ -58,6 +63,9 @@ pub trait ChainRpc {
 
     #[rpc(name = "get_cellbase_output_capacity_details")]
     fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Result<Option<BlockReward>>;
+
+    #[rpc(name = "get_block_economic_state")]
+    fn get_block_economic_state(&self, _hash: H256) -> Result<Option<BlockEconomicState>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -274,11 +282,78 @@ impl ChainRpc for ChainRpcImpl {
                         None
                     } else {
                         RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
-                            .block_reward(&parent)
+                            .block_reward_to_finalize(&parent)
                             .map(|r| r.1.into())
                             .ok()
                     }
                 })
+        }))
+    }
+
+    fn get_block_economic_state(&self, hash: H256) -> Result<Option<BlockEconomicState>> {
+        let snapshot = self.shared.snapshot();
+
+        let block_number = if let Some(block_number) = snapshot.get_block_number(&hash.pack()) {
+            block_number
+        } else {
+            return Ok(None);
+        };
+
+        let delay_length = snapshot.consensus().finalization_delay_length();
+        let finalized_at_number = block_number + delay_length;
+        if block_number == 0 || snapshot.tip_number() < finalized_at_number {
+            return Ok(None);
+        }
+
+        let block_hash = hash.pack();
+        let finalized_at = if let Some(block_hash) = snapshot.get_block_hash(finalized_at_number) {
+            block_hash
+        } else {
+            return Ok(None);
+        };
+
+        let issuance = if let Some(issuance) = snapshot
+            .get_block_epoch_index(&block_hash)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .and_then(|epoch_ext| {
+                let primary = epoch_ext.block_reward(block_number).ok()?;
+                let secondary = epoch_ext
+                    .secondary_block_issuance(
+                        block_number,
+                        snapshot.consensus().secondary_epoch_reward(),
+                    )
+                    .ok()?;
+                Some(core::BlockIssuance { primary, secondary })
+            }) {
+            issuance
+        } else {
+            return Ok(None);
+        };
+
+        let txs_fee = if let Some(txs_fee) =
+            snapshot.get_block_ext(&block_hash).and_then(|block_ext| {
+                block_ext
+                    .txs_fees
+                    .iter()
+                    .try_fold(core::Capacity::zero(), |acc, tx_fee| acc.safe_add(*tx_fee))
+                    .ok()
+            }) {
+            txs_fee
+        } else {
+            return Ok(None);
+        };
+
+        Ok(snapshot.get_block_header(&block_hash).and_then(|header| {
+            RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
+                .block_reward_for_target(&header)
+                .ok()
+                .map(|(_, block_reward)| core::BlockEconomicState {
+                    issuance,
+                    miner_reward: block_reward.into(),
+                    txs_fee,
+                    finalized_at,
+                })
+                .map(Into::into)
         }))
     }
 }
