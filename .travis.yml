@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.27.0
+    - CKB_CLI_VERSION=v0.27.1
 
 addons:
   apt:
@@ -88,7 +88,7 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
-        - cargo audit --version || travis_retry cargo install cargo-audit
+        - cargo audit --version || travis_retry cargo install cargo-audit --locked
       script:
         - make security-audit
 
@@ -117,7 +117,7 @@ matrix:
       os: linux
       env: CACHE_NAME=tarpaulin
       install:
-        - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin
+        - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin --locked
       script:
         # allow failures
         - if make cov; then bash <(curl -s https://codecov.io/bash); fi

@@ -4,6 +4,7 @@ use crate::module::{
     IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc,
     NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
+use crate::IoHandler;
 use ckb_chain::chain::ChainController;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig};
 use ckb_network::NetworkController;
@@ -13,7 +14,6 @@ use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
 use ckb_tx_pool::FeeRate;
 use ckb_util::Mutex;
-use jsonrpc_core::IoHandler;
 use std::sync::Arc;
 
 pub struct ServiceBuilder<'a> {
@@ -25,7 +25,7 @@ impl<'a> ServiceBuilder<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self {
             config,
-            io_handler: IoHandler::new(),
+            io_handler: IoHandler::default(),
         }
     }
     pub fn enable_chain(mut self, shared: Shared) -> Self {

@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.27.0"
+version = "0.27.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -61,6 +61,9 @@ members = [
     "benches",
     "error",
     "notify",
+    "protocols/ping",
+    "protocols/identify",
+    "protocols/discovery",
 ]
 
 [profile.release]

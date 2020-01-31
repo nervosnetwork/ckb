@@ -133,6 +133,7 @@ impl Net {
             NetworkService::new(
                 Arc::clone(&network_state),
                 protocols,
+                Vec::new(),
                 node.consensus().identify_name(),
                 "0.1.0".to_string(),
                 Arc::new((Mutex::new(()), Condvar::new())),

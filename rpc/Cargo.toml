@@ -1,11 +1,12 @@
 [package]
 name = "ckb-rpc"
-version = "0.27.0"
+version = "0.27.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+ckb-chain-spec = { path = "../spec" }
 ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
 ckb-notify = { path = "../notify" }
@@ -23,6 +24,8 @@ jsonrpc-http-server = "14.0"
 jsonrpc-tcp-server = "14.0"
 jsonrpc-ws-server = "14.0"
 jsonrpc-server-utils = "14.0"
+jsonrpc-pubsub = "14.0"
+crossbeam-channel = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 num_cpus = "1.10"
@@ -39,7 +42,6 @@ ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-tx-pool = { path = "../tx-pool" }
 
 [dev-dependencies]
-ckb-chain-spec = { path = "../spec" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"

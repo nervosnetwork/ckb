@@ -203,6 +203,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         NetworkService::new(
             Arc::clone(&network_state),
             Vec::new(),
+            Vec::new(),
             shared.consensus().identify_name(),
             "0.1.0".to_string(),
             Arc::new((Mutex::new(()), Condvar::new())),
@@ -399,12 +400,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         "get_tip_block_number"
         | "get_tip_header"
         | "get_current_epoch"
-        | "local_node_info"
-        | "get_peers"
-        | "get_banned_addresses"
         | "get_blockchain_info"
         | "tx_pool_info"
-        | "get_peers_state"
         | "get_lock_hash_index_states" => vec![],
         "get_epoch_by_number" => vec![json!("0x0")],
         "get_block_hash" | "get_block_by_number" | "get_header_by_number" => {
@@ -424,9 +421,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             json!(true),
             json!("set_ban example"),
         ],
-        "send_transaction" | "dry_run_transaction" | "_compute_transaction_hash" => {
-            vec![transaction]
-        }
+        "send_transaction" => vec![transaction, json!("passthrough")],
+        "dry_run_transaction" | "_compute_transaction_hash" => vec![transaction],
         "get_transaction" => vec![transaction_hash],
         "index_lock_hash" => vec![json!(always_success_script_hash), json!("0x400")],
         "deindex_lock_hash" | "get_capacity_by_lock_hash" => {
@@ -439,8 +435,6 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![json!(json_script)]
         }
         "estimate_fee_rate" => vec![json!("0xa")],
-        "calculate_dao_maximum_withdraw" => vec![json!(always_success_out_point), json!(tip_hash)],
-        "get_block_template" => vec![json!(null), json!(null), json!(null)],
         "submit_block" => {
             let json_block: JsonBlock = tip.data().into();
             vec![json!("example"), json!(json_block)]
@@ -514,11 +508,13 @@ fn test_rpc() {
                 .as_str()
                 .unwrap()
                 .to_string();
-            actual.push((
-                method.clone(),
-                case.get("params").expect("get params").clone(),
-            ));
-            expected.push((method.clone(), params_of(&shared, &method)));
+            let params = case.get("params").expect("get params");
+            actual.push((method.clone(), params.clone()));
+            if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
+                expected.push((method.clone(), params.clone()));
+            } else {
+                expected.push((method.clone(), params_of(&shared, &method)));
+            }
         });
         if actual != expected {
             print_document(Some(&expected), None);

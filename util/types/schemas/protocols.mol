@@ -1,0 +1,66 @@
+import blockchain;
+
+// version 0.0.1 Ping message
+union PingPayload {
+    Ping,
+    Pong,
+}
+
+table PingMessage {
+    payload:        PingPayload,
+}
+
+table Ping {
+    nonce: Uint32,
+}
+
+table Pong {
+    nonce: Uint32,
+}
+
+// discovery 0.0.1
+
+vector NodeVec <Node>;
+array DiscoveryBool [byte; 1];
+array Uint16 [byte; 2];
+option PortOpt (Uint16);
+
+union DiscoveryPayload {
+    GetNodes,
+    Nodes,
+}
+
+table DiscoveryMessage {
+    payload: DiscoveryPayload,
+}
+
+table GetNodes {
+    version: Uint32,
+    count: Uint32,
+    listen_port: PortOpt,
+}
+
+table Nodes {
+    announce: DiscoveryBool,
+    items: NodeVec,
+}
+
+table Node {
+    addresses: BytesVec,
+}
+
+// identify 0.0.1
+vector AddressVec <Address>;
+
+table Address {
+    bytes: Bytes,
+}
+
+table IdentifyMessage {
+    // These are the addresses on which the peer is listening as multi-addresses.
+    listen_addrs: AddressVec,
+    // Observed each other's ip
+    observed_addr: Address,
+    // Custom message to indicate self ability, such as list protocols supported
+    identify: Bytes,
+}

@@ -87,6 +87,10 @@ impl packed::Script {
             .map(|cellbase_witness| cellbase_witness.lock())
             .ok()
     }
+
+    pub fn is_hash_type_type(&self) -> bool {
+        Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Type)
+    }
 }
 
 impl packed::Transaction {

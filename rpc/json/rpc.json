@@ -645,12 +645,16 @@
                 ],
                 "version": "0x0",
                 "witnesses": []
-            }
+            },
+            "passthrough"
         ],
         "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
         "types": [
             {
                 "transaction": "The transaction object, struct reference: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0019-data-structures/0019-data-structures.md#Transaction"
+            },
+            {
+                "outputs_validator": "Validates the transaction outputs before entering the tx-pool, an optional string parameter (enum: default | passthrough ), null means using default validator, passthrough means skipping outputs validation"
             }
         ]
     },
@@ -1490,5 +1494,45 @@
                 "block": "new block"
             }
         ]
+    },
+    {
+        "description": "Subscribe to a topic, if successful it returns the subscription id. For each event that matches the subscription a notification with relevant data (JSON-formatted string) is send together with the subscription id. Example: {\"jsonrpc\":\"2.0\",\"method\":\"subscribe\",\"params\":{\"result\":\"...block header JSON-formatted string...\",\"subscription\":\"0x2a\"}}",
+        "method": "subscribe",
+        "module": "subscription",
+        "params": [
+            "new_tip_header"
+        ],
+        "result": "0x2a",
+        "types": [
+            {
+                "topic": "Subscription topic (enum: new_tip_header | new_tip_block)"
+            }
+        ],
+        "returns": [
+            {
+                "id": "Subscription id"
+            }
+        ],
+        "skip": true
+    },
+    {
+        "description": "unsubscribe from a subscribed topic",
+        "method": "unsubscribe",
+        "module": "subscription",
+        "params": [
+            "0x2a"
+        ],
+        "result": true,
+        "types": [
+            {
+                "id": "Subscription id"
+            }
+        ],
+        "returns": [
+            {
+                "result": "Unsubscribe result"
+            }
+        ],
+        "skip": true
     }
 ]
