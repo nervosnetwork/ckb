@@ -1,3 +1,11 @@
+# [v0.27.1](https://github.com/nervosnetwork/ckb/compare/v0.27.0...v0.27.1) (2020-01-31)
+
+### Features
+
+* #1900: Add RPC subscription, a.k.a, pub/sub (@quake)
+* #1908: Periodically disconnect peers which open invalid sub-protocols (@jjyr)
+* #1879: add `outputs_validator` to `send_transaction` rpc (@quake)
+
 # [v0.27.0](https://github.com/nervosnetwork/ckb/compare/v0.26.1...v0.27.0) (2020-01-10)
 
 ### Features
