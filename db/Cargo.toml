@@ -1,6 +1,6 @@
 [package]
 name = "ckb-db"
-version = "0.27.1-pre"
+version = "0.27.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
