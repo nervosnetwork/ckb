@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.27.1-pre"
+version = "0.27.2-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -17,9 +17,9 @@ tokio-threadpool = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
 p2p = { version="0.2.7", package="tentacle", features = ["molc"] }
-p2p-ping = { version="0.27.1-pre", package="ckb-ping", path = "../protocols/ping" }
-p2p-discovery = { version="0.27.1-pre", package="ckb-discovery", path = "../protocols/discovery" }
-p2p-identify = { version="0.27.1-pre", package="ckb-identify", path = "../protocols/identify" }
+p2p-ping = { package="ckb-ping", path = "../protocols/ping" }
+p2p-discovery = { package="ckb-discovery", path = "../protocols/discovery" }
+p2p-identify = { package="ckb-identify", path = "../protocols/identify" }
 faketime = "0.2.0"
 lazy_static = "1.3.0"
 bs58 = "0.3.0"

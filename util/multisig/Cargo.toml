@@ -1,6 +1,6 @@
 [package]
 name = "ckb-multisig"
-version = "0.27.1-pre"
+version = "0.27.2-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
