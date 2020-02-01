@@ -257,7 +257,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(
-        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero()).to_delegate(),
+        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero(), true).to_delegate(),
     );
     io.extend_with(
         NetworkRpcImpl {

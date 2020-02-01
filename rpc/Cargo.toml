@@ -40,6 +40,7 @@ futures = "0.1"
 ckb-error = { path = "../error" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-tx-pool = { path = "../tx-pool" }
+ckb-script = { path = "../script" }
 
 [dev-dependencies]
 reqwest = "0.9.16"
