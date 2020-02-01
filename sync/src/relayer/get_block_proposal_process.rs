@@ -76,9 +76,8 @@ impl<'a> GetBlockProposalProcess<'a> {
             )
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
 
-        if let Err(err) = self.nc.send_message_to(self.peer, data) {
+        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
             StatusCode::Network.with_context(format!("Send GetBlockProposal error: {:?}", err,));
         }
         Status::ok()

@@ -83,7 +83,7 @@ impl CKBProtocolHandler for AlertRelayer {
         for alert in self.notifier.lock().received_alerts() {
             let alert_id: u32 = alert.as_reader().raw().id().unpack();
             trace!("send alert {} to peer {}", alert_id, peer_index);
-            if let Err(err) = nc.quick_send_message_to(peer_index, alert.as_slice().into()) {
+            if let Err(err) = nc.quick_send_message_to(peer_index, alert.as_bytes()) {
                 debug!("alert_relayer send alert when connected error: {:?}", err);
             }
         }

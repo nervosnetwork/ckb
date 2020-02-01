@@ -50,7 +50,7 @@ impl Spec for MissingUncleRequest {
         net.send(
             NetworkProtocol::RELAY.into(),
             peer_id,
-            message.as_slice().into(),
+            Bytes::from(message.as_slice().to_vec()),
         );
 
         net.should_receive(

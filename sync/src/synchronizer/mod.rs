@@ -395,9 +395,9 @@ impl Synchronizer {
             .block_hashes(v_fetch.clone().pack())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
+
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(peer, data) {
+        if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
     }
@@ -584,9 +584,12 @@ mod tests {
     #[cfg(not(disable_faketime))]
     use faketime;
     use futures::future::Future;
-    use std::collections::{HashMap, HashSet};
-    use std::ops::Deref;
-    use std::time::Duration;
+    use std::{
+        collections::{HashMap, HashSet},
+        ops::Deref,
+        pin::Pin,
+        time::Duration,
+    };
 
     fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         let mut builder = SharedBuilder::default();
@@ -989,12 +992,10 @@ mod tests {
 
         fn future_task(
             &self,
-            task: Box<
-                (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
-            >,
+            _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
             _blocking: bool,
         ) -> Result<(), ckb_network::Error> {
-            task.wait().expect("resolve future task error");
+            //            task.await.expect("resolve future task error");
             Ok(())
         }
 

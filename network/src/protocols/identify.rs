@@ -173,8 +173,8 @@ impl Callback for IdentifyCallback {
             .map(|socket_addr| {
                 addr.iter()
                     .filter_map(|proto| match proto {
-                        Protocol::P2p(_) => None,
-                        Protocol::Tcp(_) => Some(Protocol::Tcp(socket_addr.port())),
+                        Protocol::P2P(_) => None,
+                        Protocol::TCP(_) => Some(Protocol::TCP(socket_addr.port())),
                         value => Some(value),
                     })
                     .collect::<Multiaddr>()

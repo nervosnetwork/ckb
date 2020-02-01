@@ -81,9 +81,8 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .uncles(uncles.into_iter().map(|uncle| uncle.data()).pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
 
-            if let Err(err) = self.nc.send_message_to(self.peer, data) {
+            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
                 return StatusCode::Network
                     .with_context(format!("Send BlockTransactions error: {:?}", err));
             }
