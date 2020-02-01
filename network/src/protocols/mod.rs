@@ -26,7 +26,7 @@ pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Sen
 use crate::{
     compress::{compress, decompress},
     network::disconnect_with_message,
-    Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion,
+    Behaviour, Error, NetworkState, Peer, ProtocolVersion,
 };
 
 pub trait CKBProtocolContext: Send {
@@ -365,8 +365,19 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
 
     fn connected_peers(&self) -> Vec<PeerIndex> {
-        self.network_state
-            .with_peer_registry(PeerRegistry::connected_peers)
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers()
+                .iter()
+                .filter_map(|(peer_index, peer)| {
+                    if peer.protocols.contains_key(&self.proto_id) {
+                        Some(peer_index)
+                    } else {
+                        None
+                    }
+                })
+                .cloned()
+                .collect()
+        })
     }
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) {
         self.network_state
