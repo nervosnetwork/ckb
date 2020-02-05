@@ -102,6 +102,7 @@ impl Setup {
             config,
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
+            prune: matches.is_present(cli::ARG_PRUNE),
         })
     }
 

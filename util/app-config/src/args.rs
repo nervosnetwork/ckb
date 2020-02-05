@@ -22,6 +22,7 @@ pub struct RunArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
     pub block_assembler_advanced: bool,
+    pub prune: bool,
 }
 
 pub struct ProfArgs {

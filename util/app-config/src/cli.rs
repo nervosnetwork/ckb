@@ -40,6 +40,7 @@ pub const ARG_NETWORK: &str = "network";
 pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
 pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
 pub const ARG_LOGS: &str = "logs";
+pub const ARG_PRUNE: &str = "prune";
 
 const GROUP_BA: &str = "ba";
 
