@@ -4,10 +4,10 @@ use crate::utils::{
 };
 use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_dao::DaoCalculator;
+use ckb_network::bytes::Bytes;
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{
-    bytes::Bytes,
     core::{
         cell::{resolve_transaction, ResolvedTransaction},
         BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,

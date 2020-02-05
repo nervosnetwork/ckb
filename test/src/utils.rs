@@ -1,9 +1,8 @@
 use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
-use ckb_types::core::EpochNumber;
+use ckb_network::bytes::Bytes;
 use ckb_types::{
-    bytes::Bytes,
-    core::{BlockNumber, BlockView, HeaderView, TransactionView},
+    core::{BlockNumber, BlockView, EpochNumber, HeaderView, TransactionView},
     h256,
     packed::{
         Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,

@@ -1,5 +1,6 @@
 use ckb_logger::{debug, info};
 use p2p::{
+    bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
 };
@@ -10,7 +11,7 @@ pub(crate) struct DisconnectMessageProtocol;
 impl ServiceProtocol for DisconnectMessageProtocol {
     fn init(&mut self, _context: &mut ProtocolContext) {}
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
         let session_id = context.session.id;
         if let Ok(message) = String::from_utf8(data.to_vec()) {
             info!(

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::{sync::Arc, time::Duration};
 
 use p2p::{
+    bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::Multiaddr,
     secio::PeerId,
@@ -112,7 +113,7 @@ impl ServiceProtocol for DiscoveryProtocol {
         debug!("protocol [discovery] close on session [{}]", session.id);
     }
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
         let session = context.session;
         trace!("[received message]: length={}", data.len());
 

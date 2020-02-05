@@ -2,13 +2,10 @@ use crate::specs::TestProtocol;
 use crate::utils::{temp_path, wait_until};
 use crate::{Node, Setup};
 use ckb_network::{
-    CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
-    NetworkService, NetworkState, PeerIndex, ProtocolId,
+    bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig,
+    NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
-use ckb_types::{
-    bytes::Bytes,
-    core::{BlockNumber, BlockView},
-};
+use ckb_types::core::{BlockNumber, BlockView};
 use ckb_util::{Condvar, Mutex};
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;

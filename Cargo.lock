@@ -671,7 +671,6 @@ name = "ckb-network"
 version = "0.27.2-pre"
 dependencies = [
  "bs58 0.3.0",
- "bytes",
  "ckb-build-info",
  "ckb-discovery",
  "ckb-hash",
@@ -707,7 +706,6 @@ dependencies = [
 name = "ckb-network-alert"
 version = "0.27.2-pre"
 dependencies = [
- "bytes",
  "ckb-crypto",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -970,7 +968,6 @@ name = "ckb-sync"
 version = "0.27.2-pre"
 dependencies = [
  "bitflags",
- "bytes",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",

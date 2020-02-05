@@ -81,7 +81,7 @@ pub trait CKBProtocolHandler: Sync + Send {
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
-        _data: bytes::Bytes,
+        _data: Bytes,
     ) {
     }
     /// Called when the Service receives the notify task
@@ -214,7 +214,7 @@ impl ServiceProtocol for CKBHandler {
         self.handler.disconnected(Arc::new(nc), peer_index);
     }
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
         trace!(
             "[received message]: {}, {}, length={}",
             self.proto_id,
