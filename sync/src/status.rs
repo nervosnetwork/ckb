@@ -29,97 +29,82 @@ macro_rules! attempt {
 }
 
 /// StatusCodes indicate whether a specific operation has been successfully completed.
-/// The StatusCode element is a 5-digit integer.
+/// The StatusCode element is a 3-digit integer.
 ///
 /// The first digest of the StatusCode defines the class of result:
-///   - 1xxxx: Informational - Request received, continuing process
-///   - 4xxxx: Malformed errors - The request contains malformed messages
-///   - 5xxxx: Node errors - The node internal failed
-///
-/// The 2nd-3rd digests of the StatusCode defines the scope of result:
-///   - x00xx: General, undefined specific scope
-///   - x01xx: CompactBlock
-///   - x02xx: RelayTransactions
-///   - x03xx: RelayTransactionHashes
-///   - x04xx: GetRelayTransactions
-///   - x05xx: GetBlockTransactions
-///   - x06xx: BlockTransactions
-///   - x07xx: GetBlockProposal
-///   - x08xx: BlockProposal
-///   - x09xx: GetHeaders
-///   - x10xx: SendHeaders
-///   - x11xx: GetBlocks
-///   - x12xx: SendBlock
-///   - x13xx: InIBD
+///   - 1xx: Informational - Request received, continuing process
+///   - 4xx: Malformed Error - The request contains malformed messages
+///   - 5xx: Warning - The node warns about recoverable conditions
+#[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusCode {
     ///////////////////////////////////
-    //      Informational 1xxxx      //
+    //      Informational 1xx        //
     ///////////////////////////////////
     /// OK
-    OK = 10000,
+    OK = 100,
     /// Ignored
-    Ignored = 10001,
+    Ignored = 101,
     /// The node has received and recorded this block as pending block
-    AlreadyPendingBlock = 10002,
+    AlreadyPendingBlock = 102,
     /// The node is requesting from other peers for this block, but no response yet
-    AlreadyInFlightBlock = 10003,
+    AlreadyInFlightBlock = 103,
     /// The node has stored this block into database
-    AlreadyStoredBlock = 10004,
+    AlreadyStoredBlock = 104,
     /// The CompactBlock is older than what the node expects
-    StaledCompactBlock = 10100,
+    StaledCompactBlock = 105,
     /// The node cannot process the arrived CompactBlock successfully for lack
     /// of information of its parent
-    MissingParent = 10101,
+    MissingParent = 106,
     /// The node cannot process the arrived CompactBlock successfully for lack
     /// of parts of its transactions
-    MissingTransactions = 10102,
+    MissingTransactions = 107,
     /// CompactBlock short-ids collision
-    ShortIdsCollided = 10103,
+    ShortIdsCollided = 108,
 
     ///////////////////////////////////
-    //      Malformed Errors 4xxxx   //
+    //      Malformed Errors 4xx     //
     ///////////////////////////////////
     /// Malformed protocol message
-    MalformedProtocolMessage = 40000,
+    MalformedProtocolMessage = 400,
     /// Block verified failed or the block is already marked as invalid
-    InvalidBlock = 40001,
+    InvalidBlock = 401,
     /// Header verified failed or the header is already marked as invalid
-    InvalidHeader = 40002,
+    InvalidHeader = 402,
     /// Duplicated short-ids within a same CompactBlock
-    DuplicatedShortIds = 40100,
+    DuplicatedShortIds = 403,
     /// Missing cellbase as the first transaction within a CompactBlock
-    MissingPrefilledCellbase = 40101,
+    MissingPrefilledCellbase = 404,
     /// Duplicated prefilled transactions within a same CompactBlock
-    DuplicatedPrefilledTransactions = 40102,
+    DuplicatedPrefilledTransactions = 405,
     /// The prefilled transactions are out-of-order
-    OutOfOrderPrefilledTransactions = 40103,
+    OutOfOrderPrefilledTransactions = 406,
     /// Some of the prefilled transactions are out-of-index
-    OutOfIndexPrefilledTransactions = 40104,
+    OutOfIndexPrefilledTransactions = 407,
     /// Invalid uncle block
-    InvalidUncle = 40105,
+    InvalidUncle = 408,
     /// Unmatched Transaction Root
-    UnmatchedTransactionRoot = 40106,
+    UnmatchedTransactionRoot = 409,
     /// The length of BlockTransactions is unmatched with in pending_compact_blocks
-    UnmatchedBlockTransactionsLength = 40600,
+    UnmatchedBlockTransactionsLength = 410,
     /// The short-ids of BlockTransactions is unmatched with in pending_compact_blocks
-    UnmatchedBlockTransactions = 40601,
+    UnmatchedBlockTransactions = 411,
     /// The length of BlockUncles is unmatched with in pending_compact_blocks
-    UnmatchedBlockUnclesLength = 40602,
+    UnmatchedBlockUnclesLength = 412,
     /// The hash of uncles is unmatched
-    UnmatchedBlockUncles = 40603,
+    UnmatchedBlockUncles = 413,
     /// Cannot locate the common blocks based on the GetHeaders
-    MissingCommonAncestors = 40900,
+    MissingCommonAncestors = 414,
 
     ///////////////////////////////////
-    //      Node Errors 5xxxx        //
+    //      Warning 5xx              //
     ///////////////////////////////////
     /// Internal undefined error
-    Internal = 50000,
+    Internal = 500,
     /// In-flight blocks limit exceeded
-    InflightBlocksReachLimit = 50001,
+    InflightBlocksReachLimit = 501,
     /// Errors returned from the network layer
-    Network = 50002,
+    Network = 502,
 }
 
 impl StatusCode {
@@ -155,7 +140,7 @@ impl Status {
     }
 
     pub fn should_ban(&self) -> Option<Duration> {
-        if !(40000..50000).contains(&(self.code as u16)) {
+        if !(400..500).contains(&(self.code as u16)) {
             return None;
         }
         match self.code {
