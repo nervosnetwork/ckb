@@ -155,7 +155,7 @@ impl Status {
     }
 
     pub fn should_ban(&self) -> Option<Duration> {
-        if (self.code as u16) < 40000 || 50000 <= (self.code as u16) {
+        if !(40000..50000).contains(&(self.code as u16)) {
             return None;
         }
         match self.code {
