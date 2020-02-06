@@ -21,20 +21,22 @@ impl BlockTransactionsVerifier {
             .collect();
 
         if missing_short_ids.len() != transactions.len() {
-            return StatusCode::UnmatchedBlockTransactionsLength.with_context(format!(
-                "Expected({}) != actual({})",
-                missing_short_ids.len(),
-                transactions.len(),
-            ));
+            return StatusCode::BlockTransactionsLengthIsUnmatchedWithPendingCompactBlock
+                .with_context(format!(
+                    "Expected({}) != actual({})",
+                    missing_short_ids.len(),
+                    transactions.len(),
+                ));
         }
 
         for (expected_short_id, tx) in missing_short_ids.into_iter().zip(transactions) {
             let short_id = tx.proposal_short_id();
             if expected_short_id != short_id {
-                return StatusCode::UnmatchedBlockTransactions.with_context(format!(
-                    "Expected({}) != actual({})",
-                    expected_short_id, short_id,
-                ));
+                return StatusCode::BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock
+                    .with_context(format!(
+                        "Expected({}) != actual({})",
+                        expected_short_id, short_id,
+                    ));
             }
         }
 

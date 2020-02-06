@@ -14,8 +14,8 @@ use std::time::Duration;
 ///     StatusCode::OK.with_context("bar")
 /// }
 ///
-/// assert_eq!(return_early(StatusCode::OK.into()).to_string(), "OK(10000): bar");
-/// assert_eq!(return_early(StatusCode::Ignored.into()).to_string(), "Ignored(10001)");
+/// assert_eq!(return_early(StatusCode::OK.into()).to_string(), "OK(100): bar");
+/// assert_eq!(return_early(StatusCode::Ignored.into()).to_string(), "Ignored(101)");
 /// ```
 #[macro_export]
 macro_rules! attempt {
@@ -45,66 +45,66 @@ pub enum StatusCode {
     OK = 100,
     /// Ignored
     Ignored = 101,
-    /// The node has received and recorded this block as pending block
-    AlreadyPendingBlock = 102,
+    /// The node had already received and recorded this block as pending block
+    CompactBlockIsAlreadyPending = 102,
     /// The node is requesting from other peers for this block, but no response yet
-    AlreadyInFlightBlock = 103,
-    /// The node has stored this block into database
-    AlreadyStoredBlock = 104,
+    CompactBlockIsAlreadyInFlight = 103,
+    /// The node had already stored this block into database
+    CompactBlockAlreadyStored = 104,
     /// The CompactBlock is older than what the node expects
-    StaledCompactBlock = 105,
+    CompactBlockIsStaled = 105,
     /// The node cannot process the arrived CompactBlock successfully for lack
     /// of information of its parent
-    MissingParent = 106,
+    CompactBlockRequiresParent = 106,
     /// The node cannot process the arrived CompactBlock successfully for lack
     /// of parts of its transactions
-    MissingTransactions = 107,
+    CompactBlockRequiresFreshTransactions = 107,
     /// CompactBlock short-ids collision
-    ShortIdsCollided = 108,
+    CompactBlockMeetsShortIdsCollision = 108,
 
     ///////////////////////////////////
     //      Malformed Errors 4xx     //
     ///////////////////////////////////
     /// Malformed protocol message
-    MalformedProtocolMessage = 400,
+    ProtocolMessageIsMalformed = 400,
     /// Block verified failed or the block is already marked as invalid
-    InvalidBlock = 401,
+    BlockIsInvalid = 401,
     /// Header verified failed or the header is already marked as invalid
-    InvalidHeader = 402,
+    CompactBlockHasInvalidHeader = 402,
     /// Duplicated short-ids within a same CompactBlock
-    DuplicatedShortIds = 403,
+    CompactBlockHasDuplicatedShortIds = 403,
     /// Missing cellbase as the first transaction within a CompactBlock
-    MissingPrefilledCellbase = 404,
+    CompactBlockHasNotPrefilledCellbase = 404,
     /// Duplicated prefilled transactions within a same CompactBlock
-    DuplicatedPrefilledTransactions = 405,
+    CompactBlockHasDuplicatedPrefilledTransactions = 405,
     /// The prefilled transactions are out-of-order
-    OutOfOrderPrefilledTransactions = 406,
+    CompactBlockHasOutOfOrderPrefilledTransactions = 406,
     /// Some of the prefilled transactions are out-of-index
-    OutOfIndexPrefilledTransactions = 407,
+    CompactBlockHasOutOfIndexPrefilledTransactions = 407,
     /// Invalid uncle block
-    InvalidUncle = 408,
+    CompactBlockHasInvalidUncle = 408,
     /// Unmatched Transaction Root
-    UnmatchedTransactionRoot = 409,
+    CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock = 409,
     /// The length of BlockTransactions is unmatched with in pending_compact_blocks
-    UnmatchedBlockTransactionsLength = 410,
+    BlockTransactionsLengthIsUnmatchedWithPendingCompactBlock = 410,
     /// The short-ids of BlockTransactions is unmatched with in pending_compact_blocks
-    UnmatchedBlockTransactions = 411,
+    BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock = 411,
     /// The length of BlockUncles is unmatched with in pending_compact_blocks
-    UnmatchedBlockUnclesLength = 412,
+    BlockUnclesLengthIsUnmatchedWithPendingCompactBlock = 412,
     /// The hash of uncles is unmatched
-    UnmatchedBlockUncles = 413,
+    BlockUnclesAreUnmatchedWithPendingCompactBlock = 413,
     /// Cannot locate the common blocks based on the GetHeaders
-    MissingCommonAncestors = 414,
+    GetHeadersMissCommonAncestors = 414,
 
     ///////////////////////////////////
     //      Warning 5xx              //
     ///////////////////////////////////
-    /// Internal undefined error
-    Internal = 500,
-    /// In-flight blocks limit exceeded
-    InflightBlocksReachLimit = 501,
+    /// Errors returned from the tx-pool
+    TxPool = 501,
     /// Errors returned from the network layer
     Network = 502,
+    /// In-flight blocks limit exceeded
+    BlocksInFlightReachLimit = 503,
 }
 
 impl StatusCode {
@@ -144,7 +144,7 @@ impl Status {
             return None;
         }
         match self.code {
-            StatusCode::MissingCommonAncestors => Some(SYNC_USELESS_BAN_TIME),
+            StatusCode::GetHeadersMissCommonAncestors => Some(SYNC_USELESS_BAN_TIME),
             _ => Some(BAD_MESSAGE_BAN_TIME),
         }
     }

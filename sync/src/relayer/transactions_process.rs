@@ -191,8 +191,7 @@ impl<'a> TransactionsProcess<'a> {
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
         if let Err(err) = tx_pool.notify_txs(notify_txs, Some(callback)) {
-            return StatusCode::Internal
-                .with_context(format!("TxPool notify_txs error: {:?}", err));
+            return StatusCode::TxPool.with_context(format!("TxPool notify_txs error: {:?}", err));
         }
 
         Status::ok()

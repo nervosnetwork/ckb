@@ -32,7 +32,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
         {
             let get_block_transactions = self.message;
             if get_block_transactions.indexes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "Indexes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
                     get_block_transactions.indexes().len(),
                     MAX_RELAY_TXS_NUM_PER_BATCH,
@@ -40,7 +40,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             }
             if get_block_transactions.uncle_indexes().len() > snapshot.consensus().max_uncles_num()
             {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "UncleIndexes count({}) > consensus max_uncles_num({})",
                     get_block_transactions.uncle_indexes().len(),
                     snapshot.consensus().max_uncles_num(),

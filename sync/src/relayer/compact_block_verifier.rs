@@ -25,11 +25,11 @@ impl PrefilledVerifier {
 
         // Check the prefilled_transactions appears to have included the cellbase
         if prefilled_transactions.is_empty() {
-            return StatusCode::MissingPrefilledCellbase.into();
+            return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
         }
         let index: usize = prefilled_transactions.get(0).unwrap().index().unpack();
         if index != 0 {
-            return StatusCode::MissingPrefilledCellbase.into();
+            return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
         }
 
         // Check indices order of prefilled transactions
@@ -37,7 +37,7 @@ impl PrefilledVerifier {
             let idx0: usize = prefilled_transactions.get(i).unwrap().index().unpack();
             let idx1: usize = prefilled_transactions.get(i + 1).unwrap().index().unpack();
             if idx0 >= idx1 {
-                return StatusCode::OutOfOrderPrefilledTransactions.into();
+                return StatusCode::CompactBlockHasOutOfOrderPrefilledTransactions.into();
             }
         }
 
@@ -49,7 +49,7 @@ impl PrefilledVerifier {
                 .index()
                 .unpack();
             if index >= txs_len {
-                return StatusCode::OutOfIndexPrefilledTransactions.into();
+                return StatusCode::CompactBlockHasOutOfIndexPrefilledTransactions.into();
             }
         }
 
@@ -68,7 +68,7 @@ impl ShortIdsVerifier {
 
         // Check duplicated short ids
         if short_ids.len() != short_ids_set.len() {
-            return StatusCode::DuplicatedShortIds.into();
+            return StatusCode::CompactBlockHasDuplicatedShortIds.into();
         }
 
         // Check intersection of prefilled transactions and short ids.
@@ -78,7 +78,7 @@ impl ShortIdsVerifier {
             .skip(1)
             .any(|pt| short_ids_set.contains(&pt.transaction().proposal_short_id()));
         if is_intersect {
-            return StatusCode::DuplicatedPrefilledTransactions.into();
+            return StatusCode::CompactBlockHasDuplicatedPrefilledTransactions.into();
         }
 
         Status::ok()

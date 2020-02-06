@@ -12,7 +12,7 @@ fn test_unordered_prefilled() {
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
-        StatusCode::OutOfOrderPrefilledTransactions.into(),
+        StatusCode::CompactBlockHasOutOfOrderPrefilledTransactions.into(),
     );
 }
 
@@ -33,7 +33,7 @@ fn test_overflow_prefilled() {
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
-        StatusCode::OutOfIndexPrefilledTransactions.into(),
+        StatusCode::CompactBlockHasOutOfIndexPrefilledTransactions.into(),
     );
 }
 
@@ -42,7 +42,7 @@ fn test_cellbase_not_prefilled() {
     let block = CompactBlockBuilder::default().build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
-        StatusCode::MissingPrefilledCellbase.into(),
+        StatusCode::CompactBlockHasNotPrefilledCellbase.into(),
     );
 
     let prefilled = (1..5).map(new_index_transaction);
@@ -51,7 +51,7 @@ fn test_cellbase_not_prefilled() {
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
-        StatusCode::MissingPrefilledCellbase.into(),
+        StatusCode::CompactBlockHasNotPrefilledCellbase.into(),
     );
 }
 
@@ -67,7 +67,7 @@ fn test_duplicated_short_ids() {
         .build();
     assert_eq!(
         ShortIdsVerifier::verify(&block),
-        StatusCode::DuplicatedShortIds.into(),
+        StatusCode::CompactBlockHasDuplicatedShortIds.into(),
     );
 }
 
@@ -82,7 +82,7 @@ fn test_intersected_short_ids() {
         .build();
     assert_eq!(
         ShortIdsVerifier::verify(&block),
-        StatusCode::DuplicatedPrefilledTransactions.into(),
+        StatusCode::CompactBlockHasDuplicatedPrefilledTransactions.into(),
     );
 }
 

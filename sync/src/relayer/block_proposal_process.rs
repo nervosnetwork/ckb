@@ -20,7 +20,7 @@ impl<'a> BlockProposalProcess<'a> {
             let limit = snapshot.consensus().max_block_proposals_limit()
                 * (snapshot.consensus().max_uncles_num() as u64);
             if (block_proposals.transactions().len() as u64) > limit {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "Transactions count({}) > consensus max_block_proposals_limit({}) * max_uncles_num({})",
                     block_proposals.transactions().len(),
                     snapshot.consensus().max_block_proposals_limit(),

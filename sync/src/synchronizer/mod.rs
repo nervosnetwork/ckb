@@ -74,11 +74,11 @@ impl Synchronizer {
                 if reader.check_data() {
                     BlockProcess::new(reader, self, peer).execute()
                 } else {
-                    StatusCode::MalformedProtocolMessage.with_context("SendBlock is invalid")
+                    StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
             }
             packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
-            _ => StatusCode::MalformedProtocolMessage.with_context("unexpected sync message"),
+            _ => StatusCode::ProtocolMessageIsMalformed.with_context("unexpected sync message"),
         }
     }
 

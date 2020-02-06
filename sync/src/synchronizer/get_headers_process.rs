@@ -50,7 +50,7 @@ impl<'a> GetHeadersProcess<'a> {
         let hash_stop = self.message.hash_stop().to_entity();
         let locator_size = block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
-            return StatusCode::MalformedProtocolMessage.with_context(format!(
+            return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "Locator count({}) > MAX_LOCATOR_SIZE({})",
                 locator_size, MAX_LOCATOR_SIZE,
             ));
@@ -82,7 +82,7 @@ impl<'a> GetHeadersProcess<'a> {
                     .with_context(format!("Send SendHeaders error: {:?}", err,));
             }
         } else {
-            return StatusCode::MissingCommonAncestors
+            return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{:#x?}", block_locator_hashes,));
         }
         Status::ok()

@@ -32,7 +32,7 @@ impl<'a> TransactionHashesProcess<'a> {
         {
             let relay_transaction_hashes = self.message;
             if relay_transaction_hashes.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
                     relay_transaction_hashes.tx_hashes().len(),
                     MAX_RELAY_TXS_NUM_PER_BATCH,
@@ -59,7 +59,7 @@ impl<'a> TransactionHashesProcess<'a> {
             let fresh_ids = {
                 match tx_pool.fresh_proposals_filter(proposals.keys().cloned().collect()) {
                     Err(err) => {
-                        return StatusCode::Internal.with_context(format!(
+                        return StatusCode::TxPool.with_context(format!(
                             "[TransactionHashesProcess] request fresh_proposals_filter error {:?}",
                             err,
                         ));

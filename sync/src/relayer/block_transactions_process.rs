@@ -135,7 +135,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
 
                 let content = packed::GetBlockTransactions::new_builder()
-                    .block_hash(block_hash)
+                    .block_hash(block_hash.clone())
                     .indexes(missing_transactions.pack())
                     .uncle_indexes(missing_uncles.pack())
                     .build();
@@ -150,9 +150,10 @@ impl<'a> BlockTransactionsProcess<'a> {
                 mem::replace(expected_uncle_indexes, missing_uncles);
 
                 if collision {
-                    return StatusCode::ShortIdsCollided.into();
+                    return StatusCode::CompactBlockMeetsShortIdsCollision.with_context(block_hash);
                 } else {
-                    return StatusCode::MissingTransactions.into();
+                    return StatusCode::CompactBlockRequiresFreshTransactions
+                        .with_context(block_hash);
                 }
             }
         }

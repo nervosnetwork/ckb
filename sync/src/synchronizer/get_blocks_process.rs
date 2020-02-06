@@ -31,7 +31,7 @@ impl<'a> GetBlocksProcess<'a> {
         let block_hashes = self.message.block_hashes();
         // use MAX_HEADERS_LEN as limit, we may increase the value of MAX_BLOCKS_IN_TRANSIT_PER_PEER in the future
         if block_hashes.len() > MAX_HEADERS_LEN {
-            return StatusCode::MalformedProtocolMessage.with_context(format!(
+            return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "BlockHashes count({}) > MAX_HEADERS_LEN({})",
                 block_hashes.len(),
                 MAX_HEADERS_LEN,

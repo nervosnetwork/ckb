@@ -95,7 +95,7 @@ impl Relayer {
                 if reader.check_data() {
                     TransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
-                    StatusCode::MalformedProtocolMessage
+                    StatusCode::ProtocolMessageIsMalformed
                         .with_context("RelayTransactions is invalid")
                 }
             }
@@ -112,7 +112,7 @@ impl Relayer {
                 if reader.check_data() {
                     BlockTransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
-                    StatusCode::MalformedProtocolMessage
+                    StatusCode::ProtocolMessageIsMalformed
                         .with_context("BlockTransactions is invalid")
                 }
             }
@@ -294,7 +294,7 @@ impl Relayer {
 
             let fetch_txs = tx_pool.fetch_txs(short_ids_set.into_iter().collect());
             if let Err(e) = fetch_txs {
-                return ReconstructionResult::Error(StatusCode::Internal.with_context(e));
+                return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }
             txs_map.extend(fetch_txs.unwrap().into_iter());
         }
@@ -371,7 +371,7 @@ impl Relayer {
                 }
                 BlockStatus::BLOCK_INVALID => {
                     return ReconstructionResult::Error(
-                        StatusCode::InvalidUncle.with_context(uncle_hash),
+                        StatusCode::CompactBlockHasInvalidUncle.with_context(uncle_hash),
                     )
                 }
                 _ => missing_uncles.push(i),
@@ -404,11 +404,12 @@ impl Relayer {
                     || compact_block.short_ids().len() == block_txs_len
                 {
                     return ReconstructionResult::Error(
-                        StatusCode::UnmatchedTransactionRoot.with_context(format!(
-                            "Compact_block_tx_root({}) != reconstruct_block_tx_root({})",
-                            compact_block.header().raw().transactions_root(),
-                            block.transactions_root(),
-                        )),
+                        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock
+                            .with_context(format!(
+                                "Compact_block_tx_root({}) != reconstruct_block_tx_root({})",
+                                compact_block.header().raw().transactions_root(),
+                                block.transactions_root(),
+                            )),
                     );
                 } else {
                     return ReconstructionResult::Collided;

@@ -31,7 +31,7 @@ impl<'a> GetTransactionsProcess<'a> {
         {
             let get_transactions = self.message;
             if get_transactions.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
                     get_transactions.tx_hashes().len(),
                     MAX_RELAY_TXS_NUM_PER_BATCH,

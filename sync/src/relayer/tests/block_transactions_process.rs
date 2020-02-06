@@ -210,7 +210,7 @@ fn test_invalid_transaction_root() {
     );
     assert_eq!(
         process.execute(),
-        StatusCode::UnmatchedTransactionRoot.into(),
+        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
 
@@ -299,7 +299,10 @@ fn test_collision_and_send_missing_indexes() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(process.execute(), StatusCode::ShortIdsCollided.into());
+    assert_eq!(
+        process.execute(),
+        StatusCode::CompactBlockMeetsShortIdsCollision.into()
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
@@ -345,7 +348,7 @@ fn test_collision_and_send_missing_indexes() {
     );
     assert_eq!(
         process.execute(),
-        StatusCode::UnmatchedTransactionRoot.into(),
+        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
 
@@ -407,7 +410,10 @@ fn test_missing() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(process.execute(), StatusCode::MissingTransactions.into());
+    assert_eq!(
+        process.execute(),
+        StatusCode::CompactBlockRequiresFreshTransactions.into()
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())

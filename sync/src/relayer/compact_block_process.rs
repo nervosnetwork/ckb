@@ -51,7 +51,7 @@ impl<'a> CompactBlockProcess<'a> {
         {
             let compact_block = self.message;
             if compact_block.uncles().len() > snapshot.consensus().max_uncles_num() {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "CompactBlock uncles count({}) > consensus max_uncles_num({})",
                     compact_block.uncles().len(),
                     snapshot.consensus().max_uncles_num()
@@ -60,7 +60,7 @@ impl<'a> CompactBlockProcess<'a> {
             if (compact_block.proposals().len() as u64)
                 > snapshot.consensus().max_block_proposals_limit()
             {
-                return StatusCode::MalformedProtocolMessage.with_context(format!(
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "CompactBlock proposals count({}) > consensus max_block_proposals_limit({})",
                     compact_block.proposals().len(),
                     snapshot.consensus().max_block_proposals_limit(),
@@ -80,15 +80,14 @@ impl<'a> CompactBlockProcess<'a> {
         let lowest_number = tip.number().saturating_sub(epoch_length);
 
         if lowest_number > header.number() {
-            return StatusCode::StaledCompactBlock.into();
+            return StatusCode::CompactBlockIsStaled.with_context(block_hash);
         }
 
         let status = snapshot.get_block_status(&block_hash);
         if status.contains(BlockStatus::BLOCK_STORED) {
-            return StatusCode::AlreadyStoredBlock.into();
+            return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
-            return StatusCode::InvalidBlock
-                .with_context(format!("Block({}) already marked as invalid", block_hash,));
+            return StatusCode::BlockIsInvalid.with_context(block_hash);
         }
 
         let parent = snapshot.get_header_view(&header.data().raw().parent_hash());
@@ -100,7 +99,11 @@ impl<'a> CompactBlockProcess<'a> {
                 self.peer
             );
             snapshot.send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
-            return StatusCode::MissingParent.into();
+            return StatusCode::CompactBlockRequiresParent.with_context(format!(
+                "{} parent: {}",
+                block_hash,
+                header.data().raw().parent_hash(),
+            ));
         }
 
         let parent = parent.unwrap();
@@ -116,7 +119,7 @@ impl<'a> CompactBlockProcess<'a> {
                     "discard already in-flight compact block {}",
                     block_hash,
                 );
-                return StatusCode::AlreadyInFlightBlock.into();
+                return StatusCode::CompactBlockIsAlreadyInFlight.with_context(block_hash);
             }
         }
 
@@ -132,7 +135,7 @@ impl<'a> CompactBlockProcess<'a> {
                 .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
                 .unwrap_or(false)
             {
-                return StatusCode::AlreadyPendingBlock.with_context(block_hash);
+                return StatusCode::CompactBlockIsAlreadyPending.with_context(block_hash);
             } else {
                 let fn_get_pending_header = {
                     |block_hash| {
@@ -156,8 +159,9 @@ impl<'a> CompactBlockProcess<'a> {
                 if let Err(err) = header_verifier.verify(&resolver) {
                     snapshot
                         .state()
-                        .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
-                    return StatusCode::InvalidHeader.with_context(err);
+                        .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                    return StatusCode::CompactBlockHasInvalidHeader
+                        .with_context(format!("{} {}", block_hash, err));
                 }
                 attempt!(CompactBlockVerifier::verify(&compact_block));
 
@@ -230,11 +234,11 @@ impl<'a> CompactBlockProcess<'a> {
                 self.peer,
                 block_hash,
             );
-            return StatusCode::InflightBlocksReachLimit.into();
+            return StatusCode::BlocksInFlightReachLimit.with_context(block_hash);
         }
 
         let content = packed::GetBlockTransactions::new_builder()
-            .block_hash(block_hash)
+            .block_hash(block_hash.clone())
             .indexes(missing_transactions.pack())
             .uncle_indexes(missing_uncles.pack())
             .build();
@@ -246,9 +250,9 @@ impl<'a> CompactBlockProcess<'a> {
         }
 
         if collision {
-            StatusCode::ShortIdsCollided.into()
+            StatusCode::CompactBlockMeetsShortIdsCollision.with_context(block_hash)
         } else {
-            StatusCode::MissingTransactions.into()
+            StatusCode::CompactBlockRequiresFreshTransactions.with_context(block_hash)
         }
     }
 }

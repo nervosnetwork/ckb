@@ -35,7 +35,7 @@ fn test_invalid() {
 
     assert_eq!(
         BlockTransactionsVerifier::verify(&block, &indexes, block_txs.as_slice()),
-        StatusCode::UnmatchedBlockTransactionsLength.into(),
+        StatusCode::BlockTransactionsLengthIsUnmatchedWithPendingCompactBlock.into(),
     );
 
     // Unordered txs
@@ -45,7 +45,7 @@ fn test_invalid() {
         .collect();
     assert_eq!(
         BlockTransactionsVerifier::verify(&block, &indexes, &block_txs),
-        StatusCode::UnmatchedBlockTransactions.into(),
+        StatusCode::BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock.into(),
     );
 }
 

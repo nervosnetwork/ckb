@@ -16,7 +16,7 @@ impl BlockUnclesVerifier {
             .collect();
 
         if expected_ids.len() != uncles.len() {
-            StatusCode::UnmatchedBlockUnclesLength.with_context(format!(
+            StatusCode::BlockUnclesLengthIsUnmatchedWithPendingCompactBlock.with_context(format!(
                 "Expected({}) != actual({})",
                 expected_ids.len(),
                 uncles.len(),
@@ -26,7 +26,7 @@ impl BlockUnclesVerifier {
         for (expected_id, uncle) in expected_ids.into_iter().zip(uncles) {
             let hash = uncle.hash();
             if hash != expected_id {
-                return StatusCode::UnmatchedBlockUncles
+                return StatusCode::BlockUnclesAreUnmatchedWithPendingCompactBlock
                     .with_context(format!("Expected({}) != actual({})", expected_id, hash,));
             }
         }

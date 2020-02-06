@@ -154,6 +154,6 @@ fn test_reconstruct_invalid_uncles() {
 
     assert_eq!(
         relayer.reconstruct_block(&relayer.shared().snapshot(), &compact, vec![], &[], &[]),
-        ReconstructionResult::Error(StatusCode::InvalidUncle.into()),
+        ReconstructionResult::Error(StatusCode::CompactBlockHasInvalidUncle.into()),
     );
 }

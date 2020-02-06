@@ -53,7 +53,7 @@ fn test_in_block_status_map() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::InvalidBlock.into(),
+        StatusCode::BlockIsInvalid.into(),
     );
 
     let compact_block_process = CompactBlockProcess::new(
@@ -73,7 +73,7 @@ fn test_in_block_status_map() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::AlreadyStoredBlock.into(),
+        StatusCode::CompactBlockAlreadyStored.into(),
     );
 }
 
@@ -109,7 +109,7 @@ fn test_unknow_parent() {
     );
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::MissingParent.into()
+        StatusCode::CompactBlockRequiresParent.into()
     );
 
     let snapshot = relayer.shared.snapshot();
@@ -205,7 +205,7 @@ fn test_already_in_flight() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::AlreadyInFlightBlock.into(),
+        StatusCode::CompactBlockIsAlreadyInFlight.into(),
     );
 }
 
@@ -254,7 +254,7 @@ fn test_already_pending() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::AlreadyPendingBlock.into(),
+        StatusCode::CompactBlockIsAlreadyPending.into(),
     );
 }
 
@@ -292,7 +292,7 @@ fn test_header_invalid() {
     );
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::InvalidHeader.into(),
+        StatusCode::CompactBlockHasInvalidHeader.into(),
     );
     // Assert block_status_map update
     assert_eq!(
@@ -356,7 +356,7 @@ fn test_inflight_blocks_reach_limit() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::InflightBlocksReachLimit.into(),
+        StatusCode::BlocksInFlightReachLimit.into(),
     );
 }
 
@@ -414,7 +414,7 @@ fn test_send_missing_indexes() {
         .contains(&proposal_id));
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::MissingTransactions.into()
+        StatusCode::CompactBlockRequiresFreshTransactions.into()
     );
 
     let content = packed::GetBlockTransactions::new_builder()
@@ -533,7 +533,7 @@ fn test_ignore_a_too_old_block() {
 
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::StaledCompactBlock.into(),
+        StatusCode::CompactBlockIsStaled.into(),
     );
 }
 
@@ -568,7 +568,7 @@ fn test_invalid_transaction_root() {
     );
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::UnmatchedTransactionRoot.into(),
+        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
 
@@ -649,7 +649,7 @@ fn test_collision() {
         .contains(&proposal_id));
     assert_eq!(
         compact_block_process.execute(),
-        StatusCode::ShortIdsCollided.into(),
+        StatusCode::CompactBlockMeetsShortIdsCollision.into(),
     );
 
     let content = packed::GetBlockTransactions::new_builder()

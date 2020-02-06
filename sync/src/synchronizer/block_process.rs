@@ -41,7 +41,11 @@ impl<'a> BlockProcess<'a> {
                     .process_new_block(&snapshot, self.peer, block.clone())
             {
                 state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
-                return StatusCode::InvalidBlock.with_context(err);
+                return StatusCode::BlockIsInvalid.with_context(format!(
+                    "{}, error: {}",
+                    block.hash(),
+                    err,
+                ));
             }
         } else if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
             state
