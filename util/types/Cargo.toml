@@ -6,10 +6,10 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-molecule = "=0.4.0"
+molecule = "=0.5.0"
 ckb-fixed-hash = { path = "../fixed-hash" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-bytes = { version="0.4.12", features = ["serde"] }
+bytes = { version="0.5.4", features = ["serde"] }
 merkle-cbt = "0.2"
 ckb-occupied-capacity = { path = "../occupied-capacity" }
 ckb-hash = { path = "../hash" }

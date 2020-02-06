@@ -212,7 +212,7 @@ lazy_static! {
         let raw_data = BUNDLED_CELL
             .get("specs/cells/secp256k1_data")
             .expect("load secp256k1_blake160_sighash_all");
-        let data: Bytes = raw_data[..].into();
+        let data: Bytes = raw_data.to_vec().into();
 
         let cell = CellOutput::new_builder()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
@@ -223,7 +223,7 @@ lazy_static! {
         let raw_data = BUNDLED_CELL
             .get("specs/cells/secp256k1_blake160_sighash_all")
             .expect("load secp256k1_blake160_sighash_all");
-        let data: Bytes = raw_data[..].into();
+        let data: Bytes = raw_data.to_vec().into();
 
         let cell = CellOutput::new_builder()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())

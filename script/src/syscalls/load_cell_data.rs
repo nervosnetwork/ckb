@@ -99,16 +99,21 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
             return Ok(());
         }
+        // TODO update-after-upgrade-vm
         let data = self
             .data_loader
             .load_cell_data(cell)
             .ok_or(VMError::Unexpected)?
-            .0;
+            .0
+            .slice((content_offset as usize)..(content_end as usize))
+            .as_ref()
+            .to_owned()
+            .into();
         machine.memory_mut().init_pages(
             addr,
             memory_size,
             FLAG_EXECUTABLE | FLAG_FREEZED,
-            Some(data.slice(content_offset as usize, content_end as usize)),
+            Some(data),
             0,
         )?;
 

@@ -86,7 +86,7 @@ impl Pack<packed::Bytes> for Bytes {
 
 impl<'r> Unpack<Bytes> for packed::BytesReader<'r> {
     fn unpack(&self) -> Bytes {
-        Bytes::from(self.raw_data())
+        Bytes::from(self.raw_data().to_owned())
     }
 }
 

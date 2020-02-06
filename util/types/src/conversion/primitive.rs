@@ -20,19 +20,19 @@ impl_conversion_for_entity_unpack!(bool, Bool);
 
 impl Pack<packed::Uint32> for u32 {
     fn pack(&self) -> packed::Uint32 {
-        packed::Uint32::new_unchecked(Bytes::from(&self.to_le_bytes()[..]))
+        packed::Uint32::new_unchecked(Bytes::from(self.to_le_bytes().to_vec()))
     }
 }
 
 impl Pack<packed::Uint64> for u64 {
     fn pack(&self) -> packed::Uint64 {
-        packed::Uint64::new_unchecked(Bytes::from(&self.to_le_bytes()[..]))
+        packed::Uint64::new_unchecked(Bytes::from(self.to_le_bytes().to_vec()))
     }
 }
 
 impl Pack<packed::Uint128> for u128 {
     fn pack(&self) -> packed::Uint128 {
-        packed::Uint128::new_unchecked(Bytes::from(&self.to_le_bytes()[..]))
+        packed::Uint128::new_unchecked(Bytes::from(self.to_le_bytes().to_vec()))
     }
 }
 
@@ -79,13 +79,13 @@ impl_conversion_for_entity_unpack!(usize, Uint32);
 
 impl Pack<packed::BeUint32> for u32 {
     fn pack(&self) -> packed::BeUint32 {
-        packed::BeUint32::new_unchecked(Bytes::from(&self.to_be_bytes()[..]))
+        packed::BeUint32::new_unchecked(Bytes::from(self.to_be_bytes().to_vec()))
     }
 }
 
 impl Pack<packed::BeUint64> for u64 {
     fn pack(&self) -> packed::BeUint64 {
-        packed::BeUint64::new_unchecked(Bytes::from(&self.to_be_bytes()[..]))
+        packed::BeUint64::new_unchecked(Bytes::from(self.to_be_bytes().to_vec()))
     }
 }
 

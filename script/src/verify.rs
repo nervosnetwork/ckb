@@ -389,7 +389,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let program = self.extract_script(&script_group.script)?;
+        // TODO update-after-upgrade-vm
+        let program = self
+            .extract_script(&script_group.script)?
+            .as_ref()
+            .to_owned()
+            .into();
         #[cfg(has_asm)]
         let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
         #[cfg(not(has_asm))]
@@ -1279,7 +1284,7 @@ mod tests {
             blake2b.update(&0u64.to_le_bytes());
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
-            Bytes::from(&ret[..])
+            Bytes::from(ret.to_vec())
         };
 
         let type_id_script = Script::new_builder()
@@ -1412,7 +1417,7 @@ mod tests {
             blake2b.update(b"unnecessary data");
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
-            Bytes::from(&ret[..])
+            Bytes::from(ret.to_vec())
         };
 
         let type_id_script = Script::new_builder()
@@ -1492,7 +1497,7 @@ mod tests {
             let mut buf = vec![];
             buf.extend_from_slice(&ret[..]);
             buf.extend_from_slice(b"abc");
-            Bytes::from(&buf[..])
+            Bytes::from(buf)
         };
 
         let type_id_script = Script::new_builder()
@@ -1631,10 +1636,10 @@ mod tests {
         let mut generator = Generator::non_crypto_safe_prng(42);
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
+        let lock_arg = Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned());
         let privkey2 = generator.gen_privkey();
         let pubkey_data2 = privkey2.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg2 = Bytes::from(&blake2b_256(&pubkey_data2)[0..20]);
+        let lock_arg2 = Bytes::from((&blake2b_256(&pubkey_data2)[0..20]).to_owned());
 
         let lock = Script::new_builder()
             .args(lock_arg.pack())
