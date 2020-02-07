@@ -1,12 +1,12 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
-use ckb_logger::{debug_target, warn};
+use crate::{Status, StatusCode};
+use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
 use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
 use ckb_util::LinkedHashMap;
-use failure::{err_msg, Error as FailureError};
 
 pub struct TransactionHashesProcess<'a> {
     message: packed::RelayTransactionHashesReader<'a>,
@@ -27,16 +27,15 @@ impl<'a> TransactionHashesProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         let state = self.relayer.shared().state();
         {
             let relay_transaction_hashes = self.message;
             if relay_transaction_hashes.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                warn!("Peer {} sends us an invalid message, RelayTransactionHashes tx_hashes size ({}) is greater than MAX_RELAY_TXS_NUM_PER_BATCH ({})",
-                    self.peer, relay_transaction_hashes.tx_hashes().len(), MAX_RELAY_TXS_NUM_PER_BATCH);
-                return Err(err_msg(
-                    "RelayTransactionHashes tx_hashes size is greater than MAX_RELAY_TXS_NUM_PER_BATCH"
-                        .to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
+                    relay_transaction_hashes.tx_hashes().len(),
+                    MAX_RELAY_TXS_NUM_PER_BATCH,
                 ));
             }
         }
@@ -57,16 +56,17 @@ impl<'a> TransactionHashesProcess<'a> {
                 .into_iter()
                 .map(|tx_hash| (packed::ProposalShortId::from_tx_hash(&tx_hash), tx_hash))
                 .collect();
-            let fresh_ids = tx_pool
-                .fresh_proposals_filter(proposals.keys().cloned().collect())
-                .map_err(|e| {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "[TransactionHashesProcess] request fresh_proposals_filter error {:?}",
-                        e
-                    );
-                    e
-                })?;
+            let fresh_ids = {
+                match tx_pool.fresh_proposals_filter(proposals.keys().cloned().collect()) {
+                    Err(err) => {
+                        return StatusCode::TxPool.with_context(format!(
+                            "[TransactionHashesProcess] request fresh_proposals_filter error {:?}",
+                            err,
+                        ));
+                    }
+                    Ok(fresh_ids) => fresh_ids,
+                }
+            };
             fresh_ids
                 .into_iter()
                 .filter_map(|id| proposals.remove(&id))
@@ -74,7 +74,7 @@ impl<'a> TransactionHashesProcess<'a> {
         };
 
         if transit_hashes.is_empty() {
-            return Ok(());
+            return Status::ok();
         }
 
         if let Some(peer_state) = state.peers().state.write().get_mut(&self.peer) {
@@ -98,6 +98,6 @@ impl<'a> TransactionHashesProcess<'a> {
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }

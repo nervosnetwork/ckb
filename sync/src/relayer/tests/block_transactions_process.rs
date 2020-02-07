@@ -1,6 +1,6 @@
-use crate::relayer::block_transactions_process::{BlockTransactionsProcess, Status};
-use crate::relayer::error::{Error, Misbehavior};
+use crate::relayer::block_transactions_process::BlockTransactionsProcess;
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
+use crate::{Status, StatusCode};
 use ckb_network::PeerIndex;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
@@ -83,12 +83,10 @@ fn test_accept_block() {
         peer_index,
     );
 
-    let r = process.execute();
+    assert_eq!(process.execute(), Status::ok());
 
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
-
     assert!(pending_compact_blocks.get(&hash).is_none());
-    assert_eq!(r.ok(), Some(Status::Accept));
 
     assert!(relayer
         .shared
@@ -146,9 +144,7 @@ fn test_unknown_request() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::UnkownRequest));
+    assert_eq!(process.execute(), Status::ignored());
 }
 
 #[test]
@@ -212,11 +208,9 @@ fn test_invalid_transaction_root() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::InvalidTransactionRoot)
+        process.execute(),
+        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
 
@@ -305,9 +299,10 @@ fn test_collision_and_send_missing_indexes() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::CollisionAndSendMissingIndexes));
+    assert_eq!(
+        process.execute(),
+        StatusCode::CompactBlockMeetsShortIdsCollision.into()
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
@@ -351,12 +346,9 @@ fn test_collision_and_send_missing_indexes() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = process.execute();
-
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::InvalidTransactionRoot)
+        process.execute(),
+        StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
 
@@ -418,9 +410,10 @@ fn test_missing() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::Missing));
+    assert_eq!(
+        process.execute(),
+        StatusCode::CompactBlockRequiresFreshTransactions.into()
+    );
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())

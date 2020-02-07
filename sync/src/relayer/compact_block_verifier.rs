@@ -1,4 +1,4 @@
-use crate::relayer::error::{Error, Misbehavior};
+use crate::{attempt, Status, StatusCode};
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 
@@ -8,28 +8,28 @@ use std::collections::HashSet;
 pub struct CompactBlockVerifier {}
 
 impl CompactBlockVerifier {
-    pub(crate) fn verify(block: &packed::CompactBlock) -> Result<(), Error> {
-        PrefilledVerifier::verify(block)?;
-        ShortIdsVerifier::verify(block)?;
-        Ok(())
+    pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
+        attempt!(PrefilledVerifier::verify(block));
+        attempt!(ShortIdsVerifier::verify(block));
+        Status::ok()
     }
 }
 
 pub struct PrefilledVerifier {}
 
 impl PrefilledVerifier {
-    pub(crate) fn verify(block: &packed::CompactBlock) -> Result<(), Error> {
+    pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
         let prefilled_transactions = &block.prefilled_transactions();
         let short_ids = &block.short_ids();
         let txs_len = prefilled_transactions.len() + short_ids.len();
 
         // Check the prefilled_transactions appears to have included the cellbase
         if prefilled_transactions.is_empty() {
-            return Err(Error::Misbehavior(Misbehavior::CellbaseNotPrefilled));
+            return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
         }
         let index: usize = prefilled_transactions.get(0).unwrap().index().unpack();
         if index != 0 {
-            return Err(Error::Misbehavior(Misbehavior::CellbaseNotPrefilled));
+            return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
         }
 
         // Check indices order of prefilled transactions
@@ -37,9 +37,7 @@ impl PrefilledVerifier {
             let idx0: usize = prefilled_transactions.get(i).unwrap().index().unpack();
             let idx1: usize = prefilled_transactions.get(i + 1).unwrap().index().unpack();
             if idx0 >= idx1 {
-                return Err(Error::Misbehavior(
-                    Misbehavior::UnorderedPrefilledTransactions,
-                ));
+                return StatusCode::CompactBlockHasOutOfOrderPrefilledTransactions.into();
             }
         }
 
@@ -51,20 +49,18 @@ impl PrefilledVerifier {
                 .index()
                 .unpack();
             if index >= txs_len {
-                return Err(Error::Misbehavior(
-                    Misbehavior::OverflowPrefilledTransactions,
-                ));
+                return StatusCode::CompactBlockHasOutOfIndexPrefilledTransactions.into();
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }
 
 pub struct ShortIdsVerifier {}
 
 impl ShortIdsVerifier {
-    pub(crate) fn verify(block: &packed::CompactBlock) -> Result<(), Error> {
+    pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
         let prefilled_transactions = block.prefilled_transactions();
         let short_ids = &block.short_ids();
         let short_ids_set: HashSet<packed::ProposalShortId> =
@@ -72,7 +68,7 @@ impl ShortIdsVerifier {
 
         // Check duplicated short ids
         if short_ids.len() != short_ids_set.len() {
-            return Err(Error::Misbehavior(Misbehavior::DuplicatedShortIds));
+            return StatusCode::CompactBlockHasDuplicatedShortIds.into();
         }
 
         // Check intersection of prefilled transactions and short ids.
@@ -82,11 +78,9 @@ impl ShortIdsVerifier {
             .skip(1)
             .any(|pt| short_ids_set.contains(&pt.transaction().proposal_short_id()));
         if is_intersect {
-            return Err(Error::Misbehavior(
-                Misbehavior::IntersectedPrefilledTransactions,
-            ));
+            return StatusCode::CompactBlockHasDuplicatedPrefilledTransactions.into();
         }
 
-        Ok(())
+        Status::ok()
     }
 }

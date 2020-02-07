@@ -14,15 +14,14 @@ use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState, SyncSnapshot};
 use crate::{
-    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
 };
 use ckb_chain::chain::ChainController;
-use ckb_logger::{debug, info, trace};
+use ckb_logger::{debug, error, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
-use failure::err_msg;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::cmp::min;
@@ -60,30 +59,27 @@ impl Synchronizer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
-    ) -> Result<(), FailureError> {
+    ) -> Status {
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
-                GetHeadersProcess::new(reader, self, peer, nc).execute()?;
+                GetHeadersProcess::new(reader, self, peer, nc).execute()
             }
             packed::SyncMessageUnionReader::SendHeaders(reader) => {
-                HeadersProcess::new(reader, self, peer, nc).execute()?;
+                HeadersProcess::new(reader, self, peer, nc).execute()
             }
             packed::SyncMessageUnionReader::GetBlocks(reader) => {
-                GetBlocksProcess::new(reader, self, peer, nc).execute()?;
+                GetBlocksProcess::new(reader, self, peer, nc).execute()
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    BlockProcess::new(reader, self, peer, nc).execute()?;
+                    BlockProcess::new(reader, self, peer).execute()
                 } else {
-                    return Err(err_msg("SendBlock: invalid data"));
+                    StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
             }
-            packed::SyncMessageUnionReader::InIBD(_) => {
-                InIBDProcess::new(self, peer, nc).execute()?;
-            }
-            _ => return Err(err_msg("Unexpected sync message")),
+            packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
+            _ => StatusCode::ProtocolMessageIsMalformed.with_context("unexpected sync message"),
         }
-        Ok(())
     }
 
     fn process<'r>(
@@ -92,13 +88,16 @@ impl Synchronizer {
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) {
-        if let Err(err) = self.try_process(nc, peer, message) {
-            debug!("try_process error: {}", err);
-            nc.ban_peer(
-                peer,
-                BAD_MESSAGE_BAN_TIME,
-                format!("sync message process error: {}", err),
+        let item_name = message.item_name();
+        let status = self.try_process(nc, peer, message);
+        if let Some(ban_time) = status.should_ban() {
+            error!(
+                "receive {} from {}, ban {:?} for {}",
+                item_name, peer, ban_time, status
             );
+            nc.ban_peer(peer, ban_time, status.to_string());
+        } else if !status.is_ok() {
+            debug!("receive {} from {}, {}", item_name, peer, status);
         }
     }
 
@@ -1105,9 +1104,10 @@ mod tests {
         let peer2: PeerIndex = 2.into();
         synchronizer1.on_connected(&mock_nc, peer1);
         synchronizer1.on_connected(&mock_nc, peer2);
-        HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc)
-            .execute()
-            .expect("Process headers from peer1 failed");
+        assert_eq!(
+            HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
+            Status::ok(),
+        );
 
         let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
@@ -1131,9 +1131,10 @@ mod tests {
 
         for block in &fetched_blocks {
             let block = SendBlockBuilder::default().block(block.data()).build();
-            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, &mock_nc)
-                .execute()
-                .unwrap();
+            assert_eq!(
+                BlockProcess::new(block.as_reader(), &synchronizer1, peer1).execute(),
+                Status::ok(),
+            );
         }
 
         assert_eq!(

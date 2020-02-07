@@ -1,5 +1,6 @@
 use super::helper::{build_chain, new_transaction};
-use crate::relayer::ReconstructionError;
+use crate::relayer::ReconstructionResult;
+use crate::StatusCode;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -30,7 +31,7 @@ fn test_missing_txs() {
                 &[],
                 &[]
             ),
-            Err(ReconstructionError::MissingIndexes(vec![0], vec![])),
+            ReconstructionResult::Missing(vec![0], vec![]),
         );
     }
 
@@ -55,7 +56,7 @@ fn test_missing_txs() {
                 &[],
                 &[]
             ),
-            Err(ReconstructionError::MissingIndexes(missing, vec![])),
+            ReconstructionResult::Missing(missing, vec![]),
         );
     }
 }
@@ -116,15 +117,14 @@ fn test_reconstruct_transactions_and_uncles() {
         db_txn.commit().unwrap();
     }
 
-    assert!(relayer
-        .reconstruct_block(
-            &relayer.shared().snapshot(),
-            &compact,
-            short_transactions,
-            &[],
-            &[]
-        )
-        .is_ok());
+    let ret = relayer.reconstruct_block(
+        &relayer.shared().snapshot(),
+        &compact,
+        short_transactions,
+        &[],
+        &[],
+    );
+    assert_eq!(ret, ReconstructionResult::Block(block), "{:?}", ret,);
 }
 
 #[test]
@@ -154,6 +154,6 @@ fn test_reconstruct_invalid_uncles() {
 
     assert_eq!(
         relayer.reconstruct_block(&relayer.shared().snapshot(), &compact, vec![], &[], &[]),
-        Err(ReconstructionError::InvalidUncle)
+        ReconstructionResult::Error(StatusCode::CompactBlockHasInvalidUncle.into()),
     );
 }

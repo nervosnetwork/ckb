@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::SyncSnapshot;
-use crate::MAX_HEADERS_LEN;
+use crate::{Status, StatusCode, MAX_HEADERS_LEN};
 use ckb_error::{Error, ErrorKind};
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -12,7 +12,6 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
-use failure::Error as FailureError;
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
@@ -127,7 +126,7 @@ impl<'a> HeadersProcess<'a> {
         acceptor.accept()
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
 
         let headers = self
@@ -144,7 +143,7 @@ impl<'a> HeadersProcess<'a> {
                 .state()
                 .misbehavior(self.peer, 20);
             warn!("HeadersProcess is_oversize");
-            return Ok(());
+            return Status::ok();
         }
 
         if headers.is_empty() {
@@ -157,7 +156,7 @@ impl<'a> HeadersProcess<'a> {
                 .expect("Peer must exists")
                 .headers_sync_timeout = None;
             debug!("HeadersProcess is_empty (synchronized)");
-            return Ok(());
+            return Status::ok();
         }
 
         if !self.is_continuous(&headers) {
@@ -166,7 +165,7 @@ impl<'a> HeadersProcess<'a> {
                 .state()
                 .misbehavior(self.peer, 20);
             debug!("HeadersProcess is not continuous");
-            return Ok(());
+            return Status::ok();
         }
 
         let result = self.accept_first(&headers[0]);
@@ -181,7 +180,7 @@ impl<'a> HeadersProcess<'a> {
                 "HeadersProcess accept_first is_valid {:?} headers = {:?}",
                 result, headers[0]
             );
-            return Ok(());
+            return Status::ok();
         }
 
         for window in headers.windows(2) {
@@ -205,7 +204,7 @@ impl<'a> HeadersProcess<'a> {
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!("HeadersProcess accept is invalid {:?}", result);
-                    return Ok(());
+                    return Status::ok();
                 }
             }
         }
@@ -264,11 +263,11 @@ impl<'a> HeadersProcess<'a> {
                 .nc
                 .disconnect(self.peer, "useless outbound peer in IBD")
             {
-                debug!("synchronizer disconnect error: {:?}", err);
+                return StatusCode::Network.with_context(format!("Disconnect error: {:?}", err));
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }
 

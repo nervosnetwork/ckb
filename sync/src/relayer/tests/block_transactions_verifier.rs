@@ -1,6 +1,6 @@
 use super::helper::new_index_transaction;
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
-use crate::relayer::error::{Error, Misbehavior};
+use crate::{Status, StatusCode};
 use ckb_types::packed::{CompactBlock, CompactBlockBuilder, IndexTransaction};
 use ckb_types::prelude::*;
 
@@ -33,16 +33,9 @@ fn test_invalid() {
         .map(|i| new_index_transaction(i).transaction().into_view())
         .collect();
 
-    let ret = BlockTransactionsVerifier::verify(&block, &indexes, block_txs.as_slice());
-
     assert_eq!(
-        ret.err(),
-        Some(Error::Misbehavior(
-            Misbehavior::InvalidBlockTransactionsLength {
-                expected: 3,
-                actual: 2
-            }
-        ))
+        BlockTransactionsVerifier::verify(&block, &indexes, block_txs.as_slice()),
+        StatusCode::BlockTransactionsLengthIsUnmatchedWithPendingCompactBlock.into(),
     );
 
     // Unordered txs
@@ -50,18 +43,9 @@ fn test_invalid() {
         .into_iter()
         .map(|i| new_index_transaction(i).transaction().into_view())
         .collect();
-
-    let expected = new_index_transaction(3).transaction().proposal_short_id();
-    let actual = new_index_transaction(4).transaction().proposal_short_id();
-
-    let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
-
     assert_eq!(
-        ret.err(),
-        Some(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
-            expected,
-            actual
-        }))
+        BlockTransactionsVerifier::verify(&block, &indexes, &block_txs),
+        StatusCode::BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock.into(),
     );
 }
 
@@ -75,7 +59,8 @@ fn test_ok() {
         .map(|i| new_index_transaction(i).transaction().into_view())
         .collect();
 
-    let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
-
-    assert!(ret.is_ok());
+    assert_eq!(
+        BlockTransactionsVerifier::verify(&block, &indexes, &block_txs),
+        Status::ok()
+    );
 }
