@@ -83,7 +83,7 @@ function search_crate() {
         | wc -l)
     depcnt=$((depcnt + tmpcnt))
     tmpcnt=$({\
-        ${GREP} ${grepopts} "[ (<]\(::\|\)${crate}::" "${source}" \
+        ${GREP} ${grepopts} "\(^\|[ (<]\)\(::\|\)${crate}::" "${source}" \
             || true; }\
         | wc -l)
     depcnt=$((depcnt + tmpcnt))
