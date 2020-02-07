@@ -389,12 +389,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
-        // TODO update-after-upgrade-vm
-        let program = self
-            .extract_script(&script_group.script)?
-            .as_ref()
-            .to_owned()
-            .into();
+        let program = self.extract_script(&script_group.script)?;
         #[cfg(has_asm)]
         let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
         #[cfg(not(has_asm))]
