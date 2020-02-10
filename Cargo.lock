@@ -317,6 +317,7 @@ dependencies = [
  "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-miner",
  "ckb-network",
  "ckb-network-alert",

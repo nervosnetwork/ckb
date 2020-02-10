@@ -88,6 +88,13 @@ impl Setup {
             None
         };
 
+        if let AppConfig::CKB(ref config) = self.config {
+            if config.enable_metrics_collection {
+                let path = config.data_dir.join("logs").join("metrics.log");
+                ckb_metrics::init(path);
+            }
+        }
+
         Ok(SetupGuard {
             logger_guard,
             sentry_guard,

@@ -27,6 +27,7 @@ ckb-build-info = { path = "../build-info" }
 ckb-indexer = { path = "../../indexer" }
 ckb-tx-pool = { path = "../../tx-pool" }
 ckb-notify = { path = "../../notify" }
+ckb-metrics = { path = "../metrics" }
 
 [dev-dependencies]
 tempfile = "3.0"

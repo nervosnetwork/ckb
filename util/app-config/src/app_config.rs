@@ -35,6 +35,9 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    #[serde(default)]
+    pub enable_metrics_collection: bool,
+
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     pub chain: ChainConfig,
