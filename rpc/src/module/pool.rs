@@ -66,10 +66,10 @@ impl PoolRpc for PoolRpcImpl {
         let tx: core::TransactionView = tx.into_view();
 
         if let Err(e) = match outputs_validator {
-            Some(OutputsValidator::Default) | None => {
+            Some(OutputsValidator::Default) => {
                 DefaultOutputsValidator::new(self.shared.consensus()).validate(&tx)
             }
-            Some(OutputsValidator::Passthrough) => Ok(()),
+            Some(OutputsValidator::Passthrough) | None => Ok(()),
         } {
             return Err(RPCError::custom(RPCError::Invalid, e));
         }
