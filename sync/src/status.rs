@@ -148,6 +148,17 @@ impl Status {
             _ => Some(BAD_MESSAGE_BAN_TIME),
         }
     }
+
+    pub fn class(&self) -> String {
+        format!("{:?}", self.code)
+    }
+
+    pub fn context(&self) -> &str {
+        self.context
+            .as_ref()
+            .map(|context| context.as_str())
+            .unwrap_or("")
+    }
 }
 
 impl PartialEq for Status {

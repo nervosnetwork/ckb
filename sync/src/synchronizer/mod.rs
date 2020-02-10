@@ -20,6 +20,7 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, trace};
+use ckb_metrics::metric;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
@@ -91,12 +92,14 @@ impl Synchronizer {
         let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
         if let Some(ban_time) = status.should_ban() {
+            metric(&status.class(), status.context());
             error!(
                 "receive {} from {}, ban {:?} for {}",
                 item_name, peer, ban_time, status
             );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if !status.is_ok() {
+            metric(&status.class(), status.context());
             debug!("receive {} from {}, {}", item_name, peer, status);
         }
     }

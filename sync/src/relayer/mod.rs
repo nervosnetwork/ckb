@@ -25,6 +25,7 @@ use crate::types::{SyncSharedState, SyncSnapshot};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
+use ckb_metrics::metric;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_tx_pool::FeeRate;
 use ckb_types::core::BlockView;
@@ -134,6 +135,7 @@ impl Relayer {
         let item_name = message.item_name();
         let status = self.try_process(Arc::clone(&nc), peer, message);
         if let Some(ban_time) = status.should_ban() {
+            metric(&status.class(), status.context());
             error_target!(
                 crate::LOG_TARGET_RELAY,
                 "receive {} from {}, ban {:?} for {}",
@@ -144,6 +146,7 @@ impl Relayer {
             );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if !status.is_ok() {
+            metric(&status.class(), status.context());
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "receive {} from {}, {}",
