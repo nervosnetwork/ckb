@@ -1,0 +1,11 @@
+[package]
+name = "ckb-metrics"
+version = "0.28.1-pre"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+serde_json = "1.0"
+chrono = "0.4"
+crossbeam-channel = "0.3"

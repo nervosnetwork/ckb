@@ -635,6 +635,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-metrics"
+version = "0.28.1-pre"
+dependencies = [
+ "chrono",
+ "crossbeam-channel",
+ "serde_json",
+]
+
+[[package]]
 name = "ckb-miner"
 version = "0.28.1-pre"
 dependencies = [
@@ -977,6 +986,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-error",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-network",
  "ckb-shared",
  "ckb-store",

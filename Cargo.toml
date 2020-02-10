@@ -64,6 +64,7 @@ members = [
     "protocols/ping",
     "protocols/identify",
     "protocols/discovery",
+    "util/metrics",
 ]
 
 [profile.release]
