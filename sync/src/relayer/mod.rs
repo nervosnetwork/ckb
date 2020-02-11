@@ -25,7 +25,7 @@ use crate::types::{SyncSharedState, SyncSnapshot};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_tx_pool::FeeRate;
 use ckb_types::core::BlockView;
 use ckb_types::{
@@ -582,7 +582,7 @@ impl CKBProtocolHandler for Relayer {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) {
         // If self is in the IBD state, don't process any relayer message.
         if self.shared.snapshot().is_initial_block_download() {

@@ -555,7 +555,8 @@ impl ChainSpec {
                     })
                     .collect::<Result<_, Box<dyn Error>>>()?;
 
-                let data = Bytes::from(out_points.pack().as_slice());
+                // TODO update-after-upgrade-p2p
+                let data = Bytes::from(out_points.pack().as_slice().to_owned());
                 let cell = packed::CellOutput::new_builder()
                     .lock(self.genesis.system_cells_lock.clone().into())
                     .build_exact_capacity(Capacity::bytes(data.len())?)?;
@@ -615,7 +616,8 @@ impl ChainSpec {
 
 impl GenesisCell {
     fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
-        let data: Bytes = self.message.as_bytes().into();
+        // TODO update-after-upgrade-p2p
+        let data: Bytes = self.message.as_bytes().as_ref().to_owned().into();
         let cell = packed::CellOutput::new_builder()
             .lock(self.lock.clone().into())
             .build_exact_capacity(Capacity::bytes(data.len())?)?;
@@ -672,7 +674,7 @@ impl SystemCell {
 
 fn secp_lock_arg(privkey: &Privkey) -> Bytes {
     let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
+    Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned())
 }
 
 pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
@@ -685,7 +687,7 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
     blake2b.update(&output_index.to_le_bytes());
     let mut ret = [0; 32];
     blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]);
+    let script_arg = Bytes::from(ret.to_vec());
     packed::Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.pack())
         .hash_type(ScriptHashType::Type.into())

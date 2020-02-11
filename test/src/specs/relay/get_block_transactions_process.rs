@@ -1,7 +1,7 @@
 use crate::{Net, Spec, TestProtocol};
+use ckb_network::bytes::Bytes;
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
-    bytes::Bytes,
     core::UncleBlockView,
     packed::{self, RelayMessage},
     prelude::*,

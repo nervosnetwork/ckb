@@ -20,7 +20,7 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, trace};
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -396,7 +396,7 @@ impl CKBProtocolHandler for Synchronizer {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) {
         let msg = match packed::SyncMessage::from_slice(&data) {
             Ok(msg) => msg.to_enum(),
@@ -534,8 +534,8 @@ mod tests {
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
     use ckb_network::{
-        Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
-        TargetSession,
+        bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
+        SessionType, TargetSession,
     };
     use ckb_shared::{
         shared::{Shared, SharedBuilder},
@@ -543,7 +543,6 @@ mod tests {
     };
     use ckb_store::ChainStore;
     use ckb_types::{
-        bytes::Bytes,
         core::{
             cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt,
             HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
@@ -999,21 +998,21 @@ mod tests {
             &self,
             _proto_id: ProtocolId,
             _peer_index: PeerIndex,
-            _data: bytes::Bytes,
+            _data: Bytes,
         ) -> Result<(), ckb_network::Error> {
             Ok(())
         }
         fn send_message_to(
             &self,
             _peer_index: PeerIndex,
-            _data: bytes::Bytes,
+            _data: Bytes,
         ) -> Result<(), ckb_network::Error> {
             Ok(())
         }
         fn filter_broadcast(
             &self,
             _target: TargetSession,
-            _data: bytes::Bytes,
+            _data: Bytes,
         ) -> Result<(), ckb_network::Error> {
             Ok(())
         }

@@ -1,5 +1,5 @@
 pub use molecule::{
-    faster_hex::hex_string,
+    hex_string,
     prelude::{Builder, Entity, Reader},
 };
 
@@ -36,7 +36,7 @@ where
             Err(err) => panic!(
                 "failed to convert from slice: reason: {}; data: 0x{}.",
                 err,
-                hex_string(slice).unwrap()
+                hex_string(slice)
             ),
         }
     }

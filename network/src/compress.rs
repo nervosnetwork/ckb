@@ -1,5 +1,5 @@
-use bytes::{Bytes, BytesMut};
 use ckb_logger::debug;
+use p2p::bytes::{Bytes, BytesMut};
 use snap::{Decoder as SnapDecoder, Encoder as SnapEncoder};
 
 use std::io;

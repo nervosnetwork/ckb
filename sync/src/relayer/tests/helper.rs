@@ -2,7 +2,8 @@ use crate::{Relayer, SyncSharedState};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
-    Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
+    bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
+    TargetSession,
 };
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -166,8 +167,8 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 
 #[derive(Default)]
 pub(crate) struct MockProtocalContext {
-    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, Bytes)>>,
-    pub sent_messages_to: RefCell<Vec<(PeerIndex, Bytes)>>,
+    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    pub sent_messages_to: RefCell<Vec<(PeerIndex, P2pBytes)>>,
 }
 
 impl CKBProtocolContext for MockProtocalContext {
@@ -181,14 +182,14 @@ impl CKBProtocolContext for MockProtocalContext {
         &self,
         _proto_id: ProtocolId,
         _peer_index: PeerIndex,
-        _data: Bytes,
+        _data: P2pBytes,
     ) -> Result<(), Error> {
         unimplemented!();
     }
-    fn quick_send_message_to(&self, _peer_index: PeerIndex, _data: Bytes) -> Result<(), Error> {
+    fn quick_send_message_to(&self, _peer_index: PeerIndex, _data: P2pBytes) -> Result<(), Error> {
         unimplemented!();
     }
-    fn quick_filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
+    fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
         unimplemented!();
     }
     fn future_task(
@@ -204,19 +205,19 @@ impl CKBProtocolContext for MockProtocalContext {
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
-        data: Bytes,
+        data: P2pBytes,
     ) -> Result<(), Error> {
         self.sent_messages
             .borrow_mut()
             .push((proto_id, peer_index, data));
         Ok(())
     }
-    fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
+    fn send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         self.sent_messages_to.borrow_mut().push((peer_index, data));
         Ok(())
     }
 
-    fn filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
+    fn filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
         unimplemented!();
     }
     fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
