@@ -24,6 +24,7 @@ ckb-resource = { path = "../../resource"}
 ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
+ckb-memory-tracker = { path = "../memory-tracker" }
 ckb-indexer = { path = "../../indexer" }
 ckb-tx-pool = { path = "../../tx-pool" }
 ckb-notify = { path = "../../notify" }

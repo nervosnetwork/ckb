@@ -42,6 +42,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
 
+    ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);

@@ -107,12 +107,14 @@ impl Setup {
 
     pub fn miner(self) -> Result<MinerArgs, ExitCode> {
         let spec = self.chain_spec()?;
+        let memory_tracker = self.config.memory_tracker().to_owned();
         let config = self.config.into_miner()?;
         let pow_engine = spec.pow_engine();
 
         Ok(MinerArgs {
             pow_engine,
             config: config.miner,
+            memory_tracker,
         })
     }
 
