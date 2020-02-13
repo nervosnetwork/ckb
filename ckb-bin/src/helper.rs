@@ -1,9 +1,6 @@
-use ckb_logger::warn;
-use ckb_util::{parking_lot::deadlock, Condvar, Mutex};
+use ckb_util::{Condvar, Mutex};
 use std::io::{stdin, stdout, Write};
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 pub fn wait_for_exit(exit: Arc<(Mutex<()>, Condvar)>) {
     // Handle possible exits
@@ -17,7 +14,16 @@ pub fn wait_for_exit(exit: Arc<(Mutex<()>, Condvar)>) {
     exit.1.wait(&mut l);
 }
 
+#[cfg(not(feature = "deadlock_detection"))]
+pub fn deadlock_detection() {}
+
+#[cfg(feature = "deadlock_detection")]
 pub fn deadlock_detection() {
+    use ckb_logger::{info, warn};
+    use ckb_util::parking_lot::deadlock;
+    use std::{thread, time::Duration};
+
+    info!("deadlock_detection enable");
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(10));
         let deadlocks = deadlock::check_deadlock();

@@ -71,3 +71,7 @@ overflow-checks = true
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 jemallocator = { version = "0.3.0" }
+
+[features]
+default = []
+deadlock_detection = ["ckb-bin/deadlock_detection"]
