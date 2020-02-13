@@ -6,16 +6,20 @@ use crate::StoreSnapshot;
 use crate::COLUMN_CELL_SET;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
-    iter::{DBIter, DBIterator, IteratorMode},
-    Col, DBPinnableSlice, RocksDB,
+    iter::{DBIter, DBIterator, Direction, IteratorMode},
+    Col, ColumnFamily, DBPinnableSlice, ReadOptions, RocksDB, WriteBatch,
 };
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
+use ckb_logger;
 use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
 };
 use std::sync::Arc;
+use std::time::Instant;
+
+pub const MAX_DELETE_BATCH_SIZE: usize = 32 * 1024;
 
 pub struct ChainDB {
     db: RocksDB,
@@ -133,6 +137,100 @@ impl ChainDB {
         db_txn.insert_epoch_ext(&last_block_hash_in_previous_epoch, &epoch)?;
         db_txn.attach_block(genesis)?;
         db_txn.commit()?;
+        Ok(())
+    }
+
+    pub fn unsafe_delete_range(
+        &self,
+        col: Col,
+        start_key: &[u8],
+        end_key: &[u8],
+    ) -> Result<(), Error> {
+        // delete_range is dangerous operation.
+        // passing empty key as start or end will be set MIN_KEY or MAX_KEY
+        assert!(!start_key.is_empty());
+        assert!(!end_key.is_empty());
+
+        // call delete_file_in_range try to free disk space
+        let start_time = Instant::now();
+        self.db.delete_file_in_range(col, start_key, end_key)?;
+
+        let encoded_start_key = hex_string(start_key).unwrap();
+        let encoded_end_key = hex_string(end_key).unwrap();
+
+        ckb_logger::info!(
+            "unsafe_delete_range finished call delete_file_in_range {}, {}, {}",
+            encoded_start_key,
+            encoded_end_key,
+            start_time.elapsed().as_micros()
+        );
+
+        // delete remain keys in the range.
+        let start_time = Instant::now();
+        self.seek_delete_range(col, start_key, end_key)?;
+
+        ckb_logger::info!(
+            "unsafe_delete_range finished call seek_delete_range {}, {}, {}",
+            encoded_start_key,
+            encoded_end_key,
+            start_time.elapsed().as_micros()
+        );
+
+        Ok(())
+    }
+
+    pub fn batch_delete<'a>(
+        &self,
+        wb: &mut WriteBatch,
+        col: Col,
+        keys: impl Iterator<Item = &'a [u8]>,
+    ) -> Result<(), Error> {
+        let cf_handle = self.db.cf_handle(col)?;
+        for key in keys {
+            wb.delete_cf(cf_handle, key)
+                .map_err(|e| InternalErrorKind::Database.reason(e))?;
+            if wb.size_in_bytes() >= MAX_DELETE_BATCH_SIZE {
+                self.db.write_batch(&wb)?;
+                wb.clear()
+                    .map_err(|e| InternalErrorKind::Database.reason(e))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn write_batch(&self, wb: &WriteBatch) -> Result<(), Error> {
+        self.db.write_batch(wb)
+    }
+
+    pub fn cf_handle(&self, col: Col) -> Result<&ColumnFamily, Error> {
+        self.db.cf_handle(col)
+    }
+
+    fn seek_delete_range(&self, col: Col, start_key: &[u8], end_key: &[u8]) -> Result<(), Error> {
+        let mut wb = WriteBatch::default();
+        let mut iter_opt = ReadOptions::default();
+        iter_opt.set_iterate_upper_bound(end_key);
+        let iter = self.db.iter_opt(
+            col,
+            IteratorMode::From(start_key, Direction::Forward),
+            &iter_opt,
+        )?;
+        let cf_handle = self.db.cf_handle(col)?;
+
+        for (key, _value) in iter {
+            wb.delete_cf(cf_handle, key)
+                .map_err(|e| InternalErrorKind::Database.reason(e))?;
+            if wb.size_in_bytes() >= MAX_DELETE_BATCH_SIZE {
+                self.db.write_batch(&wb)?;
+                wb.clear()
+                    .map_err(|e| InternalErrorKind::Database.reason(e))?;
+            }
+        }
+
+        if !wb.is_empty() {
+            self.db.write_batch(&wb)?;
+        }
+
         Ok(())
     }
 }

@@ -157,13 +157,15 @@ impl GlobalIndex {
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
+    prune: bool,
 }
 
 impl ChainService {
-    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
+    pub fn new(shared: Shared, proposal_table: ProposalTable, prune: bool) -> ChainService {
         ChainService {
             shared,
             proposal_table,
+            prune,
         }
     }
 
@@ -326,6 +328,19 @@ impl ChainService {
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
 
+            if self.prune && self.is_long_fork(&fork) {
+                warn!(
+                    "Large valid fork found, forking the chain at {}-{:#x}",
+                    block.header().number(),
+                    block.header().hash(),
+                );
+                return Ok(true);
+            }
+
+            if self.prune {
+                self.mark_pruning(&fork, &db_txn)?;
+            }
+
             self.rollback(&fork, &db_txn, &mut cell_set)?;
             // update and verify chain root
             // MUST update index before reconcile_main_chain
@@ -412,6 +427,17 @@ impl ChainService {
         }
 
         Ok(true)
+    }
+
+    fn is_long_fork(&self, fork: &ForkChanges) -> bool {
+        fork.attached_blocks().len() as u64 >= self.shared.consensus().min_epoch_length()
+    }
+
+    fn mark_pruning(&self, fork: &ForkChanges, txn: &StoreTransaction) -> Result<(), Error> {
+        for blk in fork.detached_blocks() {
+            txn.mark_pruning(&blk.hash(), blk.header().epoch().number())?;
+        }
+        Ok(())
     }
 
     pub(crate) fn update_proposal_table(&mut self, fork: &ForkChanges) {

@@ -1,7 +1,7 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
-use ckb_chain::chain::ChainService;
+use ckb_chain::{chain::ChainService, prune::PruneService};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
@@ -26,6 +26,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_condvar = Arc::new((Mutex::new(()), Condvar::new()));
+    let prune = args.prune;
 
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
@@ -42,7 +43,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared.clone(), table, prune);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
     info_target!(
@@ -50,6 +51,14 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         "chain genesis hash: {:#x}",
         shared.genesis_hash()
     );
+
+    let prune_control = if prune {
+        info_target!(crate::LOG_TARGET_MAIN, "prune mode enable",);
+        let service = PruneService::new(shared.clone());
+        Some(service.start())
+    } else {
+        None
+    };
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let network_state = Arc::new(
@@ -148,11 +157,16 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
     wait_for_exit(exit_condvar);
-
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 
     rpc_server.close();
     info_target!(crate::LOG_TARGET_MAIN, "Jsonrpc shutdown");
+
+    if prune {
+        if let Some(mut prune_control) = prune_control {
+            prune_control.join();
+        }
+    }
     Ok(())
 }
 

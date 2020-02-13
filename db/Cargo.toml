@@ -13,5 +13,6 @@ ckb-error = { path = "../error" }
 libc = "0.2"
 
 [dependencies.rocksdb]
-git = "https://github.com/nervosnetwork/rust-rocksdb"
-rev = "a8dd2ad"
+# git = "https://github.com/nervosnetwork/rust-rocksdb"
+# rev = "a8dd2ad"
+path = "../../rust-rocksdb"

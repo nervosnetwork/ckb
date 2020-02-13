@@ -3,7 +3,7 @@ use crate::store::ChainStore;
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
-    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    COLUMN_META, COLUMN_PRUNE_MASK, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
 use ckb_db::{
@@ -12,7 +12,7 @@ use ckb_db::{
 };
 use ckb_error::Error;
 use ckb_types::{
-    core::{BlockExt, BlockView, EpochExt, HeaderView},
+    core::{BlockExt, BlockView, EpochExt, EpochNumber, HeaderView},
     packed,
     prelude::*,
 };
@@ -206,5 +206,9 @@ impl StoreTransaction {
 
     pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
         self.delete(COLUMN_CELL_SET, tx_hash.as_slice())
+    }
+
+    pub fn mark_pruning(&self, hash: &packed::Byte32, epoch: EpochNumber) -> Result<(), Error> {
+        self.insert_raw(COLUMN_PRUNE_MASK, hash.as_slice(), &epoch.to_be_bytes()[..])
     }
 }

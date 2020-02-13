@@ -78,11 +78,17 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN).about("Runs ckb node").arg(
-        Arg::with_name(ARG_BA_ADVANCED)
-            .long(ARG_BA_ADVANCED)
-            .help("Allows any block assembler code hash and args"),
-    )
+    SubCommand::with_name(CMD_RUN)
+        .about("Runs ckb node")
+        .arg(
+            Arg::with_name(ARG_BA_ADVANCED)
+                .long(ARG_BA_ADVANCED)
+                .help("Allows any block assembler code hash and args"),
+        )
+        .arg(Arg::with_name(ARG_PRUNE).long(ARG_PRUNE).help(
+            "Reduce storage requirements by enabling pruning (deleting) of old
+blocks",
+        ))
 }
 
 fn miner() -> App<'static, 'static> {

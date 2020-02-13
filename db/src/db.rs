@@ -3,10 +3,13 @@ use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::{internal_error, Col, DBConfig, Result};
 use ckb_logger::{info, warn};
-use rocksdb::ops::{GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF, SetOptions};
+use rocksdb::ops::{
+    DeleteFileInRangeCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF,
+    SetOptions, WriteOps,
+};
 use rocksdb::{
     ffi, ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
-    OptimisticTransactionOptions, Options, WriteOptions,
+    OptimisticTransactionOptions, Options, WriteBatch, WriteOptions,
 };
 use std::sync::Arc;
 
@@ -150,6 +153,21 @@ impl RocksDB {
         self.inner
             .property_int_value_cf(cf, name)
             .map_err(internal_error)
+    }
+
+    pub fn delete_file_in_range(&self, col: Col, start_key: &[u8], end_key: &[u8]) -> Result<()> {
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner
+            .delete_file_in_range_cf(cf, start_key, end_key)
+            .map_err(internal_error)
+    }
+
+    pub fn cf_handle(&self, col: Col) -> Result<&ColumnFamily> {
+        cf_handle(&self.inner, col).map_err(internal_error)
+    }
+
+    pub fn write_batch(&self, batch: &WriteBatch) -> Result<()> {
+        self.inner.write(batch).map_err(internal_error)
     }
 }
 

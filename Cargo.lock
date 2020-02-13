@@ -958,6 +958,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
+ "ckb-logger",
  "ckb-script-data-loader",
  "ckb-types",
  "ckb-util",
@@ -2133,7 +2134,6 @@ checksum = "1a31a0627fdf1f6a39ec0dd577e101440b7db22672c0901fe00a9a6fbb5c24e8"
 [[package]]
 name = "librocksdb-sys"
 version = "6.4.6"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=a8dd2ad#a8dd2adace8224da52318f89d5db4a8063332d86"
 dependencies = [
  "cc",
  "glob",
@@ -3192,7 +3192,6 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.12.2"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=a8dd2ad#a8dd2adace8224da52318f89d5db4a8063332d86"
 dependencies = [
  "libc",
  "librocksdb-sys",

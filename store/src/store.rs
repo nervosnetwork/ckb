@@ -3,7 +3,7 @@ use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
     COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_TIP_HEADER_KEY,
+    META_PRUNING_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
@@ -19,6 +19,7 @@ use ckb_types::{
     packed,
     prelude::*,
 };
+use std::{convert::TryInto, mem};
 
 pub trait ChainStore<'a>: Send + Sync {
     type Vector: AsRef<[u8]>;
@@ -419,4 +420,19 @@ pub trait ChainStore<'a>: Send + Sync {
             |hash| self.get_block_ext(&hash).map(|ext| ext.total_uncles_count),
         )
     }
+
+    fn have_pruned(&'a self) -> bool {
+        self.get(COLUMN_META, META_PRUNING_EPOCH_KEY).is_some()
+    }
+
+    fn get_pruning_epoch(&'a self) -> Option<EpochNumber> {
+        self.get(COLUMN_META, META_PRUNING_EPOCH_KEY)
+            .map(|raw| read_be_u64(raw.as_ref()))
+    }
+}
+
+// Panics if input_len < mem::size_of::<u64>().
+fn read_be_u64(input: &[u8]) -> u64 {
+    let (int_bytes, _rest) = input.split_at(mem::size_of::<u64>());
+    u64::from_be_bytes(int_bytes.try_into().expect("read u64 from be"))
 }

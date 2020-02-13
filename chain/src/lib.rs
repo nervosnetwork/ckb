@@ -6,6 +6,7 @@
 
 mod cell;
 pub mod chain;
+pub mod prune;
 pub mod switch;
 #[cfg(test)]
 mod tests;

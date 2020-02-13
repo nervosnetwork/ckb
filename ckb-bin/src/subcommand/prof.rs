@@ -27,7 +27,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
     let from = std::cmp::max(1, args.from);
     let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
-    let chain = ChainService::new(tmp_shared, table);
+    let chain = ChainService::new(tmp_shared, table, false);
     let chain_controller = chain.start(Some("chain"));
     profile_block_process(
         shared.clone(),
