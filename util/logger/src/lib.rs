@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::{fs, panic, thread};
 
 pub use log::{self as internal, Level, SetLoggerError};
+pub use serde_json::json;
 
 #[doc(hidden)]
 #[macro_export]
@@ -54,6 +55,15 @@ macro_rules! warn {
 macro_rules! error {
     ($( $args:tt )*) => {
         $crate::internal::error!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+/// Enable metrics collection feature by setting `ckb-metrics=trace` in logger filter.
+#[macro_export(local_inner_macros)]
+macro_rules! metric {
+    ($( $args:tt )*) => {
+        let output = $crate::json!($( $args )*);
+        $crate::internal::trace!(target: "ckb-metrics", "{}", output);
     }
 }
 
