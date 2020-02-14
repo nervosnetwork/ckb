@@ -19,7 +19,7 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
 };
 use ckb_chain::chain::ChainController;
-use ckb_logger::{debug, error, info, trace};
+use ckb_logger::{debug, error, info, metric, trace, warn};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
@@ -95,7 +95,19 @@ impl Synchronizer {
                 "receive {} from {}, ban {:?} for {}",
                 item_name, peer, ban_time, status
             );
+            metric!({
+                "measurement": "error",
+                "tags": {"source": item_name, "status": format!("{:?}", status.code()) },
+                "fields": {},
+            });
             nc.ban_peer(peer, ban_time, status.to_string());
+        } else if status.should_warn() {
+            warn!("receive {} from {}, {}", item_name, peer, status);
+            metric!({
+                "measurement": "warn",
+                "tags": {"source": item_name, "status": format!("{:?}", status.code()) },
+                "fields": {},
+            });
         } else if !status.is_ok() {
             debug!("receive {} from {}, {}", item_name, peer, status);
         }
