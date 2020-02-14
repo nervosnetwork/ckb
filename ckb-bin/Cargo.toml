@@ -31,3 +31,7 @@ ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
 ckb-build-info = { path = "../util/build-info" }
 ckb-verification = { path = "../verification" }
 base64 = "0.10.1"
+
+
+[features]
+deadlock_detection = ["ckb-util/deadlock_detection"]
