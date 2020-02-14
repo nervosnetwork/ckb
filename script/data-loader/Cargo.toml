@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script-data-loader"
-version = "0.28.1-pre"
+version = "0.29.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
