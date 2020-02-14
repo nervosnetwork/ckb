@@ -146,6 +146,7 @@ impl PoolRpc for PoolRpcImpl {
             orphan: (tx_pool_info.orphan_size as u64).into(),
             total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
             total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
+            min_fee_rate: self.min_fee_rate.as_u64().into(),
             last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
         })
     }

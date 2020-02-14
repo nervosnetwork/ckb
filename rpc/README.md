@@ -2101,6 +2101,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "last_txs_updated_at": "0x0",
+        "min_fee_rate": "0x0",
         "orphan": "0x0",
         "pending": "0x1",
         "proposed": "0x0",
