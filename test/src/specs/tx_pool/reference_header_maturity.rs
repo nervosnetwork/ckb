@@ -60,11 +60,6 @@ impl Spec for ReferenceHeaderMaturity {
                 let tip_epoch = tip_block.epoch();
                 let current = tip_epoch.to_rational();
                 if current < threshold {
-                    info!(
-                        "Tx is not matured in {} block (epoch = {})",
-                        tip_block.number(),
-                        tip_block.epoch()
-                    );
                     assert_send_transaction_fail(node, &tx, "ImmatureHeader");
                 } else {
                     break;

@@ -11,7 +11,7 @@ use crate::notifier::Notifier;
 use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, trace};
-use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
@@ -93,7 +93,7 @@ impl CKBProtocolHandler for AlertRelayer {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) {
         let alert: packed::Alert = match packed::AlertReader::from_slice(&data) {
             Ok(alert) => {

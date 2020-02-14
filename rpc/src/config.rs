@@ -24,6 +24,9 @@ pub struct Config {
     pub max_request_body_size: usize,
     pub threads: Option<usize>,
     pub modules: Vec<Module>,
+    // Rejects txs with scripts that might trigger known bugs
+    #[serde(default)]
+    pub reject_ill_transactions: bool,
 }
 
 impl Config {

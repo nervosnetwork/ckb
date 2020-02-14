@@ -24,7 +24,7 @@ pub use crate::{
     protocols::{CKBProtocol, CKBProtocolContext, CKBProtocolHandler, PeerIndex},
 };
 pub use p2p::{
-    multiaddr,
+    bytes, multiaddr,
     secio::{PeerId, PublicKey},
     service::{ServiceControl, SessionType, TargetSession},
     traits::ServiceProtocol,

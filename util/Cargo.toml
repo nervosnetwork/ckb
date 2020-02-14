@@ -1,13 +1,17 @@
 [package]
 name = "ckb-util"
-version = "0.28.0"
+version = "0.28.1-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-parking_lot = {version = "=0.7.1", features = ["deadlock_detection"]}
+parking_lot = "=0.7.1"
 linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 
 [dev-dependencies]
 ckb-fixed-hash = { path = "fixed-hash" }
+
+
+[features]
+deadlock_detection = ["parking_lot/deadlock_detection"]

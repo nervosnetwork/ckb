@@ -131,10 +131,14 @@ impl DiscoveryMessage {
                 packed::DiscoveryPayload::new_builder().set(nodes).build()
             }
         };
+        // TODO update-after-upgrade-p2p
         packed::DiscoveryMessage::new_builder()
             .payload(playload)
             .build()
             .as_bytes()
+            .as_ref()
+            .to_owned()
+            .into()
     }
 
     #[allow(clippy::cast_ptr_alignment)]

@@ -95,7 +95,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
         if fee_rate.as_u64() == 0 {
             return Err(RPCError::custom(
                 RPCError::Invalid,
-                "collected samples is not enough, please make sure node has peers and try later"
+                "collected samples are not enough, please make sure the node has peers and try later"
                     .into(),
             ));
         }

@@ -234,7 +234,7 @@ mod tests {
             .store64(&size_addr, &(data.len() as u64))
             .is_ok());
 
-        let output_cell_data = Bytes::from(data);
+        let output_cell_data = Bytes::from(data.to_owned());
         let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
         let input_cell = build_cell_meta(100, input_cell_data);
@@ -275,7 +275,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output_cell_data = Bytes::from(data);
+        let output_cell_data = Bytes::from(data.to_owned());
         let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
         let input_cell = build_cell_meta(100, input_cell_data);
@@ -364,7 +364,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output_cell_data = Bytes::from(data);
+        let output_cell_data = Bytes::from(data.to_owned());
         let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
         let input_cell = build_cell_meta(100, input_cell_data);
@@ -414,7 +414,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); // source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-        let output_cell_data = Bytes::from(data);
+        let output_cell_data = Bytes::from(data.to_owned());
         let output = build_cell_meta(100, output_cell_data);
 
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
@@ -821,7 +821,7 @@ mod tests {
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(Bytes::from(data).pack())
+            .args(Bytes::from(data.to_owned()).pack())
             .hash_type(ScriptHashType::Data.into())
             .build();
         let hash = script.calc_script_hash();
@@ -876,7 +876,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(Bytes::from(data).pack())
+            .args(Bytes::from(data.to_owned()).pack())
             .hash_type(ScriptHashType::Data.into())
             .build();
         let h = script.calc_script_hash();
@@ -938,7 +938,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness = Bytes::from(data).pack();
+        let witness = Bytes::from(data.to_owned()).pack();
 
         let witness_correct_data = witness.raw_data();
 
@@ -993,7 +993,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Group(source))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness = Bytes::from(data).pack();
+        let witness = Bytes::from(data.to_owned()).pack();
 
         let witness_correct_data = witness.raw_data();
 
@@ -1047,7 +1047,7 @@ mod tests {
         machine.set_register(A7, LOAD_SCRIPT_SYSCALL_NUMBER); // syscall number
 
         let script = ScriptBuilder::default()
-            .args(Bytes::from(data).pack())
+            .args(Bytes::from(data.to_owned()).pack())
             .build();
         let script_correct_data = script.as_slice();
 
@@ -1095,7 +1095,7 @@ mod tests {
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
-        let dep_cell_data = Bytes::from(data);
+        let dep_cell_data = Bytes::from(data.to_owned());
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
@@ -1152,7 +1152,7 @@ mod tests {
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &addr_size).is_ok());
 
-        let dep_cell_data = Bytes::from(data);
+        let dep_cell_data = Bytes::from(data.to_owned());
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
@@ -1273,7 +1273,7 @@ mod tests {
         };
         machine.set_register(A7, syscall); // syscall number
 
-        let dep_cell_data = Bytes::from(data);
+        let dep_cell_data = Bytes::from(data.to_owned());
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
@@ -1329,7 +1329,7 @@ mod tests {
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
-        let dep_cell_data = Bytes::from(&data[..]);
+        let dep_cell_data = Bytes::from(data.to_vec());
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
@@ -1372,7 +1372,7 @@ mod tests {
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
-        let dep_cell_data = Bytes::from(&data[..]);
+        let dep_cell_data = Bytes::from(data.to_vec());
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
@@ -1418,7 +1418,7 @@ mod tests {
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
-        let dep_cell_data = Bytes::from(&data[..]);
+        let dep_cell_data = Bytes::from(data);
         let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();

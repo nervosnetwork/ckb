@@ -257,7 +257,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(
-        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero()).to_delegate(),
+        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero(), true).to_delegate(),
     );
     io.extend_with(
         NetworkRpcImpl {
@@ -377,6 +377,12 @@ fn params_of(shared: &Shared, method: &str) -> Value {
     };
     let tip_number: Uint64 = tip.number().into();
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
+    let target_hash = {
+        let snapshot = shared.snapshot();
+        let target_number = tip.number() - snapshot.consensus().finalization_delay_length();
+        let target_hash = snapshot.get_block_hash(target_number).unwrap();
+        json!(format!("{:#x}", target_hash))
+    };
     let (_, _, always_success_script) = always_success_cell();
     let always_success_script_hash = {
         let always_success_script_hash: H256 = always_success_script.calc_script_hash().unpack();
@@ -408,6 +414,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![json!(tip_number)]
         }
         "get_block" | "get_header" | "get_cellbase_output_capacity_details" => vec![tip_hash],
+        "get_block_economic_state" => vec![target_hash],
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
         | "get_transactions_by_lock_hash" => {
@@ -511,7 +518,7 @@ fn test_rpc() {
             let params = case.get("params").expect("get params");
             actual.push((method.clone(), params.clone()));
             if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
-                expected.push((method.clone(), params.clone()));
+                expected.push((method, params.clone()));
             } else {
                 expected.push((method.clone(), params_of(&shared, &method)));
             }

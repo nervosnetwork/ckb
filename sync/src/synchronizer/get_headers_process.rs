@@ -1,13 +1,12 @@
 use crate::synchronizer::Synchronizer;
-use crate::{NetworkProtocol, MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
-use ckb_logger::{debug, info, warn};
+use crate::{NetworkProtocol, Status, StatusCode, MAX_LOCATOR_SIZE};
+use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
     core,
     packed::{self, Byte32},
     prelude::*,
 };
-use failure::{err_msg, Error as FailureError};
 
 pub struct GetHeadersProcess<'a> {
     message: packed::GetHeadersReader<'a>,
@@ -31,7 +30,7 @@ impl<'a> GetHeadersProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         let snapshot = self.synchronizer.shared.snapshot();
         if snapshot.is_initial_block_download() {
             info!(
@@ -39,7 +38,7 @@ impl<'a> GetHeadersProcess<'a> {
                 self.peer
             );
             self.send_in_ibd();
-            return Ok(());
+            return Status::ignored();
         }
 
         let block_locator_hashes = self
@@ -51,12 +50,9 @@ impl<'a> GetHeadersProcess<'a> {
         let hash_stop = self.message.hash_stop().to_entity();
         let locator_size = block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
-            warn!(
-                " getheaders locator size {} from peer={}",
-                locator_size, self.peer
-            );
-            return Err(err_msg(
-                "locator size is greater than MAX_LOCATOR_SIZE".to_owned(),
+            return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                "Locator count({}) > MAX_LOCATOR_SIZE({})",
+                locator_size, MAX_LOCATOR_SIZE,
             ));
         }
 
@@ -82,20 +78,14 @@ impl<'a> GetHeadersProcess<'a> {
             let message = packed::SyncMessage::new_builder().set(content).build();
             let data = message.as_slice().into();
             if let Err(err) = self.nc.send_message_to(self.peer, data) {
-                debug!("synchronizer send Headers error: {:?}", err);
+                return StatusCode::Network
+                    .with_context(format!("Send SendHeaders error: {:?}", err,));
             }
         } else {
-            for hash in &block_locator_hashes[..] {
-                warn!("unknown block headers from peer {} {}", self.peer, hash);
-            }
-            // Got 'headers' message without known blocks
-            self.nc.ban_peer(
-                self.peer,
-                SYNC_USELESS_BAN_TIME,
-                String::from("send us headers with unknown-block"),
-            );
+            return StatusCode::GetHeadersMissCommonAncestors
+                .with_context(format!("{:#x?}", block_locator_hashes,));
         }
-        Ok(())
+        Status::ok()
     }
 
     fn send_in_ibd(&self) {

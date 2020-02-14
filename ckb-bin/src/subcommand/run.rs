@@ -129,6 +129,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             shared.clone(),
             sync_shared_state,
             args.config.tx_pool.min_fee_rate,
+            args.config.rpc.reject_ill_transactions,
         )
         .enable_miner(
             shared.clone(),

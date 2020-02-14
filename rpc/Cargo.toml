@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.28.0"
+version = "0.28.1-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -40,6 +40,7 @@ futures = "0.1"
 ckb-error = { path = "../error" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-tx-pool = { path = "../tx-pool" }
+ckb-script = { path = "../script" }
 
 [dev-dependencies]
 reqwest = "0.9.16"

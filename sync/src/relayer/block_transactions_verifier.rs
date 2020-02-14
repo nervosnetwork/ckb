@@ -1,4 +1,4 @@
-use crate::relayer::error::{Error, Misbehavior};
+use crate::{Status, StatusCode};
 use ckb_types::{core, packed};
 
 pub struct BlockTransactionsVerifier {}
@@ -8,7 +8,7 @@ impl BlockTransactionsVerifier {
         block: &packed::CompactBlock,
         indexes: &[u32],
         transactions: &[core::TransactionView],
-    ) -> Result<(), Error> {
+    ) -> Status {
         let block_short_ids = block.block_short_ids();
         let missing_short_ids: Vec<packed::ProposalShortId> = indexes
             .iter()
@@ -21,24 +21,25 @@ impl BlockTransactionsVerifier {
             .collect();
 
         if missing_short_ids.len() != transactions.len() {
-            return Err(Error::Misbehavior(
-                Misbehavior::InvalidBlockTransactionsLength {
-                    expected: missing_short_ids.len(),
-                    actual: transactions.len(),
-                },
-            ));
+            return StatusCode::BlockTransactionsLengthIsUnmatchedWithPendingCompactBlock
+                .with_context(format!(
+                    "Expected({}) != actual({})",
+                    missing_short_ids.len(),
+                    transactions.len(),
+                ));
         }
 
         for (expected_short_id, tx) in missing_short_ids.into_iter().zip(transactions) {
             let short_id = tx.proposal_short_id();
             if expected_short_id != short_id {
-                return Err(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
-                    expected: expected_short_id,
-                    actual: short_id,
-                }));
+                return StatusCode::BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock
+                    .with_context(format!(
+                        "Expected({}) != actual({})",
+                        expected_short_id, short_id,
+                    ));
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }

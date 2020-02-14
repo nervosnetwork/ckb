@@ -3,6 +3,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
+use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
 use ckb_tx_pool::{error::SubmitTxError, FeeRate};
@@ -40,6 +41,7 @@ pub(crate) struct PoolRpcImpl {
     sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
     min_fee_rate: FeeRate,
+    reject_ill_transactions: bool,
 }
 
 impl PoolRpcImpl {
@@ -47,11 +49,13 @@ impl PoolRpcImpl {
         shared: Shared,
         sync_shared_state: Arc<SyncSharedState>,
         min_fee_rate: FeeRate,
+        reject_ill_transactions: bool,
     ) -> PoolRpcImpl {
         PoolRpcImpl {
             sync_shared_state,
             shared,
             min_fee_rate,
+            reject_ill_transactions,
         }
     }
 }
@@ -66,12 +70,18 @@ impl PoolRpc for PoolRpcImpl {
         let tx: core::TransactionView = tx.into_view();
 
         if let Err(e) = match outputs_validator {
-            Some(OutputsValidator::Default) | None => {
+            Some(OutputsValidator::Default) => {
                 DefaultOutputsValidator::new(self.shared.consensus()).validate(&tx)
             }
-            Some(OutputsValidator::Passthrough) => Ok(()),
+            Some(OutputsValidator::Passthrough) | None => Ok(()),
         } {
             return Err(RPCError::custom(RPCError::Invalid, e));
+        }
+
+        if self.reject_ill_transactions {
+            if let Err(e) = IllTransactionChecker::new(&tx).check() {
+                return Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)));
+            }
         }
 
         let tx_pool = self.shared.tx_pool_controller();

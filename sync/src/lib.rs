@@ -7,6 +7,7 @@ mod block_status;
 mod net_time_checker;
 mod orphan_block_pool;
 mod relayer;
+mod status;
 mod synchronizer;
 mod types;
 
@@ -15,6 +16,7 @@ mod tests;
 
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
+pub use crate::status::{Status, StatusCode};
 pub use crate::synchronizer::Synchronizer;
 pub use crate::types::SyncSharedState;
 use std::time::Duration;

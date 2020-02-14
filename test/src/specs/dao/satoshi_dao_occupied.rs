@@ -115,8 +115,9 @@ impl Spec for SpendSatoshiCell {
             .privkey
             .sign_recoverable(&tx_hash.unpack())
             .expect("sign");
-        let mut witness = Bytes::from(sig.serialize());
-        witness.extend_from_slice(&self.pubkey.serialize());
+        let mut witness_vec = sig.serialize();
+        witness_vec.extend_from_slice(&self.pubkey.serialize());
+        let witness = Bytes::from(witness_vec);
         let transaction = transaction
             .as_advanced_builder()
             .witness(witness.pack())

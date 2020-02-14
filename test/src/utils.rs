@@ -1,9 +1,8 @@
 use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
-use ckb_types::core::EpochNumber;
+use ckb_network::bytes::Bytes;
 use ckb_types::{
-    bytes::Bytes,
-    core::{BlockNumber, BlockView, HeaderView, TransactionView},
+    core::{BlockNumber, BlockView, EpochNumber, HeaderView, TransactionView},
     h256,
     packed::{
         Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
@@ -33,10 +32,14 @@ pub const FLAG_SINCE_TIMESTAMP: u64 =
 pub fn build_compact_block_with_prefilled(block: &BlockView, prefilled: Vec<usize>) -> Bytes {
     let prefilled = prefilled.into_iter().collect();
     let compact_block = CompactBlock::build_from_block(block, &prefilled);
+    // TODO update-after-upgrade-p2p
     RelayMessage::new_builder()
         .set(compact_block)
         .build()
         .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 // Build compact block based on core block
@@ -57,10 +60,14 @@ pub fn build_block_transactions(block: &BlockView) -> Bytes {
                 .pack(),
         )
         .build();
+    // TODO update-after-upgrade-p2p
     RelayMessage::new_builder()
         .set(block_txs)
         .build()
         .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn build_header(header: &HeaderView) -> Bytes {
@@ -77,27 +84,39 @@ pub fn build_headers(headers: &[HeaderView]) -> Bytes {
                 .pack(),
         )
         .build();
+    // TODO update-after-upgrade-p2p
     SyncMessage::new_builder()
         .set(send_headers)
         .build()
         .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn build_block(block: &BlockView) -> Bytes {
+    // TODO update-after-upgrade-p2p
     SyncMessage::new_builder()
         .set(SendBlock::new_builder().block(block.data()).build())
         .build()
         .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
     let get_blocks = GetBlocks::new_builder()
         .block_hashes(hashes.iter().map(ToOwned::to_owned).pack())
         .build();
+    // TODO update-after-upgrade-p2p
     SyncMessage::new_builder()
         .set(get_blocks)
         .build()
         .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
@@ -110,14 +129,28 @@ pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
     let txs = RelayTransactions::new_builder()
         .transactions(transactions.pack())
         .build();
-    RelayMessage::new_builder().set(txs).build().as_bytes()
+    // TODO update-after-upgrade-p2p
+    RelayMessage::new_builder()
+        .set(txs)
+        .build()
+        .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
     let content = RelayTransactionHashes::new_builder()
         .tx_hashes(hashes.iter().map(ToOwned::to_owned).pack())
         .build();
-    RelayMessage::new_builder().set(content).build().as_bytes()
+    // TODO update-after-upgrade-p2p
+    RelayMessage::new_builder()
+        .set(content)
+        .build()
+        .as_bytes()
+        .as_ref()
+        .to_owned()
+        .into()
 }
 
 pub fn new_block_with_template(template: BlockTemplate) -> BlockView {
