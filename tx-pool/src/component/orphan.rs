@@ -1,21 +1,22 @@
 use crate::component::entry::DefectEntry;
+use ckb_memory_tracker::collections::{TracedHashMap, TracedTag};
 use ckb_types::{
     core::TransactionView,
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
+use std::collections::hash_map;
 use std::collections::VecDeque;
-use std::collections::{hash_map, HashMap};
 use std::iter::ExactSizeIterator;
 
 pub(crate) const TTL: u64 = 4 * 60 * 60;
 pub(crate) const PRUNE_THRESHOLD: usize = 1500;
 
 ///not verified, may contain conflict transactions
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct OrphanPool {
-    pub(crate) vertices: HashMap<ProposalShortId, DefectEntry>,
-    pub(crate) edges: HashMap<OutPoint, Vec<ProposalShortId>>,
+    pub(crate) vertices: TracedHashMap<ProposalShortId, DefectEntry>,
+    pub(crate) edges: TracedHashMap<OutPoint, Vec<ProposalShortId>>,
     pub(crate) prune_threshold: usize,
 }
 
@@ -25,9 +26,15 @@ impl OrphanPool {
     }
 
     pub(crate) fn raw_new(prune_threshold: usize) -> Self {
-        OrphanPool {
+        TracedTag::push("vertices");
+        let vertices = Default::default();
+        TracedTag::replace_last("edges");
+        let edges = Default::default();
+        TracedTag::pop();
+        Self {
+            vertices,
+            edges,
             prune_threshold,
-            ..Default::default()
         }
     }
 

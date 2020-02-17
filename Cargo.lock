@@ -659,6 +659,7 @@ dependencies = [
  "heim",
  "jemalloc-ctl",
  "jemalloc-sys",
+ "lazy_static",
  "serde",
 ]
 
@@ -1003,6 +1004,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-error",
  "ckb-logger",
+ "ckb-memory-tracker",
  "ckb-network",
  "ckb-shared",
  "ckb-store",
@@ -1067,6 +1069,7 @@ dependencies = [
  "ckb-future-executor",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-memory-tracker",
  "ckb-reward-calculator",
  "ckb-snapshot",
  "ckb-stop-handler",

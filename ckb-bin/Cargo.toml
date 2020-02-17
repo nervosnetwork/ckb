@@ -35,3 +35,4 @@ base64 = "0.10.1"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
+measure-collections = ["ckb-memory-tracker/measure-collections"]

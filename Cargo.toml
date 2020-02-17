@@ -79,3 +79,12 @@ jemallocator = { version = "0.3.0", features = ["profiling"] }
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 profiling = []
+# TODO This feature should be added into several crates.
+# Due to a cargo's bug, we can add it into only one crate, and it works.
+#
+# The bug is: no matter how many crates in a workspace are dependent on a crate
+# in the same version, this crate will be compiled only once.
+#
+# References:
+# - [Cargo Issue-4463: Feature selection in workspace depends on the set of packages compiled](https://github.com/rust-lang/cargo/issues/4463)
+measure-collections = ["ckb-bin/measure-collections"]

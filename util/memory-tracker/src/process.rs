@@ -31,6 +31,11 @@ pub fn track_current_process(interval: u64) {
         info!("track current process: disable");
     } else {
         info!("track current process: enable");
+        #[cfg(feature = "measure-collections")]
+        info!("track current process: +measure-collections");
+        #[cfg(not(feature = "measure-collections"))]
+        info!("track current process: -measure-collections");
+
         let wait_secs = time::Duration::from_secs(interval);
 
         let je_epoch = je_mib!(epoch);
@@ -86,6 +91,8 @@ pub fn track_current_process(interval: u64) {
                                 retained,
                                 metadata
                             );
+                            #[cfg(feature = "measure-collections")]
+                            crate::collections::track_collections();
                         } else {
                             error!("failed to fetch the memory information about current process");
                         }

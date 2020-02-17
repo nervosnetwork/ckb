@@ -24,6 +24,7 @@ sentry = "0.16.0"
 futures = "0.1"
 ckb-error = {path = "../error"}
 ckb-tx-pool = { path = "../tx-pool" }
+ckb-memory-tracker = { path = "../util/memory-tracker" }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

@@ -1,3 +1,20 @@
+#[cfg_attr(
+    all(
+        not(target_env = "msvc"),
+        not(target_os = "macos"),
+        feature = "measure-collections"
+    ),
+    path = "collections-enabled/mod.rs"
+)]
+#[cfg_attr(
+    not(all(
+        not(target_env = "msvc"),
+        not(target_os = "macos"),
+        feature = "measure-collections"
+    )),
+    path = "collections-mock.rs"
+)]
+pub mod collections;
 mod config;
 #[cfg_attr(
     all(not(target_env = "msvc"), not(target_os = "macos")),

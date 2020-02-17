@@ -7,6 +7,7 @@ use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error};
+use ckb_memory_tracker::collections::{TracedHashMap, TracedHashSet, TracedTag};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -219,9 +220,17 @@ impl<T: Eq + Hash> Filter<T> {
     }
 }
 
-#[derive(Default)]
 pub struct KnownFilter {
-    inner: HashMap<PeerIndex, Filter<Byte32>>,
+    inner: TracedHashMap<PeerIndex, Filter<Byte32>>,
+}
+
+impl Default for KnownFilter {
+    fn default() -> Self {
+        TracedTag::push("inner");
+        let inner = Default::default();
+        TracedTag::pop();
+        Self { inner }
+    }
 }
 
 impl KnownFilter {
@@ -236,9 +245,17 @@ impl KnownFilter {
     }
 }
 
-#[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
+    pub state: RwLock<TracedHashMap<PeerIndex, PeerState>>,
+}
+
+impl Default for Peers {
+    fn default() -> Self {
+        TracedTag::push("state");
+        let state = Default::default();
+        TracedTag::pop();
+        Self { state }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -264,16 +281,18 @@ impl InflightState {
 
 #[derive(Clone)]
 pub struct InflightBlocks {
-    blocks: HashMap<PeerIndex, HashSet<Byte32>>,
-    states: HashMap<Byte32, InflightState>,
+    blocks: TracedHashMap<PeerIndex, HashSet<Byte32>>,
+    states: TracedHashMap<Byte32, InflightState>,
 }
 
 impl Default for InflightBlocks {
     fn default() -> Self {
-        InflightBlocks {
-            blocks: HashMap::default(),
-            states: HashMap::default(),
-        }
+        TracedTag::push("blocks");
+        let blocks = Default::default();
+        TracedTag::replace_last("states");
+        let states = Default::default();
+        TracedTag::pop();
+        InflightBlocks { blocks, states }
     }
 }
 
@@ -552,7 +571,7 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
 }
 
 // <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>)>
-type PendingCompactBlockMap = HashMap<
+type PendingCompactBlockMap = TracedHashMap<
     Byte32,
     (
         packed::CompactBlock,
@@ -579,13 +598,13 @@ pub struct SyncState {
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
-    header_map: RwLock<HashMap<Byte32, HeaderView>>,
-    block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
+    header_map: RwLock<TracedHashMap<Byte32, HeaderView>>,
+    block_status_map: Mutex<TracedHashMap<Byte32, BlockStatus>>,
     tx_filter: Mutex<Filter<Byte32>>,
 
     /* Status relevant to peers */
     peers: Peers,
-    misbehavior: RwLock<HashMap<PeerIndex, u32>>,
+    misbehavior: RwLock<TracedHashMap<PeerIndex, u32>>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
@@ -595,7 +614,7 @@ pub struct SyncState {
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
+    inflight_proposals: Mutex<TracedHashSet<packed::ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
 
@@ -614,23 +633,45 @@ impl SyncSharedState {
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
 
+        TracedTag::push("sync-state");
+        TracedTag::push("header-map");
+        let header_map = Default::default();
+        TracedTag::replace_last("block-status-map");
+        let block_status_map = Default::default();
+        TracedTag::replace_last("misbehavior");
+        let misbehavior = Default::default();
+        TracedTag::replace_last("peers");
+        let peers = Default::default();
+        TracedTag::replace_last("known-txs");
+        let known_txs = Default::default();
+        TracedTag::replace_last("pending-compact-blocks");
+        let pending_compact_blocks = Default::default();
+        TracedTag::replace_last("orphan-block-pool");
+        let orphan_block_pool = OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE);
+        TracedTag::replace_last("inflight-proposals");
+        let inflight_proposals = Default::default();
+        TracedTag::replace_last("inflight-blocks");
+        let inflight_blocks = Default::default();
+        TracedTag::pop();
+        TracedTag::pop();
+
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
             ibd_finished: AtomicBool::new(false),
             shared_best_header,
-            header_map: RwLock::new(HashMap::new()),
-            block_status_map: Mutex::new(HashMap::new()),
+            header_map,
+            block_status_map,
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
-            peers: Peers::default(),
-            misbehavior: RwLock::new(HashMap::default()),
-            known_txs: Mutex::new(KnownFilter::default()),
+            peers,
+            misbehavior,
+            known_txs,
             pending_get_block_proposals: Mutex::new(HashMap::default()),
-            pending_compact_blocks: Mutex::new(HashMap::default()),
-            orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: Mutex::new(HashSet::default()),
+            pending_compact_blocks,
+            orphan_block_pool,
+            inflight_proposals,
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
-            inflight_blocks: RwLock::new(InflightBlocks::default()),
+            inflight_blocks,
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_hashes: Mutex::new(HashMap::default()),
         };
@@ -704,7 +745,7 @@ impl SyncState {
         self.inflight_blocks.write()
     }
 
-    pub fn inflight_proposals(&self) -> MutexGuard<HashSet<packed::ProposalShortId>> {
+    pub fn inflight_proposals(&self) -> MutexGuard<TracedHashSet<packed::ProposalShortId>> {
         self.inflight_proposals.lock()
     }
 

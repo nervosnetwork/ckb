@@ -79,7 +79,7 @@ build: ## Build binary with release profile.
 
 .PHONY: build-for-profiling
 build-for-profiling: ## Build binary with for profiling.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling"
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling measure-collections"
 
 .PHONY: prod
 prod: ## Build binary for production release.

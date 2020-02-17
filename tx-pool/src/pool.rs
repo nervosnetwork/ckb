@@ -9,6 +9,7 @@ use ckb_dao::DaoCalculator;
 use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_fee_estimator::Estimator as FeeEstimator;
 use ckb_logger::{debug_target, error_target, trace_target};
+use ckb_memory_tracker::collections::TracedTag;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -75,12 +76,24 @@ impl TxPool {
         let conflict_cache_size = config.max_conflict_cache_size;
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
+        TracedTag::push("tx-pool");
+        TracedTag::push("pending");
+        let pending = PendingQueue::new(config.max_ancestors_count);
+        TracedTag::replace_last("gap");
+        let gap = PendingQueue::new(config.max_ancestors_count);
+        TracedTag::replace_last("proposed");
+        let proposed = ProposedPool::new(config.max_ancestors_count);
+        TracedTag::replace_last("orphan");
+        let orphan = OrphanPool::new();
+        TracedTag::pop();
+        TracedTag::pop();
+
         TxPool {
             config,
-            pending: PendingQueue::new(config.max_ancestors_count),
-            gap: PendingQueue::new(config.max_ancestors_count),
-            proposed: ProposedPool::new(config.max_ancestors_count),
-            orphan: OrphanPool::new(),
+            pending,
+            gap,
+            proposed,
+            orphan,
             conflict: LruCache::new(conflict_cache_size),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
