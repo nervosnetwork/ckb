@@ -327,8 +327,8 @@ impl ChainService {
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
             if !fork.detached_blocks.is_empty() {
                 metric!({
-                    "measurement": "reorg",
-                    "tags": { "source": "chain", },
+                    "topic": "reorg",
+                    "tags": {},
                     "fields": { "attached": fork.attached_blocks.len(), "detached": fork.detached_blocks.len(), },
                 });
             }

@@ -96,16 +96,16 @@ impl Synchronizer {
                 item_name, peer, ban_time, status
             );
             metric!({
-                "measurement": "error",
-                "tags": {"source": item_name, "status": format!("{:?}", status.code()) },
+                "topic": "error",
+                "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
                 "fields": {},
             });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
             warn!("receive {} from {}, {}", item_name, peer, status);
             metric!({
-                "measurement": "warn",
-                "tags": {"source": item_name, "status": format!("{:?}", status.code()) },
+                "topic": "warning",
+                "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
                 "fields": {},
             });
         } else if !status.is_ok() {

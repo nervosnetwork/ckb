@@ -62,8 +62,17 @@ macro_rules! error {
 #[macro_export(local_inner_macros)]
 macro_rules! metric {
     ($( $args:tt )*) => {
-        let output = $crate::json!($( $args )*);
-        $crate::internal::trace!(target: "ckb-metrics", "{}", output);
+        let mut obj = $crate::json!($( $args )*);
+        obj.get_mut("tags")
+            .and_then(|tags| {
+                tags.as_object_mut()
+                    .map(|tags|
+                        if !tags.contains_key("target") {
+                            tags.insert(String::from("target"), $crate::env!("CARGO_PKG_NAME").into());
+                        }
+                    )
+            });
+        $crate::internal::trace!(target: "ckb-metrics", "{}", obj);
     }
 }
 

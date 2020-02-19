@@ -244,14 +244,14 @@ impl<'a> CompactBlockProcess<'a> {
         };
         if !missing_transactions.is_empty() {
             metric!({
-                "measurement": "fresh_transactions",
+                "topic": "fresh_transactions",
                 "tags": { "status": format!("{:?}", status.code()), },
                 "fields": { "count": missing_transactions.len(), },
             });
         }
         if !missing_uncles.is_empty() {
             metric!({
-                "measurement": "fresh_uncles",
+                "topic": "fresh_uncles",
                 "tags": { "status": format!("{:?}", status.code()), },
                 "fields": { "count": missing_uncles.len(), },
             });
