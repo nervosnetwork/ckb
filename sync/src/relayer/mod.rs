@@ -145,7 +145,6 @@ impl Relayer {
             metric!({
                 "topic": "error",
                 "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-                "fields": {},
             });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
@@ -159,7 +158,6 @@ impl Relayer {
             metric!({
                 "topic": "warning",
                 "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-                "fields": {},
             });
         } else if !status.is_ok() {
             debug_target!(

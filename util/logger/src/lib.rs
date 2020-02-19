@@ -72,6 +72,10 @@ macro_rules! metric {
                         }
                     )
             });
+        if obj.get("fields").is_none() {
+            obj.as_object_mut()
+                .map(|obj| obj.insert(String::from("fields"), $crate::json!({})));
+        }
         $crate::internal::trace!(target: "ckb-metrics", "{}", obj);
     }
 }

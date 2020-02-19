@@ -98,7 +98,6 @@ impl Synchronizer {
             metric!({
                 "topic": "error",
                 "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
-                "fields": {},
             });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
@@ -106,7 +105,6 @@ impl Synchronizer {
             metric!({
                 "topic": "warning",
                 "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
-                "fields": {},
             });
         } else if !status.is_ok() {
             debug!("receive {} from {}, {}", item_name, peer, status);
