@@ -21,14 +21,12 @@ fn test_insert_new_block() {
 
     assert_eq!(
         shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&new_block))
             .expect("insert valid block"),
         true,
     );
     assert_eq!(
         shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&new_block))
             .expect("insert duplicated valid block"),
         false,
@@ -51,7 +49,6 @@ fn test_insert_invalid_block() {
     };
 
     assert!(shared
-        .snapshot()
         .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&invalid_block))
         .is_err(),);
 }
@@ -98,14 +95,12 @@ fn test_insert_parent_unknown_block() {
 
     assert_eq!(
         shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&valid_orphan))
             .expect("insert orphan block"),
         false,
     );
     assert_eq!(
         shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&invalid_orphan))
             .expect("insert orphan block"),
         false,
@@ -122,7 +117,6 @@ fn test_insert_parent_unknown_block() {
     // After inserting parent of an orphan block
     assert_eq!(
         shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(2), Arc::clone(&parent))
             .expect("insert parent of orphan block"),
         true,
@@ -164,7 +158,6 @@ fn test_switch_invalid_fork() {
         let block = make_invalid_block(shared.shared(), parent_hash.clone());
         assert_eq!(
             shared
-                .snapshot()
                 .insert_new_block(&chain, PeerIndex::new(1), Arc::new(block.clone()))
                 .expect("insert fork"),
             true,
@@ -184,7 +177,6 @@ fn test_switch_invalid_fork() {
     loop {
         let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
         if shared
-            .snapshot()
             .insert_new_block(&chain, PeerIndex::new(1), Arc::new(block.clone()))
             .is_err()
         {
@@ -239,7 +231,6 @@ fn test_switch_valid_fork() {
         let block = make_valid_block(shared.shared(), parent_hash.clone());
         assert_eq!(
             shared
-                .snapshot()
                 .insert_new_block(&chain, PeerIndex::new(1), Arc::new(block.clone()))
                 .expect("insert fork"),
             true,
@@ -261,7 +252,6 @@ fn test_switch_valid_fork() {
         let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
         assert_eq!(
             shared
-                .snapshot()
                 .insert_new_block(&chain, PeerIndex::new(1), Arc::new(block.clone()))
                 .expect("insert fork"),
             true,

@@ -192,7 +192,7 @@ impl<'a> CompactBlockProcess<'a> {
                 ReconstructionResult::Block(block) => {
                     pending_compact_blocks.remove(&block_hash);
                     self.relayer
-                        .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
+                        .accept_block(self.nc.as_ref(), self.peer, block);
                     return Status::ok();
                 }
                 ReconstructionResult::Missing(transactions, uncles) => {
@@ -222,7 +222,8 @@ impl<'a> CompactBlockProcess<'a> {
                     (missing_transactions.clone(), missing_uncles.clone()),
                 );
         }
-
+        // refresh snapshot
+        let snapshot = self.relayer.shared.snapshot();
         if !snapshot
             .state()
             .write_inflight_blocks()

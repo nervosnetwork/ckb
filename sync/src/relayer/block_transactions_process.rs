@@ -111,7 +111,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     ReconstructionResult::Block(block) => {
                         pending.remove();
                         self.relayer
-                            .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
+                            .accept_block(self.nc.as_ref(), self.peer, block);
                         return Status::ok();
                     }
                     ReconstructionResult::Missing(transactions, uncles) => {

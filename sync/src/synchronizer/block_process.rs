@@ -36,9 +36,9 @@ impl<'a> BlockProcess<'a> {
         let state = self.synchronizer.shared().state();
 
         if state.new_block_received(&block) {
-            if let Err(err) =
-                self.synchronizer
-                    .process_new_block(&snapshot, self.peer, block.clone())
+            if let Err(err) = self
+                .synchronizer
+                .process_new_block(self.peer, block.clone())
             {
                 state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
                 return StatusCode::BlockIsInvalid.with_context(format!(

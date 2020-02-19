@@ -659,6 +659,86 @@ impl SyncSharedState {
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
+
+    pub fn insert_new_block(
+        &self,
+        chain: &ChainController,
+        pi: PeerIndex,
+        block: Arc<core::BlockView>,
+    ) -> Result<bool, FailureError> {
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !self.snapshot().known_parent(&block) {
+            debug!(
+                "insert new orphan block {} {}",
+                block.header().number(),
+                block.header().hash()
+            );
+            self.state.insert_orphan_block((*block).clone());
+            return Ok(false);
+        }
+
+        // Attempt to accept the given block if its parent already exist in database
+        let ret = self.accept_block(chain, pi, Arc::clone(&block));
+        if ret.is_err() {
+            debug!("accept block {:?} {:?}", block, ret);
+            return ret;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
+        for block in descendants {
+            // If we can not find the block's parent in database, that means it was failed to accept
+            // its parent, so we treat it as an invalid block as well.
+            if !self.snapshot().known_parent(&block) {
+                debug!(
+                    "parent-unknown orphan block, block: {}, {}, parent: {}",
+                    block.header().number(),
+                    block.header().hash(),
+                    block.header().parent_hash(),
+                );
+                continue;
+            }
+
+            let block = Arc::new(block);
+            if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+                debug!(
+                    "accept descendant orphan block {} error {:?}",
+                    block.header().hash(),
+                    err
+                );
+            }
+        }
+        ret
+    }
+
+    fn accept_block(
+        &self,
+        chain: &ChainController,
+        peer: PeerIndex,
+        block: Arc<core::BlockView>,
+    ) -> Result<bool, FailureError> {
+        let ret = chain.process_block(Arc::clone(&block));
+        if ret.is_err() {
+            error!("accept block {:?} {:?}", block, ret);
+            self.state
+                .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+        } else {
+            // Clear the newly inserted block from block_status_map.
+            //
+            // We don't know whether the actual block status is BLOCK_VALID or BLOCK_INVALID.
+            // So we just simply remove the corresponding in-memory block status,
+            // and the next time `get_block_status` would acquire the real-time
+            // status via fetching block_ext from the database.
+            self.state.remove_block_status(&block.as_ref().hash());
+            self.state.remove_header_view(&block.as_ref().hash());
+            self.state
+                .peers()
+                .set_last_common_header(peer, block.header());
+        }
+
+        Ok(ret?)
+    }
 }
 
 impl SyncState {
@@ -1167,91 +1247,10 @@ impl SyncSnapshot {
         self.get_block_status(block_hash) == BlockStatus::UNKNOWN
     }
 
-    pub fn insert_new_block(
-        &self,
-        chain: &ChainController,
-        pi: PeerIndex,
-        block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
-        let known_parent = |block: &core::BlockView| {
-            self.store
-                .get_block_header(&block.data().header().raw().parent_hash())
-                .is_some()
-        };
-
-        // Insert the given block into orphan_block_pool if its parent is not found
-        if !known_parent(&block) {
-            debug!(
-                "insert new orphan block {} {}",
-                block.header().number(),
-                block.header().hash()
-            );
-            self.state.insert_orphan_block((*block).clone());
-            return Ok(false);
-        }
-
-        // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, pi, Arc::clone(&block));
-        if ret.is_err() {
-            debug!("accept block {:?} {:?}", block, ret);
-            return ret;
-        }
-
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
-        for block in descendants {
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as an invalid block as well.
-            if !known_parent(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {}, parent: {}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
-            }
-
-            let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
-                debug!(
-                    "accept descendant orphan block {} error {:?}",
-                    block.header().hash(),
-                    err
-                );
-            }
-        }
-
-        ret
-    }
-
-    fn accept_block(
-        &self,
-        chain: &ChainController,
-        peer: PeerIndex,
-        block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
-        let ret = chain.process_block(Arc::clone(&block));
-        if ret.is_err() {
-            error!("accept block {:?} {:?}", block, ret);
-            self.state
-                .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
-        } else {
-            // Clear the newly inserted block from block_status_map.
-            //
-            // We don't know whether the actual block status is BLOCK_VALID or BLOCK_INVALID.
-            // So we just simply remove the corresponding in-memory block status,
-            // and the next time `get_block_status` would acquire the real-time
-            // status via fetching block_ext from the database.
-            self.state.remove_block_status(&block.as_ref().hash());
-            self.state.remove_header_view(&block.as_ref().hash());
-            self.state
-                .peers()
-                .set_last_common_header(peer, block.header());
-        }
-
-        Ok(ret?)
+    pub fn known_parent(&self, block: &core::BlockView) -> bool {
+        self.store
+            .get_block_header(&block.data().header().raw().parent_hash())
+            .is_some()
     }
 
     pub(crate) fn new_header_resolver<'a>(

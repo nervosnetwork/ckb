@@ -484,6 +484,7 @@ fn test_accept_block() {
         db_txn.commit().unwrap();
     }
 
+    relayer.shared().shared().refresh_snapshot();
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);

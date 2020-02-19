@@ -203,8 +203,8 @@ impl Shared {
         self.snapshot_mgr.store(snapshot)
     }
 
-    pub fn refresh_snapshot(&self, old_snapshot: Arc<Snapshot>) {
-        let new = old_snapshot.refresh(self.store.get_snapshot());
+    pub fn refresh_snapshot(&self) {
+        let new = self.snapshot().refresh(self.store.get_snapshot());
         self.store_snapshot(Arc::new(new));
     }
 
@@ -216,7 +216,7 @@ impl Shared {
         cell_set: HamtMap<Byte32, TransactionMeta>,
         proposals: ProposalView,
     ) -> Arc<Snapshot> {
-        let new_snapshot = Snapshot::new(
+        Arc::new(Snapshot::new(
             tip_header,
             total_difficulty,
             epoch_ext,
@@ -224,8 +224,7 @@ impl Shared {
             cell_set,
             proposals,
             Arc::clone(&self.consensus),
-        );
-        self.store_snapshot(Arc::new(new_snapshot));
+        ))
     }
 
     pub fn consensus(&self) -> &Consensus {

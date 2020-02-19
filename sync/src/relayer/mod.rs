@@ -222,17 +222,21 @@ impl Relayer {
 
     pub fn accept_block(
         &self,
-        snapshot: &SyncSnapshot,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: core::BlockView,
     ) {
-        if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
+        if self
+            .shared()
+            .snapshot()
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
+        {
             return;
         }
 
         let boxed = Arc::new(block);
-        if snapshot
+        if self
+            .shared()
             .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
             .unwrap_or(false)
         {
@@ -243,7 +247,10 @@ impl Relayer {
                 unix_time_as_millis()
             );
             let block_hash = boxed.hash();
-            snapshot.state().remove_header_view(&block_hash);
+            self.shared()
+                .snapshot()
+                .state()
+                .remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
             let data = message.as_slice().into();

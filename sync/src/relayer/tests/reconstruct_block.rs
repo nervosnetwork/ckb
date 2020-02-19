@@ -116,6 +116,7 @@ fn test_reconstruct_transactions_and_uncles() {
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
+    relayer.shared().shared().refresh_snapshot();
 
     let ret = relayer.reconstruct_block(
         &relayer.shared().snapshot(),
@@ -151,6 +152,7 @@ fn test_reconstruct_invalid_uncles() {
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
+    relayer.shared().shared().refresh_snapshot();
 
     assert_eq!(
         relayer.reconstruct_block(&relayer.shared().snapshot(), &compact, vec![], &[], &[]),

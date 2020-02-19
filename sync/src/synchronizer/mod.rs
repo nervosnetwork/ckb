@@ -12,7 +12,7 @@ use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState, SyncSnapshot};
+use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -127,19 +127,19 @@ impl Synchronizer {
     //TODO: process block which we don't request
     pub fn process_new_block(
         &self,
-        snapshot: &SyncSnapshot,
         peer: PeerIndex,
         block: core::BlockView,
     ) -> Result<bool, FailureError> {
         let block_hash = block.hash();
-        let status = snapshot.get_block_status(&block_hash);
+        let status = self.shared.snapshot().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
             debug!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            snapshot.insert_new_block(&self.chain, peer, Arc::new(block))
+            self.shared
+                .insert_new_block(&self.chain, peer, Arc::new(block))
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -888,7 +888,6 @@ mod tests {
         blocks.into_iter().for_each(|block| {
             synchronizer
                 .shared()
-                .snapshot()
                 .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
                 .expect("Insert new block failed");
         });
