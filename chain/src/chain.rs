@@ -373,8 +373,6 @@ impl ChainService {
                 new_proposals,
             );
 
-            self.shared.store_snapshot(Arc::clone(&new_snapshot));
-
             if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
                 fork.detached_blocks().clone(),
                 fork.attached_blocks().clone(),
@@ -400,6 +398,7 @@ impl ChainService {
                 self.print_chain(10);
             }
         } else {
+            self.shared.refresh_snapshot(shared_snapshot);
             info!(
                 "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 block.header().number(),

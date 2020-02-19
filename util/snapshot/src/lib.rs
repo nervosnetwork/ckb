@@ -73,6 +73,18 @@ impl Snapshot {
         }
     }
 
+    pub fn refresh(&self, store: StoreSnapshot) -> Snapshot {
+        Snapshot {
+            store,
+            tip_header: self.tip_header.clone(),
+            total_difficulty: self.total_difficulty.clone(),
+            epoch_ext: self.epoch_ext.clone(),
+            cell_set: self.cell_set.clone(),
+            proposals: self.proposals.clone(),
+            consensus: Arc::clone(&self.consensus),
+        }
+    }
+
     pub fn tip_header(&self) -> &HeaderView {
         &self.tip_header
     }
