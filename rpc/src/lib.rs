@@ -11,4 +11,7 @@ pub use crate::config::{Config, Module};
 pub use crate::server::RpcServer;
 pub use crate::service_builder::ServiceBuilder;
 
-pub type IoHandler = jsonrpc_pubsub::PubSubHandler<Option<crate::module::SubscriptionSession>>;
+pub type IoHandler = jsonrpc_pubsub::PubSubHandler<
+    Option<crate::module::SubscriptionSession>,
+    server::ModuleEnableCheck,
+>;
