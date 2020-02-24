@@ -640,6 +640,7 @@ dependencies = [
  "regex",
  "sentry",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -148,6 +148,14 @@ impl Status {
             _ => Some(BAD_MESSAGE_BAN_TIME),
         }
     }
+
+    pub fn should_warn(&self) -> bool {
+        self.code as u16 >= 500
+    }
+
+    pub fn code(&self) -> StatusCode {
+        self.code
+    }
 }
 
 impl PartialEq for Status {

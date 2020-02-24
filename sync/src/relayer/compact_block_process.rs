@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::{attempt, Status, StatusCode};
-use ckb_logger::{self, debug_target};
+use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
@@ -237,8 +237,28 @@ impl<'a> CompactBlockProcess<'a> {
             return StatusCode::BlocksInFlightReachLimit.with_context(block_hash);
         }
 
+        let status = if collision {
+            StatusCode::CompactBlockMeetsShortIdsCollision.with_context(&block_hash)
+        } else {
+            StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
+        };
+        if !missing_transactions.is_empty() {
+            metric!({
+                "topic": "fresh_transactions",
+                "tags": { "status": format!("{:?}", status.code()), },
+                "fields": { "count": missing_transactions.len(), },
+            });
+        }
+        if !missing_uncles.is_empty() {
+            metric!({
+                "topic": "fresh_uncles",
+                "tags": { "status": format!("{:?}", status.code()), },
+                "fields": { "count": missing_uncles.len(), },
+            });
+        }
+
         let content = packed::GetBlockTransactions::new_builder()
-            .block_hash(block_hash.clone())
+            .block_hash(block_hash)
             .indexes(missing_transactions.pack())
             .uncle_indexes(missing_uncles.pack())
             .build();
@@ -249,11 +269,7 @@ impl<'a> CompactBlockProcess<'a> {
                 .with_context(format!("Send GetBlockTransactions error: {:?}", err));
         }
 
-        if collision {
-            StatusCode::CompactBlockMeetsShortIdsCollision.with_context(block_hash)
-        } else {
-            StatusCode::CompactBlockRequiresFreshTransactions.with_context(block_hash)
-        }
+        status
     }
 }
 
