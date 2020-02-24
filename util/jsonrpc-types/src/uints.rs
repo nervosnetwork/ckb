@@ -57,11 +57,19 @@ impl<T: Uint> JsonUintVisitor<T> {
     where
         E: Error,
     {
-        if !value.starts_with("0x") {
+        let value_bytes = value.as_bytes();
+        if value_bytes.len() < 3 || &value_bytes[..2] != b"0x" {
             return Err(Error::custom(format!(
                 "Invalid {} {}: without `0x` prefix",
                 T::NAME,
                 value
+            )));
+        }
+        if value_bytes[2] == b'0' && value_bytes.len() > 3 {
+            return Err(Error::custom(format!(
+                "Invalid {} {}: with redundant leading zeros",
+                T::NAME,
+                value,
             )));
         }
 
@@ -70,10 +78,9 @@ impl<T: Uint> JsonUintVisitor<T> {
             .map_err(|e| Error::custom(format!("Invalid {} {}: {}", T::NAME, value, e)))?;
         if number.to_string() != value {
             return Err(Error::custom(format!(
-                "Invalid {} {}: with redundant leading zeros, expected: {}",
+                "Invalid {} {}: only digits and lowercases are allowed",
                 T::NAME,
                 value,
-                number.to_string(),
             )));
         }
 
@@ -212,6 +219,21 @@ mod tests {
                         let err = ret.unwrap_err();
                         assert!(
                             err.to_string().contains("with redundant leading zeros"),
+                            err,
+                        );
+                    }
+                }
+
+                fn deserialize_with_uppercases() {
+                    let cases = vec![r#""0xFF""#, r#""0xfF""#];
+                    for s in cases {
+                        let ret: Result<$name, _> = serde_json::from_str(s);
+                        assert!(ret.is_err(), ret);
+
+                        let err = ret.unwrap_err();
+                        assert!(
+                            err.to_string()
+                                .contains("only digits and lowercases are allowed"),
                             err,
                         );
                     }
