@@ -1,5 +1,4 @@
-use super::uint32::Uint32;
-use crate::{bytes::JsonBytes, Timestamp};
+use crate::{bytes::JsonBytes, Timestamp, Uint32};
 use ckb_types::{packed, prelude::*};
 use serde::{Deserialize, Serialize};
 
