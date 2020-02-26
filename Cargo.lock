@@ -101,6 +101,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6d640bee2da49f60a4068a7fae53acde8982514ab7bae8b8cea9e88cbcfd799"
 
 [[package]]
+name = "autocfg"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
+
+[[package]]
 name = "backtrace"
 version = "0.3.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1302,7 +1308,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8ec7fcd21571dc78f96cc96243cab8d8f035247c3efd16c687be154c3fa9efa"
 dependencies = [
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
 ]
 
 [[package]]
@@ -1312,7 +1318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b18cd2e169ad86297e6bc0ad9aa679aee9daa4f19e8163860faf7c164e4f5a71"
 dependencies = [
  "crossbeam-epoch",
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
 ]
 
 [[package]]
@@ -1323,7 +1329,7 @@ checksum = "fedcd6772e37f3da2a9af9bf12ebe046c0dfe657992377b4df982a2b54cd37a9"
 dependencies = [
  "arrayvec",
  "cfg-if",
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
  "lazy_static",
  "memoffset",
  "scopeguard 1.0.0",
@@ -1335,7 +1341,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c979cd6cfe72335896575c6b5688da489e420d36a27a0b9eb0c73db574b4a4b"
 dependencies = [
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
 ]
 
 [[package]]
@@ -1344,6 +1350,17 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8306fcef4a7b563b76b7dd949ca48f52bc1141aa067d2ea09565f3e2652aa5c"
 dependencies = [
+ "cfg-if",
+ "lazy_static",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3c7c73a2d1e9fc0886a08b93e98eb643461230d5f1925e4036204d5f2e261a8"
+dependencies = [
+ "autocfg 1.0.0",
  "cfg-if",
  "lazy_static",
 ]
@@ -2538,7 +2555,7 @@ version = "0.9.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c977d08e1312e2f7e4b86f9ebaa0ed3b19d1daff75fae88bbb88108afbd801fc"
 dependencies = [
- "autocfg",
+ "autocfg 0.1.2",
  "cc",
  "libc",
  "pkg-config",
@@ -2893,7 +2910,7 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d71dacdc3c88c1fde3885a3be3fbab9f35724e6ce99467f7d9c5026132184ca"
 dependencies = [
- "autocfg",
+ "autocfg 0.1.2",
  "libc",
  "rand_chacha 0.1.1",
  "rand_core 0.4.0",
@@ -2925,7 +2942,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "556d3a1ca6600bfcbab7c7c91ccb085ac7fbbcd70e008a98742e7847f4f7bcef"
 dependencies = [
- "autocfg",
+ "autocfg 0.1.2",
  "rand_core 0.3.1",
 ]
 
@@ -2935,7 +2952,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e193067942ef6f485a349a113329140d0ab9e2168ce92274499bb0e9a4190d9d"
 dependencies = [
- "autocfg",
+ "autocfg 0.1.2",
  "c2-chacha",
  "rand_core 0.5.0",
 ]
@@ -3032,7 +3049,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abf9b09b01790cfe0364f52bf32995ea3c39f4d2dd011eac241d2914146d0b44"
 dependencies = [
- "autocfg",
+ "autocfg 0.1.2",
  "rand_core 0.4.0",
 ]
 
@@ -3073,7 +3090,7 @@ checksum = "98dcf634205083b17d0861252431eb2acbfb698ab7478a2d20de07954f47ec7b"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-queue",
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
  "lazy_static",
  "num_cpus",
 ]
@@ -3806,11 +3823,11 @@ dependencies = [
 
 [[package]]
 name = "tokio-executor"
-version = "0.1.8"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f27ee0e6db01c5f0b2973824547ce7e637b2ed79b891a9677b0de9bd532b6ac"
+checksum = "fb2d1b8f4548dbf5e1f7818512e9c406860678f29c300cdf0ebac72d1a3a1671"
 dependencies = [
- "crossbeam-utils",
+ "crossbeam-utils 0.7.2",
  "futures",
 ]
 
@@ -3842,7 +3859,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6af16bfac7e112bea8b0442542161bfc41cbfa4466b580bdda7d18cb88b911ce"
 dependencies = [
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
  "futures",
  "lazy_static",
  "log 0.4.8",
@@ -3896,7 +3913,7 @@ checksum = "72558af20be886ea124595ea0f806dd5703b8958e4705429dd58b3d8231f72f2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-queue",
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
  "futures",
  "log 0.4.8",
  "num_cpus",
@@ -3911,7 +3928,7 @@ version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2910970404ba6fa78c5539126a9ae2045d62e3713041e447f695f41405a120c6"
 dependencies = [
- "crossbeam-utils",
+ "crossbeam-utils 0.6.5",
  "futures",
  "slab",
  "tokio-executor",
