@@ -1,6 +1,6 @@
 [package]
 name = "ckb-crypto"
-version = "0.28.0"
+version = "0.29.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
