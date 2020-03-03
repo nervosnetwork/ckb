@@ -12,7 +12,7 @@ use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, PeerFlags, Peers, SyncShared};
+use crate::types::{HeaderView, IBDState, PeerFlags, Peers, SyncShared};
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -150,8 +150,12 @@ impl Synchronizer {
         }
     }
 
-    pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<packed::Byte32>> {
-        BlockFetcher::new(self.clone(), peer).fetch()
+    pub fn get_blocks_to_fetch(
+        &self,
+        peer: PeerIndex,
+        ibd: IBDState,
+    ) -> Option<Vec<packed::Byte32>> {
+        BlockFetcher::new(self.clone(), peer, ibd).fetch()
     }
 
     fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -344,13 +348,20 @@ impl Synchronizer {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &dyn CKBProtocolContext) {
+    fn find_blocks_to_fetch(&self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
         let peers: Vec<PeerIndex> = {
             self.peers()
                 .state
                 .read()
                 .iter()
-                .filter(|(_, state)| state.sync_started)
+                .filter(|(_, state)| match ibd {
+                    IBDState::In => {
+                        state.peer_flags.is_outbound
+                            || state.peer_flags.is_whitelist
+                            || state.peer_flags.is_protect
+                    }
+                    IBDState::Out => state.sync_started,
+                })
                 .map(|(peer_id, _)| peer_id)
                 .cloned()
                 .collect()
@@ -361,7 +372,7 @@ impl Synchronizer {
             self.shared().state().write_inflight_blocks().prune();
         }
         for peer in peers {
-            if let Some(fetch) = self.get_blocks_to_fetch(peer) {
+            if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
                 if !fetch.is_empty() {
                     self.send_getblocks(fetch, nc, peer);
                 }
@@ -504,14 +515,17 @@ impl CKBProtocolHandler for Synchronizer {
                 }
                 IBD_BLOCK_FETCH_TOKEN => {
                     if self.shared.active_chain().is_initial_block_download() {
-                        self.find_blocks_to_fetch(nc.as_ref());
-                    } else if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).is_err() {
-                        trace!("remove ibd block fetch fail");
+                        self.find_blocks_to_fetch(nc.as_ref(), IBDState::In);
+                    } else {
+                        self.shared.state().peers().clear_unknown_list();
+                        if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).is_err() {
+                            trace!("remove ibd block fetch fail");
+                        }
                     }
                 }
                 NOT_IBD_BLOCK_FETCH_TOKEN => {
                     if !self.shared.active_chain().is_initial_block_download() {
-                        self.find_blocks_to_fetch(nc.as_ref());
+                        self.find_blocks_to_fetch(nc.as_ref(), IBDState::Out);
                     }
                 }
                 TIMEOUT_EVICTION_TOKEN => {
@@ -1119,7 +1133,9 @@ mod tests {
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
-        let blocks_to_fetch = synchronizer1.get_blocks_to_fetch(peer1).unwrap();
+        let blocks_to_fetch = synchronizer1
+            .get_blocks_to_fetch(peer1, IBDState::Out)
+            .unwrap();
 
         assert_eq!(
             blocks_to_fetch.first().unwrap(),
