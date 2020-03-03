@@ -10,6 +10,7 @@ build = "build.rs"
 default = ["logging", "asm"]
 
 asm = ["ckb-vm/asm"]
+detect-asm = ["ckb-vm/detect-asm"]
 logging = ["ckb-logger"]
 
 [dependencies]
