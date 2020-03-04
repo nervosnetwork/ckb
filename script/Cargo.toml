@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script"
-version = "0.28.1-pre"
+version = "0.30.1-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,6 +10,7 @@ build = "build.rs"
 default = ["logging", "asm"]
 
 asm = ["ckb-vm/asm"]
+detect-asm = ["ckb-vm/detect-asm"]
 logging = ["ckb-logger"]
 
 [dependencies]

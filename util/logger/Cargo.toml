@@ -1,6 +1,6 @@
 [package]
 name = "ckb-logger"
-version = "0.28.1-pre"
+version = "0.30.1-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -17,3 +17,4 @@ crossbeam-channel = "0.3"
 parking_lot = "=0.7.1"
 backtrace = "0.3"
 sentry = "0.16.0"
+serde_json = "1.0"

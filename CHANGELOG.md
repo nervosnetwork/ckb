@@ -1,3 +1,11 @@
+# [v0.29.0](https://github.com/nervosnetwork/ckb/compare/v0.28.0...v0.29.0) (2020-02-26)
+
+### Breaking Changes
+
+* #1928: Null outputs_validator means passthrough. (@doitian)
+
+    The default behavior is incompatible with v0.28.0, but is compatible with v0.27.1 and older versions.
+
 # [v0.28.0](https://github.com/nervosnetwork/ckb/compare/v0.27.0...v0.28.0) (2020-01-31)
 
 ### Breaking Changes

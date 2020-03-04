@@ -24,7 +24,7 @@ use crate::block_status::BlockStatus;
 use crate::types::{SyncSharedState, SyncSnapshot};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
-use ckb_logger::{debug_target, error_target, info_target, trace_target};
+use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_tx_pool::FeeRate;
 use ckb_types::core::BlockView;
@@ -142,7 +142,23 @@ impl Relayer {
                 ban_time,
                 status
             );
+            metric!({
+                "topic": "error",
+                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
+            });
             nc.ban_peer(peer, ban_time, status.to_string());
+        } else if status.should_warn() {
+            warn_target!(
+                crate::LOG_TARGET_RELAY,
+                "receive {} from {}, {}",
+                item_name,
+                peer,
+                status
+            );
+            metric!({
+                "topic": "warning",
+                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
+            });
         } else if !status.is_ok() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
