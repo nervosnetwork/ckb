@@ -513,6 +513,7 @@ dependencies = [
  "ckb-occupied-capacity",
  "enum-display-derive",
  "failure",
+ "quote 1.0.2",
 ]
 
 [[package]]
