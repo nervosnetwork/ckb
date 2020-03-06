@@ -513,6 +513,7 @@ dependencies = [
  "ckb-occupied-capacity",
  "enum-display-derive",
  "failure",
+ "quote 1.0.2",
 ]
 
 [[package]]
@@ -1124,9 +1125,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.19.0"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64d3ba078ad0a856b82a9e0c62f7ca564df027898bb2e6e367a26455f114fa67"
+checksum = "d7a75c9a092719293a09da2e233fd7802fe909fa2b88a9256034f1e486a6bc7c"
 dependencies = [
  "byteorder",
  "bytes 0.5.4",
@@ -1140,9 +1141,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.19.0"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cfc1ed5a58a3015b236fda0956e0fe060823d072267b6d7bd68b3ccd0b290e1"
+checksum = "3ce774f97919ed2458881e02ddf431ae82bc6203fbae8d75563b4499126c0ad2"
 
 [[package]]
 name = "clap"
