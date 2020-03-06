@@ -4,7 +4,6 @@ use crate::module::{
     IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc,
     NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
-use crate::server::ModuleEnableCheck;
 use crate::IoHandler;
 use ckb_chain::chain::ChainController;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig};
@@ -15,24 +14,18 @@ use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
 use ckb_tx_pool::FeeRate;
 use ckb_util::Mutex;
-use jsonrpc_core::MetaIoHandler;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 pub struct ServiceBuilder<'a> {
     config: &'a Config,
     io_handler: IoHandler,
-    disable_methods: HashMap<String, Arc<String>>,
 }
 
 impl<'a> ServiceBuilder<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self {
             config,
-            io_handler: IoHandler::new(MetaIoHandler::new(
-                Default::default(),
-                ModuleEnableCheck::default(),
-            )),
-            disable_methods: HashMap::new(),
+            io_handler: IoHandler::default(),
         }
     }
     pub fn enable_chain(mut self, shared: Shared) -> Self {
@@ -183,32 +176,31 @@ impl<'a> ServiceBuilder<'a> {
     where
         I: IntoIterator<Item = (String, M)>,
     {
-        let module = Arc::new(module.to_string());
+        use crate::error::RPCError;
+
+        let error = |method: &str| {
+            RPCError::custom(
+                RPCError::Invalid,
+                format!(
+                    "You need to enable `{module}` module to invoke `{method}` rpc, \
+                        please modify `rpc.modules` {miner_info} of configuration file ckb.toml and restart the ckb node",
+                    method = method, module = module, miner_info = if module == "Miner" {"and `block_assembler`"} else {""}
+                ))
+        };
         rpc_method
             .into_iter()
             .map(|(method, _)| method)
             .for_each(|method| {
-                self.disable_methods.insert(method, Arc::clone(&module));
+                let error = error(&method);
+                self.io_handler
+                    .add_method(&method, move |_param| Err(error.clone()))
             });
     }
 
     pub fn build(self) -> IoHandler {
-        let rpc: Vec<_> = Into::<
-            jsonrpc_core::MetaIoHandler<
-                Option<crate::module::SubscriptionSession>,
-                crate::server::ModuleEnableCheck,
-            >,
-        >::into(self.io_handler)
-        .into_iter()
-        .collect();
+        let mut io_handler = self.io_handler;
+        io_handler.add_method("ping", |_| futures::future::ok("pong".into()));
 
-        let mut io = IoHandler::new(MetaIoHandler::new(
-            Default::default(),
-            ModuleEnableCheck::new(self.disable_methods),
-        ));
-        io.extend_with(rpc);
-        io.add_method("ping", |_| futures::future::ok("pong".into()));
-
-        io
+        io_handler
     }
 }
