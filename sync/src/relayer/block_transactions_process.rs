@@ -146,6 +146,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     return StatusCode::Network
                         .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
                 }
+                crate::relayer::log_sent_metric(message.to_enum().item_name());
 
                 mem::replace(expected_transaction_indexes, missing_transactions);
                 mem::replace(expected_uncle_indexes, missing_uncles);

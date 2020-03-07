@@ -215,6 +215,7 @@ impl ChainService {
 
         let mut total_difficulty = U256::zero();
         let mut fork = ForkChanges::default();
+        let timestamp = unix_time_as_millis();
 
         let parent_ext = txn_snapshot
             .get_block_ext(&block.data().header().raw().parent_hash())
@@ -287,8 +288,12 @@ impl ChainService {
             if !fork.detached_blocks.is_empty() {
                 metric!({
                     "topic": "reorg",
-                    "tags": {},
                     "fields": { "attached": fork.attached_blocks.len(), "detached": fork.detached_blocks.len(), },
+                });
+            } else {
+                metric!({
+                    "topic": "chain",
+                    "fields": { "main_chain_tip": block.header().number(), }
                 });
             }
 
@@ -374,6 +379,10 @@ impl ChainService {
             }
         }
 
+        metric!({
+            "topic": "chain",
+            "fields": { "elapsed": unix_time_as_millis().saturating_sub(timestamp) },
+        });
         Ok(true)
     }
 

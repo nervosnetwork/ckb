@@ -6,7 +6,7 @@ use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{debug, debug_target, error};
+use ckb_logger::{debug, debug_target, error, metric};
 use ckb_network::{bytes, CKBProtocolContext, PeerIndex};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -327,6 +327,7 @@ impl InflightBlocks {
 
     pub fn prune(&mut self) {
         let now = unix_time_as_millis();
+        let prev_count = self.total_inflight_count();
         let blocks = &mut self.blocks;
         self.states.retain(|k, v| {
             let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
@@ -337,6 +338,17 @@ impl InflightBlocks {
             }
             !outdate
         });
+        if prev_count == 0 {
+            metric!({
+                "topic": "blocks_in_flight",
+                "fields": { "total": 0, "elapsed": 0 }
+            });
+        } else if prev_count != self.total_inflight_count() {
+            metric!({
+                "topic": "blocks_in_flight",
+                "fields": { "total": self.total_inflight_count(), "elapsed": BLOCK_DOWNLOAD_TIMEOUT }
+            });
+        }
     }
 
     pub fn insert(&mut self, peer: PeerIndex, hash: Byte32) -> bool {
@@ -376,6 +388,14 @@ impl InflightBlocks {
                 for peer in state.peers {
                     self.blocks.get_mut(&peer).map(|set| set.remove(&block));
                 }
+                state.timestamp
+            })
+            .map(|timestamp| {
+                let elapsed = unix_time_as_millis().saturating_sub(timestamp);
+                metric!({
+                    "topic": "blocks_in_flight",
+                    "fields": { "total": self.total_inflight_count(), "elapsed": elapsed }
+                });
             })
             .is_some()
     }
@@ -534,14 +554,19 @@ impl HeaderView {
         F: FnMut(&Byte32) -> Option<HeaderView>,
         G: Fn(&HeaderView) -> Option<HeaderView>,
     {
+        let timestamp = unix_time_as_millis();
         let mut current = self;
         if number > current.number() {
             return None;
         }
+
+        let base_number = current.number();
+        let mut steps = 0u64;
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
+            steps += 1;
             match current.skip_hash {
                 Some(ref hash)
                     if number_skip == number
@@ -563,6 +588,16 @@ impl HeaderView {
                 break;
             }
         }
+        metric!({
+            "topic": "get_ancestor",
+            "fields": {
+                "steps": steps,
+                "elapsed": unix_time_as_millis().saturating_sub(timestamp),
+                "base_number": base_number,
+                "target_number": number,
+                "ancestor_number": current.number()
+            },
+        });
         Some(current).map(HeaderView::into_inner)
     }
 
@@ -921,6 +956,10 @@ impl SyncState {
             self.header_map.read().contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
+        metric!({
+            "topic": "chain",
+            "fields": { "header_chain_tip": header.number(), }
+        });
         *self.shared_best_header.write() = header;
     }
 
@@ -1019,8 +1058,8 @@ impl SyncState {
     }
 
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
-        self.known_txs.lock().inner.remove(&pi);
-        self.inflight_blocks.write().remove_by_peer(pi);
+        self.known_txs().inner.remove(&pi);
+        self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
 

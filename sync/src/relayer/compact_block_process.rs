@@ -258,16 +258,16 @@ impl<'a> CompactBlockProcess<'a> {
         };
         if !missing_transactions.is_empty() {
             metric!({
-                "topic": "fresh_transactions",
+                "topic": "relay",
                 "tags": { "status": format!("{:?}", status.code()), },
-                "fields": { "count": missing_transactions.len(), },
+                "fields": { "fresh_transactions": missing_transactions.len(), },
             });
         }
         if !missing_uncles.is_empty() {
             metric!({
-                "topic": "fresh_uncles",
+                "topic": "relay",
                 "tags": { "status": format!("{:?}", status.code()), },
-                "fields": { "count": missing_uncles.len(), },
+                "fields": { "fresh_uncles": missing_uncles.len(), },
             });
         }
 
@@ -282,6 +282,7 @@ impl<'a> CompactBlockProcess<'a> {
             return StatusCode::Network
                 .with_context(format!("Send GetBlockTransactions error: {:?}", err));
         }
+        crate::relayer::log_sent_metric(message.to_enum().item_name());
 
         status
     }

@@ -133,6 +133,20 @@ impl Relayer {
     ) {
         let item_name = message.item_name();
         let status = self.try_process(Arc::clone(&nc), peer, message);
+
+        metric!({
+            "topic": "received",
+            "tags": { "target": crate::LOG_TARGET_RELAY },
+            "fields": { item_name: 1 }
+        });
+        if !status.is_ok() {
+            metric!({
+                "topic": "status",
+                "tags": { "target": crate::LOG_TARGET_RELAY },
+                "fields": { format!("{:?}", status.code()): 1 }
+            });
+        }
+
         if let Some(ban_time) = status.should_ban() {
             error_target!(
                 crate::LOG_TARGET_RELAY,
@@ -142,10 +156,6 @@ impl Relayer {
                 ban_time,
                 status
             );
-            metric!({
-                "topic": "error",
-                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-            });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
             warn_target!(
@@ -155,10 +165,6 @@ impl Relayer {
                 peer,
                 status
             );
-            metric!({
-                "topic": "warning",
-                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-            });
         } else if !status.is_ok() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -216,6 +222,7 @@ impl Relayer {
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
             }
+            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
@@ -494,6 +501,7 @@ impl Relayer {
                     err,
                 );
             }
+            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
@@ -534,6 +542,7 @@ impl Relayer {
                         err,
                     );
                 }
+                crate::relayer::log_sent_metric(message.to_enum().item_name());
             }
         }
     }
@@ -707,4 +716,12 @@ impl CKBProtocolHandler for Relayer {
             start_time.elapsed()
         );
     }
+}
+
+pub(self) fn log_sent_metric(item_name: &str) {
+    metric!({
+        "topic": "sent",
+        "tags": { "target": crate::LOG_TARGET_RELAY },
+        "fields": { item_name: 1 }
+    });
 }
