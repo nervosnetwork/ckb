@@ -1129,7 +1129,7 @@ impl ActiveChain {
                 if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
                 {
                     self.get_block_hash(number)
-                        .and_then(|hash| self.get_header_view(&hash))
+                        .and_then(|hash| self.shared.get_header_view(&hash))
                 } else {
                     None
                 }
