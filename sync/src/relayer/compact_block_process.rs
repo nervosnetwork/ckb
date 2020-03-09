@@ -86,6 +86,19 @@ impl<'a> CompactBlockProcess<'a> {
 
         let status = active_chain.get_block_status(&block_hash);
         if status.contains(BlockStatus::BLOCK_STORED) {
+            // update last common header and best known
+            let parent = shared
+                .get_header_view(&header.data().raw().parent_hash())
+                .expect("parent block must exist");
+            let header_view = {
+                let total_difficulty = parent.total_difficulty() + header.difficulty();
+                crate::types::HeaderView::new(header.clone(), total_difficulty)
+            };
+
+            let state = shared.state().peers();
+            state.new_header_received(self.peer, &header_view);
+            state.set_last_common_header(self.peer, header);
+
             return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
             return StatusCode::BlockIsInvalid.with_context(block_hash);
