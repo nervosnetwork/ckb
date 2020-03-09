@@ -11,7 +11,4 @@ ckb-logger = { path = "../util/logger" }
 tempfile = "3.0"
 ckb-error = { path = "../error" }
 libc = "0.2"
-
-[dependencies.rocksdb]
-git = "https://github.com/nervosnetwork/rust-rocksdb"
-rev = "a8dd2ad"
+rocksdb = { package = "ckb-rocksdb", version = "=0.12.3", features = ["snappy"] }
