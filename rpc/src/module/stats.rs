@@ -37,7 +37,7 @@ impl StatsRpc for StatsRpcImpl {
         let is_initial_block_download = self
             .synchronizer
             .shared
-            .snapshot()
+            .active_chain()
             .is_initial_block_download();
         let alerts: Vec<AlertMessage> = {
             let now = faketime::unix_time_as_millis();

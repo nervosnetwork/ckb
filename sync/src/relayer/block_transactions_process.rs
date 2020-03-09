@@ -42,7 +42,8 @@ impl<'a> BlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let snapshot = self.relayer.shared().snapshot();
+        let shared = self.relayer.shared();
+        let active_chain = shared.active_chain();
         let block_transactions = self.message.to_entity();
         let block_hash = block_transactions.block_hash();
         let received_transactions: Vec<core::TransactionView> = block_transactions
@@ -60,7 +61,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         let missing_uncles: Vec<u32>;
         let mut collision = false;
 
-        if let Entry::Occupied(mut pending) = snapshot
+        if let Entry::Occupied(mut pending) = shared
             .state()
             .pending_compact_blocks()
             .entry(block_hash.clone())
@@ -86,7 +87,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 ));
 
                 let ret = self.relayer.reconstruct_block(
-                    &snapshot,
+                    &active_chain,
                     compact_block,
                     received_transactions,
                     &expected_uncle_indexes,

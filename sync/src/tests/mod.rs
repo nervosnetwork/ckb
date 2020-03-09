@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 mod inflight_blocks;
-mod sync_shared_state;
+mod sync_shared;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
 mod util;

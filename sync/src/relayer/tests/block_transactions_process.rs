@@ -2,6 +2,7 @@ use crate::relayer::block_transactions_process::BlockTransactionsProcess;
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use crate::{Status, StatusCode};
 use ckb_network::PeerIndex;
+use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -218,8 +219,12 @@ fn test_invalid_transaction_root() {
 fn test_collision_and_send_missing_indexes() {
     let (relayer, _) = build_chain(5);
 
-    let snapshot = relayer.shared.snapshot();
-    let last_block = snapshot.get_block(&snapshot.tip_hash()).unwrap();
+    let active_chain = relayer.shared.active_chain();
+    let last_block = relayer
+        .shared
+        .store()
+        .get_block(&active_chain.tip_hash())
+        .unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
     let peer_index: PeerIndex = 100.into();

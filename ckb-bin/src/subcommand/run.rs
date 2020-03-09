@@ -12,7 +12,7 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::prelude::*;
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
@@ -51,15 +51,15 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         shared.genesis_hash()
     );
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
     let relayer = Relayer::new(
         chain_controller.clone(),
-        Arc::clone(&sync_shared_state),
+        Arc::clone(&sync_shared),
         args.config.tx_pool.min_fee_rate,
         args.config.tx_pool.max_tx_verify_cycles,
     );
@@ -127,7 +127,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_chain(shared.clone())
         .enable_pool(
             shared.clone(),
-            sync_shared_state,
+            sync_shared,
             args.config.tx_pool.min_fee_rate,
             args.config.rpc.reject_ill_transactions,
         )

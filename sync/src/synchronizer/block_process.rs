@@ -32,8 +32,8 @@ impl<'a> BlockProcess<'a> {
             block.number(),
             block.hash(),
         );
-        let snapshot = self.synchronizer.shared().snapshot();
-        let state = self.synchronizer.shared().state();
+        let shared = self.synchronizer.shared();
+        let state = shared.state();
 
         if state.new_block_received(&block) {
             if let Err(err) = self
@@ -47,7 +47,10 @@ impl<'a> BlockProcess<'a> {
                     err,
                 ));
             }
-        } else if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
+        } else if shared
+            .active_chain()
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
+        {
             state
                 .peers()
                 .set_last_common_header(self.peer, block.header());

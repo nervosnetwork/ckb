@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
-use crate::SyncSharedState;
+use crate::SyncShared;
 use ckb_chain::chain::ChainService;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::SharedBuilder;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 fn test_insert_new_block() {
     let (shared, chain) = build_chain(2);
     let new_block = {
-        let tip_hash = shared.snapshot().tip_header().hash();
+        let tip_hash = shared.active_chain().tip_header().hash();
         let next_block = inherit_block(shared.shared(), &tip_hash).build();
         Arc::new(next_block)
     };
@@ -37,11 +37,11 @@ fn test_insert_new_block() {
 fn test_insert_invalid_block() {
     let (shared, chain) = build_chain(2);
     let invalid_block = {
-        let snapshot = shared.snapshot();
-        let tip_number = snapshot.tip_number();
-        let tip_hash = snapshot.tip_hash();
+        let active_chain = shared.active_chain();
+        let tip_number = active_chain.tip_number();
+        let tip_hash = active_chain.tip_hash();
         let invalid_cellbase =
-            always_success_cellbase(tip_number, Capacity::zero(), snapshot.consensus());
+            always_success_cellbase(tip_number, Capacity::zero(), shared.consensus());
         let next_block = inherit_block(shared.shared(), &tip_hash)
             .transaction(invalid_cellbase)
             .build();
@@ -65,16 +65,16 @@ fn test_insert_parent_unknown_block() {
             let chain_service = ChainService::new(shared.clone(), table);
             chain_service.start::<&str>(None)
         };
-        (SyncSharedState::new(shared), chain_controller)
+        (SyncShared::new(shared), chain_controller)
     };
 
     let block = shared1
-        .snapshot()
-        .get_block(&shared1.snapshot().tip_header().hash())
+        .store()
+        .get_block(&shared1.active_chain().tip_header().hash())
         .unwrap();
     let parent = {
         let parent = shared1
-            .snapshot()
+            .store()
             .get_block(&block.header().parent_hash())
             .unwrap();
         Arc::new(parent)
@@ -106,11 +106,11 @@ fn test_insert_parent_unknown_block() {
         false,
     );
     assert_eq!(
-        shared.snapshot().get_block_status(&valid_hash),
+        shared.active_chain().get_block_status(&valid_hash),
         BlockStatus::BLOCK_RECEIVED
     );
     assert_eq!(
-        shared.snapshot().get_block_status(&invalid_hash),
+        shared.active_chain().get_block_status(&invalid_hash),
         BlockStatus::BLOCK_RECEIVED
     );
 
@@ -122,15 +122,15 @@ fn test_insert_parent_unknown_block() {
         true,
     );
     assert_eq!(
-        shared.snapshot().get_block_status(&valid_hash),
+        shared.active_chain().get_block_status(&valid_hash),
         BlockStatus::BLOCK_VALID
     );
     assert_eq!(
-        shared.snapshot().get_block_status(&invalid_hash),
+        shared.active_chain().get_block_status(&invalid_hash),
         BlockStatus::BLOCK_INVALID
     );
     assert_eq!(
-        shared.snapshot().get_block_status(&parent_hash),
+        shared.active_chain().get_block_status(&parent_hash),
         BlockStatus::BLOCK_VALID
     );
 }
@@ -152,9 +152,9 @@ fn test_switch_invalid_fork() {
     // Insert the invalid fork. The fork blocks would not been verified until the fork switches as
     // the main chain. So`insert_new_block` is ok even for invalid block. And `block_status_map`
     // would mark the fork blocks as `BLOCK_STORED`
-    let mut parent_hash = shared.snapshot().store().get_block_hash(1).unwrap();
+    let mut parent_hash = shared.store().get_block_hash(1).unwrap();
     let mut invalid_fork = Vec::new();
-    for _ in 2..shared.snapshot().tip_number() {
+    for _ in 2..shared.active_chain().tip_number() {
         let block = make_invalid_block(shared.shared(), parent_hash.clone());
         assert_eq!(
             shared
@@ -168,7 +168,9 @@ fn test_switch_invalid_fork() {
     }
     for block in invalid_fork.iter() {
         assert_eq!(
-            shared.snapshot().get_block_status(&block.header().hash()),
+            shared
+                .active_chain()
+                .get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_STORED,
         );
     }
@@ -195,7 +197,7 @@ fn test_switch_invalid_fork() {
     //    }
     for block in invalid_fork.iter() {
         assert!(!shared
-            .snapshot()
+            .active_chain()
             .contains_block_status(&block.header().hash(), BlockStatus::BLOCK_VALID));
     }
 }
@@ -217,17 +219,13 @@ fn test_switch_valid_fork() {
     // Insert the valid fork. The fork blocks would not been verified until the fork switches as
     // the main chain. And `block_status_map` would mark the fork blocks as `BLOCK_STORED`
     let block_number = 1;
-    let mut parent_hash = shared
-        .snapshot()
-        .store()
-        .get_block_hash(block_number)
-        .unwrap();
+    let mut parent_hash = shared.store().get_block_hash(block_number).unwrap();
     for number in 0..=block_number {
-        let block_hash = shared.snapshot().store().get_block_hash(number).unwrap();
-        shared.snapshot().store().get_block(&block_hash).unwrap();
+        let block_hash = shared.store().get_block_hash(number).unwrap();
+        shared.store().get_block(&block_hash).unwrap();
     }
     let mut valid_fork = Vec::new();
-    for _ in 2..shared.snapshot().tip_number() {
+    for _ in 2..shared.active_chain().tip_number() {
         let block = make_valid_block(shared.shared(), parent_hash.clone());
         assert_eq!(
             shared
@@ -241,12 +239,14 @@ fn test_switch_valid_fork() {
     }
     for block in valid_fork.iter() {
         assert_eq!(
-            shared.snapshot().get_block_status(&block.header().hash()),
+            shared
+                .active_chain()
+                .get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_STORED,
         );
     }
 
-    let tip_number = shared.snapshot().tip_number();
+    let tip_number = shared.active_chain().tip_number();
     // Make the fork switch as the main chain.
     for _ in tip_number..tip_number + 2 {
         let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
@@ -262,7 +262,9 @@ fn test_switch_valid_fork() {
     }
     for block in valid_fork.iter() {
         assert_eq!(
-            shared.snapshot().get_block_status(&block.header().hash()),
+            shared
+                .active_chain()
+                .get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_VALID,
         );
     }
