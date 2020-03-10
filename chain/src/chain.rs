@@ -290,11 +290,6 @@ impl ChainService {
                     "topic": "reorg",
                     "fields": { "attached": fork.attached_blocks.len(), "detached": fork.detached_blocks.len(), },
                 });
-            } else {
-                metric!({
-                    "topic": "chain",
-                    "fields": { "main_chain_tip": block.header().number(), }
-                });
             }
 
             self.rollback(&fork, &db_txn)?;
@@ -381,7 +376,10 @@ impl ChainService {
 
         metric!({
             "topic": "chain",
-            "fields": { "elapsed": unix_time_as_millis().saturating_sub(timestamp) },
+            "fields": {
+                "main_chain_tip": block.header().number(),
+                "elapsed": unix_time_as_millis().saturating_sub(timestamp),
+             },
         });
         Ok(true)
     }
