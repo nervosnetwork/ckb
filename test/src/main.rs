@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let _ = {
-        let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
+        let filter = env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
     };
 
@@ -156,7 +156,7 @@ fn main() {
     }
 
     if !spec_errors.is_empty() {
-        error!("ckb-failed on spec {}", error_spec_names.join(", "));
+        error!("ckb-test failed on spec {}", error_spec_names.join(", "));
         log_failed_specs(&error_spec_names)
             .unwrap_or_else(|err| error!("Failed to write integration failure reason: {}", err));
         info!("You can rerun remaining specs using following command:");
@@ -252,7 +252,7 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
 }
 
 fn current_dir() -> PathBuf {
-    ::std::env::current_dir()
+    env::current_dir()
         .expect("can't get current_dir")
         .join("vendor")
 }
