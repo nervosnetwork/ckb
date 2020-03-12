@@ -2,10 +2,11 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{HeaderView, SyncSnapshot};
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
-use ckb_logger::{debug, trace};
+use ckb_logger::{debug, trace, metric};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
 use ckb_types::{core, packed};
+use faketime::unix_time_as_millis;
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
@@ -112,6 +113,8 @@ impl BlockFetcher {
         let mut index_height = fixed_last_common_header.number();
         let mut fetch = Vec::with_capacity(MAX_BLOCKS_IN_TRANSIT_PER_PEER);
 
+        let timestamp = unix_time_as_millis();
+        let mut steps = 0;
         {
             let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
@@ -123,6 +126,7 @@ impl BlockFetcher {
                     break;
                 }
 
+                steps += 1;
                 let to_fetch = self
                     .snapshot
                     .get_ancestor(&best_known_header.hash(), index_height)?;
@@ -146,6 +150,10 @@ impl BlockFetcher {
                 }
             }
         }
+        metric!({
+            "topic": "fetch_blocks",
+            "fields": { "elapsed": unix_time_as_millis().saturating_sub(timestamp), "steps": steps }
+        });
         Some(fetch)
     }
 }
