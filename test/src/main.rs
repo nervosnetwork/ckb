@@ -15,7 +15,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, File};
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -157,6 +157,8 @@ fn main() {
 
     if !spec_errors.is_empty() {
         error!("ckb-failed on spec {}", error_spec_names.join(", "));
+        log_failed_specs(&error_spec_names)
+            .unwrap_or_else(|err| error!("Failed to write integration failure reason: {}", err));
         info!("You can rerun remaining specs using following command:");
     } else {
         info!("You can run the skipped specs using following command:");
@@ -460,4 +462,19 @@ fn tail_node_logs(node_dirs: Vec<String>) {
             println!("{}", log);
         }
     }
+}
+
+fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
+    let path = if let Ok(path) = env::var("CKB_INTEGRATION_FAILURE_FILE") {
+        path
+    } else {
+        return Ok(());
+    };
+
+    let mut f = File::create(&path)?;
+    for name in error_spec_names {
+        writeln!(&mut f, "ckb-test failed on spec {}", name)?;
+    }
+
+    Ok(())
 }
