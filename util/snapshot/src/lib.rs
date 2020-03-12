@@ -42,6 +42,13 @@ impl SnapshotMgr {
     }
 }
 
+// A snapshot captures a point-in-time view of the DB at the time it's created
+//
+//                   yes —— new snapshot
+//                   /                    \
+//    tip —— change?                        SnapshotMgr swap
+//                  \                      /
+//                   no —— refresh snapshot
 pub struct Snapshot {
     tip_header: HeaderView,
     total_difficulty: U256,
@@ -53,6 +60,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    // New snapshot created after tip change
     pub fn new(
         tip_header: HeaderView,
         total_difficulty: U256,
@@ -73,6 +81,9 @@ impl Snapshot {
         }
     }
 
+    // Refreshing on block commit is necessary operation, even tip remains unchanged.
+    // when node relayed compact block,if some uncles were not available from receiver's local sources,
+    // in GetBlockTransactions/BlockTransactions roundtrip, node will need access block data of uncles.
     pub fn refresh(&self, store: StoreSnapshot) -> Snapshot {
         Snapshot {
             store,
