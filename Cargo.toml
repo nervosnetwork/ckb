@@ -71,9 +71,9 @@ members = [
 overflow-checks = true
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), not(feature = "profiling")))'.dependencies]
-jemallocator = { version = "0.3.0" }
+jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), feature = "profiling"))'.dependencies]
-jemallocator = { version = "0.3.0", features = ["profiling"] }
+jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms", "profiling"] }
 
 [features]
 default = []
