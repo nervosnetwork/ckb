@@ -15,7 +15,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, File};
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let _ = {
-        let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
+        let filter = env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
     };
 
@@ -156,7 +156,9 @@ fn main() {
     }
 
     if !spec_errors.is_empty() {
-        error!("ckb-failed on spec {}", error_spec_names.join(", "));
+        error!("ckb-test failed on spec {}", error_spec_names.join(", "));
+        log_failed_specs(&error_spec_names)
+            .unwrap_or_else(|err| error!("Failed to write integration failure reason: {}", err));
         info!("You can rerun remaining specs using following command:");
     } else {
         info!("You can run the skipped specs using following command:");
@@ -250,7 +252,7 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
 }
 
 fn current_dir() -> PathBuf {
-    ::std::env::current_dir()
+    env::current_dir()
         .expect("can't get current_dir")
         .join("vendor")
 }
@@ -460,4 +462,19 @@ fn tail_node_logs(node_dirs: Vec<String>) {
             println!("{}", log);
         }
     }
+}
+
+fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
+    let path = if let Ok(path) = env::var("CKB_INTEGRATION_FAILURE_FILE") {
+        path
+    } else {
+        return Ok(());
+    };
+
+    let mut f = File::create(&path)?;
+    for name in error_spec_names {
+        writeln!(&mut f, "ckb-test failed on spec {}", name)?;
+    }
+
+    Ok(())
 }
