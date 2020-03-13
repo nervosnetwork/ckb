@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
-use ckb_logger::{debug, trace, metric};
+use ckb_logger::{debug, metric, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use faketime::unix_time_as_millis;
