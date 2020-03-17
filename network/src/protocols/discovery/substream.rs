@@ -177,7 +177,7 @@ impl SubstreamValue {
             .map(|time| time.elapsed() > self.announce_interval)
             .unwrap_or(true)
         {
-            debug!("announce this session: {:?}", self.session_id);
+            trace!("announce this session: {:?}", self.session_id);
             self.announce = true;
         }
     }
@@ -186,7 +186,7 @@ impl SubstreamValue {
         let mut sink = Pin::new(&mut self.framed_stream);
 
         while let Some(message) = self.pending_messages.pop_front() {
-            debug!("Discovery sending message: {}", message);
+            trace!("Discovery sending message: {}", message);
 
             match sink.as_mut().poll_ready(cx)? {
                 Poll::Pending => {

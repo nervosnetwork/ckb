@@ -117,7 +117,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
             {
                 Poll::Ready(Some(substream)) => {
                     let key = substream.key();
-                    debug!("Received a substream: key={:?}", key);
+                    trace!("Received a substream: key={:?}", key);
                     let value = SubstreamValue::new(
                         key.direction,
                         substream,
@@ -128,7 +128,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
                 }
                 Poll::Ready(None) => unreachable!(),
                 Poll::Pending => {
-                    debug!("Discovery.substream_receiver Async::NotReady");
+                    trace!("Discovery.substream_receiver Async::NotReady");
                     break;
                 }
             }
@@ -144,7 +144,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
             match Pin::new(&mut interval).as_mut().poll_next(cx) {
                 Poll::Ready(Some(_)) => {}
                 Poll::Ready(None) => {
-                    debug!("Discovery check_interval poll finished");
+                    trace!("Discovery check_interval poll finished");
                     break;
                 }
                 Poll::Pending => break,
@@ -254,7 +254,7 @@ impl<M: AddressManager + Unpin> Stream for Discovery<M> {
     type Item = ();
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        debug!("Discovery.poll()");
+        trace!("Discovery.poll()");
         self.recv_substreams(cx);
         self.check_interval(cx);
 
@@ -266,14 +266,14 @@ impl<M: AddressManager + Unpin> Stream for Discovery<M> {
 
         let mut rng = rand::thread_rng();
         let mut remain_keys = self.substreams.keys().cloned().collect::<Vec<_>>();
-        debug!("announce_multiaddrs: {:?}", announce_multiaddrs);
+        trace!("announce_multiaddrs: {:?}", announce_multiaddrs);
         for announce_multiaddr in announce_multiaddrs.into_iter() {
             let announce_addr = RawAddr::try_from(announce_multiaddr.clone()).unwrap();
             remain_keys.shuffle(&mut rng);
             for i in 0..2 {
                 if let Some(key) = remain_keys.get(i) {
                     if let Some(value) = self.substreams.get_mut(key) {
-                        debug!(
+                        trace!(
                             ">> send {} to: {:?}, contains: {}",
                             announce_multiaddr,
                             value.remote_addr,
@@ -382,7 +382,7 @@ impl ServiceProtocol for DiscoveryProtocol {
         let substream = Substream::new(context, receiver);
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
-                debug!("Send substream success");
+                trace!("Send substream success");
             }
             Err(err) => {
                 // TODO: handle channel is full (wait for poll API?)
