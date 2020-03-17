@@ -477,19 +477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-discovery"
-version = "0.31.0-pre"
-dependencies = [
- "ckb-logger",
- "ckb-types",
- "futures 0.3.4",
- "rand 0.6.5",
- "tentacle",
- "tokio 0.2.17",
- "tokio-util",
-]
-
-[[package]]
 name = "ckb-error"
 version = "0.31.0-pre"
 dependencies = [
@@ -553,15 +540,6 @@ name = "ckb-hash"
 version = "0.31.0-pre"
 dependencies = [
  "blake2b-rs",
-]
-
-[[package]]
-name = "ckb-identify"
-version = "0.31.0-pre"
-dependencies = [
- "ckb-logger",
- "ckb-types",
- "tentacle",
 ]
 
 [[package]]
@@ -689,11 +667,8 @@ version = "0.31.0-pre"
 dependencies = [
  "bs58",
  "ckb-build-info",
- "ckb-discovery",
  "ckb-hash",
- "ckb-identify",
  "ckb-logger",
- "ckb-ping",
  "ckb-stop-handler",
  "ckb-types",
  "ckb-util",
@@ -774,16 +749,6 @@ dependencies = [
  "proc-macro-hack",
  "quote 0.6.11",
  "syn 0.15.29",
-]
-
-[[package]]
-name = "ckb-ping"
-version = "0.31.0-pre"
-dependencies = [
- "ckb-logger",
- "ckb-types",
- "futures 0.3.4",
- "tentacle",
 ]
 
 [[package]]

@@ -6,11 +6,7 @@ use std::{
     time::Instant,
 };
 
-use p2p::{
-    multiaddr::Multiaddr,
-    utils::{is_reachable, multiaddr_to_socketaddr},
-    SessionId,
-};
+use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr, SessionId};
 
 // See: bitcoin/netaddress.cpp pchIPv4[12]
 pub(crate) const PCH_IPV4: [u8; 18] = [
@@ -33,23 +29,24 @@ pub enum Misbehavior {
 
 /// Misbehavior report result
 pub enum MisbehaveResult {
-    /// Continue to run
-    Continue,
+    // /// Continue to run
+    // Continue,
     /// Disconnect this peer
     Disconnect,
 }
 
 impl MisbehaveResult {
-    pub fn is_continue(&self) -> bool {
-        match self {
-            MisbehaveResult::Continue => true,
-            _ => false,
-        }
-    }
+    // pub fn is_continue(&self) -> bool {
+    //     match self {
+    //         MisbehaveResult::Continue => true,
+    //         _ => false,
+    //     }
+    // }
+
     pub fn is_disconnect(&self) -> bool {
         match self {
             MisbehaveResult::Disconnect => true,
-            _ => false,
+            // _ => false,
         }
     }
 }
@@ -156,39 +153,5 @@ impl From<SocketAddr> for RawAddr {
         data[16] = (port / 0x100) as u8;
         data[17] = (port & 0x0FF) as u8;
         RawAddr(data)
-    }
-}
-
-impl RawAddr {
-    pub fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.ip(), self.port())
-    }
-
-    pub fn ip(&self) -> IpAddr {
-        let mut is_ipv4 = true;
-        for (i, value) in PCH_IPV4.iter().enumerate().take(12) {
-            if self.0[i] != *value {
-                is_ipv4 = false;
-                break;
-            }
-        }
-        if is_ipv4 {
-            let mut buf = [0u8; 4];
-            buf.copy_from_slice(&self.0[12..16]);
-            From::from(buf)
-        } else {
-            let mut buf = [0u8; 16];
-            buf.copy_from_slice(&self.0[0..16]);
-            From::from(buf)
-        }
-    }
-
-    pub fn port(&self) -> u16 {
-        0x100 * u16::from(self.0[16]) + u16::from(self.0[17])
-    }
-
-    // Copy from std::net::IpAddr::is_global
-    pub fn is_reachable(&self) -> bool {
-        is_reachable(self.socket_addr().ip())
     }
 }

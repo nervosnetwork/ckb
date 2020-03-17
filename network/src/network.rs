@@ -8,8 +8,8 @@ use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryProtocol, DiscoveryService},
     feeler::Feeler,
-    identify::IdentifyCallback,
-    ping::PingService,
+    identify::{IdentifyCallback, IdentifyProtocol},
+    ping::{PingHandler, PingService},
 };
 use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
@@ -47,8 +47,6 @@ use p2p::{
     utils::extract_peer_id,
     SessionId,
 };
-use p2p_identify::IdentifyProtocol;
-use p2p_ping::PingHandler;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},

@@ -21,8 +21,8 @@ use p2p::{
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-use crate::addr::{AddrKnown, AddressManager, Misbehavior, RawAddr};
-use crate::protocol::{DiscoveryCodec, DiscoveryMessage, Node, Nodes};
+use super::addr::{AddrKnown, AddressManager, Misbehavior, RawAddr};
+use super::protocol::{DiscoveryCodec, DiscoveryMessage, Node, Nodes};
 
 // FIXME: should be a more high level version number
 const VERSION: u32 = 0;
