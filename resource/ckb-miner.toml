@@ -39,6 +39,10 @@ dsn = "" # {{
 # please leave a way to contact you when we have troubles to reproduce the errors.
 # org_contact = ""
 
+# [memory_tracker]
+# # Seconds between checking the process, 0 is disable, default is 0.
+# interval = 600
+
 [miner.client]
 rpc_url = "http://127.0.0.1:8114/" # {{
 # _ => rpc_url = "http://127.0.0.1:{rpc_port}/"

@@ -77,6 +77,10 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
 
+.PHONY: build-for-profiling
+build-for-profiling: ## Build binary with for profiling.
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling"
+
 .PHONY: prod
 prod: ## Build binary for production release.
 	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release

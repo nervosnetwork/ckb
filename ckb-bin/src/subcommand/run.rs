@@ -42,6 +42,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
 
+    ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
@@ -142,7 +144,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer, shared.clone());
+        .enable_indexer(&args.config.indexer, shared.clone())
+        .enable_debug();
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
