@@ -203,6 +203,11 @@ impl Shared {
         self.snapshot_mgr.store(snapshot)
     }
 
+    pub fn refresh_snapshot(&self) {
+        let new = self.snapshot().refresh(self.store.get_snapshot());
+        self.store_snapshot(Arc::new(new));
+    }
+
     pub fn new_snapshot(
         &self,
         tip_header: HeaderView,

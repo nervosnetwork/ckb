@@ -19,7 +19,7 @@ use ckb_shared::{
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_sync::{SyncSharedState, Synchronizer};
+use ckb_sync::{SyncShared, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_tx_pool::FeeRate;
 use ckb_types::{
@@ -211,8 +211,8 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .start::<&str>(Default::default(), None)
         .expect("Start network service failed")
     };
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
+    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
     let indexer_store = {
         let mut indexer_config = IndexerConfig::default();
         indexer_config.db.path = dir.join("indexer");
@@ -257,7 +257,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(
-        PoolRpcImpl::new(shared.clone(), sync_shared_state, FeeRate::zero(), true).to_delegate(),
+        PoolRpcImpl::new(shared.clone(), sync_shared, FeeRate::zero(), true).to_delegate(),
     );
     io.extend_with(
         NetworkRpcImpl {

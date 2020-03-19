@@ -3,7 +3,7 @@ use crate::synchronizer::{
     TIMEOUT_EVICTION_TOKEN,
 };
 use crate::tests::TestNode;
-use crate::{NetworkProtocol, SyncSharedState, Synchronizer};
+use crate::{NetworkProtocol, SyncShared, Synchronizer};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
@@ -165,8 +165,8 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .expect("process block should be OK");
     }
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-    let synchronizer = Synchronizer::new(chain_controller, sync_shared_state);
+    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let synchronizer = Synchronizer::new(chain_controller, sync_shared);
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(

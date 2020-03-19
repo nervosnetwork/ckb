@@ -25,7 +25,7 @@ fn test_missing_txs() {
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
             relayer.reconstruct_block(
-                &relayer.shared().snapshot(),
+                &relayer.shared().active_chain(),
                 &compact,
                 transactions,
                 &[],
@@ -50,7 +50,7 @@ fn test_missing_txs() {
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
             relayer.reconstruct_block(
-                &relayer.shared().snapshot(),
+                &relayer.shared().active_chain(),
                 &compact,
                 transactions,
                 &[],
@@ -116,9 +116,10 @@ fn test_reconstruct_transactions_and_uncles() {
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
+    relayer.shared().shared().refresh_snapshot();
 
     let ret = relayer.reconstruct_block(
-        &relayer.shared().snapshot(),
+        &relayer.shared().active_chain(),
         &compact,
         short_transactions,
         &[],
@@ -151,9 +152,10 @@ fn test_reconstruct_invalid_uncles() {
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
     }
+    relayer.shared().shared().refresh_snapshot();
 
     assert_eq!(
-        relayer.reconstruct_block(&relayer.shared().snapshot(), &compact, vec![], &[], &[]),
+        relayer.reconstruct_block(&relayer.shared().active_chain(), &compact, vec![], &[], &[]),
         ReconstructionResult::Error(StatusCode::CompactBlockHasInvalidUncle.into()),
     );
 }

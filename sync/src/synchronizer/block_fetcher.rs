@@ -1,25 +1,24 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::{HeaderView, SyncSnapshot};
+use crate::types::{ActiveChain, HeaderView};
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
 use ckb_types::{core, packed};
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
     peer: PeerIndex,
-    snapshot: SyncSnapshot,
+    active_chain: ActiveChain,
 }
 
 impl BlockFetcher {
     pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
-        let snapshot = synchronizer.shared.snapshot();
+        let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
             synchronizer,
-            snapshot,
+            active_chain,
         }
     }
     pub fn reached_inflight_limit(&self) -> bool {
@@ -30,7 +29,7 @@ impl BlockFetcher {
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.snapshot.total_difficulty())
+        header.is_better_than(&self.active_chain.total_difficulty())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -43,18 +42,18 @@ impl BlockFetcher {
                 Some(header)
             // Bootstrap quickly by guessing a parent of our best tip is the forking point.
             // Guessing wrong in either direction is not a problem.
-            } else if best.number() < self.snapshot.tip_header().number() {
-                let last_common_hash = self.snapshot.store().get_block_hash(best.number())?;
-                self.snapshot.store().get_block_header(&last_common_hash)
+            } else if best.number() < self.active_chain.tip_header().number() {
+                let last_common_hash = self.active_chain.get_block_hash(best.number())?;
+                self.active_chain.get_block_header(&last_common_hash)
             } else {
-                Some(self.snapshot.tip_header())
+                Some(self.active_chain.tip_header())
             }
         }?;
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
         let fixed_last_common_header = self
-            .snapshot
+            .active_chain
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         Some(fixed_last_common_header)
@@ -87,7 +86,7 @@ impl BlockFetcher {
             trace!(
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
-                self.snapshot.total_difficulty()
+                self.active_chain.total_difficulty()
             );
             return None;
         }
@@ -124,13 +123,13 @@ impl BlockFetcher {
                 }
 
                 let to_fetch = self
-                    .snapshot
+                    .active_chain
                     .get_ancestor(&best_known_header.hash(), index_height)?;
 
                 // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
                 // stopping synchronization even when orphan_pool maintains dirty items by bugs.
                 if self
-                    .snapshot
+                    .active_chain
                     .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
                 {
                     continue;
