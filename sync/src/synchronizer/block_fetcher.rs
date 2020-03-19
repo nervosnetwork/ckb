@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::{ActiveChain, HeaderView};
+use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
@@ -10,17 +10,20 @@ pub struct BlockFetcher {
     synchronizer: Synchronizer,
     peer: PeerIndex,
     active_chain: ActiveChain,
+    ibd: IBDState,
 }
 
 impl BlockFetcher {
-    pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
+    pub fn new(synchronizer: Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
         let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
             synchronizer,
             active_chain,
+            ibd,
         }
     }
+
     pub fn reached_inflight_limit(&self) -> bool {
         let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
@@ -74,6 +77,13 @@ impl BlockFetcher {
                 self.peer
             );
             return None;
+        }
+
+        if let IBDState::In = self.ibd {
+            self.synchronizer
+                .shared
+                .state()
+                .try_update_best_known_with_unknown_header_list(self.peer)
         }
 
         let best_known_header = match self.peer_best_known_header() {
