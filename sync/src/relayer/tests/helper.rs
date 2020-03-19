@@ -1,4 +1,4 @@
-use crate::{Relayer, SyncSharedState};
+use crate::{Relayer, SyncShared};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
@@ -153,11 +153,11 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .expect("processing block should be ok");
     }
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared));
+    let sync_shared = Arc::new(SyncShared::new(shared));
     (
         Relayer::new(
             chain_controller,
-            sync_shared_state,
+            sync_shared,
             FeeRate::zero(),
             std::u64::MAX,
         ),

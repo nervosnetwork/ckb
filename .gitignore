@@ -48,6 +48,8 @@ tags
 
 # tmp files
 *.pyc
+/test/integration.log
+/test/integration.failure
 
 # generated files
 cobertura.xml

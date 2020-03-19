@@ -10,6 +10,8 @@ pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
     let mut client = Client::new(new_work_tx, client);
     let mut miner = Miner::new(args.pow_engine, client.clone(), new_work_rx, &workers);
 
+    ckb_memory_tracker::track_current_process(args.memory_tracker.interval);
+
     thread::Builder::new()
         .name("client".to_string())
         .spawn(move || client.poll_block_template())

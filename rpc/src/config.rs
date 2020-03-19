@@ -12,6 +12,7 @@ pub enum Module {
     IntegrationTest,
     Alert,
     Subscription,
+    Debug,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -68,5 +69,9 @@ impl Config {
 
     pub(crate) fn alert_enable(&self) -> bool {
         self.modules.contains(&Module::Alert)
+    }
+
+    pub(crate) fn debug_enable(&self) -> bool {
+        self.modules.contains(&Module::Debug)
     }
 }

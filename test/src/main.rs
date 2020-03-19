@@ -15,8 +15,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, File};
-use std::io::{BufRead, BufReader};
-use std::panic;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,7 +24,7 @@ use std::time::{Duration, Instant};
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let _ = {
-        let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
+        let filter = env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
     };
 
@@ -42,6 +41,8 @@ fn main() {
     };
     let worker_count = value_t!(matches, "concurrent", usize).unwrap_or_else(|err| err.exit());
     let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
+    let fail_fast = !matches.is_present("no-fail-fast");
+    let quiet = matches.is_present("quiet");
 
     if matches.is_present("list-specs") {
         list_specs();
@@ -57,9 +58,8 @@ fn main() {
     let worker_count = min(worker_count, total);
     let specs = Arc::new(Mutex::new(specs));
     let start_time = Instant::now();
-    let mut spec_error: Option<Box<dyn Any + Send>> = None;
-    let mut panicked_error = false;
-    let mut error_spec_name = String::new();
+    let mut spec_errors: Vec<Option<Box<dyn Any + Send>>> = Vec::new();
+    let mut error_spec_names = Vec::new();
 
     let (notify_tx, notify_rx) = unbounded();
 
@@ -94,27 +94,35 @@ fn main() {
         };
         match msg {
             Notify::Error {
-                spec_error: err,
+                spec_error,
                 spec_name,
                 node_dirs,
             } => {
-                error_spec_name = spec_name.clone();
+                error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name);
-                workers.shutdown();
-                worker_running -= 1;
-                spec_error = Some(err);
-                tail_node_logs(node_dirs);
+                if fail_fast {
+                    workers.shutdown();
+                    worker_running -= 1;
+                }
+                spec_errors.push(Some(spec_error));
+                if !quiet {
+                    tail_node_logs(node_dirs);
+                }
             }
             Notify::Panick {
                 spec_name,
                 node_dirs,
             } => {
-                error_spec_name = spec_name.clone();
+                error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name);
-                workers.shutdown();
-                worker_running -= 1;
-                panicked_error = true;
-                print_panicked_logs(&node_dirs);
+                if fail_fast {
+                    workers.shutdown();
+                    worker_running -= 1;
+                }
+                spec_errors.push(None);
+                if !quiet {
+                    print_panicked_logs(&node_dirs);
+                }
             }
             Notify::Done { spec_name, seconds } => {
                 done_specs += 1;
@@ -147,8 +155,10 @@ fn main() {
         return;
     }
 
-    if spec_error.is_some() || panicked_error {
-        error!("ckb-failed on spec {}", error_spec_name);
+    if !spec_errors.is_empty() {
+        error!("ckb-test failed on spec {}", error_spec_names.join(", "));
+        log_failed_specs(&error_spec_names)
+            .unwrap_or_else(|err| error!("Failed to write integration failure reason: {}", err));
         info!("You can rerun remaining specs using following command:");
     } else {
         info!("You can run the skipped specs using following command:");
@@ -162,8 +172,8 @@ fn main() {
         rerun_specs.join(" "),
     );
 
-    if let Some(err) = spec_error {
-        panic::resume_unwind(err);
+    if !spec_errors.is_empty() {
+        std::process::exit(1);
     }
 }
 
@@ -206,6 +216,16 @@ fn clap_app() -> App<'static, 'static> {
                 .help("The number of specs can running concurrently")
                 .default_value("4"),
         )
+        .arg(
+            Arg::with_name("quiet")
+                .long("quiet")
+                .help("Use less output"),
+        )
+        .arg(
+            Arg::with_name("no-fail-fast")
+                .long("no-fail-fast")
+                .help("Run all tests regardless of failure"),
+        )
 }
 
 fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<SpecTuple> {
@@ -232,7 +252,7 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
 }
 
 fn current_dir() -> PathBuf {
-    ::std::env::current_dir()
+    env::current_dir()
         .expect("can't get current_dir")
         .join("vendor")
 }
@@ -442,4 +462,19 @@ fn tail_node_logs(node_dirs: Vec<String>) {
             println!("{}", log);
         }
     }
+}
+
+fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
+    let path = if let Ok(path) = env::var("CKB_INTEGRATION_FAILURE_FILE") {
+        path
+    } else {
+        return Ok(());
+    };
+
+    let mut f = File::create(&path)?;
+    for name in error_spec_names {
+        writeln!(&mut f, "ckb-test failed on spec {}", name)?;
+    }
+
+    Ok(())
 }

@@ -1,28 +1,30 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::{HeaderView, SyncSnapshot};
+use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, trace, metric};
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
 use ckb_types::{core, packed};
 use faketime::unix_time_as_millis;
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
     peer: PeerIndex,
-    snapshot: SyncSnapshot,
+    active_chain: ActiveChain,
+    ibd: IBDState,
 }
 
 impl BlockFetcher {
-    pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
-        let snapshot = synchronizer.shared.snapshot();
+    pub fn new(synchronizer: Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
+        let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
             synchronizer,
-            snapshot,
+            active_chain,
+            ibd,
         }
     }
+
     pub fn reached_inflight_limit(&self) -> bool {
         let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
@@ -31,7 +33,7 @@ impl BlockFetcher {
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.snapshot.total_difficulty())
+        header.is_better_than(&self.active_chain.total_difficulty())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -39,23 +41,29 @@ impl BlockFetcher {
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<core::HeaderView> {
+        let tip_header = self.active_chain.tip_header();
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
-                Some(header)
+                // may reorganized, then it can't be used
+                if header.number() > tip_header.number() {
+                    Some(tip_header)
+                } else {
+                    Some(header)
+                }
             // Bootstrap quickly by guessing a parent of our best tip is the forking point.
             // Guessing wrong in either direction is not a problem.
-            } else if best.number() < self.snapshot.tip_header().number() {
-                let last_common_hash = self.snapshot.store().get_block_hash(best.number())?;
-                self.snapshot.store().get_block_header(&last_common_hash)
+            } else if best.number() < tip_header.number() {
+                let last_common_hash = self.active_chain.get_block_hash(best.number())?;
+                self.active_chain.get_block_header(&last_common_hash)
             } else {
-                Some(self.snapshot.tip_header())
+                Some(tip_header)
             }
         }?;
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
         let fixed_last_common_header = self
-            .snapshot
+            .active_chain
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         Some(fixed_last_common_header)
@@ -70,6 +78,13 @@ impl BlockFetcher {
                 self.peer
             );
             return None;
+        }
+
+        if let IBDState::In = self.ibd {
+            self.synchronizer
+                .shared
+                .state()
+                .try_update_best_known_with_unknown_header_list(self.peer)
         }
 
         let best_known_header = match self.peer_best_known_header() {
@@ -88,7 +103,7 @@ impl BlockFetcher {
             trace!(
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
-                self.snapshot.total_difficulty()
+                self.active_chain.total_difficulty()
             );
             return None;
         }
@@ -128,13 +143,13 @@ impl BlockFetcher {
 
                 steps += 1;
                 let to_fetch = self
-                    .snapshot
+                    .active_chain
                     .get_ancestor(&best_known_header.hash(), index_height)?;
 
                 // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
                 // stopping synchronization even when orphan_pool maintains dirty items by bugs.
                 if self
-                    .snapshot
+                    .active_chain
                     .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
                 {
                     continue;

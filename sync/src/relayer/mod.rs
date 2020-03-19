@@ -21,7 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{SyncSharedState, SyncSnapshot};
+use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
@@ -57,7 +57,7 @@ pub enum ReconstructionResult {
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
-    pub(crate) shared: Arc<SyncSharedState>,
+    pub(crate) shared: Arc<SyncShared>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
 }
@@ -65,7 +65,7 @@ pub struct Relayer {
 impl Relayer {
     pub fn new(
         chain: ChainController,
-        shared: Arc<SyncSharedState>,
+        shared: Arc<SyncShared>,
         min_fee_rate: FeeRate,
         max_tx_verify_cycles: Cycle,
     ) -> Self {
@@ -77,7 +77,7 @@ impl Relayer {
         }
     }
 
-    pub fn shared(&self) -> &Arc<SyncSharedState> {
+    pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
 
@@ -222,17 +222,21 @@ impl Relayer {
 
     pub fn accept_block(
         &self,
-        snapshot: &SyncSnapshot,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: core::BlockView,
     ) {
-        if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
+        if self
+            .shared()
+            .active_chain()
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
+        {
             return;
         }
 
         let boxed = Arc::new(block);
-        if snapshot
+        if self
+            .shared()
             .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
             .unwrap_or(false)
         {
@@ -243,7 +247,7 @@ impl Relayer {
                 unix_time_as_millis()
             );
             let block_hash = boxed.hash();
-            snapshot.state().remove_header_view(&block_hash);
+            self.shared().state().remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
             let data = message.as_slice().into();
@@ -275,7 +279,7 @@ impl Relayer {
     // and that nodes must not be penalized for such collisions, wherever they appear.
     pub fn reconstruct_block(
         &self,
-        snapshot: &SyncSnapshot,
+        active_chain: &ActiveChain,
         compact_block: &packed::CompactBlock,
         received_transactions: Vec<core::TransactionView>,
         uncles_index: &[u32],
@@ -356,11 +360,11 @@ impl Relayer {
                 position += 1;
                 continue;
             };
-            let status = snapshot.get_block_status(&uncle_hash);
+            let status = active_chain.get_block_status(&uncle_hash);
             match status {
                 BlockStatus::UNKNOWN | BlockStatus::HEADER_VALID => missing_uncles.push(i),
                 BlockStatus::BLOCK_STORED | BlockStatus::BLOCK_VALID => {
-                    if let Some(uncle) = snapshot.get_block(&uncle_hash) {
+                    if let Some(uncle) = active_chain.get_block(&uncle_hash) {
                         uncles.push(uncle.as_uncle().data());
                     } else {
                         debug_target!(
@@ -601,7 +605,7 @@ impl CKBProtocolHandler for Relayer {
         data: Bytes,
     ) {
         // If self is in the IBD state, don't process any relayer message.
-        if self.shared.snapshot().is_initial_block_download() {
+        if self.shared.active_chain().is_initial_block_download() {
             return;
         }
 
@@ -685,7 +689,7 @@ impl CKBProtocolHandler for Relayer {
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
-        if self.shared.snapshot().is_initial_block_download() {
+        if self.shared.active_chain().is_initial_block_download() {
             return;
         }
 

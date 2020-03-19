@@ -35,19 +35,19 @@ submodule-init:
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build --features deadlock_detection
-	cd test && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-windows
 integration-windows: submodule-init
 	cp -f Cargo.lock test/Cargo.lock
 	cargo build --features deadlock_detection
 	mv target test/
-	cd test && cargo run -- --bin target/debug/ckb ${CKB_TEST_ARGS}
+	cd test && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -- --bin target/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test
 	cargo build --release --features deadlock_detection
-	cd test && cargo run --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
 .PHONY: doc
@@ -76,6 +76,10 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 .PHONY: build
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
+
+.PHONY: build-for-profiling
+build-for-profiling: ## Build binary with for profiling.
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling"
 
 .PHONY: prod
 prod: ## Build binary for production release.

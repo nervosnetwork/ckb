@@ -1,4 +1,4 @@
-use crate::SyncSharedState;
+use crate::SyncShared;
 use ckb_chain::{
     chain::{ChainController, ChainService},
     switch::Switch,
@@ -19,7 +19,7 @@ use ckb_types::{
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
+pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
     let (shared, table) = SharedBuilder::default()
         .consensus(always_success_consensus())
         .build()
@@ -29,8 +29,8 @@ pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);
-    let sync_shared_state = SyncSharedState::new(shared);
-    (sync_shared_state, chain_controller)
+    let sync_shared = SyncShared::new(shared);
+    (sync_shared, chain_controller)
 }
 
 pub fn generate_blocks(

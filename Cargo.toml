@@ -20,6 +20,7 @@ members = [
     # Members are ordered by dependencies. Crates at top has fewer dependencies.
     "util/build-info",
     "util/logger",
+    "util/memory-tracker",
     "util",
     "util/hash",
     "util/fixed-hash",
@@ -69,9 +70,12 @@ members = [
 [profile.release]
 overflow-checks = true
 
-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
-jemallocator = { version = "0.3.0" }
+[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), not(feature = "profiling")))'.dependencies]
+jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms"] }
+[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), feature = "profiling"))'.dependencies]
+jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms", "profiling"] }
 
 [features]
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
+profiling = []

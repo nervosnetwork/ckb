@@ -400,6 +400,7 @@ impl ChainService {
                 self.print_chain(10);
             }
         } else {
+            self.shared.refresh_snapshot();
             info!(
                 "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 block.header().number(),
