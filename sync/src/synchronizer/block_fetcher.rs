@@ -37,16 +37,22 @@ impl BlockFetcher {
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<core::HeaderView> {
+        let tip_header = self.active_chain.tip_header();
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
-                Some(header)
+                // may reorganized, then it can't be used
+                if header.number() > tip_header.number() {
+                    Some(tip_header)
+                } else {
+                    Some(header)
+                }
             // Bootstrap quickly by guessing a parent of our best tip is the forking point.
             // Guessing wrong in either direction is not a problem.
-            } else if best.number() < self.active_chain.tip_header().number() {
+            } else if best.number() < tip_header.number() {
                 let last_common_hash = self.active_chain.get_block_hash(best.number())?;
                 self.active_chain.get_block_header(&last_common_hash)
             } else {
-                Some(self.active_chain.tip_header())
+                Some(tip_header)
             }
         }?;
 

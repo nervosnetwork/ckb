@@ -136,6 +136,11 @@ impl Synchronizer {
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
             debug!("block {} already stored", block_hash);
+            // update last common header
+            self.shared
+                .state()
+                .peers()
+                .set_last_common_header(peer, block.header());
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
