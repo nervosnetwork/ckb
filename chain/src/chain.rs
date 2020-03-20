@@ -1,7 +1,7 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use crate::switch::Switch;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -325,6 +325,13 @@ impl ChainService {
                 &cannon_total_difficulty - &current_total_difficulty
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
+            if !fork.detached_blocks.is_empty() {
+                metric!({
+                    "topic": "reorg",
+                    "tags": {},
+                    "fields": { "attached": fork.attached_blocks.len(), "detached": fork.detached_blocks.len(), },
+                });
+            }
 
             self.rollback(&fork, &db_txn, &mut cell_set)?;
             // update and verify chain root

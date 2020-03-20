@@ -1,7 +1,7 @@
 use ckb_network::{
-    Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId, TargetSession,
+    bytes::Bytes, Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId,
+    TargetSession,
 };
-use ckb_types::bytes::Bytes;
 use ckb_util::RwLock;
 use futures::future::Future;
 use std::collections::HashMap;
@@ -137,7 +137,7 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<bytes::Bytes>>,
+    msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<Bytes>>,
     timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
 }
 
@@ -195,7 +195,7 @@ impl CKBProtocolContext for TestNetworkContext {
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.msg_senders.get(&(proto_id, peer_index)) {
             let _ = sender.send(data);
@@ -205,7 +205,7 @@ impl CKBProtocolContext for TestNetworkContext {
     fn send_message_to(
         &self,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer_index)) {
             let _ = sender.send(data);
@@ -215,7 +215,7 @@ impl CKBProtocolContext for TestNetworkContext {
     fn filter_broadcast(
         &self,
         target: TargetSession,
-        data: bytes::Bytes,
+        data: Bytes,
     ) -> Result<(), ckb_network::Error> {
         match target {
             TargetSession::Single(peer) => self.send_message_to(peer, data).unwrap(),

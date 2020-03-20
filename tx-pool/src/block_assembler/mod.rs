@@ -166,8 +166,8 @@ impl BlockAssembler {
         let candidate_number = tip.number() + 1;
 
         let tx = {
-            let (target_lock, block_reward) =
-                RewardCalculator::new(snapshot.consensus(), snapshot).block_reward(tip)?;
+            let (target_lock, block_reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
+                .block_reward_to_finalize(tip)?;
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
                 .capacity(block_reward.total.pack())

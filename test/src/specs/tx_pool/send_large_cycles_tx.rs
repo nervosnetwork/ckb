@@ -27,7 +27,7 @@ impl SendLargeCyclesTxInBlock {
         let mut generator = Generator::new();
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
+        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         SendLargeCyclesTxInBlock { privkey, lock_arg }
     }
 }
@@ -102,7 +102,7 @@ impl SendLargeCyclesTxToRelay {
         let mut generator = Generator::new();
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
+        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         SendLargeCyclesTxToRelay { privkey, lock_arg }
     }
 }

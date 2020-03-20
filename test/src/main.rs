@@ -282,6 +282,7 @@ fn all_specs() -> SpecMap {
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
         Box::new(TransactionRelayTimeout),
+        Box::new(TransactionRelayEmptyPeers),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
@@ -308,6 +309,14 @@ fn all_specs() -> SpecMap {
         Box::new(InvalidLocatorSize),
         Box::new(SizeLimit),
         Box::new(CyclesLimit),
+        Box::new(SendDefectedBinary::new(
+            "send_defected_binary_reject_known_bugs",
+            true,
+        )),
+        Box::new(SendDefectedBinary::new(
+            "send_defected_binary_do_not_reject_known_bugs",
+            false,
+        )),
         Box::new(SendSecpTxUseDepGroup::new(
             "send_secp_tx_use_dep_group_data_hash",
             ScriptHashType::Data,

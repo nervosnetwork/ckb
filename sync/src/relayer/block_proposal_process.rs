@@ -1,46 +1,30 @@
 use crate::relayer::Relayer;
-use ckb_logger::{warn, warn_target};
-use ckb_network::PeerIndex;
+use crate::{Status, StatusCode};
+use ckb_logger::warn_target;
 use ckb_types::{core, packed, prelude::*};
-use failure::{err_msg, Error as FailureError};
 
 pub struct BlockProposalProcess<'a> {
     message: packed::BlockProposalReader<'a>,
     relayer: &'a Relayer,
-    peer: PeerIndex,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Status {
-    NoUnknown,
-    NoAsked,
-    Ok,
 }
 
 impl<'a> BlockProposalProcess<'a> {
-    pub fn new(
-        message: packed::BlockProposalReader<'a>,
-        relayer: &'a Relayer,
-        peer: PeerIndex,
-    ) -> Self {
-        BlockProposalProcess {
-            message,
-            relayer,
-            peer,
-        }
+    pub fn new(message: packed::BlockProposalReader<'a>, relayer: &'a Relayer) -> Self {
+        BlockProposalProcess { message, relayer }
     }
 
-    pub fn execute(self) -> Result<Status, FailureError> {
+    pub fn execute(self) -> Status {
         let snapshot = self.relayer.shared().snapshot();
         {
             let block_proposals = self.message;
             let limit = snapshot.consensus().max_block_proposals_limit()
                 * (snapshot.consensus().max_uncles_num() as u64);
             if (block_proposals.transactions().len() as u64) > limit {
-                warn!("Peer {} sends us an invalid message, BlockProposal transactions size ({}) is greater than consensus limit ({})",
-                    self.peer, block_proposals.transactions().len(), limit);
-                return Err(err_msg(
-                    "BlockProposal transactions size is greater than consensus limit".to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "Transactions count({}) > consensus max_block_proposals_limit({}) * max_uncles_num({})",
+                    block_proposals.transactions().len(),
+                    snapshot.consensus().max_block_proposals_limit(),
+                    snapshot.consensus().max_uncles_num(),
                 ));
             }
         }
@@ -54,7 +38,7 @@ impl<'a> BlockProposalProcess<'a> {
             .collect();
 
         if unknown_txs.is_empty() {
-            return Ok(Status::NoUnknown);
+            return Status::ignored();
         }
 
         let proposals: Vec<packed::ProposalShortId> = unknown_txs
@@ -71,7 +55,7 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         if asked_txs.is_empty() {
-            return Ok(Status::NoAsked);
+            return Status::ignored();
         }
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
@@ -82,6 +66,6 @@ impl<'a> BlockProposalProcess<'a> {
                 err,
             );
         }
-        Ok(Status::Ok)
+        Status::ok()
     }
 }

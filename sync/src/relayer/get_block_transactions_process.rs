@@ -1,8 +1,8 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
-use ckb_logger::{debug_target, warn};
+use crate::{Status, StatusCode};
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
-use failure::{err_msg, Error as FailureError};
 use std::sync::Arc;
 
 pub struct GetBlockTransactionsProcess<'a> {
@@ -27,25 +27,23 @@ impl<'a> GetBlockTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         let snapshot = self.relayer.shared.snapshot();
         {
             let get_block_transactions = self.message;
             if get_block_transactions.indexes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
-                warn!("Peer {} sends us an invalid message, GetBlockTransactions indexes size ({}) is greater than MAX_RELAY_TXS_NUM_PER_BATCH ({})",
-                    self.peer, get_block_transactions.indexes().len(), MAX_RELAY_TXS_NUM_PER_BATCH);
-                return Err(err_msg(
-                    "GetBlockTransactions indexes size is greater than MAX_RELAY_TXS_NUM_PER_BATCH"
-                        .to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "Indexes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
+                    get_block_transactions.indexes().len(),
+                    MAX_RELAY_TXS_NUM_PER_BATCH,
                 ));
             }
             if get_block_transactions.uncle_indexes().len() > snapshot.consensus().max_uncles_num()
             {
-                warn!("Peer {} sends us an invalid message, GetBlockTransactions uncle_indexes size ({}) is greater than consensus max_uncles_num ({})",
-                    self.peer, get_block_transactions.uncle_indexes().len(), snapshot.consensus().max_uncles_num());
-                return Err(err_msg(
-                    "GetBlockTransactions uncle_indexes size is greater than consensus max_uncles_num"
-                        .to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "UncleIndexes count({}) > consensus max_uncles_num({})",
+                    get_block_transactions.uncle_indexes().len(),
+                    snapshot.consensus().max_uncles_num(),
                 ));
             }
         }
@@ -86,14 +84,11 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             let data = message.as_slice().into();
 
             if let Err(err) = self.nc.send_message_to(self.peer, data) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send BlockTransactions error: {:?}",
-                    err
-                );
+                return StatusCode::Network
+                    .with_context(format!("Send BlockTransactions error: {:?}", err));
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }

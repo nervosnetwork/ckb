@@ -1,8 +1,8 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
-use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
-use crate::relayer::{ReconstructionError, Relayer};
-use ckb_logger::{self, debug_target, warn};
+use crate::relayer::{ReconstructionResult, Relayer};
+use crate::{attempt, Status, StatusCode};
+use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
@@ -13,7 +13,6 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_verification::{HeaderVerifier, Verifier};
-use failure::{err_msg, Error as FailureError};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,18 +31,6 @@ pub struct CompactBlockProcess<'a> {
     peer: PeerIndex,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Status {
-    // Accept block
-    AcceptBlock,
-    // Send get_headers
-    UnknownParent,
-    // Send missing_indexes by get_block_transactions
-    SendMissingIndexes,
-    // Collision and Send missing_indexes by get_block_transactions
-    CollisionAndSendMissingIndexes,
-}
-
 impl<'a> CompactBlockProcess<'a> {
     pub fn new(
         message: packed::CompactBlockReader<'a>,
@@ -59,25 +46,24 @@ impl<'a> CompactBlockProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<Status, FailureError> {
+    pub fn execute(self) -> Status {
         let snapshot = self.relayer.shared.snapshot();
         {
             let compact_block = self.message;
             if compact_block.uncles().len() > snapshot.consensus().max_uncles_num() {
-                warn!("Peer {} sends us an invalid message, CompactBlock uncles size ({}) is greater than consensus max_uncles_num ({})",
-                    self.peer, compact_block.uncles().len(), snapshot.consensus().max_uncles_num());
-                return Err(err_msg(
-                    "CompactBlock uncles size is greater than consensus max_uncles_num".to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "CompactBlock uncles count({}) > consensus max_uncles_num({})",
+                    compact_block.uncles().len(),
+                    snapshot.consensus().max_uncles_num()
                 ));
             }
             if (compact_block.proposals().len() as u64)
                 > snapshot.consensus().max_block_proposals_limit()
             {
-                warn!("Peer {} sends us an invalid message, CompactBlock proposals size ({}) is greater than consensus max_block_proposals_limit ({})",
-                    self.peer, compact_block.proposals().len(), snapshot.consensus().max_block_proposals_limit());
-                return Err(err_msg(
-                    "CompactBlock proposals size is greater than consensus max_block_proposals_limit"
-                        .to_owned(),
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "CompactBlock proposals count({}) > consensus max_block_proposals_limit({})",
+                    compact_block.proposals().len(),
+                    snapshot.consensus().max_block_proposals_limit(),
                 ));
             }
         }
@@ -94,20 +80,14 @@ impl<'a> CompactBlockProcess<'a> {
         let lowest_number = tip.number().saturating_sub(epoch_length);
 
         if lowest_number > header.number() {
-            return Err(Error::Ignored(Ignored::TooOldBlock).into());
+            return StatusCode::CompactBlockIsStaled.with_context(block_hash);
         }
 
         let status = snapshot.get_block_status(&block_hash);
         if status.contains(BlockStatus::BLOCK_STORED) {
-            return Err(Error::Ignored(Ignored::AlreadyStored).into());
+            return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "receive a compact block with invalid status, {}, peer: {}",
-                block_hash,
-                self.peer
-            );
-            return Err(Error::Misbehavior(Misbehavior::BlockInvalid).into());
+            return StatusCode::BlockIsInvalid.with_context(block_hash);
         }
 
         let parent = snapshot.get_header_view(&header.data().raw().parent_hash());
@@ -119,7 +99,11 @@ impl<'a> CompactBlockProcess<'a> {
                 self.peer
             );
             snapshot.send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
-            return Ok(Status::UnknownParent);
+            return StatusCode::CompactBlockRequiresParent.with_context(format!(
+                "{} parent: {}",
+                block_hash,
+                header.data().raw().parent_hash(),
+            ));
         }
 
         let parent = parent.unwrap();
@@ -135,7 +119,7 @@ impl<'a> CompactBlockProcess<'a> {
                     "discard already in-flight compact block {}",
                     block_hash,
                 );
-                return Err(Error::Ignored(Ignored::AlreadyInFlight).into());
+                return StatusCode::CompactBlockIsAlreadyInFlight.with_context(block_hash);
             }
         }
 
@@ -151,12 +135,7 @@ impl<'a> CompactBlockProcess<'a> {
                 .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
                 .unwrap_or(false)
             {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "discard already pending compact block {}",
-                    block_hash
-                );
-                return Err(Error::Ignored(Ignored::AlreadyPending).into());
+                return StatusCode::CompactBlockIsAlreadyPending.with_context(block_hash);
             } else {
                 let fn_get_pending_header = {
                     |block_hash| {
@@ -178,30 +157,26 @@ impl<'a> CompactBlockProcess<'a> {
                 let header_verifier =
                     HeaderVerifier::new(&median_time_context, &snapshot.consensus());
                 if let Err(err) = header_verifier.verify(&resolver) {
-                    debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
                     snapshot
                         .state()
-                        .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
-                    return Err(Error::Misbehavior(Misbehavior::HeaderInvalid).into());
+                        .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                    return StatusCode::CompactBlockHasInvalidHeader
+                        .with_context(format!("{} {}", block_hash, err));
                 }
-                CompactBlockVerifier::verify(&compact_block)?;
+                attempt!(CompactBlockVerifier::verify(&compact_block));
 
                 // Header has been verified ok, update state
                 snapshot.insert_valid_header(self.peer, &header);
             }
 
             // Request proposal
-            let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
-            if let Err(err) = self.relayer.request_proposal_txs(
-                self.nc.as_ref(),
-                self.peer,
-                block_hash.clone(),
-                proposals,
-            ) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "[CompactBlockProcess] request_proposal_txs: {}",
-                    err
+            {
+                let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
+                self.relayer.request_proposal_txs(
+                    self.nc.as_ref(),
+                    self.peer,
+                    block_hash.clone(),
+                    proposals,
                 );
             }
 
@@ -214,23 +189,17 @@ impl<'a> CompactBlockProcess<'a> {
             // `relayer.accept_block` will make sure the validity of block before persisting
             // into database
             match ret {
-                Ok(block) => {
+                ReconstructionResult::Block(block) => {
                     pending_compact_blocks.remove(&block_hash);
                     self.relayer
                         .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
-                    return Ok(Status::AcceptBlock);
+                    return Status::ok();
                 }
-                Err(ReconstructionError::InvalidTransactionRoot) => {
-                    return Err(Error::Misbehavior(Misbehavior::InvalidTransactionRoot).into());
-                }
-                Err(ReconstructionError::InvalidUncle) => {
-                    return Err(Error::Misbehavior(Misbehavior::InvalidUncle).into());
-                }
-                Err(ReconstructionError::MissingIndexes(transactions, uncles)) => {
+                ReconstructionResult::Missing(transactions, uncles) => {
                     missing_transactions = transactions.into_iter().map(|i| i as u32).collect();
                     missing_uncles = uncles.into_iter().map(|i| i as u32).collect();
                 }
-                Err(ReconstructionError::Collision) => {
+                ReconstructionResult::Collided => {
                     missing_transactions = compact_block
                         .short_id_indexes()
                         .into_iter()
@@ -239,9 +208,8 @@ impl<'a> CompactBlockProcess<'a> {
                     collision = true;
                     missing_uncles = vec![];
                 }
-                Err(ReconstructionError::Internal(e)) => {
-                    ckb_logger::error!("reconstruct_block internal error: {}", e);
-                    return Err(Error::Internal(Internal::TxPoolInternalError).into());
+                ReconstructionResult::Error(status) => {
+                    return status;
                 }
             }
 
@@ -266,7 +234,27 @@ impl<'a> CompactBlockProcess<'a> {
                 self.peer,
                 block_hash,
             );
-            return Err(Error::Internal(Internal::InflightBlocksReachLimit).into());
+            return StatusCode::BlocksInFlightReachLimit.with_context(block_hash);
+        }
+
+        let status = if collision {
+            StatusCode::CompactBlockMeetsShortIdsCollision.with_context(&block_hash)
+        } else {
+            StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
+        };
+        if !missing_transactions.is_empty() {
+            metric!({
+                "topic": "fresh_transactions",
+                "tags": { "status": format!("{:?}", status.code()), },
+                "fields": { "count": missing_transactions.len(), },
+            });
+        }
+        if !missing_uncles.is_empty() {
+            metric!({
+                "topic": "fresh_uncles",
+                "tags": { "status": format!("{:?}", status.code()), },
+                "fields": { "count": missing_uncles.len(), },
+            });
         }
 
         let content = packed::GetBlockTransactions::new_builder()
@@ -277,14 +265,11 @@ impl<'a> CompactBlockProcess<'a> {
         let message = packed::RelayMessage::new_builder().set(content).build();
         let data = message.as_slice().into();
         if let Err(err) = self.nc.send_message_to(self.peer, data) {
-            ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
+            return StatusCode::Network
+                .with_context(format!("Send GetBlockTransactions error: {:?}", err));
         }
 
-        if collision {
-            Ok(Status::CollisionAndSendMissingIndexes)
-        } else {
-            Ok(Status::SendMissingIndexes)
-        }
+        status
     }
 }
 

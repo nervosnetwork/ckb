@@ -8,5 +8,6 @@ pub struct TxPoolInfo {
     pub orphan: Uint64,
     pub total_tx_size: Uint64,
     pub total_tx_cycles: Uint64,
+    pub min_fee_rate: Uint64,
     pub last_txs_updated_at: Timestamp,
 }

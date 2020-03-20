@@ -15,7 +15,7 @@ mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 pub use blockchain::{DepType, ScriptHashType};
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
-pub use reward::BlockReward;
+pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 

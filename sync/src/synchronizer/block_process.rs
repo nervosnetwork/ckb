@@ -1,17 +1,15 @@
 use crate::{
     synchronizer::{BlockStatus, Synchronizer},
-    BAD_MESSAGE_BAN_TIME,
+    Status, StatusCode,
 };
-use ckb_logger::{debug, info};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_logger::debug;
+use ckb_network::PeerIndex;
 use ckb_types::{packed, prelude::*};
-use failure::Error as FailureError;
 
 pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -19,17 +17,15 @@ impl<'a> BlockProcess<'a> {
         message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         BlockProcess {
             message,
             synchronizer,
             peer,
-            nc,
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         let block = self.message.block().to_entity().into_view();
         debug!(
             "BlockProcess received block {} {}",
@@ -40,22 +36,16 @@ impl<'a> BlockProcess<'a> {
         let state = self.synchronizer.shared().state();
 
         if state.new_block_received(&block) {
-            if self
-                .synchronizer
-                .process_new_block(&snapshot, self.peer, block.clone())
-                .is_err()
+            if let Err(err) =
+                self.synchronizer
+                    .process_new_block(&snapshot, self.peer, block.clone())
             {
-                info!(
-                    "Ban peer {:?} for {} seconds, reason: it sent us an invalid block",
-                    self.peer,
-                    BAD_MESSAGE_BAN_TIME.as_secs()
-                );
                 state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
-                self.nc.ban_peer(
-                    self.peer,
-                    BAD_MESSAGE_BAN_TIME,
-                    String::from("send us an invalid block"),
-                );
+                return StatusCode::BlockIsInvalid.with_context(format!(
+                    "{}, error: {}",
+                    block.hash(),
+                    err,
+                ));
             }
         } else if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
             state
@@ -63,6 +53,6 @@ impl<'a> BlockProcess<'a> {
                 .set_last_common_header(self.peer, block.header());
         }
 
-        Ok(())
+        Status::ok()
     }
 }

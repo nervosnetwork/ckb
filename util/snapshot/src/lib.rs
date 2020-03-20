@@ -109,7 +109,7 @@ impl Snapshot {
         &self,
         parent: &HeaderView,
     ) -> Result<(Script, BlockReward), Error> {
-        RewardCalculator::new(self.consensus(), self).block_reward(parent)
+        RewardCalculator::new(self.consensus(), self).block_reward_to_finalize(parent)
     }
 }
 

@@ -26,7 +26,7 @@ pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Sen
 use crate::{
     compress::{compress, decompress},
     network::disconnect_with_message,
-    Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion,
+    Behaviour, Error, NetworkState, Peer, ProtocolVersion,
 };
 
 pub trait CKBProtocolContext: Send {
@@ -81,7 +81,7 @@ pub trait CKBProtocolHandler: Sync + Send {
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
-        _data: bytes::Bytes,
+        _data: Bytes,
     ) {
     }
     /// Called when the Service receives the notify task
@@ -214,7 +214,7 @@ impl ServiceProtocol for CKBHandler {
         self.handler.disconnected(Arc::new(nc), peer_index);
     }
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
         trace!(
             "[received message]: {}, {}, length={}",
             self.proto_id,
@@ -365,8 +365,19 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
 
     fn connected_peers(&self) -> Vec<PeerIndex> {
-        self.network_state
-            .with_peer_registry(PeerRegistry::connected_peers)
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers()
+                .iter()
+                .filter_map(|(peer_index, peer)| {
+                    if peer.protocols.contains_key(&self.proto_id) {
+                        Some(peer_index)
+                    } else {
+                        None
+                    }
+                })
+                .cloned()
+                .collect()
+        })
     }
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) {
         self.network_state

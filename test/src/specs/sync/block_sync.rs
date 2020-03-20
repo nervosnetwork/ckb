@@ -3,13 +3,11 @@ use crate::utils::{
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
-use ckb_network::PeerIndex;
+use ckb_network::{bytes::Bytes, PeerIndex};
 use ckb_sync::NetworkProtocol;
-use ckb_types::packed::Byte32;
 use ckb_types::{
-    bytes::Bytes,
     core::BlockView,
-    packed::{self, SyncMessage},
+    packed::{self, Byte32, SyncMessage},
     prelude::*,
 };
 use std::time::Duration;
