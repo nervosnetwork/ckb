@@ -13,18 +13,24 @@ use ckb_db::{
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::CellMeta, BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView,
-        TransactionInfo, TransactionMeta, TransactionView, UncleBlockVecView,
+        cell::{CellMeta, CellProvider, CellStatus},
+        BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
+        TransactionMeta, TransactionView, UncleBlockVecView,
     },
-    packed,
+    packed::{self, OutPoint},
     prelude::*,
 };
 
-pub trait ChainStore<'a>: Send + Sync {
+pub struct CellProviderWrapper<'a, S>(&'a S);
+
+pub trait ChainStore<'a>: Send + Sync + Sized {
     type Vector: AsRef<[u8]>;
     fn cache(&'a self) -> Option<&'a StoreCache>;
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
+    fn cell_provider(&self) -> CellProviderWrapper<Self> {
+        CellProviderWrapper(self)
+    }
 
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
@@ -418,5 +424,32 @@ pub trait ChainStore<'a>: Send + Sync {
             |hash| self.get_block_header(&hash),
             |hash| self.get_block_ext(&hash).map(|ext| ext.total_uncles_count),
         )
+    }
+}
+
+impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
+where
+    S: ChainStore<'a>,
+{
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+        let tx_hash = out_point.tx_hash();
+        let index = out_point.index().unpack();
+        match self.0.get_tx_meta(&tx_hash) {
+            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
+                Some(false) => {
+                    let mut cell_meta = self
+                        .0
+                        .get_cell_meta(&tx_hash, index)
+                        .expect("store should be consistent with cell_set");
+                    if with_data {
+                        cell_meta.mem_cell_data = self.0.get_cell_data(&tx_hash, index);
+                    }
+                    CellStatus::live_cell(cell_meta)
+                }
+                Some(true) => CellStatus::Dead,
+                None => CellStatus::Unknown,
+            },
+            None => CellStatus::Unknown,
+        }
     }
 }

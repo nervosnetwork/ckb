@@ -430,7 +430,6 @@ dependencies = [
  "ckb-verification",
  "crossbeam-channel",
  "faketime",
- "im",
  "lazy_static",
 ]
 
@@ -963,7 +962,6 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
- "ckb-logger",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -971,7 +969,6 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
- "im",
 ]
 
 [[package]]
@@ -987,7 +984,6 @@ dependencies = [
  "ckb-store",
  "ckb-traits",
  "ckb-types",
- "im",
 ]
 
 [[package]]

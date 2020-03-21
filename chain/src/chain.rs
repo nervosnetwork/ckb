@@ -8,22 +8,17 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
-        cell::{
-            resolve_transaction, BlockCellProvider, CellProvider, CellStatus, OverlayCellProvider,
-            ResolvedTransaction,
-        },
+        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, TransactionMeta,
+        BlockExt, BlockNumber, BlockView,
     },
-    packed::{Byte32, OutPoint, ProposalShortId},
-    prelude::*,
+    packed::{Byte32, ProposalShortId},
     U256,
 };
 use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
-use im::hashmap::HashMap as HamtMap;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
@@ -95,41 +90,6 @@ impl ForkChanges {
 
     pub fn verified_len(&self) -> usize {
         self.attached_blocks.len() - self.dirty_exts.len()
-    }
-}
-
-struct CellSetWrapper<'a> {
-    pub cell_set: &'a HamtMap<Byte32, TransactionMeta>,
-    pub txn: &'a StoreTransaction,
-}
-
-impl<'a> CellSetWrapper<'a> {
-    pub fn new(cell_set: &'a HamtMap<Byte32, TransactionMeta>, txn: &'a StoreTransaction) -> Self {
-        CellSetWrapper { cell_set, txn }
-    }
-}
-
-impl<'a> CellProvider for CellSetWrapper<'a> {
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        let index = out_point.index().unpack();
-        match self.cell_set.get(&tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
-                Some(false) => {
-                    let mut cell_meta = self
-                        .txn
-                        .get_cell_meta(&tx_hash, index)
-                        .expect("store should be consistent with cell_set");
-                    if with_data {
-                        cell_meta.mem_cell_data = self.txn.get_cell_data(&tx_hash, index);
-                    }
-                    CellStatus::live_cell(cell_meta)
-                }
-                Some(true) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            },
-            None => CellStatus::Unknown,
-        }
     }
 }
 
@@ -304,7 +264,6 @@ impl ChainService {
         db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
 
         let shared_snapshot = Arc::clone(&self.shared.snapshot());
-        let mut cell_set = shared_snapshot.cell_set().clone();
         let origin_proposals = shared_snapshot.proposals();
         let current_tip_header = shared_snapshot.tip_header();
 
@@ -333,10 +292,10 @@ impl ChainService {
                 });
             }
 
-            self.rollback(&fork, &db_txn, &mut cell_set)?;
+            self.rollback(&fork, &db_txn)?;
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, switch, &mut cell_set)?;
+            self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -365,13 +324,9 @@ impl ChainService {
                 .finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
-            let new_snapshot = self.shared.new_snapshot(
-                tip_header,
-                total_difficulty,
-                epoch,
-                cell_set,
-                new_proposals,
-            );
+            let new_snapshot =
+                self.shared
+                    .new_snapshot(tip_header, total_difficulty, epoch, new_proposals);
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
@@ -432,15 +387,10 @@ impl ChainService {
         }
     }
 
-    pub(crate) fn rollback(
-        &self,
-        fork: &ForkChanges,
-        txn: &StoreTransaction,
-        cell_set: &mut HamtMap<Byte32, TransactionMeta>,
-    ) -> Result<(), Error> {
+    pub(crate) fn rollback(&self, fork: &ForkChanges, txn: &StoreTransaction) -> Result<(), Error> {
         for block in fork.detached_blocks().iter().rev() {
             txn.detach_block(block)?;
-            detach_block_cell(txn, block, cell_set)?;
+            detach_block_cell(txn, block)?;
         }
         Ok(())
     }
@@ -570,14 +520,13 @@ impl ChainService {
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
         switch: Switch,
-        cell_set: &mut HamtMap<Byte32, TransactionMeta>,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
             txn.attach_block(b)?;
-            attach_block_cell(txn, b, cell_set)?;
+            attach_block_cell(txn, b)?;
         }
 
         let verify_context = VerifyContext::new(txn, self.shared.consensus());
@@ -603,8 +552,8 @@ impl ChainService {
 
                     let transactions = b.transactions();
                     let resolved = {
-                        let wrapper = CellSetWrapper::new(cell_set, txn);
-                        let cell_provider = OverlayCellProvider::new(&block_cp, &wrapper);
+                        let txn_cell_provider = txn.cell_provider();
+                        let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
                         transactions
                             .iter()
                             .cloned()
@@ -635,7 +584,7 @@ impl ChainService {
                                         .map(|entry| entry.fee)
                                         .collect();
                                     txn.attach_block(b)?;
-                                    attach_block_cell(txn, b, cell_set)?;
+                                    attach_block_cell(txn, b)?;
                                     let mut mut_ext = ext.clone();
                                     mut_ext.verified = Some(true);
                                     mut_ext.txs_fees = txs_fees;
@@ -679,7 +628,7 @@ impl ChainService {
                 }
             } else {
                 txn.attach_block(b)?;
-                attach_block_cell(txn, b, cell_set)?;
+                attach_block_cell(txn, b)?;
                 let mut mut_ext = ext.clone();
                 mut_ext.verified = Some(true);
                 txn.insert_block_ext(&b.header().hash(), &mut_ext)?;

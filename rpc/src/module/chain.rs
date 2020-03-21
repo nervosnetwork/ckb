@@ -226,7 +226,7 @@ impl ChainRpc for ChainRpcImpl {
                 .get_block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
-                if let Some(transaction_meta) = snapshot.cell_set().get(&transaction.hash()) {
+                if let Some(transaction_meta) = snapshot.get_tx_meta(&transaction.hash()) {
                     for (i, output) in transaction.outputs().into_iter().enumerate() {
                         if output.calc_lock_hash() == lock_hash
                             && transaction_meta.is_dead(i) == Some(false)

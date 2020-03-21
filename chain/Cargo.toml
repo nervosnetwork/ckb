@@ -17,9 +17,6 @@ crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }
-# DO NOT UPDATE "im", until clippy#4121 be solved
-# https://github.com/rust-lang/rust-clippy/issues/4121
-im = "~12.3"
 ckb-error = { path = "../error" }
 bitflags = "1.0"
 
