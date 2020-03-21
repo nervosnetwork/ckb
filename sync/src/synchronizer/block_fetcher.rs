@@ -5,6 +5,7 @@ use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
+use std::cmp::min;
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
@@ -124,43 +125,51 @@ impl BlockFetcher {
 
         debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
-        let mut index_height = fixed_last_common_header.number();
-        let mut fetch = Vec::with_capacity(MAX_BLOCKS_IN_TRANSIT_PER_PEER);
+        let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
+        let count =
+            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer));
+        let mut fetch = Vec::with_capacity(count);
+        let mut start = fixed_last_common_header.number() + 1;
 
-        {
-            let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
-            let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
-                .saturating_sub(inflight.peer_inflight_count(self.peer));
+        // Judge whether we should fetch the target block, neither stored nor in-flighted
+        let mut should_fetch = |block_hash| {
+            // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+            // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+            let stored = self
+                .active_chain
+                .contains_block_status(&block_hash, BlockStatus::BLOCK_STORED);
+            !stored && inflight.insert(self.peer, block_hash)
+        };
 
-            while fetch.len() < count {
-                index_height += 1;
-                if index_height > best_known_header.number() {
-                    break;
+        while fetch.len() < count && start <= best_known_header.number() {
+            let span = min(
+                best_known_header.number() - start + 1,
+                (count - fetch.len()) as u64,
+            );
+
+            // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
+            let mut header = self
+                .active_chain
+                .get_ancestor(&best_known_header.hash(), start + span - 1)?;
+            for _ in 0..span {
+                let parent_hash = header.parent_hash();
+                if should_fetch(header.hash()) {
+                    fetch.push(header)
                 }
 
-                let to_fetch = self
-                    .active_chain
-                    .get_ancestor(&best_known_header.hash(), index_height)?;
-
-                // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-                if self
-                    .active_chain
-                    .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
-                {
-                    continue;
-                }
-
-                if inflight.insert(self.peer, to_fetch.hash()) {
-                    trace!(
-                        "[Synchronizer] inflight insert {:?}------------{}",
-                        to_fetch.number(),
-                        to_fetch.hash(),
-                    );
-                    fetch.push(to_fetch.hash());
-                }
+                header = self
+                    .synchronizer
+                    .shared
+                    .get_header_view(&parent_hash)?
+                    .into_inner();
             }
+
+            // Move `start` forward
+            start += span as u64;
         }
-        Some(fetch)
+
+        // The headers in `fetch` may be unordered. Sort them by number.
+        fetch.sort_by_key(|header| header.number());
+        Some(fetch.iter().map(core::HeaderView::hash).collect())
     }
 }
