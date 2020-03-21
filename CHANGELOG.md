@@ -1,3 +1,46 @@
+# [v0.30.0](https://github.com/nervosnetwork/ckb/compare/v0.29.0...v0.30.0) (2020-03-20)
+
+### Breaking Changes
+
+* #1939: Add new response field `min_fee_rate` in RPC `tx_pool_info` (@driftluo)
+
+    BREAKING CHANGE: RPC interface
+
+### Features
+
+* #1848: Add a new json rpc method `get_block_economic_state` (@yangby-cryptape)
+
+    Replace the JSON-RPC method [`get_cellbase_output_capacity_details`].
+
+* #1915: Reject new scripts with known bugs (@xxuejie)
+
+    For compatibility reasons, there're certain bugs that we have to leave
+    to the next hardfork to fix. However those bugs, especially VM bugs
+    might lead to surprising unexpected behaviors. This change adds a new
+    checker that checks against newly created cells for scripts with bugs,
+    and reject those transaction when we can. This way we can alert users
+    about the bugs as early as we can.
+
+### Improvements
+
+* #1856: Define StatusCode to indicate the result of sync operation (@keroro520)
+
+    Learned from HTTP Response, use `StatusCode` to indicate the result of sync-operation, try to replace original `Result<T, future::Error>`.
+
+* #1941: Uses feature flags to enable deadlock detection (@zhangsoledad)
+
+    we should disable deadlock detection by default.
+    use the `deadlock_detection` feature flag enable  deadlock detection.
+
+* #1931: Collect metrics by logger (@keroro520)
+
+### Bug Fixes
+
+* #1916: Transaction should be relayed when node connects peers (@quake)
+* #1921: Estimate_fee RPC error msg (@jjyr)
+* #1922: `CKBProtocolContext#connected_peers` should filter peers by protocol id (@quake)
+* #1950: Fix incorrect error messages for JSON uints (@yangby-cryptape)
+
 # [v0.29.0](https://github.com/nervosnetwork/ckb/compare/v0.28.0...v0.29.0) (2020-02-26)
 
 ### Breaking Changes

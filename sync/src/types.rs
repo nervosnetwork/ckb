@@ -42,6 +42,8 @@ const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const TX_FILTER_SIZE: usize = 50000;
 const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
+// 2 ** 13 < 6 * 1800 < 2 ** 14
+const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for connections that are outbound, non-manual,
@@ -1152,6 +1154,14 @@ impl ActiveChain {
             }
 
             if index < step {
+                // Insert some low-height blocks in the locator
+                // to quickly start parallel ibd block downloads
+                // and it should not be too much
+                if locator.len() < 31 && index > ONE_DAY_BLOCK_NUMBER {
+                    index >>= 1;
+                    base = header_hash;
+                    continue;
+                }
                 // always include genesis hash
                 if index != 0 {
                     locator.push(self.shared.consensus().genesis_hash());
