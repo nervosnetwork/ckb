@@ -4,7 +4,7 @@ use ckb_error::Error;
 use ckb_types::core::TransactionView;
 use ckb_vm::{
     instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
-    registers::RA,
+    registers::{RA, ZERO},
 };
 use ckb_vm_definitions::instructions as insts;
 use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
@@ -59,7 +59,7 @@ impl<'a> IllScriptChecker<'a> {
                             match extract_opcode(i) {
                                 insts::OP_JALR => {
                                     let i = Itype(i);
-                                    if i.rs1() == i.rd() {
+                                    if i.rs1() == i.rd() && i.rd() != ZERO {
                                         return Err(ScriptError::EncounteredKnownBugs(
                                             CKB_VM_ISSUE_92.to_string(),
                                             self.index,
@@ -136,5 +136,12 @@ mod tests {
             IllScriptChecker::new(&data, 13).check().unwrap_err(),
             ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string(), 13),
         );
+    }
+
+    #[test]
+    fn check_jalr_zero_binary() {
+        let data = read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/jalr_zero"))
+            .unwrap();
+        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
     }
 }
