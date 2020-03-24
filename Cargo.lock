@@ -544,7 +544,7 @@ dependencies = [
  "crossbeam-channel",
  "futures 0.1.29",
  "num_cpus",
- "tokio 0.1.22",
+ "tokio 0.2.13",
  "tokio-executor",
 ]
 
@@ -1076,7 +1076,7 @@ dependencies = [
  "futures 0.1.29",
  "lru-cache",
  "serde",
- "tokio 0.1.22",
+ "tokio 0.2.13",
 ]
 
 [[package]]
@@ -1135,7 +1135,7 @@ dependencies = [
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.1.22",
+ "tokio 0.2.13",
 ]
 
 [[package]]
