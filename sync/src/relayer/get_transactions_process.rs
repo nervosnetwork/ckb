@@ -107,8 +107,8 @@ impl<'a> GetTransactionsProcess<'a> {
                     .build(),
             )
             .build();
-        let data = message.as_slice().into();
-        if let Err(err) = self.nc.send_message_to(self.peer, data) {
+
+        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
             return StatusCode::Network
                 .with_context(format!("Send RelayTransactions error: {:?}", err));
         }

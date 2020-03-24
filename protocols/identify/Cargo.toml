@@ -8,6 +8,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-p2p = { version = "0.2.6", package = "tentacle" , features = ["molc"] }
+p2p = { version = "0.3.0-alpha.1", package = "tentacle", features = ["molc"] }
 ckb-logger = { path = "../../util/logger" }
 ckb-types = { path = "../../util/types" }

@@ -2,18 +2,22 @@ use crate::peer_store::types::AddrInfo;
 use crate::NetworkState;
 use ckb_logger::{trace, warn};
 use faketime::unix_time_as_millis;
-use futures::{Async, Future, Stream};
+use futures::{Future, Stream};
 use p2p::service::ServiceControl;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+use tokio::time::Interval;
 
 const FEELER_CONNECTION_COUNT: usize = 5;
 
 pub struct OutboundPeerService {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
-    interval: Interval,
+    interval: Option<Interval>,
     try_connect_interval: Duration,
     last_connect: Option<Instant>,
 }
@@ -27,7 +31,7 @@ impl OutboundPeerService {
         OutboundPeerService {
             network_state,
             p2p_control,
-            interval: Interval::new(Instant::now(), Duration::from_secs(1)),
+            interval: None,
             try_connect_interval,
             last_connect: None,
         }
@@ -95,13 +99,16 @@ impl OutboundPeerService {
 }
 
 impl Future for OutboundPeerService {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.interval.is_none() {
+            self.interval = Some(tokio::time::interval(Duration::from_secs(1)));
+        }
+        let mut interval = self.interval.take().unwrap();
         loop {
-            match self.interval.poll() {
-                Ok(Async::Ready(Some(_tick))) => {
+            match Pin::new(&mut interval).as_mut().poll_next(cx) {
+                Poll::Ready(Some(_tick)) => {
                     let last_connect = self
                         .last_connect
                         .map(|time| time.elapsed())
@@ -128,16 +135,13 @@ impl Future for OutboundPeerService {
                         self.last_connect = Some(Instant::now());
                     }
                 }
-                Ok(Async::Ready(None)) => {
+                Poll::Ready(None) => {
                     warn!("ckb outbound peer service stopped");
-                    return Ok(Async::Ready(()));
+                    return Poll::Ready(());
                 }
-                Ok(Async::NotReady) => {
-                    return Ok(Async::NotReady);
-                }
-                Err(err) => {
-                    warn!("outbound peer service stopped because: {:?}", err);
-                    return Err(());
+                Poll::Pending => {
+                    self.interval = Some(interval);
+                    return Poll::Pending;
                 }
             }
         }

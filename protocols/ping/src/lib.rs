@@ -1,5 +1,5 @@
 use ckb_logger::{debug, error, warn};
-use futures::sync::mpsc::Sender;
+use futures::channel::mpsc::Sender;
 use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -261,14 +261,11 @@ impl PingMessage {
             .build();
         let ping = packed::Ping::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(ping).build();
-        // TODO update-after-upgrade-p2p
+
         packed::PingMessage::new_builder()
             .payload(payload)
             .build()
             .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into()
     }
 
     fn build_pong(nonce: u32) -> Bytes {
@@ -281,14 +278,11 @@ impl PingMessage {
             .build();
         let pong = packed::Pong::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(pong).build();
-        // TODO update-after-upgrade-p2p
+
         packed::PingMessage::new_builder()
             .payload(payload)
             .build()
             .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into()
     }
 
     #[allow(clippy::cast_ptr_alignment)]

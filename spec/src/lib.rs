@@ -555,8 +555,7 @@ impl ChainSpec {
                     })
                     .collect::<Result<_, Box<dyn Error>>>()?;
 
-                // TODO update-after-upgrade-p2p
-                let data = Bytes::from(out_points.pack().as_slice().to_owned());
+                let data = out_points.pack().as_bytes();
                 let cell = packed::CellOutput::new_builder()
                     .lock(self.genesis.system_cells_lock.clone().into())
                     .build_exact_capacity(Capacity::bytes(data.len())?)?;
@@ -616,8 +615,7 @@ impl ChainSpec {
 
 impl GenesisCell {
     fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
-        // TODO update-after-upgrade-p2p
-        let data: Bytes = self.message.as_bytes().as_ref().to_owned().into();
+        let data: Bytes = self.message.as_bytes().to_owned().into();
         let cell = packed::CellOutput::new_builder()
             .lock(self.lock.clone().into())
             .build_exact_capacity(Capacity::bytes(data.len())?)?;

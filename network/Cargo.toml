@@ -11,11 +11,11 @@ serde = { version = "1.0", features = ["derive"] }
 ckb-util = { path = "../util" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-logger = { path = "../util/logger" }
-tokio = "0.1.18"
-tokio-threadpool = "0.1"
-futures = "0.1"
+tokio = { version = "0.2.11", features = ["time", "io-util", "tcp", "dns", "rt-threaded", "blocking"] }
+tokio-util = { version = "0.2.0", features = ["codec"] }
+futures = "0.3"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.7", package="tentacle", features = ["molc"] }
+p2p = { version="0.3.0-alpha.1", package="tentacle", features = ["molc"] }
 p2p-ping = { package="ckb-ping", path = "../protocols/ping" }
 p2p-discovery = { package="ckb-discovery", path = "../protocols/discovery" }
 p2p-identify = { package="ckb-identify", path = "../protocols/identify" }

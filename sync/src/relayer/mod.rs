@@ -205,9 +205,8 @@ impl Relayer {
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
 
-            if let Err(err) = nc.send_message_to(peer, data) {
+            if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send GetBlockProposal error {:?}",
@@ -250,7 +249,6 @@ impl Relayer {
             self.shared().state().remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
-            let data = message.as_slice().into();
 
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
@@ -258,7 +256,8 @@ impl Relayer {
                 .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
-            if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data)
+            if let Err(err) =
+                nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), message.as_bytes())
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -487,8 +486,8 @@ impl Relayer {
                 .transactions(txs.into_iter().map(|tx| tx.data()).pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = nc.send_message_to(peer_index, data) {
+
+            if let Err(err) = nc.send_message_to(peer_index, message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send BlockProposal error: {:?}",
@@ -527,8 +526,8 @@ impl Relayer {
                     .tx_hashes(tx_hashes.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let data = message.as_slice().into();
-                if let Err(err) = nc.send_message_to(*peer, data) {
+
+                if let Err(err) = nc.send_message_to(*peer, message.as_bytes()) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
                         "relayer send Transaction error: {:?}",
@@ -576,8 +575,8 @@ impl Relayer {
                 .tx_hashes(hashes.pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), data) {
+
+            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send TransactionHashes error: {:?}",

@@ -128,8 +128,8 @@ impl NetworkConfig {
         for addr_str in &self.whitelist_peers {
             let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
-                Some(Protocol::P2p(key)) => {
-                    PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
+                Some(Protocol::P2P(key)) => {
+                    PeerId::from_bytes(key.to_vec()).map_err(|_| ConfigError::BadAddress)?
                 }
                 _ => return Err(ConfigError::BadAddress.into()),
             };
@@ -143,8 +143,8 @@ impl NetworkConfig {
         for addr_str in &self.bootnodes {
             let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
-                Some(Protocol::P2p(key)) => {
-                    PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
+                Some(Protocol::P2P(key)) => {
+                    PeerId::from_bytes(key.to_vec()).map_err(|_| ConfigError::BadAddress)?
                 }
                 _ => return Err(ConfigError::BadAddress.into()),
             };

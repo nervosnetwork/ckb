@@ -1,7 +1,10 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::net::{IpAddr, SocketAddr};
-use std::time::Instant;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    convert::TryFrom,
+    io,
+    net::{IpAddr, SocketAddr},
+    time::Instant,
+};
 
 use p2p::{
     multiaddr::Multiaddr,
@@ -127,12 +130,13 @@ impl From<&[u8]> for RawAddr {
 }
 
 impl TryFrom<Multiaddr> for RawAddr {
-    type Error = String;
-    fn try_from(addr: Multiaddr) -> Result<RawAddr, Self::Error> {
+    type Error = io::Error;
+    fn try_from(addr: Multiaddr) -> Result<Self, Self::Error> {
         // FIXME: maybe not socket addr
-        Ok(RawAddr::from(
-            multiaddr_to_socketaddr(&addr).ok_or_else(|| "not socket address".to_string())?,
-        ))
+        match multiaddr_to_socketaddr(&addr) {
+            Some(addr) => Ok(RawAddr::from(addr)),
+            None => Err(io::ErrorKind::InvalidData.into()),
+        }
     }
 }
 

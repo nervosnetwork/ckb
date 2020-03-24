@@ -5,6 +5,7 @@ use ckb_network::{
 use ckb_util::RwLock;
 use futures::future::Future;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::thread;
@@ -160,12 +161,10 @@ impl CKBProtocolContext for TestNetworkContext {
 
     fn future_task(
         &self,
-        task: Box<
-            (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
-        >,
+        _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
         _blocking: bool,
     ) -> Result<(), ckb_network::Error> {
-        task.wait().expect("resolve future task error");
+        //        task.await.expect("resolve future task error");
         Ok(())
     }
 

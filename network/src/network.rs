@@ -24,10 +24,13 @@ use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
-use futures::sync::mpsc::channel;
-use futures::sync::{mpsc, oneshot};
-use futures::Future;
-use futures::Stream;
+use futures::{
+    channel::{
+        mpsc::{self, channel},
+        oneshot,
+    },
+    Future, StreamExt,
+};
 use ipnetwork::IpNetwork;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
@@ -37,7 +40,7 @@ use p2p::{
     multiaddr::{self, Multiaddr},
     secio::{self, PeerId},
     service::{
-        DialProtocol, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
+        ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol,
         TargetSession,
     },
     traits::ServiceHandle,
@@ -46,16 +49,18 @@ use p2p::{
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
-use std::boxed::Box;
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
-use std::usize;
-use tokio::codec::length_delimited;
+use std::{
+    cmp::max,
+    collections::{HashMap, HashSet},
+    io,
+    pin::Pin,
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
+    usize,
+};
 use tokio::runtime;
+use tokio_util::codec::length_delimited;
 
 pub(crate) const PING_PROTOCOL_ID: usize = 0;
 pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
@@ -421,7 +426,7 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         addr: Multiaddr,
-        target: DialProtocol,
+        target: TargetProtocol,
         allow_dial_to_self: bool,
     ) -> Result<(), Error> {
         if !self.can_dial(peer_id, &addr, allow_dial_to_self) {
@@ -446,7 +451,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
             false,
         ) {
             debug!("dial_identify error: {}", err);
@@ -459,7 +464,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
             false,
         ) {
             debug!("dial_feeler error {}", err);
@@ -479,7 +484,7 @@ impl NetworkState {
                 p2p_control,
                 self.local_peer_id(),
                 addr,
-                DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+                TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
                 true,
             ) {
                 debug!("try_dial_observed_addrs error {}", err);
@@ -559,7 +564,7 @@ impl ServiceHandle for EventHandler {
                     let addr = address
                         .iter()
                         .filter(|proto| match proto {
-                            multiaddr::Protocol::P2p(_) => false,
+                            multiaddr::Protocol::P2P(_) => false,
                             _ => true,
                         })
                         .collect();
@@ -834,7 +839,7 @@ pub struct NetworkService {
     p2p_service: Service<EventHandler>,
     network_state: Arc<NetworkState>,
     // Background services
-    bg_services: Vec<Box<dyn Future<Item = (), Error = ()> + Send>>,
+    bg_services: Vec<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
 }
 
 impl NetworkService {
@@ -977,7 +982,7 @@ impl NetworkService {
             disc_receiver,
             config.discovery_local_address,
         );
-        let ping_service = PingService::new(
+        let mut ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().to_owned(),
             ping_receiver,
@@ -989,10 +994,16 @@ impl NetworkService {
             required_protocol_ids,
         );
         let mut bg_services = vec![
-            Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(disc_service) as Box<_>,
-            Box::new(dump_peer_store_service) as Box<_>,
-            Box::new(protocol_type_checker_service) as Box<_>,
+            Box::pin(async move {
+                loop {
+                    if ping_service.next().await.is_none() {
+                        break;
+                    }
+                }
+            }) as Pin<Box<_>>,
+            Box::pin(disc_service) as Pin<Box<_>>,
+            Box::pin(dump_peer_store_service) as Pin<Box<_>>,
+            Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
         if config.outbound_peer_service_enabled() {
             let outbound_peer_service = OutboundPeerService::new(
@@ -1000,13 +1011,13 @@ impl NetworkService {
                 p2p_service.control().to_owned(),
                 Duration::from_secs(config.connect_outbound_interval_secs),
             );
-            bg_services.push(Box::new(outbound_peer_service) as Box<_>);
+            bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
 
         if config.dns_seeding_service_enabled() {
             let dns_seeding_service =
                 DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
-            bg_services.push(Box::new(dns_seeding_service) as Box<_>);
+            bg_services.push(Box::pin(dns_seeding_service) as Pin<Box<_>>);
         };
 
         NetworkService {
@@ -1017,37 +1028,14 @@ impl NetworkService {
     }
 
     pub fn start<S: ToString>(
-        mut self,
+        self,
         node_version: Version,
         thread_name: Option<S>,
     ) -> Result<NetworkController, Error> {
-        let config = &self.network_state.config;
-        // listen local addresses
-        for addr in &config.listen_addresses {
-            match self.p2p_service.listen(addr.to_owned()) {
-                Ok(listen_address) => {
-                    info!(
-                        "Listen on address: {}",
-                        self.network_state.to_external_url(&listen_address)
-                    );
-                    self.network_state
-                        .listened_addrs
-                        .write()
-                        .push(listen_address.clone())
-                }
-                Err(err) => {
-                    warn!(
-                        "listen on address {} failed, due to error: {}",
-                        addr.clone(),
-                        err
-                    );
-                    return Err(Error::Io(err));
-                }
-            };
-        }
+        let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
-        for (peer_id, addr) in config.whitelist_peers()? {
+        for (peer_id, addr) in self.network_state.config.whitelist_peers()? {
             debug!("dial whitelist_peers {:?} {:?}", peer_id, addr);
             self.network_state
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
@@ -1078,6 +1066,7 @@ impl NetworkService {
             self.network_state
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
+
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
 
@@ -1087,17 +1076,54 @@ impl NetworkService {
             thread_builder = thread_builder.name(name.to_string());
         }
         let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (start_sender, start_receiver) = crossbeam_channel::bounded(1);
+        let network_state_1 = Arc::clone(&network_state);
         // Main network thread
         let thread = thread_builder
             .spawn(move || {
                 let inner_p2p_control = self.p2p_service.control().to_owned();
                 let num_threads = max(num_cpus::get(), 4);
+                let network_state = Arc::clone(&network_state_1);
+                let mut p2p_service = self.p2p_service;
                 let mut runtime = runtime::Builder::new()
                     .core_threads(num_threads)
-                    .name_prefix("NetworkRuntime-")
+                    .enable_all()
+                    .threaded_scheduler()
+                    .thread_name("NetworkRuntime-")
                     .build()
                     .expect("Network tokio runtime init failed");
-                runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
+                let handle = runtime.spawn(async move {
+                    // listen local addresses
+                    for addr in &config.listen_addresses {
+                        match p2p_service.listen(addr.to_owned()).await {
+                            Ok(listen_address) => {
+                                info!(
+                                    "Listen on address: {}",
+                                    network_state_1.to_external_url(&listen_address)
+                                );
+                                network_state_1
+                                    .listened_addrs
+                                    .write()
+                                    .push(listen_address.clone());
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "listen on address {} failed, due to error: {}",
+                                    addr.clone(),
+                                    err
+                                );
+                                start_sender.send(Err(Error::Io(err))).unwrap();
+                                return;
+                            }
+                        };
+                    }
+                    start_sender.send(Ok(())).unwrap();
+                    loop {
+                        if p2p_service.next().await.is_none() {
+                            break;
+                        }
+                    }
+                });
 
                 // NOTE: for ensure background task finished
                 let bg_signals = self
@@ -1105,10 +1131,7 @@ impl NetworkService {
                     .into_iter()
                     .map(|bg_service| {
                         let (signal_sender, signal_receiver) = oneshot::channel::<()>();
-                        let task = signal_receiver
-                            .select2(bg_service)
-                            .map(|_| ())
-                            .map_err(|_| ());
+                        let task = futures::future::select(bg_service, signal_receiver);
                         runtime.spawn(task);
                         signal_sender
                     })
@@ -1118,7 +1141,7 @@ impl NetworkService {
 
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
-                for peer in self.network_state.peer_registry.read().peers().values() {
+                for peer in network_state.peer_registry.read().peers().values() {
                     info!("Disconnect peer {}", peer.connected_addr);
                     if let Err(err) =
                         disconnect_with_message(&inner_p2p_control, peer.session_id, "shutdown")
@@ -1133,10 +1156,15 @@ impl NetworkService {
                 }
 
                 debug!("Waiting tokio runtime to finish ...");
-                runtime.shutdown_on_idle().wait().unwrap();
+                runtime.block_on(handle).unwrap();
                 debug!("Shutdown network service finished!");
             })
             .expect("Start NetworkService failed");
+
+        if let Ok(Err(e)) = start_receiver.recv() {
+            return Err(e);
+        }
+
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
             node_version,
@@ -1294,7 +1322,7 @@ pub(crate) fn disconnect_with_message(
     message: &str,
 ) -> Result<(), P2pError> {
     if !message.is_empty() {
-        let data = Bytes::from(message.as_bytes());
+        let data = Bytes::from(message.as_bytes().to_vec());
         // Must quick send, otherwise this message will be dropped.
         control.quick_send_message_to(peer_index, DISCONNECT_MESSAGE_PROTOCOL_ID.into(), data)?;
     }

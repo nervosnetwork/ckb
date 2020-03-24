@@ -83,8 +83,8 @@ impl<'a> GetHeadersProcess<'a> {
                 .headers(headers.into_iter().map(|x| x.data()).pack())
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = self.nc.send_message_to(self.peer, data) {
+
+            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
                 return StatusCode::Network
                     .with_context(format!("Send SendHeaders error: {:?}", err,));
             }
@@ -98,10 +98,10 @@ impl<'a> GetHeadersProcess<'a> {
     fn send_in_ibd(&self) {
         let content = packed::InIBD::new_builder().build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
-        if let Err(err) = self
-            .nc
-            .send_message(NetworkProtocol::SYNC.into(), self.peer, data)
+
+        if let Err(err) =
+            self.nc
+                .send_message(NetworkProtocol::SYNC.into(), self.peer, message.as_bytes())
         {
             debug!("synchronizer send in ibd error: {:?}", err);
         }

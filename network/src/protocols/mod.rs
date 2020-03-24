@@ -7,7 +7,7 @@ pub(crate) mod ping;
 mod test;
 
 use ckb_logger::trace;
-use futures::{try_ready, Future, Poll};
+use futures::{Future, FutureExt};
 use p2p::{
     builder::MetaBuilder,
     bytes::Bytes,
@@ -16,12 +16,16 @@ use p2p::{
     traits::ServiceProtocol,
     ProtocolId, SessionId,
 };
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::codec::length_delimited;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
+use tokio_util::codec::length_delimited;
 
 pub type PeerIndex = SessionId;
-pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Send>;
+pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
     compress::{compress, decompress},
@@ -247,7 +251,7 @@ impl ServiceProtocol for CKBHandler {
         }
     }
 
-    fn poll(&mut self, context: &mut ProtocolContext) {
+    fn poll(mut self: Pin<&mut Self>, _nc: &mut Context, context: &mut ProtocolContext) {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
@@ -310,7 +314,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error> {
         let task = if blocking {
-            Box::new(BlockingFutureTask::new(task))
+            Box::pin(BlockingFutureTask::new(task))
         } else {
             task
         };
@@ -408,10 +412,9 @@ impl BlockingFutureTask {
 }
 
 impl Future for BlockingFutureTask {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        try_ready!(tokio_threadpool::blocking(|| self.task.poll()).map_err(|_| ()))
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        tokio::task::block_in_place(|| self.task.poll_unpin(cx))
     }
 }

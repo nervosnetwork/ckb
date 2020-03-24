@@ -21,7 +21,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "0.16.0"
-futures = "0.1"
+futures = "0.3"
 ckb-error = {path = "../error"}
 ckb-tx-pool = { path = "../tx-pool" }
 

@@ -253,7 +253,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             .address
             .iter()
             .filter(|proto| match proto {
-                Protocol::P2p(_) => false,
+                Protocol::P2P(_) => false,
                 _ => true,
             })
             .collect::<Multiaddr>();

@@ -13,11 +13,15 @@ use crate::{
     NetworkState, Peer, ProtocolId,
 };
 use ckb_logger::{debug, warn};
-use futures::{Async, Future, Stream};
+use futures::{Future, Stream};
 use p2p::service::ServiceControl;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+use tokio::time::Interval;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -57,7 +61,7 @@ impl std::fmt::Display for ProtocolTypeError {
 pub struct ProtocolTypeCheckerService {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
-    interval: Interval,
+    interval: Option<Interval>,
     fully_open_required_protocol_ids: Vec<ProtocolId>,
 }
 
@@ -70,7 +74,7 @@ impl ProtocolTypeCheckerService {
         ProtocolTypeCheckerService {
             network_state,
             p2p_control,
-            interval: Interval::new(Instant::now(), CHECK_INTERVAL),
+            interval: None,
             fully_open_required_protocol_ids,
         }
     }
@@ -121,23 +125,23 @@ impl ProtocolTypeCheckerService {
 }
 
 impl Future for ProtocolTypeCheckerService {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.interval.is_none() {
+            self.interval = Some(tokio::time::interval(CHECK_INTERVAL));
+        }
+        let mut interval = self.interval.take().unwrap();
         loop {
-            match self.interval.poll() {
-                Ok(Async::Ready(Some(_tick))) => self.check_protocol_type(),
-                Ok(Async::Ready(None)) => {
+            match Pin::new(&mut interval).as_mut().poll_next(cx) {
+                Poll::Ready(Some(_tick)) => self.check_protocol_type(),
+                Poll::Ready(None) => {
                     warn!("ckb protocol checker service stopped");
-                    return Ok(Async::Ready(()));
+                    return Poll::Ready(());
                 }
-                Ok(Async::NotReady) => {
-                    return Ok(Async::NotReady);
-                }
-                Err(err) => {
-                    warn!("protocol checker service stopped because: {:?}", err);
-                    return Err(());
+                Poll::Pending => {
+                    self.interval = Some(interval);
+                    return Poll::Pending;
                 }
             }
         }

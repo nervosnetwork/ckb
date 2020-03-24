@@ -1,9 +1,15 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
 use ckb_logger::{debug, error, trace, warn};
-use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
-use std::collections::HashMap;
-use std::{sync::Arc, time::Duration};
+use crossbeam_channel::{self, bounded};
+use futures::{channel::mpsc, Future, FutureExt, StreamExt};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use p2p::{
     bytes::Bytes,
@@ -55,17 +61,17 @@ impl ServiceProtocol for DiscoveryProtocol {
         let discovery_task = self
             .discovery
             .take()
-            .map(|discovery| {
+            .map(|mut discovery| {
                 debug!("Start discovery future_task");
-                discovery
-                    .for_each(|()| Ok(()))
-                    .map_err(|err| {
-                        warn!("discovery stream error: {:?}", err);
-                    })
-                    .then(|_| {
-                        debug!("End of discovery");
-                        Ok(())
-                    })
+                async move {
+                    loop {
+                        if discovery.next().await.is_none() {
+                            warn!("discovery stream shutdown");
+                            break;
+                        }
+                    }
+                }
+                .boxed()
             })
             .expect("Discovery init only once");
         if let Err(err) = context.future_task(discovery_task) {
@@ -146,11 +152,11 @@ pub enum DiscoveryEvent {
     Misbehave {
         session_id: SessionId,
         kind: Misbehavior,
-        result: oneshot::Sender<MisbehaveResult>,
+        result: crossbeam_channel::Sender<MisbehaveResult>,
     },
     GetRandom {
         n: usize,
-        result: oneshot::Sender<Vec<Multiaddr>>,
+        result: crossbeam_channel::Sender<Vec<Multiaddr>>,
     },
 }
 
@@ -253,22 +259,21 @@ impl DiscoveryService {
 }
 
 impl Future for DiscoveryService {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
-            match self.event_receiver.poll()? {
-                Async::Ready(Some(event)) => {
+            match self.event_receiver.poll_next_unpin(cx) {
+                Poll::Ready(Some(event)) => {
                     self.handle_event(event);
                 }
-                Async::Ready(None) => {
+                Poll::Ready(None) => {
                     debug!("discovery service shutdown");
-                    return Ok(Async::Ready(()));
+                    return Poll::Ready(());
                 }
-                Async::NotReady => break,
+                Poll::Pending => break,
             }
         }
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
 
@@ -292,7 +297,7 @@ impl AddressManager for DiscoveryAddressManager {
     }
 
     fn misbehave(&mut self, session_id: SessionId, kind: Misbehavior) -> MisbehaveResult {
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = bounded(1);
         let event = DiscoveryEvent::Misbehave {
             session_id,
             kind,
@@ -302,18 +307,18 @@ impl AddressManager for DiscoveryAddressManager {
             debug!("receiver maybe dropped! (DiscoveryAddressManager::misbehave)");
             MisbehaveResult::Disconnect
         } else {
-            receiver.wait().unwrap_or(MisbehaveResult::Disconnect)
+            tokio::task::block_in_place(|| receiver.recv().unwrap_or(MisbehaveResult::Disconnect))
         }
     }
 
     fn get_random(&mut self, n: usize) -> Vec<Multiaddr> {
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = bounded(1);
         let event = DiscoveryEvent::GetRandom { n, result: sender };
         if self.event_sender.unbounded_send(event).is_err() {
             debug!("receiver maybe dropped! (DiscoveryAddressManager::get_random)");
             Vec::new()
         } else {
-            receiver.wait().ok().unwrap_or_else(Vec::new)
+            tokio::task::block_in_place(|| receiver.recv().ok().unwrap_or_else(Vec::new))
         }
     }
 }

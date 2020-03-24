@@ -68,8 +68,8 @@ impl<'a> GetBlocksProcess<'a> {
                 );
                 let content = packed::SendBlock::new_builder().block(block.data()).build();
                 let message = packed::SyncMessage::new_builder().set(content).build();
-                let data = message.as_slice().into();
-                if let Err(err) = self.nc.send_message_to(self.peer, data) {
+
+                if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
                     return StatusCode::Network
                         .with_context(format!("Send SendBlock error: {:?}", err));
                 }

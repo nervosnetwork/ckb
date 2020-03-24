@@ -212,7 +212,7 @@ fn test_trim_p2p_phase() {
     peer_store.add_addr(peer_id, addr).unwrap();
     let addr = peer_store.fetch_addrs_to_attempt(1).remove(0);
     let has_p2p_phase = addr.addr.into_iter().find(|proto| match proto {
-        multiaddr::Protocol::P2p(_) => true,
+        multiaddr::Protocol::P2P(_) => true,
         _ => false,
     });
     assert!(has_p2p_phase.is_none());

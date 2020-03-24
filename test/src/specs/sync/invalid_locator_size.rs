@@ -27,7 +27,7 @@ impl Spec for InvalidLocatorSize {
         let hashes: Vec<Byte32> = (0..=MAX_LOCATOR_SIZE)
             .map(|_| h256!("0x1").pack())
             .collect();
-        // TODO update-after-upgrade-p2p
+
         let message = SyncMessage::new_builder()
             .set(
                 GetHeaders::new_builder()
@@ -35,10 +35,7 @@ impl Spec for InvalidLocatorSize {
                     .build(),
             )
             .build()
-            .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into();
+            .as_bytes();
 
         net.send(NetworkProtocol::SYNC.into(), peer_id, message);
 
