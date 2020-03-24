@@ -665,6 +665,7 @@ dependencies = [
  "failure",
  "futures 0.1.29",
  "hyper",
+ "hyper-tls",
  "indicatif",
  "lru-cache",
  "rand 0.6.5",
