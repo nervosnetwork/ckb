@@ -24,4 +24,4 @@ This process can take some time, especially when coordination is required with m
 
 If you require prior notification of vulnerabilities please subscribe to the [Nervos Security mailing list](#TBD). The mailing list is very low traffic, and it receives the public notifications the moment the embargo is lifted.
 
-If you have any suggestions to improve this policy, please send an email to [Nervos Security Team](security@nervos.org).
+If you have any suggestions to improve this policy, please send an email to [Nervos Security Team](mailto:security@nervos.org).
