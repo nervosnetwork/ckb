@@ -237,10 +237,12 @@ impl<'a> CompactBlockProcess<'a> {
                     (missing_transactions.clone(), missing_uncles.clone()),
                 );
         }
-        if !shared
+        if shared
             .state()
-            .write_inflight_blocks()
-            .insert(self.peer, block_hash.clone())
+            .read_inflight_blocks()
+            .inflight_state_by_block(&block_hash)
+            .map(|state| state.peers.len() > 1)
+            .unwrap_or_default()
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
