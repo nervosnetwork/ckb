@@ -63,6 +63,14 @@ macro_rules! error {
 macro_rules! metric {
     ($( $args:tt )*) => {
         let mut obj = $crate::json!($( $args )*);
+        if obj.get("fields").is_none() {
+            obj.as_object_mut()
+                .map(|obj| obj.insert(String::from("fields"), $crate::json!({})));
+        }
+        if obj.get("tags").is_none() {
+            obj.as_object_mut()
+                .map(|obj| obj.insert(String::from("tags"), $crate::json!({})));
+        }
         obj.get_mut("tags")
             .and_then(|tags| {
                 tags.as_object_mut()
@@ -72,10 +80,6 @@ macro_rules! metric {
                         }
                     )
             });
-        if obj.get("fields").is_none() {
-            obj.as_object_mut()
-                .map(|obj| obj.insert(String::from("fields"), $crate::json!({})));
-        }
         $crate::internal::trace!(target: "ckb-metrics", "{}", obj);
     }
 }

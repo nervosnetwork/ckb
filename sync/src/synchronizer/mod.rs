@@ -90,22 +90,26 @@ impl Synchronizer {
     ) {
         let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
+
+        metric!({
+            "topic": "received",
+            "fields": { item_name: 1 }
+        });
+        if !status.is_ok() {
+            metric!({
+                "topic": "status",
+                "fields": { format!("{:?}", status.code()): 1 }
+            });
+        }
+
         if let Some(ban_time) = status.should_ban() {
             error!(
                 "receive {} from {}, ban {:?} for {}",
                 item_name, peer, ban_time, status
             );
-            metric!({
-                "topic": "error",
-                "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
-            });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
             warn!("receive {} from {}, {}", item_name, peer, status);
-            metric!({
-                "topic": "warning",
-                "tags": {"input": item_name, "status": format!("{:?}", status.code()) },
-            });
         } else if !status.is_ok() {
             debug!("receive {} from {}, {}", item_name, peer, status);
         }
@@ -400,6 +404,7 @@ impl Synchronizer {
         if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
+        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
     }
 }
 
@@ -1430,4 +1435,11 @@ mod tests {
             )
         }
     }
+}
+
+pub(self) fn log_sent_metric(item_name: &str) {
+    metric!({
+        "topic": "sent",
+        "fields": { item_name: 1 }
+    });
 }

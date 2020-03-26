@@ -6,7 +6,7 @@ use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE};
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{debug, debug_target, error};
+use ckb_logger::{debug, debug_target, error, metric};
 use ckb_network::{bytes, CKBProtocolContext, PeerIndex};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -327,6 +327,7 @@ impl InflightBlocks {
 
     pub fn prune(&mut self) {
         let now = unix_time_as_millis();
+        let prev_count = self.total_inflight_count();
         let blocks = &mut self.blocks;
         self.states.retain(|k, v| {
             let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
@@ -337,6 +338,17 @@ impl InflightBlocks {
             }
             !outdate
         });
+        if prev_count == 0 {
+            metric!({
+                "topic": "blocks_in_flight",
+                "fields": { "total": 0, "elapsed": 0 }
+            });
+        } else if prev_count != self.total_inflight_count() {
+            metric!({
+                "topic": "blocks_in_flight",
+                "fields": { "total": self.total_inflight_count(), "elapsed": BLOCK_DOWNLOAD_TIMEOUT }
+            });
+        }
     }
 
     pub fn insert(&mut self, peer: PeerIndex, hash: Byte32) -> bool {
@@ -376,6 +388,14 @@ impl InflightBlocks {
                 for peer in state.peers {
                     self.blocks.get_mut(&peer).map(|set| set.remove(&block));
                 }
+                state.timestamp
+            })
+            .map(|timestamp| {
+                let elapsed = unix_time_as_millis().saturating_sub(timestamp);
+                metric!({
+                    "topic": "blocks_in_flight",
+                    "fields": { "total": self.total_inflight_count(), "elapsed": elapsed }
+                });
             })
             .is_some()
     }
@@ -512,13 +532,18 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F>(&mut self, mut get_header_view: F)
+    pub fn build_skip<F, G>(&mut self, mut get_header_view: F, fast_scanner: G)
     where
         F: FnMut(&Byte32) -> Option<HeaderView>,
+        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         self.skip_hash = get_header_view(&self.parent_hash())
             .and_then(|parent| {
-                parent.get_ancestor(get_skip_height(self.number()), get_header_view, |_| None)
+                parent.get_ancestor(
+                    get_skip_height(self.number()),
+                    get_header_view,
+                    fast_scanner,
+                )
             })
             .map(|header| header.hash());
     }
@@ -532,16 +557,21 @@ impl HeaderView {
     ) -> Option<core::HeaderView>
     where
         F: FnMut(&Byte32) -> Option<HeaderView>,
-        G: Fn(&HeaderView) -> Option<HeaderView>,
+        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
+        let timestamp = unix_time_as_millis();
         let mut current = self;
         if number > current.number() {
             return None;
         }
+
+        let base_number = current.number();
+        let mut steps = 0u64;
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
+            steps += 1;
             match current.skip_hash {
                 Some(ref hash)
                     if number_skip == number
@@ -558,11 +588,21 @@ impl HeaderView {
                     number_walk -= 1;
                 }
             }
-            if let Some(target) = fast_scanner(&current) {
+            if let Some(target) = fast_scanner(number, &current) {
                 current = target;
                 break;
             }
         }
+        metric!({
+            "topic": "get_ancestor",
+            "fields": {
+                "steps": steps,
+                "elapsed": unix_time_as_millis().saturating_sub(timestamp),
+                "base_number": base_number,
+                "target_number": number,
+                "ancestor_number": current.number()
+            },
+        });
         Some(current).map(HeaderView::into_inner)
     }
 
@@ -762,7 +802,22 @@ impl SyncShared {
             HeaderView::new(header.clone(), total_difficulty)
         };
 
-        header_view.build_skip(|hash| self.get_header_view(hash));
+        let snapshot = Arc::clone(&self.shared.snapshot());
+        header_view.build_skip(
+            |hash| self.get_header_view(hash),
+            |number, current| {
+                // shortcut to return an ancestor block
+                if current.number() <= snapshot.tip_number()
+                    && snapshot.is_main_chain(&current.hash())
+                {
+                    snapshot
+                        .get_block_hash(number)
+                        .and_then(|hash| self.get_header_view(&hash))
+                } else {
+                    None
+                }
+            },
+        );
         self.state
             .header_map
             .write()
@@ -921,6 +976,10 @@ impl SyncState {
             self.header_map.read().contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
+        metric!({
+            "topic": "chain",
+            "fields": { "header_chain_tip": header.number(), }
+        });
         *self.shared_best_header.write() = header;
     }
 
@@ -1019,8 +1078,8 @@ impl SyncState {
     }
 
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
-        self.known_txs.lock().inner.remove(&pi);
-        self.inflight_blocks.write().remove_by_peer(pi);
+        self.known_txs().inner.remove(&pi);
+        self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
 
@@ -1126,8 +1185,8 @@ impl ActiveChain {
         self.shared.get_header_view(base)?.get_ancestor(
             number,
             |hash| self.shared.get_header_view(hash),
-            |current| {
-                // shortcut to return a ancestor block
+            |number, current| {
+                // shortcut to return an ancestor block
                 if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
                 {
                     self.get_block_hash(number)
@@ -1414,7 +1473,7 @@ mod tests {
             parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero());
-            view.build_skip(|hash| header_map.get(hash).cloned());
+            view.build_skip(|hash| header_map.get(hash).cloned(), |_, _| None);
             header_map.insert(view.hash(), view);
         }
 
@@ -1447,7 +1506,7 @@ mod tests {
                         count += 1;
                         header_map.get(hash).cloned()
                     },
-                    |_| None,
+                    |_, _| None,
                 )
                 .unwrap();
 

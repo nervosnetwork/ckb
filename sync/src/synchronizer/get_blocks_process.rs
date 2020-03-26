@@ -73,6 +73,7 @@ impl<'a> GetBlocksProcess<'a> {
                     return StatusCode::Network
                         .with_context(format!("Send SendBlock error: {:?}", err));
                 }
+                crate::synchronizer::log_sent_metric(message.to_enum().item_name());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer
