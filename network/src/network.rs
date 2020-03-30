@@ -637,7 +637,7 @@ impl ServiceHandle for EventHandler {
                     },
                 );
 
-                if let P2pError::SessionProtoHandleAbnormallyClosed(id) = error {
+                if let P2pError::ProtoHandleAbnormallyClosed(Some(id)) = error {
                     self.network_state.ban_session(
                         &context.control(),
                         id,
