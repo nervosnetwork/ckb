@@ -8,7 +8,13 @@ pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
     let MinerConfig { client, workers } = args.config;
 
     let mut client = Client::new(new_work_tx, client);
-    let mut miner = Miner::new(args.pow_engine, client.clone(), new_work_rx, &workers);
+    let mut miner = Miner::new(
+        args.pow_engine,
+        client.clone(),
+        new_work_rx,
+        &workers,
+        args.limit,
+    );
 
     ckb_memory_tracker::track_current_process(args.memory_tracker.interval);
 
