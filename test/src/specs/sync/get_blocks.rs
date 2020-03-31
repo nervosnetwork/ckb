@@ -1,5 +1,5 @@
 use super::utils::wait_get_blocks;
-use crate::utils::build_headers;
+use crate::utils::{build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::{NetworkProtocol, BLOCK_DOWNLOAD_TIMEOUT};
 use ckb_types::core::HeaderView;
@@ -37,10 +37,19 @@ impl Spec for GetBlocksTimeout {
         let (first, received) = wait_get_blocks_point(block_download_timeout_secs * 2, &net);
         assert!(received, "Should received GetBlocks");
         let (second, received) = wait_get_blocks_point(block_download_timeout_secs * 2, &net);
-        assert!(received, "Should received GetBlocks");
+        assert!(!received, "Should not received GetBlocks");
         let elapsed = second.duration_since(first).as_secs();
         let error_margin = 2;
         assert!(elapsed >= block_download_timeout_secs - error_margin);
+
+        let rpc_client = node1.rpc_client();
+        let result = wait_until(10, || {
+            let peers = rpc_client.get_peers();
+            peers.is_empty()
+        });
+        if !result {
+            panic!("node1 must disconnect net");
+        }
     }
 }
 

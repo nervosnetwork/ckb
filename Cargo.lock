@@ -974,6 +974,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "crossbeam-channel",
  "failure",
  "faketime",
  "futures 0.3.4",
