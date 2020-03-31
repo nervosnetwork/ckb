@@ -479,23 +479,32 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F>(&mut self, mut get_header_view: F)
+    pub fn build_skip<F, G>(&mut self, mut get_header_view: F, fast_scanner: G)
     where
         F: FnMut(&Byte32) -> Option<HeaderView>,
+        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         self.skip_hash = get_header_view(&self.parent_hash())
-            .and_then(|parent| parent.get_ancestor(get_skip_height(self.number()), get_header_view))
+            .and_then(|parent| {
+                parent.get_ancestor(
+                    get_skip_height(self.number()),
+                    get_header_view,
+                    fast_scanner,
+                )
+            })
             .map(|header| header.hash());
     }
 
     // NOTE: get_header_view may change source state, for cache or for tests
-    pub fn get_ancestor<F>(
+    pub fn get_ancestor<F, G>(
         self,
         number: BlockNumber,
         mut get_header_view: F,
+        fast_scanner: G,
     ) -> Option<core::HeaderView>
     where
         F: FnMut(&Byte32) -> Option<HeaderView>,
+        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         let mut current = self;
         if number > current.number() {
@@ -520,6 +529,10 @@ impl HeaderView {
                     current = get_header_view(&current.parent_hash())?;
                     number_walk -= 1;
                 }
+            }
+            if let Some(target) = fast_scanner(number, &current) {
+                current = target;
+                break;
             }
         }
         Some(current).map(HeaderView::into_inner)
@@ -901,7 +914,22 @@ impl SyncSnapshot {
             HeaderView::new(header.clone(), total_difficulty)
         };
 
-        header_view.build_skip(|hash| self.get_header_view(hash));
+        let snapshot = Arc::clone(&self.store);
+        header_view.build_skip(
+            |hash| self.get_header_view(hash),
+            |number, current| {
+                // shortcut to return an ancestor block
+                if current.number() <= snapshot.tip_number()
+                    && snapshot.is_main_chain(&current.hash())
+                {
+                    snapshot
+                        .get_block_hash(number)
+                        .and_then(|hash| self.get_header_view(&hash))
+                } else {
+                    None
+                }
+            },
+        );
         self.state
             .header_map
             .write()
@@ -945,15 +973,21 @@ impl SyncSnapshot {
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
-        // shortcut to return a ancestor block
-        if self.store().is_main_chain(&base) {
-            return self
-                .store()
-                .get_block_hash(number)
-                .and_then(|hash| self.get_header_view(&hash).map(HeaderView::into_inner));
-        }
-        self.get_header_view(base)?
-            .get_ancestor(number, |hash| self.get_header_view(hash))
+        let tip_number = self.tip_number();
+        self.get_header_view(base)?.get_ancestor(
+            number,
+            |hash| self.get_header_view(hash),
+            |number, current| {
+                // shortcut to return an ancestor block
+                if current.number() <= tip_number && self.store().is_main_chain(&current.hash()) {
+                    self.store()
+                        .get_block_hash(number)
+                        .and_then(|hash| self.get_header_view(&hash))
+                } else {
+                    None
+                }
+            },
+        )
     }
 
     pub fn get_locator(&self, start: &core::HeaderView) -> Vec<Byte32> {
@@ -1293,7 +1327,7 @@ mod tests {
             parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero());
-            view.build_skip(|hash| header_map.get(hash).cloned());
+            view.build_skip(|hash| header_map.get(hash).cloned(), |_, _| None);
             header_map.insert(view.hash(), view);
         }
 
@@ -1320,10 +1354,14 @@ mod tests {
                 .get(&hashes[&a])
                 .cloned()
                 .unwrap()
-                .get_ancestor(b, |hash| {
-                    count += 1;
-                    header_map.get(hash).cloned()
-                })
+                .get_ancestor(
+                    b,
+                    |hash| {
+                        count += 1;
+                        header_map.get(hash).cloned()
+                    },
+                    |_, _| None,
+                )
                 .unwrap();
 
             // Search must finished in <limit> steps
