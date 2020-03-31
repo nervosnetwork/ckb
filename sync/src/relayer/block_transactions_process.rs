@@ -66,7 +66,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 .shared
                 .state()
                 .write_inflight_blocks()
-                .remove_by_block(block_hash.clone());
+                .remove_compact(self.peer, &block_hash);
         }
 
         if let Entry::Occupied(mut pending) = shared
@@ -146,7 +146,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 if shared
                     .state()
                     .write_inflight_blocks()
-                    .insert(self.peer, block_hash.clone())
+                    .compact_reconstruct(self.peer, block_hash.clone())
                 {
                     let content = packed::GetBlockTransactions::new_builder()
                         .block_hash(block_hash.clone())

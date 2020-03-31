@@ -1,21 +1,21 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
-use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER};
+use crate::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
 
-pub struct BlockFetcher {
-    synchronizer: Synchronizer,
+pub struct BlockFetcher<'a> {
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
 }
 
-impl BlockFetcher {
-    pub fn new(synchronizer: Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
+impl<'a> BlockFetcher<'a> {
+    pub fn new(synchronizer: &'a Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
         let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
@@ -29,7 +29,7 @@ impl BlockFetcher {
         let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
         // Can't download any more from this peer
-        inflight.peer_inflight_count(self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
+        inflight.peer_can_fetch_count(self.peer) == 0
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -69,7 +69,7 @@ impl BlockFetcher {
         Some(fixed_last_common_header)
     }
 
-    pub fn fetch(self) -> Option<Vec<packed::Byte32>> {
+    pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
         trace!("[block downloader] BlockFetcher process");
 
         if self.reached_inflight_limit() {
@@ -130,7 +130,7 @@ impl BlockFetcher {
         let end = min(best_known_header.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
-            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer)),
+            inflight.peer_can_fetch_count(self.peer),
         );
         let mut fetch = Vec::with_capacity(n_fetch);
 
@@ -155,7 +155,7 @@ impl BlockFetcher {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     break;
-                } else if inflight.insert(self.peer, hash) {
+                } else if inflight.insert(self.peer, hash, header.number()) {
                     fetch.push(header)
                 }
 
@@ -172,6 +172,12 @@ impl BlockFetcher {
 
         // The headers in `fetch` may be unordered. Sort them by number.
         fetch.sort_by_key(|header| header.number());
-        Some(fetch.iter().map(core::HeaderView::hash).collect())
+
+        Some(
+            fetch
+                .chunks(crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER)
+                .map(|headers| headers.iter().map(core::HeaderView::hash).collect())
+                .collect(),
+        )
     }
 }
