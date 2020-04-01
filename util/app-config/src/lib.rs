@@ -105,16 +105,24 @@ impl Setup {
         })
     }
 
-    pub fn miner(self) -> Result<MinerArgs, ExitCode> {
+    pub fn miner<'m>(self, matches: &ArgMatches<'m>) -> Result<MinerArgs, ExitCode> {
         let spec = self.chain_spec()?;
         let memory_tracker = self.config.memory_tracker().to_owned();
         let config = self.config.into_miner()?;
         let pow_engine = spec.pow_engine();
+        let limit = match value_t!(matches, cli::ARG_LIMIT, u128) {
+            Ok(l) => l,
+            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => 0,
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
 
         Ok(MinerArgs {
             pow_engine,
             config: config.miner,
             memory_tracker,
+            limit,
         })
     }
 

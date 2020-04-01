@@ -36,6 +36,7 @@ pub struct MinerArgs {
     pub config: MinerConfig,
     pub pow_engine: Arc<dyn PowEngine>,
     pub memory_tracker: MemoryTrackerConfig,
+    pub limit: u128,
 }
 
 pub struct StatsArgs {
