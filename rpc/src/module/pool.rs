@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::{Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
@@ -11,16 +11,8 @@ use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::Arc;
-
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputsValidator {
-    Default,
-    Passthrough,
-}
 
 #[rpc(server)]
 pub trait PoolRpc {

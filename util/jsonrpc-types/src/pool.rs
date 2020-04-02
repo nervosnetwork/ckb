@@ -11,3 +11,10 @@ pub struct TxPoolInfo {
     pub min_fee_rate: Uint64,
     pub last_txs_updated_at: Timestamp,
 }
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputsValidator {
+    Default,
+    Passthrough,
+}

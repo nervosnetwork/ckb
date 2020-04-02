@@ -33,7 +33,7 @@ pub use self::indexer::{
     CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
 };
 pub use self::net::{BannedAddr, Node, NodeAddress};
-pub use self::pool::TxPoolInfo;
+pub use self::pool::{OutputsValidator, TxPoolInfo};
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;
 pub use self::uints::{Uint128, Uint32, Uint64};
