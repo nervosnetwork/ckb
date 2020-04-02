@@ -47,6 +47,7 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
   overwrite: true
+  prerelease: true
   on:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
