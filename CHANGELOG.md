@@ -1,3 +1,14 @@
+# [v0.30.2](https://github.com/nervosnetwork/ckb/compare/v0.30.1...v0.30.2) (2020-04-02)
+
+### Bug Fixes
+
+* #1989: Fix `build_skip` performance bug (@TheWaWaR)
+
+# [v0.30.1](https://github.com/nervosnetwork/ckb/compare/v0.30.0...v0.30.1) (2020-03-23)
+
+Reset Aggron the testnet genesis hash to
+0x63547ecf6fc22d1325980c524b268b4a044d49cda3efbd584c0a8c8b9faaf9e1
+
 # [v0.30.0](https://github.com/nervosnetwork/ckb/compare/v0.29.0...v0.30.0) (2020-03-20)
 
 ### Breaking Changes
