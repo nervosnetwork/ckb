@@ -722,7 +722,7 @@ impl SyncShared {
                 block.header().number(),
                 block.header().hash()
             );
-            self.state.insert_orphan_block((*block).clone());
+            self.state.insert_orphan_block(pi, (*block).clone());
             return Ok(false);
         }
 
@@ -736,7 +736,7 @@ impl SyncShared {
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
         let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
-        for block in descendants {
+        for (peer, block) in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
             if !self.is_parent_stored(&block) {
@@ -750,7 +750,7 @@ impl SyncShared {
             }
 
             let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+            if let Err(err) = self.accept_block(chain, peer, Arc::clone(&block)) {
                 debug!(
                     "accept descendant orphan block {} error {:?}",
                     block.header().hash(),
@@ -1038,15 +1038,18 @@ impl SyncState {
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
-    pub fn insert_orphan_block(&self, block: core::BlockView) {
+    pub fn insert_orphan_block(&self, peer: PeerIndex, block: core::BlockView) {
         self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-        self.orphan_block_pool.insert(block);
+        self.orphan_block_pool.insert(peer, block);
     }
 
-    pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
+    pub fn remove_orphan_by_parent(
+        &self,
+        parent_hash: &Byte32,
+    ) -> Vec<(PeerIndex, core::BlockView)> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
         let mut block_status_map = self.block_status_map.lock();
-        blocks.iter().for_each(|b| {
+        blocks.iter().for_each(|(_, b)| {
             block_status_map.remove(&b.hash());
         });
         blocks
