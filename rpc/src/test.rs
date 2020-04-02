@@ -303,9 +303,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .start_http(&"127.0.0.1:0".parse().unwrap())
         .expect("JsonRpc initialize");
     let rpc_server = RpcServer {
-        http,
+        http: crate::server::waiting::HttpServer(http),
         tcp: None,
-        ws: None,
+        ws: crate::server::waiting::WsServer(None),
     };
 
     (shared, chain_controller, rpc_server)
@@ -500,8 +500,8 @@ fn test_rpc() {
     let client = reqwest::Client::new();
     let uri = format!(
         "http://{}:{}/",
-        server.http.address().ip(),
-        server.http.address().port()
+        server.http.0.address().ip(),
+        server.http.0.address().port()
     );
 
     // Assert the params of jsonrpc requests
