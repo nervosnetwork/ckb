@@ -61,7 +61,7 @@ Mainnet Lina or Testnet Aggron, switch to the branch [master].
 
 [master]: https://github.com/nervosnetwork/ckb/tree/master#documentations
 
-- [Get CKB](docs/get-ckb.md)
+- [Get CKB](docs/get-ckb.md) via downloading or building for source.
 - [Quick Start](docs/quick-start.md)
 - [Run CKB with Docker](docs/run-ckb-with-docker.md)
 - [Configure CKB](docs/configure.md)
