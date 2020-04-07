@@ -1,8 +1,8 @@
 use super::{
-    discovery::{DiscoveryProtocol, DiscoveryService},
+    discovery::DiscoveryProtocol,
     feeler::Feeler,
-    identify::IdentifyCallback,
-    ping::PingService,
+    identify::{IdentifyCallback, IdentifyProtocol},
+    ping::{PingHandler, PingService},
 };
 
 use crate::{
@@ -19,10 +19,7 @@ use std::{
 };
 
 use ckb_util::{Condvar, Mutex};
-use futures::{
-    channel::mpsc::{self, channel},
-    StreamExt,
-};
+use futures::{channel::mpsc::channel, StreamExt};
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     multiaddr::{Multiaddr, Protocol},
@@ -30,8 +27,6 @@ use p2p::{
     utils::multiaddr_to_socketaddr,
     ProtocolId, SessionId,
 };
-use p2p_identify::IdentifyProtocol;
-use p2p_ping::PingHandler;
 use tempfile::tempdir;
 
 struct Node {
@@ -161,13 +156,11 @@ fn net_service_start(name: String) -> Node {
         .build();
 
     // Discovery protocol
-    let (disc_sender, disc_receiver) = mpsc::unbounded();
+    let disc_network_state = Arc::clone(&network_state);
     let disc_meta = MetaBuilder::default()
         .id(DISCOVERY_PROTOCOL_ID.into())
         .service_handle(move || {
-            ProtocolHandle::Both(Box::new(
-                DiscoveryProtocol::new(disc_sender).global_ip_only(false),
-            ))
+            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_network_state, true)))
         })
         .build();
 
@@ -206,12 +199,6 @@ fn net_service_start(name: String) -> Node {
             exit_condvar: Arc::new((Mutex::new(()), Condvar::new())),
         });
 
-    let disc_service = DiscoveryService::new(
-        Arc::clone(&network_state),
-        disc_receiver,
-        config.discovery_local_address,
-    );
-
     let mut ping_service = PingService::new(
         Arc::clone(&network_state),
         p2p_service.control().to_owned(),
@@ -231,7 +218,6 @@ fn net_service_start(name: String) -> Node {
             .threaded_scheduler()
             .build()
             .unwrap();
-        rt.spawn(disc_service);
         rt.spawn(async move {
             loop {
                 if ping_service.next().await.is_none() {
