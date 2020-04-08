@@ -65,6 +65,11 @@ pub const MAX_LOCATOR_SIZE: usize = 101;
 
 pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s
 
+// Size of the "block download window": how far ahead of our current height do we fetch?
+// Larger windows tolerate larger download speed differences between peers, but increase the
+// potential degree of disordering of blocks.
+pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024 * 8; // 1024 * default_outbound_peers
+
 pub const RETRY_ASK_TX_TIMEOUT_INCREASE: Duration = Duration::from_secs(30);
 
 // ban time
