@@ -6,6 +6,9 @@ option BoolOpt (Bool);
 option Byte32Opt (Byte32);
 
 array Bool [byte; 1];
+
+// The `BeUintN` is used to store a `N` bits unsigned integer
+// as a byte array in big endian.
 array BeUint32 [byte; 4];
 array BeUint64 [byte; 8];
 
