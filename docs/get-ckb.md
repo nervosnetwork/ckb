@@ -103,13 +103,11 @@ choco install -y llvm msys2
 
 ### Add Environment Variables
 
-If your OS contains pre-compiled `rocksdb` or `snappy` libraries,
-you may setup `ROCKSDB_LIB_DIR` and/or `SNAPPY_LIB_DIR` environment variable
-to point to a directory with these libraries.
-This will significantly reduce compile time.
+If your OS contains pre-compiled `snappy` library, you may setup
+`SNAPPY_LIB_DIR` environment variable to point to a directory with this
+library. This will reduce compile time.
 
 ```shell
-export ROCKSDB_LIB_DIR=/usr/local/lib
 export SNAPPY_LIB_DIR=/usr/local/lib
 ```
 
