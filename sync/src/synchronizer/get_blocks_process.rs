@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::{Status, StatusCode, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
+use crate::{Status, StatusCode, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
@@ -29,7 +29,7 @@ impl<'a> GetBlocksProcess<'a> {
 
     pub fn execute(self) -> Status {
         let block_hashes = self.message.block_hashes();
-        // use MAX_HEADERS_LEN as limit, we may increase the value of MAX_BLOCKS_IN_TRANSIT_PER_PEER in the future
+        // use MAX_HEADERS_LEN as limit, we may increase the value of INIT_BLOCKS_IN_TRANSIT_PER_PEER in the future
         if block_hashes.len() > MAX_HEADERS_LEN {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "BlockHashes count({}) > MAX_HEADERS_LEN({})",
@@ -39,7 +39,7 @@ impl<'a> GetBlocksProcess<'a> {
         }
         let active_chain = self.synchronizer.shared.active_chain();
 
-        for block_hash in block_hashes.iter().take(MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        for block_hash in block_hashes.iter().take(INIT_BLOCKS_IN_TRANSIT_PER_PEER) {
             debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
             let block_hash = block_hash.to_entity();
 

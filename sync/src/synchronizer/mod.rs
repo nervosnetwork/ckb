@@ -483,9 +483,9 @@ impl Synchronizer {
             peers.sort_by_key(|id| {
                 state
                     .get(id)
-                    .map(|d| d.task_count())
-                    .unwrap_or(crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER)
+                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count())
             });
+            peers.reverse();
             peers
         };
 
