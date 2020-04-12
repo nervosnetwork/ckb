@@ -3,7 +3,8 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    FIRST_LEVEL_MAX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -270,6 +271,7 @@ impl InflightState {
 pub struct DownloadScheduler {
     task_count: usize,
     timeout_count: usize,
+    breakthroughs_count: usize,
     hashes: HashSet<Byte32>,
 }
 
@@ -277,7 +279,8 @@ impl Default for DownloadScheduler {
     fn default() -> Self {
         Self {
             hashes: HashSet::default(),
-            task_count: MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+            task_count: INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+            breakthroughs_count: 0,
             timeout_count: 0,
         }
     }
@@ -308,13 +311,17 @@ impl DownloadScheduler {
         // So the adjustment to reduce the number of tasks will be calculated by modulo 3 with the actual number of triggers.
         match ((now - time) / a).saturating_sub(b * 100) {
             0..=500 => {
-                if self.task_count < 31 {
+                if self.task_count < FIRST_LEVEL_MAX - 1 {
                     self.task_count += 2
+                } else {
+                    self.breakthroughs_count += 1
                 }
             }
             501..=1000 => {
-                if self.task_count < 32 {
+                if self.task_count < FIRST_LEVEL_MAX {
                     self.task_count += 1
+                } else {
+                    self.breakthroughs_count += 1
                 }
             }
             1001..=1500 => (),
@@ -325,6 +332,12 @@ impl DownloadScheduler {
                     self.timeout_count = 0;
                 }
             }
+        }
+        if self.breakthroughs_count > 4 {
+            if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
+                self.task_count += 1;
+            }
+            self.breakthroughs_count = 0;
         }
     }
 
@@ -339,6 +352,7 @@ pub struct InflightBlocks {
     inflight_states: HashMap<Byte32, InflightState>,
     pub(crate) trace_number: BTreeMap<BlockNumber, (HashSet<Byte32>, Option<u64>)>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
+    restart_number: BlockNumber,
 }
 
 impl Default for InflightBlocks {
@@ -348,6 +362,7 @@ impl Default for InflightBlocks {
             inflight_states: HashMap::default(),
             trace_number: BTreeMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
+            restart_number: 0,
         }
     }
 }
@@ -398,10 +413,10 @@ impl InflightBlocks {
     }
 
     pub fn peer_can_fetch_count(&self, peer: PeerIndex) -> usize {
-        self.download_schedulers
-            .get(&peer)
-            .map(DownloadScheduler::can_fetch)
-            .unwrap_or(MAX_BLOCKS_IN_TRANSIT_PER_PEER)
+        self.download_schedulers.get(&peer).map_or(
+            INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+            DownloadScheduler::can_fetch,
+        )
     }
 
     pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&HashSet<Byte32>> {
@@ -473,7 +488,7 @@ impl InflightBlocks {
                 // If the time exceeds 1s, delete the task and halve the number of
                 // executable tasks for the corresponding node
                 if let Some(time) = timestamp {
-                    if now - *time > 1000 {
+                    if now > 1000 + *time {
                         for hash in hashes {
                             let state = states.remove(&hash).unwrap();
                             if let Some(d) = blocks.get_mut(&state.peer) {
@@ -490,6 +505,7 @@ impl InflightBlocks {
 
         if should_remove {
             self.trace_number.remove(&(tip + 1));
+            self.restart_number = tip + 1;
         }
 
         if prev_count == 0 {
@@ -525,6 +541,10 @@ impl InflightBlocks {
             .entry(number)
             .or_insert_with(|| (HashSet::default(), None));
         trace_number.0.insert(hash);
+        if self.restart_number == number {
+            trace_number.1 = Some(unix_time_as_millis() + 500);
+            self.restart_number = 0;
+        }
         ret
     }
 
@@ -914,17 +934,6 @@ impl SyncShared {
                 block.header().hash()
             );
             self.state.insert_orphan_block(pi, (*block).clone());
-            let tip = self.shared.snapshot().tip_number();
-            if let Some(entry) = self
-                .state()
-                .write_inflight_blocks()
-                .trace_number
-                .get_mut(&(tip + 1))
-            {
-                if entry.1.is_none() {
-                    entry.1 = Some(unix_time_as_millis());
-                }
-            }
             return Ok(false);
         }
 

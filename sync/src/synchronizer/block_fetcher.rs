@@ -146,15 +146,16 @@ impl<'a> BlockFetcher<'a> {
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
-                // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-                let stored = self
-                    .active_chain
-                    .contains_block_status(&hash, BlockStatus::BLOCK_STORED);
-                if stored {
+
+                let status = self.active_chain.get_block_status(&hash);
+                if status == BlockStatus::BLOCK_STORED {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     break;
+                } else if self.ibd.into() && status.contains(BlockStatus::BLOCK_RECEIVED) {
+                    // NOTE: NO-IBD Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+                    // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+                    // TODO: If async validation is achieved, then the IBD state judgement here can be removed
                 } else if inflight.insert(self.peer, hash, header.number()) {
                     fetch.push(header)
                 }
@@ -173,9 +174,21 @@ impl<'a> BlockFetcher<'a> {
         // The headers in `fetch` may be unordered. Sort them by number.
         fetch.sort_by_key(|header| header.number());
 
+        let tip = self.active_chain.tip_number();
+        let should_mark = fetch.last().map_or(true, |header| {
+            header.number().saturating_sub(crate::CHECK_POINT_WINDOW) > tip
+        });
+        if should_mark {
+            if let Some(entry) = inflight.trace_number.get_mut(&(tip + 1)) {
+                if entry.1.is_none() {
+                    entry.1 = Some(faketime::unix_time_as_millis());
+                }
+            }
+        }
+
         Some(
             fetch
-                .chunks(crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER)
+                .chunks(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER)
                 .map(|headers| headers.iter().map(core::HeaderView::hash).collect())
                 .collect(),
         )
