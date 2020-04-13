@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
-use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER};
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
@@ -126,16 +126,16 @@ impl BlockFetcher {
         debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
         let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
-        let count =
-            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer));
-        let mut fetch = Vec::with_capacity(count);
         let mut start = fixed_last_common_header.number() + 1;
+        let end = min(best_known_header.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let n_fetch = min(
+            end.saturating_sub(start) as usize + 1,
+            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer)),
+        );
+        let mut fetch = Vec::with_capacity(n_fetch);
 
-        while fetch.len() < count && start <= best_known_header.number() {
-            let span = min(
-                best_known_header.number() - start + 1,
-                (count - fetch.len()) as u64,
-            );
+        while fetch.len() < n_fetch && start <= end {
+            let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
             let mut header = self
