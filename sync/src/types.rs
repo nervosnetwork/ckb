@@ -26,7 +26,7 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
 use std::cmp;
-use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::mem;
@@ -254,15 +254,28 @@ pub struct Peers {
 pub struct InflightState {
     pub(crate) peer: PeerIndex,
     pub(crate) timestamp: u64,
-    pub(crate) number: BlockNumber,
 }
 
 impl InflightState {
-    fn new(peer: PeerIndex, number: BlockNumber) -> Self {
+    fn new(peer: PeerIndex) -> Self {
         Self {
             peer,
             timestamp: unix_time_as_millis(),
-            number,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlockNumberAndHash {
+    pub number: BlockNumber,
+    pub hash: Byte32,
+}
+
+impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
+    fn from(inner: (BlockNumber, Byte32)) -> Self {
+        Self {
+            number: inner.0,
+            hash: inner.1,
         }
     }
 }
@@ -272,7 +285,7 @@ pub struct DownloadScheduler {
     task_count: usize,
     timeout_count: usize,
     breakthroughs_count: usize,
-    hashes: HashSet<Byte32>,
+    hashes: HashSet<BlockNumberAndHash>,
 }
 
 impl Default for DownloadScheduler {
@@ -302,14 +315,22 @@ impl DownloadScheduler {
     fn adjust(&mut self, time: u64, len: u64) {
         let now = unix_time_as_millis();
         // 8 means default max outbound
-        let (a, b) = if len > 8 { (len >> 3, len % 8) } else { (1, 0) };
+        // All synchronization tests are based on the assumption of 8 nodes.
+        // If the number of nodes is increased, the number of requests and processing time will increase,
+        // and the corresponding adjustment criteria are needed, so the adjustment is based on 8.
+        //
+        // note: This is an interim scenario and the next step is to consider the median response time
+        // within a certain interval as the adjustment criterion
+        let (quotient, remainder) = if len > 8 { (len >> 3, len % 8) } else { (1, 0) };
         // Dynamically adjust download tasks based on response time.
         //
         // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
         // But the mark is on the same time, so multiple tasks may be affected by one task,
         // causing all responses to be in the range of reduced tasks.
         // So the adjustment to reduce the number of tasks will be calculated by modulo 3 with the actual number of triggers.
-        match ((now - time) / a).saturating_sub(b * 100) {
+        // Adjust for each block received.
+        match ((now - time) / quotient).saturating_sub(remainder * 100) {
+            // Within 500ms of response, considered better to communicate with that node's network
             0..=500 => {
                 if self.task_count < FIRST_LEVEL_MAX - 1 {
                     self.task_count += 2
@@ -317,6 +338,7 @@ impl DownloadScheduler {
                     self.breakthroughs_count += 1
                 }
             }
+            // Within 1000ms of response time, the network is relatively good and communication should be maintained
             501..=1000 => {
                 if self.task_count < FIRST_LEVEL_MAX {
                     self.task_count += 1
@@ -324,7 +346,9 @@ impl DownloadScheduler {
                     self.breakthroughs_count += 1
                 }
             }
+            // Response time within 1500ms, acceptable range, but not relatively good for nodes and do not adjust
             1001..=1500 => (),
+            // Above 1500ms, relatively poor network, reduced
             _ => {
                 self.timeout_count += 1;
                 if self.timeout_count > 3 {
@@ -349,30 +373,30 @@ impl DownloadScheduler {
 #[derive(Clone)]
 pub struct InflightBlocks {
     pub(crate) download_schedulers: HashMap<PeerIndex, DownloadScheduler>,
-    inflight_states: HashMap<Byte32, InflightState>,
-    pub(crate) trace_number: BTreeMap<BlockNumber, (HashSet<Byte32>, Option<u64>)>,
+    inflight_states: BTreeMap<BlockNumberAndHash, InflightState>,
+    pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
-    restart_number: BlockNumber,
+    pub(crate) restart_number: BlockNumber,
 }
 
 impl Default for InflightBlocks {
     fn default() -> Self {
         InflightBlocks {
             download_schedulers: HashMap::default(),
-            inflight_states: HashMap::default(),
-            trace_number: BTreeMap::default(),
+            inflight_states: BTreeMap::default(),
+            trace_number: HashMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
         }
     }
 }
 
-struct DebugHashSet<'a>(&'a HashSet<Byte32>);
+struct DebugHashSet<'a>(&'a HashSet<BlockNumberAndHash>);
 
 impl<'a> fmt::Debug for DebugHashSet<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_set()
-            .entries(self.0.iter().map(|h| format!("{}", h)))
+            .entries(self.0.iter().map(|h| format!("{}", h.hash)))
             .finish()
     }
 }
@@ -390,14 +414,14 @@ impl fmt::Debug for InflightBlocks {
             .entries(
                 self.inflight_states
                     .iter()
-                    .map(|(k, v)| (format!("{}", k), v)),
+                    .map(|(k, v)| (format!("{}", k.hash), v)),
             )
             .finish()
     }
 }
 
 impl InflightBlocks {
-    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &HashSet<Byte32>)> {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &HashSet<BlockNumberAndHash>)> {
         self.download_schedulers.iter().map(|(k, v)| (k, &v.hashes))
     }
 
@@ -419,11 +443,11 @@ impl InflightBlocks {
         )
     }
 
-    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&HashSet<Byte32>> {
+    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&HashSet<BlockNumberAndHash>> {
         self.download_schedulers.get(&peer).map(|d| &d.hashes)
     }
 
-    pub fn inflight_state_by_block(&self, block: &Byte32) -> Option<&InflightState> {
+    pub fn inflight_state_by_block(&self, block: &BlockNumberAndHash) -> Option<&InflightState> {
         self.inflight_states.get(block)
     }
 
@@ -446,67 +470,89 @@ impl InflightBlocks {
         self.compact_reconstruct_inflight.get(hash)
     }
 
+    pub fn mark_slow_block(&mut self, tip: BlockNumber) {
+        let now = faketime::unix_time_as_millis();
+        for key in self.inflight_states.keys() {
+            if key.number > tip + 1 {
+                break;
+            }
+            self.trace_number.entry(key.clone()).or_insert(now);
+        }
+    }
+
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
         let prev_count = self.total_inflight_count();
-        self.trace_number = self.trace_number.split_off(&(tip + 1));
         let mut disconnect_list = HashSet::new();
 
         let trace = &mut self.trace_number;
-        let blocks = &mut self.download_schedulers;
+        let download_schedulers = &mut self.download_schedulers;
         let states = &mut self.inflight_states;
-        states.retain(|k, v| {
-            let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
-            if outdate {
-                blocks.get_mut(&v.peer).map(|set| set.hashes.remove(k));
-                trace.entry(v.number).and_modify(|(trace, _)| {
-                    trace.remove(k);
-                });
-                disconnect_list.insert(v.peer);
-            }
-            !outdate
-        });
 
-        blocks.retain(|k, v| {
-            // task number zero means this peer's response is very slow
-            let zero = v.task_count != 0;
-            if !zero {
-                disconnect_list.insert(*k);
+        let mut remove_key = Vec::new();
+        // Since this is a btreemap, with the data already sorted,
+        // we don't have to worry about missing points, and we don't need to
+        // iterate through all the data each time, just check within tip + 20,
+        // with the checkpoint marking possible blocking points, it's enough
+        let end = tip + 20;
+        for (key, value) in states.iter() {
+            if key.number > end {
+                break;
             }
-            zero
-        });
-
-        let should_remove = trace
-            .get(&(tip + 1))
-            .map(|(hashes, timestamp)| {
-                // In the normal state, timestamp should always be None
-                //
-                // When a sync block is inserted to orphan pool, it means that
-                // there is an anomaly in the sync at tip + 1, i.e. a node is stuck,
-                // at which point it will be recorded as the timestamp at that time.
-                //
-                // If the time exceeds 1s, delete the task and halve the number of
-                // executable tasks for the corresponding node
-                if let Some(time) = timestamp {
-                    if now > 1000 + *time {
-                        for hash in hashes {
-                            let state = states.remove(&hash).unwrap();
-                            if let Some(d) = blocks.get_mut(&state.peer) {
-                                d.punish();
-                                d.hashes.remove(&hash);
-                            };
-                        }
-                        return true;
-                    }
+            if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
+                download_schedulers
+                    .get_mut(&value.peer)
+                    .map(|set| set.hashes.remove(key));
+                if !trace.is_empty() {
+                    trace.remove(&key);
                 }
-                false
-            })
-            .unwrap_or(false);
-
-        if should_remove {
-            self.trace_number.remove(&(tip + 1));
-            self.restart_number = tip + 1;
+                disconnect_list.insert(value.peer);
+                remove_key.push(key.clone());
+            }
         }
+
+        for key in remove_key {
+            states.remove(&key);
+        }
+
+        download_schedulers.retain(|k, v| {
+            // task number zero means this peer's response is very slow
+            if v.task_count == 0 {
+                disconnect_list.insert(*k);
+                false
+            } else {
+                true
+            }
+        });
+
+        if self.restart_number != 0 && tip + 1 > self.restart_number {
+            self.restart_number = 0;
+        }
+
+        let restart_number = &mut self.restart_number;
+        trace.retain(|key, time| {
+            // In the normal state, trace will always empty
+            //
+            // When the inflight request reaches the checkpoint(inflight > tip + 512),
+            // it means that there is an anomaly in the sync less than tip + 1, i.e. some nodes are stuck,
+            // at which point it will be recorded as the timestamp at that time.
+            //
+            // If the time exceeds 1s, delete the task and halve the number of
+            // executable tasks for the corresponding node
+            if now > 1000 + *time {
+                if let Some(state) = states.remove(key) {
+                    if let Some(d) = download_schedulers.get_mut(&state.peer) {
+                        d.punish();
+                        d.hashes.remove(key);
+                    };
+                }
+                if key.number > *restart_number {
+                    *restart_number = key.number;
+                }
+                return false;
+            }
+            true
+        });
 
         if prev_count == 0 {
             metric!({
@@ -523,29 +569,26 @@ impl InflightBlocks {
         disconnect_list
     }
 
-    pub fn insert(&mut self, peer: PeerIndex, hash: Byte32, number: BlockNumber) -> bool {
-        let state = self.inflight_states.entry(hash.clone());
+    pub fn insert(&mut self, peer: PeerIndex, block: BlockNumberAndHash) -> bool {
+        let state = self.inflight_states.entry(block.clone());
         match state {
             Entry::Occupied(_entry) => return false,
-            Entry::Vacant(entry) => entry.insert(InflightState::new(peer, number)),
+            Entry::Vacant(entry) => entry.insert(InflightState::new(peer)),
         };
 
-        let blocks = self
+        if self.restart_number >= block.number {
+            // All new requests smaller than restart_number mean that they are cleaned up and
+            // cannot be immediately marked as cleaned up again, so give it a normal response time of 1.5s.
+            // (timeout check is 1s, plus 0.5s given in advance)
+            self.trace_number
+                .insert(block.clone(), unix_time_as_millis() + 500);
+        }
+
+        let download_scheduler = self
             .download_schedulers
             .entry(peer)
             .or_insert_with(DownloadScheduler::default);
-        let ret = blocks.hashes.insert(hash.clone());
-
-        let trace_number = self
-            .trace_number
-            .entry(number)
-            .or_insert_with(|| (HashSet::default(), None));
-        trace_number.0.insert(hash);
-        if self.restart_number == number {
-            trace_number.1 = Some(unix_time_as_millis() + 500);
-            self.restart_number = 0;
-        }
-        ret
+        download_scheduler.hashes.insert(block)
     }
 
     pub fn remove_by_peer(&mut self, peer: PeerIndex) -> bool {
@@ -556,32 +599,33 @@ impl InflightBlocks {
             .remove(&peer)
             .map(|blocks| {
                 for block in blocks.hashes {
-                    compact.get_mut(&block).map(|peers| peers.remove(&peer));
-                    if let Some(state) = state.remove(&block) {
-                        trace.entry(state.number).and_modify(|(trace, _)| {
-                            trace.remove(&block);
-                        });
+                    compact
+                        .get_mut(&block.hash)
+                        .map(|peers| peers.remove(&peer));
+                    state.remove(&block);
+                    if !trace.is_empty() {
+                        trace.remove(&block);
                     }
                 }
             })
             .is_some()
     }
 
-    pub fn remove_by_block(&mut self, block: Byte32) -> bool {
-        let blocks = &mut self.download_schedulers;
+    pub fn remove_by_block(&mut self, block: BlockNumberAndHash) -> bool {
+        let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
-        let len = blocks.len() as u64;
+        let len = download_schedulers.len() as u64;
         self.inflight_states
             .remove(&block)
             .map(|state| {
-                if let Some(set) = blocks.get_mut(&state.peer) {
+                if let Some(set) = download_schedulers.get_mut(&state.peer) {
                     set.hashes.remove(&block);
-                    compact.remove(&block);
+                    compact.remove(&block.hash);
                     set.adjust(state.timestamp, len);
-                    trace.entry(state.number).and_modify(|(trace, _)| {
+                    if !trace.is_empty() {
                         trace.remove(&block);
-                    });
+                    }
                 };
                 state.timestamp
             })
@@ -670,7 +714,10 @@ impl Peers {
         })
     }
 
-    pub fn get_best_known_less_than_tip(&self, tip: BlockNumber) -> Vec<PeerIndex> {
+    pub fn get_best_known_less_than_tip_and_unknown_empty(
+        &self,
+        tip: BlockNumber,
+    ) -> Vec<PeerIndex> {
         self.state
             .read()
             .iter()
@@ -1236,7 +1283,8 @@ impl SyncState {
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &core::BlockView) -> bool {
-        self.write_inflight_blocks().remove_by_block(block.hash())
+        self.write_inflight_blocks()
+            .remove_by_block((block.number(), block.hash()).into())
     }
 
     pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {

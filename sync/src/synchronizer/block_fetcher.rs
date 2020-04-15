@@ -156,7 +156,11 @@ impl<'a> BlockFetcher<'a> {
                     // NOTE: NO-IBD Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
                     // stopping synchronization even when orphan_pool maintains dirty items by bugs.
                     // TODO: If async validation is achieved, then the IBD state judgement here can be removed
-                } else if inflight.insert(self.peer, hash, header.number()) {
+
+                    // On IBD, BLOCK_RECEIVED means this block had been received, so this block doesn't need to fetch
+                    // On NO-IBD, because of the model, this block has to be requested again
+                    // But all of these can do nothing on this branch
+                } else if inflight.insert(self.peer, (header.number(), hash).into()) {
                     fetch.push(header)
                 }
 
@@ -175,15 +179,11 @@ impl<'a> BlockFetcher<'a> {
         fetch.sort_by_key(|header| header.number());
 
         let tip = self.active_chain.tip_number();
-        let should_mark = fetch.last().map_or(true, |header| {
+        let should_mark = fetch.last().map_or(false, |header| {
             header.number().saturating_sub(crate::CHECK_POINT_WINDOW) > tip
         });
         if should_mark {
-            if let Some(entry) = inflight.trace_number.get_mut(&(tip + 1)) {
-                if entry.1.is_none() {
-                    entry.1 = Some(faketime::unix_time_as_millis());
-                }
-            }
+            inflight.mark_slow_block(tip);
         }
 
         Some(

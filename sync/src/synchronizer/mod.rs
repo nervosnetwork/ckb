@@ -424,12 +424,13 @@ impl Synchronizer {
         let disconnect_list = {
             let mut list = self.shared().state().write_inflight_blocks().prune(tip);
             if let IBDState::In = ibd {
-                // best known < tip and in IBD state, these node can be disconnect
+                // best known < tip and in IBD state, and unknown list is empty,
+                // these node can be disconnect
                 list.extend(
                     self.shared
                         .state()
                         .peers()
-                        .get_best_known_less_than_tip(tip),
+                        .get_best_known_less_than_tip_and_unknown_empty(tip),
                 )
             };
             list
@@ -491,9 +492,10 @@ impl Synchronizer {
 
         trace!("poll find_blocks_to_fetch select peers");
         // fetch use a lot of cpu time, especially in ibd state
+        // so in ibd, the fetch function use another thread
         match nc.p2p_control() {
             Some(raw) if ibd.into() => match self.fetch_channel {
-                Some(ref send) => send.send(FetchCMD::Fetch(peers)).unwrap(),
+                Some(ref sender) => sender.send(FetchCMD::Fetch(peers)).unwrap(),
                 None => {
                     let p2p_control = raw.clone();
                     let sync = self.clone();

@@ -1,5 +1,5 @@
 use crate::utils::{
-    build_block, build_get_blocks, build_header, new_block_with_template, sleep, wait_until,
+    build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
@@ -254,12 +254,6 @@ impl Spec for BlockSyncOrphanBlocks {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         net.exit_ibd_mode();
-        net.connect(node0);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
-        let rpc_client = node0.rpc_client();
-        let tip_number = rpc_client.get_tip_block_number();
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=5)
@@ -270,13 +264,22 @@ impl Spec for BlockSyncOrphanBlocks {
             })
             .collect();
 
+        net.connect(node0);
+        let (peer_id, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+        let rpc_client = node0.rpc_client();
+        let tip_number = rpc_client.get_tip_block_number();
+
         // Send headers to node0, keep blocks body
         blocks.iter().for_each(|block| {
             sync_header(&net, peer_id, block);
         });
 
         // Wait for block fetch timer
-        sleep(5);
+        let (_, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
