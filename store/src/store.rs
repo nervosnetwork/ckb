@@ -252,6 +252,14 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 
     fn get_cell_meta(&'a self, tx_hash: &packed::Byte32, index: u32) -> Option<CellMeta> {
+        if index == 0u32 {
+            if let Some(cache) = self.cache() {
+                if let Some(data) = cache.cell_meta.lock().get(tx_hash) {
+                    return Some(data.clone());
+                }
+            };
+        }
+
         self.get_transaction_info_packed(&tx_hash)
             .and_then(|tx_info| {
                 self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())

@@ -12,7 +12,7 @@ use ckb_db::{
 };
 use ckb_error::Error;
 use ckb_types::{
-    core::{BlockExt, BlockView, EpochExt, HeaderView},
+    core::{cell::CellMeta, BlockExt, BlockView, EpochExt, HeaderView, TransactionInfo},
     packed,
     prelude::*,
 };
@@ -159,7 +159,46 @@ impl StoreTransaction {
                 &uncle.header().pack().as_slice(),
             )?;
         }
-        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
+        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())?;
+        self.insert_cellbase_meta_cache(block);
+        Ok(())
+    }
+
+    fn insert_cellbase_meta_cache(&self, block: &BlockView) {
+        if let Some(cache) = self.cache() {
+            let header = block.header();
+            if let Some(cellbase) = &block.transactions().first() {
+                if let Some(output) = cellbase.outputs().get(0) {
+                    if let Some(output_data) = cellbase.outputs_data().get(0) {
+                        let data = output_data.raw_data();
+                        let data_hash = packed::CellOutput::calc_data_hash(&data);
+                        let out_point = packed::OutPoint::new(cellbase.hash(), 0);
+                        let cell_meta = CellMeta {
+                            cell_output: output,
+                            out_point: out_point.clone(),
+                            transaction_info: Some(TransactionInfo {
+                                block_number: header.number(),
+                                block_epoch: header.epoch(),
+                                block_hash: block.hash(),
+                                index: 0,
+                            }),
+                            data_bytes: data.len() as u64,
+                            mem_cell_data: Some((data, data_hash)),
+                        };
+
+                        cache.cell_meta.lock().insert(cellbase.hash(), cell_meta);
+                    }
+                }
+            }
+        }
+    }
+
+    fn remove_cellbase_meta_cache(&self, block: &BlockView) {
+        if let Some(cache) = self.cache() {
+            if let Some(cellbase) = &block.transactions().first() {
+                cache.cell_meta.lock().remove(&cellbase.hash());
+            }
+        }
     }
 
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
@@ -171,7 +210,9 @@ impl StoreTransaction {
         }
         let block_number = block.data().header().raw().number();
         self.delete(COLUMN_INDEX, block_number.as_slice())?;
-        self.delete(COLUMN_INDEX, block.hash().as_slice())
+        self.delete(COLUMN_INDEX, block.hash().as_slice())?;
+        self.remove_cellbase_meta_cache(block);
+        Ok(())
     }
 
     pub fn insert_block_epoch_index(

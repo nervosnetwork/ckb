@@ -1,7 +1,7 @@
 use crate::config::StoreConfig;
 use ckb_types::{
     bytes::Bytes,
-    core::{HeaderView, TransactionView, UncleBlockVecView},
+    core::{cell::CellMeta, HeaderView, TransactionView, UncleBlockVecView},
     packed::{Byte32, ProposalShortIdVec},
 };
 use ckb_util::Mutex;
@@ -14,6 +14,7 @@ pub struct StoreCache {
     pub block_tx_hashes: Mutex<LruCache<Byte32, Vec<Byte32>>>,
     pub block_uncles: Mutex<LruCache<Byte32, UncleBlockVecView>>,
     pub cellbase: Mutex<LruCache<Byte32, TransactionView>>,
+    pub cell_meta: Mutex<LruCache<Byte32, CellMeta>>,
 }
 
 impl Default for StoreCache {
@@ -31,6 +32,7 @@ impl StoreCache {
             block_tx_hashes: Mutex::new(LruCache::new(config.block_tx_hashes_cache_size)),
             block_uncles: Mutex::new(LruCache::new(config.block_uncles_cache_size)),
             cellbase: Mutex::new(LruCache::new(config.cellbase_cache_size)),
+            cell_meta: Mutex::new(LruCache::new(40000)),
         }
     }
 }
