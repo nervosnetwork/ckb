@@ -30,7 +30,7 @@ log_to_stdout = true # {{
 [sentry]
 # set to blank to disable sentry error collection
 dsn = "" # {{
-# testnet => dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
+# testnet => dsn = "https://dda4f353e15f4b62800d273a2afe70c2@sentry.nervos.org/4"
 # }}
 # if you are willing to help us to improve,
 # please leave a way to contact you when we have troubles to reproduce the errors.
