@@ -52,6 +52,8 @@ deploy:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
+if: 'type != pull_request or head_branch != develop'
+
 matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.

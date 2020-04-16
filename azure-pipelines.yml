@@ -15,7 +15,10 @@ jobs:
       and(
         not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
         or(
-          eq(variables['Build.Reason'], 'PullRequest'),
+          and(
+            eq(variables['Build.Reason'], 'PullRequest'),
+            ne(variables['System.PullRequest.SourceBranch'], 'develop')
+          ),
           eq(variables['Build.SourceBranch'], 'refs/heads/master')
         )
       )
