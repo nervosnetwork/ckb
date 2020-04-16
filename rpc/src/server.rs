@@ -8,33 +8,12 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use jsonrpc_tcp_server;
 use jsonrpc_ws_server;
-use std::net::ToSocketAddrs;
-
-// Wrapper for HTTP and WS servers that makes sure they are properly shut down.
-pub(crate) mod waiting {
-    pub struct HttpServer(pub jsonrpc_http_server::Server);
-    impl HttpServer {
-        pub fn close(self) {
-            self.0.close_handle().close();
-            self.0.wait();
-        }
-    }
-
-    pub struct WsServer(pub Option<jsonrpc_ws_server::Server>);
-    impl WsServer {
-        pub fn close(mut self) {
-            if let Some(server) = self.0.take() {
-                server.close_handle().close();
-                let _ = server.wait();
-            }
-        }
-    }
-}
+use std::net::{SocketAddr, ToSocketAddrs};
 
 pub struct RpcServer {
-    pub(crate) http: waiting::HttpServer,
-    pub(crate) tcp: Option<jsonrpc_tcp_server::Server>,
-    pub(crate) ws: waiting::WsServer,
+    pub(crate) http: jsonrpc_http_server::Server,
+    pub(crate) _tcp: Option<jsonrpc_tcp_server::Server>,
+    pub(crate) _ws: Option<jsonrpc_ws_server::Server>,
 }
 
 impl RpcServer {
@@ -61,7 +40,7 @@ impl RpcServer {
             )
             .expect("Start Jsonrpc HTTP service");
 
-        let tcp = config
+        let _tcp = config
             .tcp_listen_address
             .as_ref()
             .map(|tcp_listen_address| {
@@ -89,7 +68,7 @@ impl RpcServer {
                 .expect("Start Jsonrpc TCP service")
             });
 
-        let ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
+        let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
             let subscription_rpc_impl =
                 SubscriptionRpcImpl::new(notify_controller.clone(), Some("WsSubscription"));
             let mut handler = io_handler.clone();
@@ -112,18 +91,10 @@ impl RpcServer {
             .expect("Start Jsonrpc WebSocket service")
         });
 
-        RpcServer {
-            tcp,
-            http: waiting::HttpServer(http),
-            ws: waiting::WsServer(ws),
-        }
+        RpcServer { http, _tcp, _ws }
     }
 
-    pub fn close(self) {
-        self.http.close();
-        self.ws.close();
-        if let Some(tcp) = self.tcp {
-            tcp.close();
-        }
+    pub fn http_address(&self) -> &SocketAddr {
+        self.http.address()
     }
 }

@@ -148,14 +148,12 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_debug();
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+    let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
     wait_for_exit(exit_condvar);
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 
-    rpc_server.close();
-    info_target!(crate::LOG_TARGET_MAIN, "Jsonrpc shutdown");
     Ok(())
 }
 
