@@ -8,12 +8,12 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use jsonrpc_tcp_server;
 use jsonrpc_ws_server;
-use std::net::ToSocketAddrs;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 pub struct RpcServer {
     pub(crate) http: jsonrpc_http_server::Server,
-    pub(crate) tcp: Option<jsonrpc_tcp_server::Server>,
-    pub(crate) ws: Option<jsonrpc_ws_server::Server>,
+    pub(crate) _tcp: Option<jsonrpc_tcp_server::Server>,
+    pub(crate) _ws: Option<jsonrpc_ws_server::Server>,
 }
 
 impl RpcServer {
@@ -40,7 +40,7 @@ impl RpcServer {
             )
             .expect("Start Jsonrpc HTTP service");
 
-        let tcp = config
+        let _tcp = config
             .tcp_listen_address
             .as_ref()
             .map(|tcp_listen_address| {
@@ -68,7 +68,7 @@ impl RpcServer {
                 .expect("Start Jsonrpc TCP service")
             });
 
-        let ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
+        let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
             let subscription_rpc_impl =
                 SubscriptionRpcImpl::new(notify_controller.clone(), Some("WsSubscription"));
             let mut handler = io_handler.clone();
@@ -91,16 +91,10 @@ impl RpcServer {
             .expect("Start Jsonrpc WebSocket service")
         });
 
-        RpcServer { http, tcp, ws }
+        RpcServer { http, _tcp, _ws }
     }
 
-    pub fn close(self) {
-        self.http.close();
-        if let Some(tcp) = self.tcp {
-            tcp.close();
-        }
-        if let Some(ws) = self.ws {
-            ws.close();
-        }
+    pub fn http_address(&self) -> &SocketAddr {
+        self.http.address()
     }
 }

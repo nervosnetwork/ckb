@@ -304,8 +304,8 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .expect("JsonRpc initialize");
     let rpc_server = RpcServer {
         http,
-        tcp: None,
-        ws: None,
+        _tcp: None,
+        _ws: None,
     };
 
     (shared, chain_controller, rpc_server)
@@ -500,8 +500,8 @@ fn test_rpc() {
     let client = reqwest::Client::new();
     let uri = format!(
         "http://{}:{}/",
-        server.http.address().ip(),
-        server.http.address().port()
+        server.http_address().ip(),
+        server.http_address().port()
     );
 
     // Assert the params of jsonrpc requests
@@ -554,6 +554,4 @@ fn test_rpc() {
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
         }
     }
-
-    server.close();
 }
