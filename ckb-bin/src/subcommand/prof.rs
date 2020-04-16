@@ -5,6 +5,7 @@ use ckb_logger::info;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use std::sync::Arc;
+use tempfile;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
     let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
@@ -16,35 +17,57 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
             ExitCode::Failure
         })?;
 
-    let (tmp_shared, table) = SharedBuilder::default()
-        .consensus(args.consensus)
-        .tx_pool_config(args.config.tx_pool)
-        .build()
-        .map_err(|err| {
-            eprintln!("Prof error: {:?}", err);
-            ExitCode::Failure
-        })?;
+    if !args.tmp_target.is_dir() {
+        eprintln!(
+            "Prof error: {:?}",
+            "The specified path does not exist or not directory"
+        );
+        return Err(ExitCode::Failure);
+    }
+    let tmp_db_dir = tempfile::tempdir_in(args.tmp_target).map_err(|err| {
+        eprintln!("Prof error: {:?}", err);
+        ExitCode::Failure
+    })?;
+    {
+        let mut tmp_db_config = args.config.db.clone();
+        tmp_db_config.path = tmp_db_dir.path().to_path_buf();
 
-    let from = std::cmp::max(1, args.from);
-    let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
-    let chain = ChainService::new(tmp_shared, table);
-    let chain_controller = chain.start(Some("chain"));
-    profile_block_process(
-        shared.clone(),
-        chain_controller.clone(),
-        1,
-        std::cmp::max(1, from.saturating_sub(1)),
-    );
-    info!("start profling, re-process blocks {}..{}:", from, to);
-    let now = std::time::Instant::now();
-    let tx_count = profile_block_process(shared, chain_controller, from, to);
-    let duration = now.elapsed();
-    info!(
-        "end profling, duration {:?} txs {} tps {}",
-        duration,
-        tx_count,
-        tx_count as u64 / duration.as_secs()
-    );
+        let (tmp_shared, table) = SharedBuilder::with_db_config(&tmp_db_config)
+            .consensus(args.consensus)
+            .tx_pool_config(args.config.tx_pool)
+            .build()
+            .map_err(|err| {
+                eprintln!("Prof error: {:?}", err);
+                ExitCode::Failure
+            })?;
+
+        let from = std::cmp::max(1, args.from);
+        let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
+        let chain = ChainService::new(tmp_shared, table);
+        let chain_controller = chain.start(Some("chain"));
+        profile_block_process(
+            shared.clone(),
+            chain_controller.clone(),
+            1,
+            std::cmp::max(1, from.saturating_sub(1)),
+        );
+        info!("start profling, re-process blocks {}..{}:", from, to);
+        let now = std::time::Instant::now();
+        let tx_count = profile_block_process(shared, chain_controller, from, to);
+        let duration = now.elapsed();
+        info!(
+            "end profling, duration {:?} txs {} tps {}",
+            duration,
+            tx_count,
+            tx_count as u64 / duration.as_secs()
+        );
+    }
+
+    tmp_db_dir.close().map_err(|err| {
+        eprintln!("Prof error: {:?}", err);
+        ExitCode::Failure
+    })?;
+
     Ok(())
 }
 
