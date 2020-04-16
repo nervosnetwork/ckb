@@ -6,10 +6,10 @@ use crate::peer_store::{
 };
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
-    discovery::{DiscoveryProtocol, DiscoveryService},
+    discovery::DiscoveryProtocol,
     feeler::Feeler,
-    identify::IdentifyCallback,
-    ping::PingService,
+    identify::{IdentifyCallback, IdentifyProtocol},
+    ping::{PingHandler, PingService},
 };
 use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
@@ -25,10 +25,7 @@ use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{
-    channel::{
-        mpsc::{self, channel},
-        oneshot,
-    },
+    channel::{mpsc::channel, oneshot},
     Future, StreamExt,
 };
 use ipnetwork::IpNetwork;
@@ -47,8 +44,6 @@ use p2p::{
     utils::extract_peer_id,
     SessionId,
 };
-use p2p_identify::IdentifyProtocol;
-use p2p_ping::PingHandler;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -881,7 +876,7 @@ impl NetworkService {
             .build();
 
         // Discovery protocol
-        let (disc_sender, disc_receiver) = mpsc::unbounded();
+        let disc_network_state = Arc::clone(&network_state);
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/discovery".to_string())
@@ -893,10 +888,10 @@ impl NetworkService {
                 )
             })
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(
-                    DiscoveryProtocol::new(disc_sender.clone())
-                        .global_ip_only(!config.discovery_local_address),
-                ))
+                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
+                    disc_network_state,
+                    config.discovery_local_address,
+                )))
             })
             .build();
 
@@ -977,11 +972,6 @@ impl NetworkService {
             .build(event_handler);
 
         // == Build background service tasks
-        let disc_service = DiscoveryService::new(
-            Arc::clone(&network_state),
-            disc_receiver,
-            config.discovery_local_address,
-        );
         let mut ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().to_owned(),
@@ -1001,7 +991,6 @@ impl NetworkService {
                     }
                 }
             }) as Pin<Box<_>>,
-            Box::pin(disc_service) as Pin<Box<_>>,
             Box::pin(dump_peer_store_service) as Pin<Box<_>>,
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
