@@ -284,9 +284,9 @@ impl Default for InflightBlocks {
     }
 }
 
-struct DebugHastSet<'a>(&'a HashSet<Byte32>);
+struct DebugHashSet<'a>(&'a HashSet<Byte32>);
 
-impl<'a> fmt::Debug for DebugHastSet<'a> {
+impl<'a> fmt::Debug for DebugHashSet<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_set()
             .entries(self.0.iter().map(|h| format!("{}", h)))
@@ -297,7 +297,7 @@ impl<'a> fmt::Debug for DebugHastSet<'a> {
 impl fmt::Debug for InflightBlocks {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_map()
-            .entries(self.blocks.iter().map(|(k, v)| (k, DebugHastSet(v))))
+            .entries(self.blocks.iter().map(|(k, v)| (k, DebugHashSet(v))))
             .finish()?;
         fmt.debug_map()
             .entries(self.states.iter().map(|(k, v)| (format!("{}", k), v)))
