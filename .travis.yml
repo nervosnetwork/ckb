@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.30.0
+    - CKB_CLI_VERSION=v0.31.0
 
 addons:
   apt:
@@ -47,6 +47,7 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
   overwrite: true
+  prerelease: true
   on:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
@@ -55,17 +56,17 @@ matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying))'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying))'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
     - name: PR Integration
       if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
       script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
     - name: Linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -75,7 +76,7 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -85,7 +86,7 @@ matrix:
         - make check-dirty-rpc-doc
         - make check-dirty-hashes-toml
     - name: Security Audit
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo audit --version || travis_retry cargo install cargo-audit --locked
@@ -93,7 +94,7 @@ matrix:
         - make security-audit
 
     - name: WASM build
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       script:
         - export PATH=/usr/lib/llvm-8/bin:$PATH
@@ -101,15 +102,15 @@ matrix:
         - make wasm-build-test
 
     - name: Test benchmarks on Linux
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
       script: make bench-test
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: osx
       script: make CKB_TEST_ARGS="--max-time 1200 -c 1" integration
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
       script: make CKB_TEST_ARGS="--max-time 1200 -c 1" integration
     - name: Code Coverage

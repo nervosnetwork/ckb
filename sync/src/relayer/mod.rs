@@ -21,7 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{SyncSharedState, SyncSnapshot};
+use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
@@ -57,7 +57,7 @@ pub enum ReconstructionResult {
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
-    pub(crate) shared: Arc<SyncSharedState>,
+    pub(crate) shared: Arc<SyncShared>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
 }
@@ -65,7 +65,7 @@ pub struct Relayer {
 impl Relayer {
     pub fn new(
         chain: ChainController,
-        shared: Arc<SyncSharedState>,
+        shared: Arc<SyncShared>,
         min_fee_rate: FeeRate,
         max_tx_verify_cycles: Cycle,
     ) -> Self {
@@ -77,7 +77,7 @@ impl Relayer {
         }
     }
 
-    pub fn shared(&self) -> &Arc<SyncSharedState> {
+    pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
 
@@ -133,6 +133,20 @@ impl Relayer {
     ) {
         let item_name = message.item_name();
         let status = self.try_process(Arc::clone(&nc), peer, message);
+
+        metric!({
+            "topic": "received",
+            "tags": { "target": crate::LOG_TARGET_RELAY },
+            "fields": { item_name: 1 }
+        });
+        if !status.is_ok() {
+            metric!({
+                "topic": "status",
+                "tags": { "target": crate::LOG_TARGET_RELAY },
+                "fields": { format!("{:?}", status.code()): 1 }
+            });
+        }
+
         if let Some(ban_time) = status.should_ban() {
             error_target!(
                 crate::LOG_TARGET_RELAY,
@@ -142,10 +156,6 @@ impl Relayer {
                 ban_time,
                 status
             );
-            metric!({
-                "topic": "error",
-                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-            });
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
             warn_target!(
@@ -155,10 +165,6 @@ impl Relayer {
                 peer,
                 status
             );
-            metric!({
-                "topic": "warning",
-                "tags": { "target": crate::LOG_TARGET_RELAY, "input": item_name, "status": format!("{:?}", status.code()) },
-            });
         } else if !status.is_ok() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -205,9 +211,8 @@ impl Relayer {
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
 
-            if let Err(err) = nc.send_message_to(peer, data) {
+            if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send GetBlockProposal error {:?}",
@@ -217,22 +222,27 @@ impl Relayer {
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
             }
+            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
     pub fn accept_block(
         &self,
-        snapshot: &SyncSnapshot,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: core::BlockView,
     ) {
-        if snapshot.contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED) {
+        if self
+            .shared()
+            .active_chain()
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
+        {
             return;
         }
 
         let boxed = Arc::new(block);
-        if snapshot
+        if self
+            .shared()
             .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
             .unwrap_or(false)
         {
@@ -243,10 +253,9 @@ impl Relayer {
                 unix_time_as_millis()
             );
             let block_hash = boxed.hash();
-            snapshot.state().remove_header_view(&block_hash);
+            self.shared().state().remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
-            let data = message.as_slice().into();
 
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
@@ -254,7 +263,8 @@ impl Relayer {
                 .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
-            if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data)
+            if let Err(err) =
+                nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), message.as_bytes())
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -275,7 +285,7 @@ impl Relayer {
     // and that nodes must not be penalized for such collisions, wherever they appear.
     pub fn reconstruct_block(
         &self,
-        snapshot: &SyncSnapshot,
+        active_chain: &ActiveChain,
         compact_block: &packed::CompactBlock,
         received_transactions: Vec<core::TransactionView>,
         uncles_index: &[u32],
@@ -356,11 +366,11 @@ impl Relayer {
                 position += 1;
                 continue;
             };
-            let status = snapshot.get_block_status(&uncle_hash);
+            let status = active_chain.get_block_status(&uncle_hash);
             match status {
                 BlockStatus::UNKNOWN | BlockStatus::HEADER_VALID => missing_uncles.push(i),
                 BlockStatus::BLOCK_STORED | BlockStatus::BLOCK_VALID => {
-                    if let Some(uncle) = snapshot.get_block(&uncle_hash) {
+                    if let Some(uncle) = active_chain.get_block(&uncle_hash) {
                         uncles.push(uncle.as_uncle().data());
                     } else {
                         debug_target!(
@@ -483,14 +493,15 @@ impl Relayer {
                 .transactions(txs.into_iter().map(|tx| tx.data()).pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = nc.send_message_to(peer_index, data) {
+
+            if let Err(err) = nc.send_message_to(peer_index, message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send BlockProposal error: {:?}",
                     err,
                 );
             }
+            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
@@ -523,14 +534,15 @@ impl Relayer {
                     .tx_hashes(tx_hashes.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let data = message.as_slice().into();
-                if let Err(err) = nc.send_message_to(*peer, data) {
+
+                if let Err(err) = nc.send_message_to(*peer, message.as_bytes()) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
                         "relayer send Transaction error: {:?}",
                         err,
                     );
                 }
+                crate::relayer::log_sent_metric(message.to_enum().item_name());
             }
         }
     }
@@ -572,8 +584,8 @@ impl Relayer {
                 .tx_hashes(hashes.pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), data) {
+
+            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), message.as_bytes()) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send TransactionHashes error: {:?}",
@@ -601,7 +613,7 @@ impl CKBProtocolHandler for Relayer {
         data: Bytes,
     ) {
         // If self is in the IBD state, don't process any relayer message.
-        if self.shared.snapshot().is_initial_block_download() {
+        if self.shared.active_chain().is_initial_block_download() {
             return;
         }
 
@@ -685,7 +697,7 @@ impl CKBProtocolHandler for Relayer {
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
-        if self.shared.snapshot().is_initial_block_download() {
+        if self.shared.active_chain().is_initial_block_download() {
             return;
         }
 
@@ -704,4 +716,12 @@ impl CKBProtocolHandler for Relayer {
             start_time.elapsed()
         );
     }
+}
+
+pub(self) fn log_sent_metric(item_name: &str) {
+    metric!({
+        "topic": "sent",
+        "tags": { "target": crate::LOG_TARGET_RELAY },
+        "fields": { item_name: 1 }
+    });
 }

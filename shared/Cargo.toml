@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.30.2"
+version = "0.31.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -10,11 +10,7 @@ ckb-types = { path = "../util/types" }
 ckb-chain-spec = { path = "../spec" }
 ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
-ckb-logger = { path = "../util/logger" }
 ckb-proposal-table = { path = "../util/proposal-table" }
-# DO NOT UPDATE "im", until clippy#4121 be solved
-# https://github.com/rust-lang/rust-clippy/issues/4121
-im = "~12.3"
 arc-swap = "0.4"
 ckb-error = { path = "../error" }
 ckb-snapshot = { path = "../util/snapshot" }

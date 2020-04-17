@@ -1,26 +1,18 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::{Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
-use ckb_sync::SyncSharedState;
+use ckb_sync::SyncShared;
 use ckb_tx_pool::{error::SubmitTxError, FeeRate};
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::Arc;
-
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputsValidator {
-    Default,
-    Passthrough,
-}
 
 #[rpc(server)]
 pub trait PoolRpc {
@@ -38,7 +30,7 @@ pub trait PoolRpc {
 }
 
 pub(crate) struct PoolRpcImpl {
-    sync_shared_state: Arc<SyncSharedState>,
+    sync_shared: Arc<SyncShared>,
     shared: Shared,
     min_fee_rate: FeeRate,
     reject_ill_transactions: bool,
@@ -47,12 +39,12 @@ pub(crate) struct PoolRpcImpl {
 impl PoolRpcImpl {
     pub fn new(
         shared: Shared,
-        sync_shared_state: Arc<SyncSharedState>,
+        sync_shared: Arc<SyncShared>,
         min_fee_rate: FeeRate,
         reject_ill_transactions: bool,
     ) -> PoolRpcImpl {
         PoolRpcImpl {
-            sync_shared_state,
+            sync_shared,
             shared,
             min_fee_rate,
             reject_ill_transactions,
@@ -97,7 +89,7 @@ impl PoolRpc for PoolRpcImpl {
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
                 let hash = tx.hash();
-                self.sync_shared_state
+                self.sync_shared
                     .state()
                     .tx_hashes()
                     .entry(peer_index)

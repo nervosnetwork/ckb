@@ -1,6 +1,6 @@
 [package]
 name = "ckb-error"
-version = "0.30.2"
+version = "0.31.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,5 +11,4 @@ edition = "2018"
 failure = "0.1.5"
 ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 enum-display-derive = "0.1.0"
-# See https://users.rust-lang.org/t/failure-derive-compilation-error/39062 for more details
-quote = "=1.0.3"
+quote = "1.0.3"

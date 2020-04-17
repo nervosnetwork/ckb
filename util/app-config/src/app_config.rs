@@ -14,6 +14,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_indexer::IndexerConfig;
 use ckb_logger::Config as LogConfig;
+use ckb_memory_tracker::Config as MemoryTrackerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
 use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
@@ -37,6 +38,8 @@ pub struct CKBAppConfig {
     pub data_dir: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
+    #[serde(default)]
+    pub memory_tracker: MemoryTrackerConfig,
     pub chain: ChainConfig,
 
     pub block_assembler: Option<BlockAssemblerConfig>,
@@ -61,6 +64,8 @@ pub struct MinerAppConfig {
     pub chain: ChainConfig,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
+    #[serde(default)]
+    pub memory_tracker: MemoryTrackerConfig,
 
     pub miner: MinerConfig,
 }
@@ -105,6 +110,13 @@ impl AppConfig {
         match self {
             AppConfig::CKB(config) => &config.sentry,
             AppConfig::Miner(config) => &config.sentry,
+        }
+    }
+
+    pub fn memory_tracker(&self) -> &MemoryTrackerConfig {
+        match self {
+            AppConfig::CKB(config) => &config.memory_tracker,
+            AppConfig::Miner(config) => &config.memory_tracker,
         }
     }
 

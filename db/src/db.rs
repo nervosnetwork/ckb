@@ -249,6 +249,28 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_isolation() {
+        let db = setup_db("snapshot_isolation", 2);
+        let snapshot = db.get_snapshot();
+        let txn = db.transaction();
+        txn.put("0", &[0, 0], &[5, 4, 3, 2]).unwrap();
+        txn.put("1", &[1, 1], &[1, 2, 3, 4, 5]).unwrap();
+        txn.commit().unwrap();
+
+        assert!(snapshot.get_pinned("0", &[0, 0]).unwrap().is_none());
+        assert!(snapshot.get_pinned("1", &[1, 1]).unwrap().is_none());
+        let snapshot = db.get_snapshot();
+        assert_eq!(
+            snapshot.get_pinned("0", &[0, 0]).unwrap().unwrap().as_ref(),
+            &[5, 4, 3, 2]
+        );
+        assert_eq!(
+            snapshot.get_pinned("1", &[1, 1]).unwrap().unwrap().as_ref(),
+            &[1, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
     fn write_and_partial_read() {
         let db = setup_db("write_and_partial_read", 2);
 

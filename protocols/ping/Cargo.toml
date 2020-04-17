@@ -1,6 +1,6 @@
 [package]
 name = "ckb-ping"
-version = "0.30.2"
+version = "0.31.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 license = "MIT"
 edition = "2018"
@@ -8,7 +8,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-p2p = { version = "0.2.6", package = "tentacle" , features = ["molc"] }
+p2p = { version = "0.3.0-alpha.1", package = "tentacle", features = ["molc"] }
 ckb-logger = { path = "../../util/logger" }
-futures = "0.1"
+futures = "0.3"
 ckb-types = { path = "../../util/types" }

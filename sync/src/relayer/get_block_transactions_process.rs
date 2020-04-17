@@ -2,6 +2,7 @@ use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
 use crate::{Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
@@ -28,7 +29,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let snapshot = self.relayer.shared.snapshot();
+        let shared = self.relayer.shared();
         {
             let get_block_transactions = self.message;
             if get_block_transactions.indexes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
@@ -38,12 +39,11 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                     MAX_RELAY_TXS_NUM_PER_BATCH,
                 ));
             }
-            if get_block_transactions.uncle_indexes().len() > snapshot.consensus().max_uncles_num()
-            {
+            if get_block_transactions.uncle_indexes().len() > shared.consensus().max_uncles_num() {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "UncleIndexes count({}) > consensus max_uncles_num({})",
                     get_block_transactions.uncle_indexes().len(),
-                    snapshot.consensus().max_uncles_num(),
+                    shared.consensus().max_uncles_num(),
                 ));
             }
         }
@@ -55,7 +55,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             block_hash
         );
 
-        if let Some(block) = snapshot.get_block(&block_hash) {
+        if let Some(block) = shared.store().get_block(&block_hash) {
             let transactions = self
                 .message
                 .indexes()
@@ -81,12 +81,12 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .uncles(uncles.into_iter().map(|uncle| uncle.data()).pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
 
-            if let Err(err) = self.nc.send_message_to(self.peer, data) {
+            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
                 return StatusCode::Network
                     .with_context(format!("Send BlockTransactions error: {:?}", err));
             }
+            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
 
         Status::ok()

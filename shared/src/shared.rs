@@ -4,7 +4,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_db::{DBConfig, DefaultMigration, Migrations, RocksDB};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::info_target;
 use ckb_notify::{Config as NotifyConfig, NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
@@ -13,13 +12,11 @@ use ckb_tx_pool::{
     BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
 use ckb_types::{
-    core::{EpochExt, HeaderView, TransactionMeta},
+    core::{EpochExt, HeaderView},
     packed::Byte32,
-    prelude::*,
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
-use im::hashmap::HashMap as HamtMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -47,7 +44,6 @@ impl Shared {
             .ok_or_else(|| InternalErrorKind::Database.reason("failed to get tip's block_ext"))?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
-        let cell_set = Self::init_cell_set(&store)?;
 
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
@@ -59,7 +55,6 @@ impl Shared {
             total_difficulty,
             epoch,
             store.get_snapshot(),
-            cell_set,
             proposal_view,
             Arc::clone(&consensus),
         ));
@@ -87,37 +82,6 @@ impl Shared {
         };
 
         Ok((shared, proposal_table))
-    }
-
-    pub(crate) fn init_cell_set(
-        store: &ChainDB,
-    ) -> Result<HamtMap<Byte32, TransactionMeta>, Error> {
-        let mut cell_set = HamtMap::new();
-        let mut count = 0;
-        info_target!(crate::LOG_TARGET_CHAIN, "Start: loading live cells ...");
-        store
-            .traverse_cell_set(|tx_hash, tx_meta| {
-                count += 1;
-                cell_set.insert(tx_hash, tx_meta.unpack());
-                if count % 10_000 == 0 {
-                    info_target!(
-                        crate::LOG_TARGET_CHAIN,
-                        "    loading {} transactions which include live cells ...",
-                        count
-                    );
-                }
-                Ok(())
-            })
-            .map_err(|err| {
-                InternalErrorKind::Database.reason(format!("failed to init cell set: {:?}", err))
-            })?;
-        info_target!(
-            crate::LOG_TARGET_CHAIN,
-            "Done: total {} transactions.",
-            count
-        );
-
-        Ok(cell_set)
     }
 
     pub(crate) fn init_proposal_table(
@@ -203,12 +167,16 @@ impl Shared {
         self.snapshot_mgr.store(snapshot)
     }
 
+    pub fn refresh_snapshot(&self) {
+        let new = self.snapshot().refresh(self.store.get_snapshot());
+        self.store_snapshot(Arc::new(new));
+    }
+
     pub fn new_snapshot(
         &self,
         tip_header: HeaderView,
         total_difficulty: U256,
         epoch_ext: EpochExt,
-        cell_set: HamtMap<Byte32, TransactionMeta>,
         proposals: ProposalView,
     ) -> Arc<Snapshot> {
         Arc::new(Snapshot::new(
@@ -216,7 +184,6 @@ impl Shared {
             total_difficulty,
             epoch_ext,
             self.store.get_snapshot(),
-            cell_set,
             proposals,
             Arc::clone(&self.consensus),
         ))

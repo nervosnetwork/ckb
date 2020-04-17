@@ -31,15 +31,7 @@ impl<'a> GetHeadersProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let snapshot = self.synchronizer.shared.snapshot();
-        if snapshot.is_initial_block_download() {
-            info!(
-                "Ignoring getheaders from peer={} because node is in initial block download",
-                self.peer
-            );
-            self.send_in_ibd();
-            return Status::ignored();
-        }
+        let active_chain = self.synchronizer.shared.active_chain();
 
         let block_locator_hashes = self
             .message
@@ -56,18 +48,33 @@ impl<'a> GetHeadersProcess<'a> {
             ));
         }
 
+        if active_chain.is_initial_block_download() {
+            info!(
+                "Ignoring getheaders from peer={} because node is in initial block download",
+                self.peer
+            );
+            self.send_in_ibd();
+            let state = self.synchronizer.shared.state();
+            if let Some(flag) = state.peers().get_flag(self.peer) {
+                if flag.is_outbound || flag.is_whitelist || flag.is_protect {
+                    state.insert_peer_unknown_header_list(self.peer, block_locator_hashes);
+                }
+            };
+            return Status::ignored();
+        }
+
         if let Some(block_number) =
-            snapshot.locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
+            active_chain.locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
             debug!(
                 "headers latest_common={} tip={} begin",
                 block_number,
-                snapshot.tip_header().number(),
+                active_chain.tip_header().number(),
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
             let headers: Vec<core::HeaderView> =
-                snapshot.get_locator_response(block_number, &hash_stop);
+                active_chain.get_locator_response(block_number, &hash_stop);
             // response headers
 
             debug!("headers len={}", headers.len());
@@ -76,11 +83,12 @@ impl<'a> GetHeadersProcess<'a> {
                 .headers(headers.into_iter().map(|x| x.data()).pack())
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();
-            let data = message.as_slice().into();
-            if let Err(err) = self.nc.send_message_to(self.peer, data) {
+
+            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
                 return StatusCode::Network
                     .with_context(format!("Send SendHeaders error: {:?}", err,));
             }
+            crate::synchronizer::log_sent_metric(message.to_enum().item_name());
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{:#x?}", block_locator_hashes,));
@@ -91,10 +99,10 @@ impl<'a> GetHeadersProcess<'a> {
     fn send_in_ibd(&self) {
         let content = packed::InIBD::new_builder().build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
-        if let Err(err) = self
-            .nc
-            .send_message(NetworkProtocol::SYNC.into(), self.peer, data)
+
+        if let Err(err) =
+            self.nc
+                .send_message(NetworkProtocol::SYNC.into(), self.peer, message.as_bytes())
         {
             debug!("synchronizer send in ibd error: {:?}", err);
         }

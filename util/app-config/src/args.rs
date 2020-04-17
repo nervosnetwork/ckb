@@ -1,6 +1,7 @@
 use super::app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_memory_tracker::Config as MemoryTrackerConfig;
 use ckb_miner::MinerConfig;
 use ckb_pow::PowEngine;
 use std::path::PathBuf;
@@ -34,6 +35,8 @@ pub struct ProfArgs {
 pub struct MinerArgs {
     pub config: MinerConfig,
     pub pow_engine: Arc<dyn PowEngine>,
+    pub memory_tracker: MemoryTrackerConfig,
+    pub limit: u128,
 }
 
 pub struct StatsArgs {

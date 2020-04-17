@@ -7,7 +7,7 @@ trigger:
     - '*'
 
 variables:
-  CKBClientVersion: v0.30.0
+  CKBClientVersion: v0.31.0
 
 jobs:
   - job: UnitTest
@@ -100,4 +100,5 @@ jobs:
             $(Build.ArtifactStagingDirectory)/*.zip
             $(Build.ArtifactStagingDirectory)/*.asc
           assetUploadMode: replace
+          isPreRelease: true
           addChangeLog: false

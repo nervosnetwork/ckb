@@ -1,4 +1,4 @@
-use crate::{Relayer, SyncSharedState};
+use crate::{Relayer, SyncShared};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
@@ -24,9 +24,7 @@ use ckb_types::{
     U256,
 };
 use faketime::{self, unix_time_as_millis};
-use std::cell::RefCell;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
@@ -153,11 +151,11 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .expect("processing block should be ok");
     }
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared));
+    let sync_shared = Arc::new(SyncShared::new(shared));
     (
         Relayer::new(
             chain_controller,
-            sync_shared_state,
+            sync_shared,
             FeeRate::zero(),
             std::u64::MAX,
         ),
@@ -194,9 +192,7 @@ impl CKBProtocolContext for MockProtocalContext {
     }
     fn future_task(
         &self,
-        _task: Box<
-            (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
-        >,
+        _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
         _blocking: bool,
     ) -> Result<(), Error> {
         Ok(())

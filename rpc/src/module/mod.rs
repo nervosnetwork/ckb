@@ -1,5 +1,6 @@
 mod alert;
 mod chain;
+mod debug;
 mod experiment;
 mod indexer;
 mod miner;
@@ -11,6 +12,7 @@ mod test;
 
 pub(crate) use self::alert::{AlertRpc, AlertRpcImpl};
 pub(crate) use self::chain::{ChainRpc, ChainRpcImpl};
+pub(crate) use self::debug::{DebugRpc, DebugRpcImpl};
 pub(crate) use self::experiment::{ExperimentRpc, ExperimentRpcImpl};
 pub(crate) use self::indexer::{IndexerRpc, IndexerRpcImpl};
 pub(crate) use self::miner::{MinerRpc, MinerRpcImpl};

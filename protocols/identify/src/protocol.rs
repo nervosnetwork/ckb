@@ -54,16 +54,12 @@ impl<'a> IdentifyMessage<'a> {
         }
         let listen_addrs = packed::AddressVec::new_builder().set(listen_addrs).build();
 
-        // TODO update-after-upgrade-p2p
         packed::IdentifyMessage::new_builder()
             .listen_addrs(listen_addrs)
             .observed_addr(observed_addr)
             .identify(identify)
             .build()
             .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into()
     }
 
     pub(crate) fn decode(data: &'a [u8]) -> Option<Self> {

@@ -12,7 +12,7 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::prelude::*;
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
@@ -42,6 +42,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
 
+    ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
@@ -51,15 +53,15 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         shared.genesis_hash()
     );
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
     let relayer = Relayer::new(
         chain_controller.clone(),
-        Arc::clone(&sync_shared_state),
+        Arc::clone(&sync_shared),
         args.config.tx_pool.min_fee_rate,
         args.config.tx_pool.max_tx_verify_cycles,
     );
@@ -127,7 +129,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_chain(shared.clone())
         .enable_pool(
             shared.clone(),
-            sync_shared_state,
+            sync_shared,
             args.config.tx_pool.min_fee_rate,
             args.config.rpc.reject_ill_transactions,
         )
@@ -142,7 +144,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer, shared.clone());
+        .enable_indexer(&args.config.indexer, shared.clone())
+        .enable_debug();
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());

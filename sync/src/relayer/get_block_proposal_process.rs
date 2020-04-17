@@ -28,11 +28,11 @@ impl<'a> GetBlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let snapshot = self.relayer.shared.snapshot();
+        let shared = self.relayer.shared();
         {
             let get_block_proposal = self.message;
-            let limit = snapshot.consensus().max_block_proposals_limit()
-                * (snapshot.consensus().max_uncles_num() as u64);
+            let limit = shared.consensus().max_block_proposals_limit()
+                * (shared.consensus().max_uncles_num() as u64);
             if (get_block_proposal.proposals().len() as u64) > limit {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "GetBlockProposal proposals count({}) > consensus max_block_proposals_limit({})",
@@ -76,11 +76,11 @@ impl<'a> GetBlockProposalProcess<'a> {
             )
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
-        let data = message.as_slice().into();
 
-        if let Err(err) = self.nc.send_message_to(self.peer, data) {
+        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
             StatusCode::Network.with_context(format!("Send GetBlockProposal error: {:?}", err,));
         }
+        crate::relayer::log_sent_metric(message.to_enum().item_name());
         Status::ok()
     }
 }

@@ -42,7 +42,10 @@ impl Rpc {
         let (stop, stop_rx) = oneshot::channel::<()>();
 
         let thread = thread::spawn(move || {
-            let client = HttpClient::builder().keep_alive(true).build_http();
+            // 1 is number of blocking DNS threads, this connector will use plain HTTP if the URL provded uses the HTTP scheme.
+            let https =
+                hyper_tls::HttpsConnector::new(1).expect("init https connector should be OK");
+            let client = HttpClient::builder().keep_alive(true).build(https);
 
             let stream = receiver.for_each(move |(sender, call): RpcRequest| {
                 let req_url = url.clone();

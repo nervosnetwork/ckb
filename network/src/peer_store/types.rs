@@ -6,9 +6,9 @@ use crate::{
     },
 };
 use ipnetwork::IpNetwork;
-use p2p::multiaddr::{self, multihash::Multihash, Multiaddr, Protocol};
+use p2p::multiaddr::{self, Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::{borrow::Cow, net::IpAddr};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpPort {
@@ -130,8 +130,8 @@ pub struct BannedAddr {
 pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
     for addr_component in multiaddr {
         match addr_component {
-            Protocol::Ip4(ipv4) => return Some(IpNetwork::V4(ipv4.into())),
-            Protocol::Ip6(ipv6) => return Some(IpNetwork::V6(ipv6.into())),
+            Protocol::IP4(ipv4) => return Some(IpNetwork::V4(ipv4.into())),
+            Protocol::IP6(ipv6) => return Some(IpNetwork::V6(ipv6.into())),
             _ => (),
         }
     }
@@ -158,9 +158,9 @@ impl MultiaddrExt for Multiaddr {
         let mut port = None;
         for component in self {
             match component {
-                Protocol::Ip4(ipv4) => ip = Some(IpAddr::V4(ipv4)),
-                Protocol::Ip6(ipv6) => ip = Some(IpAddr::V6(ipv6)),
-                Protocol::Tcp(tcp_port) => port = Some(tcp_port),
+                Protocol::IP4(ipv4) => ip = Some(IpAddr::V4(ipv4)),
+                Protocol::IP6(ipv6) => ip = Some(IpAddr::V6(ipv6)),
+                Protocol::TCP(tcp_port) => port = Some(tcp_port),
                 _ => (),
             }
         }
@@ -173,7 +173,7 @@ impl MultiaddrExt for Multiaddr {
     fn exclude_p2p(&self) -> Multiaddr {
         self.iter()
             .filter_map(|proto| match proto {
-                Protocol::P2p(_) => None,
+                Protocol::P2P(_) => None,
                 value => Some(value),
             })
             .collect::<Multiaddr>()
@@ -181,9 +181,8 @@ impl MultiaddrExt for Multiaddr {
 
     fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error> {
         let mut addr = self.exclude_p2p();
-        let peer_id_hash = Multihash::from_bytes(peer_id.as_bytes().to_vec())
-            .map_err(|_err| AddrError::InvalidPeerId)?;
-        addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+        let peer_id_hash = Cow::Owned(peer_id.clone().into_bytes());
+        addr.push(multiaddr::Protocol::P2P(peer_id_hash));
         Ok(addr)
     }
 }

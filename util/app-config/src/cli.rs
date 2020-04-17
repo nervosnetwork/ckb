@@ -34,6 +34,7 @@ pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
 pub const ARG_ALL: &str = "all";
+pub const ARG_LIMIT: &str = "limit";
 pub const ARG_DATABASE: &str = "database";
 pub const ARG_INDEXER: &str = "indexer";
 pub const ARG_NETWORK: &str = "network";
@@ -85,7 +86,18 @@ fn run() -> App<'static, 'static> {
 }
 
 fn miner() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MINER).about("Runs ckb miner")
+    SubCommand::with_name(CMD_MINER)
+        .about("Runs ckb miner")
+        .arg(
+            Arg::with_name(ARG_LIMIT)
+                .short("l")
+                .long(ARG_LIMIT)
+                .takes_value(true)
+                .help(
+                    "Exit after how many nonces found; \
+            0 means the miner will never exit. [default: 0]",
+                ),
+        )
 }
 
 fn reset_data() -> App<'static, 'static> {

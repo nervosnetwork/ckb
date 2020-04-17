@@ -42,6 +42,10 @@ dsn = "" # {{
 # please leave a way to contact you when we have troubles to reproduce the errors.
 # org_contact = ""
 
+# [memory_tracker]
+# # Seconds between checking the process, 0 is disable, default is 0.
+# interval = 600
+
 [network]
 listen_addresses = ["/ip4/0.0.0.0/tcp/8115"] # {{
 # _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}"]
@@ -91,7 +95,7 @@ listen_address = "127.0.0.1:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Indexer", "Experiment"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Indexer", "Experiment", "Debug"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
 # }}

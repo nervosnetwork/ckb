@@ -1,21 +1,25 @@
 use std::collections::VecDeque;
-use std::convert::TryFrom;
 use std::io;
 use std::time::{Duration, Instant};
+use std::{
+    convert::TryFrom,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use ckb_logger::{debug, trace, warn};
-use futures::{sync::mpsc::Receiver, Async, AsyncSink, Poll, Sink, Stream};
+use futures::{channel::mpsc::Receiver, Sink, Stream};
 use p2p::multiaddr::{Multiaddr, Protocol};
 use p2p::{
-    bytes::{BufMut, Bytes, BytesMut},
+    bytes::{BufMut, BytesMut},
     context::ProtocolContextMutRef,
     error::Error,
     service::{ServiceControl, SessionType},
     utils::multiaddr_to_socketaddr,
     ProtocolId, SessionId,
 };
-use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
 
 use crate::addr::{AddrKnown, AddressManager, Misbehavior, RawAddr};
 use crate::protocol::{DiscoveryCodec, DiscoveryMessage, Node, Nodes};
@@ -46,41 +50,40 @@ pub struct StreamHandle {
     pub(crate) sender: ServiceControl,
 }
 
-impl io::Read for StreamHandle {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+impl AsyncRead for StreamHandle {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
         for _ in 0..10 {
-            match self.receiver.poll() {
-                Ok(Async::Ready(Some(data))) => {
+            match Pin::new(&mut self.receiver).as_mut().poll_next(cx) {
+                Poll::Ready(Some(data)) => {
                     self.data_buf.reserve(data.len());
-                    self.data_buf.put(&data);
+                    self.data_buf.put(data.as_slice());
                 }
-                Ok(Async::Ready(None)) => {
-                    return Err(io::ErrorKind::UnexpectedEof.into());
+                Poll::Ready(None) => {
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
                 }
-                Ok(Async::NotReady) => {
+                Poll::Pending => {
                     break;
-                }
-                Err(_err) => {
-                    return Err(io::ErrorKind::BrokenPipe.into());
                 }
             }
         }
         let n = std::cmp::min(buf.len(), self.data_buf.len());
         if n == 0 {
-            return Err(io::ErrorKind::WouldBlock.into());
+            return Poll::Pending;
         }
         let b = self.data_buf.split_to(n);
         buf[..n].copy_from_slice(&b);
-        Ok(n)
+        Poll::Ready(Ok(n))
     }
 }
 
-impl AsyncRead for StreamHandle {}
-
-impl io::Write for StreamHandle {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+impl AsyncWrite for StreamHandle {
+    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.sender
-            .send_message_to(self.session_id, self.proto_id, Bytes::from(buf))
+            .send_message_to(self.session_id, self.proto_id, BytesMut::from(buf).freeze())
             .map(|()| buf.len())
             .map_err(|e| {
                 if let Error::IoError(e) = e {
@@ -93,16 +96,14 @@ impl io::Write for StreamHandle {
                     io::ErrorKind::BrokenPipe.into()
                 }
             })
+            .into()
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
-}
-
-impl AsyncWrite for StreamHandle {
-    fn shutdown(&mut self) -> Poll<(), io::Error> {
-        Ok(Async::Ready(()))
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -181,18 +182,23 @@ impl SubstreamValue {
         }
     }
 
-    pub(crate) fn send_messages(&mut self) -> Result<(), io::Error> {
+    pub(crate) fn send_messages(&mut self, cx: &mut Context) -> Result<(), io::Error> {
+        let mut sink = Pin::new(&mut self.framed_stream);
+
         while let Some(message) = self.pending_messages.pop_front() {
             debug!("Discovery sending message: {}", message);
-            match self.framed_stream.start_send(message)? {
-                AsyncSink::NotReady(message) => {
+
+            match sink.as_mut().poll_ready(cx)? {
+                Poll::Pending => {
                     self.pending_messages.push_front(message);
                     return Ok(());
                 }
-                AsyncSink::Ready => {}
+                Poll::Ready(()) => {
+                    sink.as_mut().start_send(message)?;
+                }
             }
         }
-        self.framed_stream.poll_complete()?;
+        let _ = sink.as_mut().poll_flush(cx)?;
         Ok(())
     }
 
@@ -322,8 +328,9 @@ impl SubstreamValue {
         Ok(None)
     }
 
-    pub(crate) fn receive_messages<M: AddressManager>(
+    pub(crate) fn receive_messages<M: AddressManager + Unpin>(
         &mut self,
+        cx: &mut Context,
         addr_mgr: &mut M,
     ) -> Result<Option<(SessionId, Vec<Nodes>)>, io::Error> {
         if self.remote_closed {
@@ -332,8 +339,9 @@ impl SubstreamValue {
 
         let mut nodes_list = Vec::new();
         loop {
-            match self.framed_stream.poll()? {
-                Async::Ready(Some(message)) => {
+            match Pin::new(&mut self.framed_stream).as_mut().poll_next(cx) {
+                Poll::Ready(Some(res)) => {
+                    let message = res?;
                     trace!("received message {}", message);
                     if let Some(nodes) = self.handle_message(message, addr_mgr)? {
                         // Add to known address list
@@ -347,12 +355,12 @@ impl SubstreamValue {
                         nodes_list.push(nodes);
                     }
                 }
-                Async::Ready(None) => {
+                Poll::Ready(None) => {
                     debug!("remote closed");
                     self.remote_closed = true;
                     break;
                 }
-                Async::NotReady => {
+                Poll::Pending => {
                     break;
                 }
             }
@@ -431,7 +439,7 @@ impl RemoteAddress {
                 .map(|proto| {
                     match proto {
                         // TODO: other transport, UDP for example
-                        Protocol::Tcp(_) => Protocol::Tcp(port),
+                        Protocol::TCP(_) => Protocol::TCP(port),
                         value => value,
                     }
                 })

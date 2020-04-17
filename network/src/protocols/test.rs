@@ -12,6 +12,7 @@ use crate::{
 };
 
 use std::{
+    borrow::Cow,
     sync::Arc,
     thread,
     time::{Duration, Instant},
@@ -19,13 +20,13 @@ use std::{
 
 use ckb_util::{Condvar, Mutex};
 use futures::{
-    sync::mpsc::{self, channel},
-    Stream,
+    channel::mpsc::{self, channel},
+    StreamExt,
 };
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
-    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
-    service::{DialProtocol, ProtocolHandle, ServiceControl, TargetProtocol},
+    multiaddr::{Multiaddr, Protocol},
+    service::{ProtocolHandle, ServiceControl, TargetProtocol},
     utils::multiaddr_to_socketaddr,
     ProtocolId, SessionId,
 };
@@ -40,13 +41,13 @@ struct Node {
 }
 
 impl Node {
-    fn dial(&self, node: &Node, protocol: DialProtocol) {
+    fn dial(&self, node: &Node, protocol: TargetProtocol) {
         self.control
             .dial(node.listen_addr.clone(), protocol)
             .unwrap();
     }
 
-    fn dial_addr(&self, addr: Multiaddr, protocol: DialProtocol) {
+    fn dial_addr(&self, addr: Multiaddr, protocol: TargetProtocol) {
         self.control.dial(addr, protocol).unwrap();
     }
 
@@ -211,7 +212,7 @@ fn net_service_start(name: String) -> Node {
         config.discovery_local_address,
     );
 
-    let ping_service = PingService::new(
+    let mut ping_service = PingService::new(
         Arc::clone(&network_state),
         p2p_service.control().to_owned(),
         ping_receiver,
@@ -219,26 +220,41 @@ fn net_service_start(name: String) -> Node {
 
     let peer_id = network_state.local_peer_id().clone();
 
-    let mut listen_addr = p2p_service
-        .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-        .unwrap();
-    listen_addr.push(Protocol::P2p(
-        Multihash::from_bytes(peer_id.into_bytes()).expect("Invalid peer id"),
-    ));
-
     let control = p2p_service.control().clone();
+    let (addr_sender, addr_receiver) = crossbeam_channel::bounded(1);
 
     thread::spawn(move || {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
         let mut rt = tokio::runtime::Builder::new()
             .core_threads(num_threads)
+            .enable_all()
+            .threaded_scheduler()
             .build()
             .unwrap();
         rt.spawn(disc_service);
-        rt.spawn(ping_service.for_each(|_| Ok(())));
-        rt.block_on(p2p_service.for_each(|_| Ok(())))
+        rt.spawn(async move {
+            loop {
+                if ping_service.next().await.is_none() {
+                    break;
+                }
+            }
+        });
+        rt.block_on(async move {
+            let mut listen_addr = p2p_service
+                .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+                .await
+                .unwrap();
+            listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
+            addr_sender.send(listen_addr).unwrap();
+            loop {
+                if p2p_service.next().await.is_none() {
+                    break;
+                }
+            }
+        })
     });
 
+    let listen_addr = addr_receiver.recv().unwrap();
     Node {
         control,
         listen_addr,
@@ -291,18 +307,18 @@ fn test_identify_behavior() {
     let node2 = net_service_start("/test/2".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node3, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node3, 1);
 
     // identify will ban node when they are on the different net
-    node2.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node2.dial(&node3, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 0);
@@ -337,7 +353,7 @@ fn test_feeler_behavior() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 1);
@@ -357,8 +373,8 @@ fn test_discovery_behavior() {
     let node2 = net_service_start("/test/1".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node3.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node3.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 2);
@@ -387,7 +403,7 @@ fn test_discovery_behavior() {
             .unwrap()
     };
 
-    node3.dial_addr(addr, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node3.dial_addr(addr, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 2);
     wait_connect_state(&node2, 2);
@@ -399,7 +415,7 @@ fn test_dial_all() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::All);
+    node1.dial(&node2, TargetProtocol::All);
 
     wait_connect_state(&node1, 0);
     wait_connect_state(&node1, 0);
@@ -410,7 +426,7 @@ fn test_ban() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 1);
@@ -420,10 +436,10 @@ fn test_ban() {
     wait_connect_state(&node1, 0);
     wait_connect_state(&node2, 0);
 
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 0);
     wait_connect_state(&node2, 0);
@@ -438,17 +454,17 @@ fn test_bootnode_mode_inbound_eviction() {
     let node5 = net_service_start("/test/1".to_string());
     let node6 = net_service_start("/test/1".to_string());
 
-    node2.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node3.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node4.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node2.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node3.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node4.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     // Normal connection
     wait_connect_state(&node1, 3);
-    node5.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node5.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     wait_connect_state(&node1, 4);
     // Arrival eviction condition 4 + 10, eviction 2
-    node6.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node6.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
     // Normal connection, 2 + 1
     wait_connect_state(&node1, 3);

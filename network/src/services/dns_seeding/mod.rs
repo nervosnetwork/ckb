@@ -1,15 +1,19 @@
-use std::error::Error;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    error::Error,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
 
 use ckb_logger::{debug, error, info, trace, warn};
 use faster_hex::hex_decode;
-use futures::{Async, Future, Poll, Stream};
+use futures::{Future, Stream};
 use p2p::{multiaddr::Protocol, secio::PeerId};
 use resolve::record::Txt;
 use resolve::{DnsConfig, DnsResolver};
 use secp256k1::key::PublicKey;
-use tokio::timer::Interval;
+use tokio::time::Interval;
 
 mod seed_record;
 
@@ -37,7 +41,7 @@ impl DnsSeedingService {
         } else {
             Instant::now() + Duration::from_secs(11)
         };
-        let check_interval = Interval::new_interval(Duration::from_secs(1));
+        let check_interval = tokio::time::interval(Duration::from_secs(1));
         DnsSeedingService {
             network_state,
             wait_until,
@@ -110,8 +114,8 @@ impl DnsSeedingService {
         self.network_state.with_peer_store_mut(|peer_store| {
             for mut addr in addrs {
                 match addr.pop() {
-                    Some(Protocol::P2p(key)) => {
-                        if let Ok(peer_id) = PeerId::from_bytes(key.into_bytes()) {
+                    Some(Protocol::P2P(key)) => {
+                        if let Ok(peer_id) = PeerId::from_bytes(key.to_vec()) {
                             if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
                                 debug!(
                                     "failed to add addrs to peer_store: {:?}, {:?}",
@@ -131,34 +135,29 @@ impl DnsSeedingService {
 }
 
 impl Future for DnsSeedingService {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
-            match self.check_interval.poll() {
-                Ok(Async::Ready(Some(_))) => {
+            match Pin::new(&mut self.check_interval).as_mut().poll_next(cx) {
+                Poll::Ready(Some(_)) => {
                     if self.wait_until < Instant::now() {
                         if let Err(err) = self.seeding() {
                             error!("seeding error: {:?}", err);
                         }
                         debug!("DNS seeding finished");
-                        return Ok(Async::Ready(()));
+                        return Poll::Ready(());
                     } else {
                         trace!("DNS check interval");
                     }
                 }
-                Ok(Async::Ready(None)) => {
+                Poll::Ready(None) => {
                     warn!("Poll DnsSeedingService interval return None");
-                    return Err(());
+                    return Poll::Ready(());
                 }
-                Ok(Async::NotReady) => break,
-                Err(err) => {
-                    warn!("Poll DnsSeedingService interval error: {:?}", err);
-                    return Err(());
-                }
+                Poll::Pending => break,
             }
         }
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }

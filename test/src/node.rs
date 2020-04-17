@@ -228,6 +228,16 @@ impl Node {
         if !result {
             panic!("Disconnect timeout, node {}", node_id);
         }
+
+        let rpc_client = node.rpc_client();
+        let node_id = self.node_id();
+        let result = wait_until(5, || {
+            let peers = rpc_client.get_peers();
+            peers.iter().all(|peer| peer.node_id != node_id)
+        });
+        if !result {
+            panic!("Disconnect timeout, node {}", node_id);
+        }
     }
 
     pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber) {
