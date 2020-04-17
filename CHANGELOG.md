@@ -1,3 +1,46 @@
+# [v0.31.0](https://github.com/nervosnetwork/ckb/compare/v0.30.2...v0.31.0) (2020-04-02)
+
+### Sync Improvements
+
+* #1947: Repair using of snapshot (@zhangsoledad)
+* #1959: Improve get_ancestor efficiency (@keroro520)
+* #1957: Concurrent download blocks on ibd (@driftluo)
+* #1966: Enhanced locator (@driftluo)
+* #1961: Fix bug on last common marked (@driftluo)
+* #1985: Speed up fetch collect (@driftluo)
+* #1979: Fix build_skip performance bug (@TheWaWaR)
+
+### Features
+
+* #1954: Add detect-asm feature to script (@xxuejie)
+* #1955: Bump CKB VM to fix a performance regression (@xxuejie)
+* #1948: Use module disable error instead of method not found (@driftluo)
+* #1956: Replace rocksdb wrapper (@zhangsoledad)
+* #1946: Use same allocator for all (@yangby-cryptape)
+* #1940: Add a feature to enable jemalloc profiling (@yangby-cryptape)
+* #1881: Remove memory cellset (@zhangsoledad)
+* #1923: Network upgrade to async (@driftluo)
+* #1978: Built-in miner should support https RPC URL (@quake)
+* #1958: Log more sync and relay metrics (@keroro520)
+* #1992: Add an option to control how many blocks the miner has to mine (@yangby-cryptape)
+
+    ```bash
+    ckb miner -C . --limit 10 # Exit after 10 nonces found
+    ckb miner -C . -l 5       # Exit after 5 nonces found
+    ckb miner -C .            # Run forever
+    ckb miner -C . --limit 0  # Run forever, too
+    ```
+
+* #1993: Add metrics filter (@keroro520)
+
+    Filter metrics via `log_enabled!` inside `metric!`.
+
+### Bug Fixes
+
+* #1977: Fix false positive in IllTransactionChecker (@xxuejie)
+* #1996: Wait for RPC server to cleanup on shutdown (@zhangsoledad)
+* #1997: Orphan_block_pool should record block origin (@zhangsoledad)
+
 # [v0.30.2](https://github.com/nervosnetwork/ckb/compare/v0.30.1...v0.30.2) (2020-04-02)
 
 ### Bug Fixes
