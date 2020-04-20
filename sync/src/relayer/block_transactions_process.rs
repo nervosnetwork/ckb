@@ -61,6 +61,14 @@ impl<'a> BlockTransactionsProcess<'a> {
         let missing_uncles: Vec<u32>;
         let mut collision = false;
 
+        {
+            self.relayer
+                .shared
+                .state()
+                .write_inflight_blocks()
+                .remove_by_block(block_hash.clone());
+        }
+
         if let Entry::Occupied(mut pending) = shared
             .state()
             .pending_compact_blocks()
@@ -135,18 +143,24 @@ impl<'a> BlockTransactionsProcess<'a> {
 
                 assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
 
-                let content = packed::GetBlockTransactions::new_builder()
-                    .block_hash(block_hash.clone())
-                    .indexes(missing_transactions.pack())
-                    .uncle_indexes(missing_uncles.pack())
-                    .build();
-                let message = packed::RelayMessage::new_builder().set(content).build();
+                if shared
+                    .state()
+                    .write_inflight_blocks()
+                    .insert(self.peer, block_hash.clone())
+                {
+                    let content = packed::GetBlockTransactions::new_builder()
+                        .block_hash(block_hash.clone())
+                        .indexes(missing_transactions.pack())
+                        .uncle_indexes(missing_uncles.pack())
+                        .build();
+                    let message = packed::RelayMessage::new_builder().set(content).build();
 
-                if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-                    return StatusCode::Network
-                        .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
+                    if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+                        return StatusCode::Network
+                            .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
+                    }
+                    crate::relayer::log_sent_metric(message.to_enum().item_name());
                 }
-                crate::relayer::log_sent_metric(message.to_enum().item_name());
 
                 mem::replace(expected_transaction_indexes, missing_transactions);
                 mem::replace(expected_uncle_indexes, missing_uncles);
