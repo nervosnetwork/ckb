@@ -12,8 +12,9 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
-use ckb_types::prelude::*;
+use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
@@ -41,6 +42,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
+
+    setup_system_cell_cache(
+        shared.consensus().genesis_block(),
+        &shared.store().cell_provider(),
+    );
 
     ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
 
