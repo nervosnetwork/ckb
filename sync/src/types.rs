@@ -377,6 +377,7 @@ pub struct InflightBlocks {
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
+    pub(crate) adjustment: bool,
 }
 
 impl Default for InflightBlocks {
@@ -387,6 +388,7 @@ impl Default for InflightBlocks {
             trace_number: HashMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
+            adjustment: true,
         }
     }
 }
@@ -464,6 +466,7 @@ impl InflightBlocks {
         self.compact_reconstruct_inflight
             .get_mut(&hash)
             .map(|peers| peers.remove(&peer));
+        self.trace_number.retain(|k, _| &k.hash != hash)
     }
 
     pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&HashSet<PeerIndex>> {
@@ -488,6 +491,7 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let download_schedulers = &mut self.download_schedulers;
         let states = &mut self.inflight_states;
+        let compact_inflight = &mut self.compact_reconstruct_inflight;
 
         let mut remove_key = Vec::new();
         // Since this is a btreemap, with the data already sorted,
@@ -545,6 +549,12 @@ impl InflightBlocks {
                         d.punish();
                         d.hashes.remove(key);
                     };
+                } else if let Some(v) = compact_inflight.remove(&key.hash) {
+                    for peer in v {
+                        if let Some(d) = download_schedulers.get_mut(&peer) {
+                            d.punish();
+                        }
+                    }
                 }
                 if key.number > *restart_number {
                     *restart_number = key.number;
@@ -570,6 +580,15 @@ impl InflightBlocks {
     }
 
     pub fn insert(&mut self, peer: PeerIndex, block: BlockNumberAndHash) -> bool {
+        if !self.compact_reconstruct_inflight.is_empty()
+            && self.compact_reconstruct_inflight.contains_key(&block.hash)
+        {
+            // Give the compact block a deadline of 1.5 seconds
+            self.trace_number
+                .entry(block)
+                .or_insert(unix_time_as_millis() + 500);
+            return false;
+        }
         let state = self.inflight_states.entry(block.clone());
         match state {
             Entry::Occupied(_entry) => return false,
@@ -599,9 +618,11 @@ impl InflightBlocks {
             .remove(&peer)
             .map(|blocks| {
                 for block in blocks.hashes {
-                    compact
-                        .get_mut(&block.hash)
-                        .map(|peers| peers.remove(&peer));
+                    if !compact.is_empty() {
+                        compact
+                            .get_mut(&block.hash)
+                            .map(|peers| peers.remove(&peer));
+                    }
                     state.remove(&block);
                     if !trace.is_empty() {
                         trace.remove(&block);
@@ -616,13 +637,18 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
         let len = download_schedulers.len() as u64;
+        let adjustment = self.adjustment;
         self.inflight_states
             .remove(&block)
             .map(|state| {
                 if let Some(set) = download_schedulers.get_mut(&state.peer) {
                     set.hashes.remove(&block);
-                    compact.remove(&block.hash);
-                    set.adjust(state.timestamp, len);
+                    if !compact.is_empty() {
+                        compact.remove(&block.hash);
+                    }
+                    if adjustment {
+                        set.adjust(state.timestamp, len);
+                    }
                     if !trace.is_empty() {
                         trace.remove(&block);
                     }
