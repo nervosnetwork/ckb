@@ -633,6 +633,7 @@ dependencies = [
 name = "ckb-miner"
 version = "0.31.0-pre"
 dependencies = [
+ "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-pow",

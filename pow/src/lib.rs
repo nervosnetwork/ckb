@@ -10,15 +10,18 @@ use std::sync::Arc;
 
 mod dummy;
 mod eaglesong;
+mod testnet;
 
 pub use crate::dummy::DummyPowEngine;
 pub use crate::eaglesong::EaglesongPowEngine;
+pub use crate::testnet::TestnetPowEngine;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy,
     Eaglesong,
+    Testnet,
 }
 
 impl fmt::Display for Pow {
@@ -26,6 +29,7 @@ impl fmt::Display for Pow {
         match self {
             Pow::Dummy => write!(f, "Dummy"),
             Pow::Eaglesong => write!(f, "Eaglesong"),
+            Pow::Testnet => write!(f, "Testnet"),
         }
     }
 }
@@ -35,6 +39,7 @@ impl Pow {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine),
             Pow::Eaglesong => Arc::new(EaglesongPowEngine),
+            Pow::Testnet => Arc::new(TestnetPowEngine),
         }
     }
 

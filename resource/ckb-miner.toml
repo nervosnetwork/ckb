@@ -58,3 +58,6 @@ worker_type = "EaglesongSimple" # {{
 threads     = 1 # {{
 # dev => delay_type = "Constant"\nvalue = 5000
 # }}
+# # {{
+# testnet => is_testnet = true
+# }}
