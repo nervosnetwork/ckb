@@ -271,14 +271,10 @@ impl PingMessage {
             .build();
         let ping = packed::Ping::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(ping).build();
-        // TODO update-after-upgrade-p2p
         packed::PingMessage::new_builder()
             .payload(payload)
             .build()
             .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into()
     }
 
     fn build_pong(nonce: u32) -> Bytes {
@@ -291,27 +287,30 @@ impl PingMessage {
             .build();
         let pong = packed::Pong::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(pong).build();
-        // TODO update-after-upgrade-p2p
         packed::PingMessage::new_builder()
             .payload(payload)
             .build()
             .as_bytes()
-            .as_ref()
-            .to_owned()
-            .into()
     }
 
-    #[allow(clippy::cast_ptr_alignment)]
     fn decode(data: &[u8]) -> Option<PingPayload> {
         let reader = packed::PingMessageReader::from_compatible_slice(data).ok()?;
         match reader.payload().to_enum() {
             packed::PingPayloadUnionReader::Ping(reader) => {
-                let le = reader.nonce().raw_data().as_ptr() as *const u32;
-                Some(PingPayload::Ping(u32::from_le(unsafe { *le })))
+                let nonce = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.as_slice());
+                    u32::from_le_bytes(b)
+                };
+                Some(PingPayload::Ping(nonce))
             }
             packed::PingPayloadUnionReader::Pong(reader) => {
-                let le = reader.nonce().raw_data().as_ptr() as *const u32;
-                Some(PingPayload::Pong(u32::from_le(unsafe { *le })))
+                let nonce = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.as_slice());
+                    u32::from_le_bytes(b)
+                };
+                Some(PingPayload::Pong(nonce))
             }
         }
     }
