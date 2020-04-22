@@ -47,12 +47,8 @@ impl ChainDB {
         }
     }
 
-    pub fn property_value(&self, col: Col, name: &str) -> Result<Option<String>, Error> {
-        self.db.property_value(col, name)
-    }
-
-    pub fn property_int_value(&self, col: Col, name: &str) -> Result<Option<u64>, Error> {
-        self.db.property_int_value(col, name)
+    pub fn db(&self) -> &RocksDB {
+        &self.db
     }
 
     pub fn begin_transaction(&self) -> StoreTransaction {

@@ -614,6 +614,7 @@ dependencies = [
 name = "ckb-memory-tracker"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-db",
  "ckb-logger",
  "futures 0.3.4",
  "heim",
