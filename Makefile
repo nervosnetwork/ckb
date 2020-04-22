@@ -77,9 +77,13 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
 
+.PHONY: build-for-profiling-without-debug-symbols
+build-for-profiling-without-debug-symbols: ## Build binary with for profiling without debug symbols.
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --release --features "profiling"
+
 .PHONY: build-for-profiling
 build-for-profiling: ## Build binary with for profiling.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling"
+	devtools/release/make-with-debug-symbols build-for-profiling-without-debug-symbols
 
 .PHONY: prod
 prod: ## Build binary for production release.
