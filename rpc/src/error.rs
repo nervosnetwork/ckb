@@ -6,10 +6,14 @@ use std::fmt::{Debug, Display};
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RPCError {
     // ,-- General application errors
+    CKBInternalError = -1,
     Invalid = -3,
     RPCModuleIsDisabled = -4,
     // ,-- P2P errors
     P2PFailedToBroadcast = -101,
+    // ,-- Store errors
+    ChainIndexIsInconsistent = -201,
+    DatabaseIsCorrupt = -202,
     // ,-- Alert module
     AlertFailedToVerifySignatures = -1000,
 }
@@ -37,6 +41,10 @@ impl RPCError {
             message: format!("{:?}: {}", error_code, err),
             data: Some(Value::String(format!("{:?}", err))),
         }
+    }
+
+    pub fn ckb_internal_error<T: Display + Debug>(err: T) -> Error {
+        Self::custom_with_error(RPCError::CKBInternalError, err)
     }
 
     pub fn rpc_module_is_disabled(module: &str) -> Error {
