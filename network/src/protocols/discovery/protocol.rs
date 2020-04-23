@@ -138,18 +138,24 @@ impl DiscoveryMessage {
             .as_bytes()
     }
 
-    #[allow(clippy::cast_ptr_alignment)]
     pub fn decode(data: &[u8]) -> Option<Self> {
         let reader = packed::DiscoveryMessageReader::from_compatible_slice(data).ok()?;
         match reader.payload().to_enum() {
             packed::DiscoveryPayloadUnionReader::GetNodes(reader) => {
-                let le = reader.version().raw_data().as_ptr() as *const u32;
-                let version = u32::from_le(unsafe { *le });
-                let le = reader.count().raw_data().as_ptr() as *const u32;
-                let count = u32::from_le(unsafe { *le });
+                let version = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.version().raw_data());
+                    u32::from_le_bytes(b)
+                };
+                let count = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.count().raw_data());
+                    u32::from_le_bytes(b)
+                };
                 let listen_port = reader.listen_port().to_opt().map(|port_reader| {
-                    let le = port_reader.raw_data().as_ptr() as *const u16;
-                    u16::from_le(unsafe { *le })
+                    let mut b = [0u8; 2];
+                    b.copy_from_slice(port_reader.raw_data());
+                    u16::from_le_bytes(b)
                 });
                 Some(DiscoveryMessage::GetNodes {
                     version,
