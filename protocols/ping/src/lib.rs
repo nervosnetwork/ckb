@@ -291,7 +291,7 @@ impl PingMessage {
             packed::PingPayloadUnionReader::Ping(reader) => {
                 let nonce = {
                     let mut b = [0u8; 4];
-                    b.copy_from_slice(reader.as_slice());
+                    b.copy_from_slice(reader.nonce().raw_data());
                     u32::from_le_bytes(b)
                 };
                 Some(PingPayload::Ping(nonce))
@@ -299,7 +299,7 @@ impl PingMessage {
             packed::PingPayloadUnionReader::Pong(reader) => {
                 let nonce = {
                     let mut b = [0u8; 4];
-                    b.copy_from_slice(reader.as_slice());
+                    b.copy_from_slice(reader.nonce().raw_data());
                     u32::from_le_bytes(b)
                 };
                 Some(PingPayload::Pong(nonce))
