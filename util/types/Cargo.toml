@@ -6,7 +6,7 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-molecule = "=0.5.0"
+molecule = "=0.6.0"
 ckb-fixed-hash = { path = "../fixed-hash" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { version="0.5.4", features = ["serde"] }
