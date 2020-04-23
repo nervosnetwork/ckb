@@ -1093,7 +1093,7 @@ dependencies = [
  "crossbeam-channel",
  "failure",
  "merkle-cbt",
- "molecule",
+ "molecule 0.6.0",
  "numext-fixed-uint",
  "proptest",
 ]
@@ -2674,6 +2674,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "molecule"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "663f76cc52219e5957e2f5563cce9d89f98aa8503c9c898b5c412d97df663998"
+dependencies = [
+ "bytes 0.5.4",
+ "cfg-if",
+ "faster-hex 0.4.1",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3990,7 +4001,7 @@ dependencies = [
  "igd",
  "libc",
  "log 0.4.8",
- "molecule",
+ "molecule 0.5.0",
  "tentacle-multiaddr",
  "tentacle-secio",
  "tokio 0.2.17",
@@ -4022,7 +4033,7 @@ dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "molecule",
+ "molecule 0.5.0",
  "openssl",
  "openssl-sys",
  "rand 0.7.0",
