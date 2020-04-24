@@ -1060,7 +1060,7 @@ dependencies = [
  "crossbeam-channel",
  "failure",
  "merkle-cbt",
- "molecule 0.6.0",
+ "molecule",
  "numext-fixed-uint",
  "once_cell",
  "proptest",
@@ -2632,17 +2632,6 @@ dependencies = [
 
 [[package]]
 name = "molecule"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5492f99b99e29ec28391edf446abfe10dbc3ebc401c978f7c8ac9c0ef3b7cd93"
-dependencies = [
- "bytes 0.5.4",
- "cfg-if",
- "faster-hex 0.4.1",
-]
-
-[[package]]
-name = "molecule"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "663f76cc52219e5957e2f5563cce9d89f98aa8503c9c898b5c412d97df663998"
@@ -3970,16 +3959,16 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.3.0-alpha.2"
+version = "0.3.0-alpha.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "470089ab4c2d9339254801583acc6fb0e88682ab42e12ffcaabb35cfd252f9dd"
+checksum = "a1fe0d7d314219019230d3a95ba6e5753a969936d9ac6428ed3dd136bb41680a"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "igd",
  "libc",
  "log 0.4.8",
- "molecule 0.5.0",
+ "molecule",
  "tentacle-multiaddr",
  "tentacle-secio",
  "tokio 0.2.18",
@@ -4003,15 +3992,15 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8845a1a8e5d339b9afb1b135587432903543a4efceeb77a652f912bd53f4cd3"
+checksum = "476977fd1e39f88147f1dd70cd60619acf45b673e85aa4013d845add776c4a27"
 dependencies = [
  "bs58",
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "molecule 0.5.0",
+ "molecule",
  "openssl",
  "openssl-sys",
  "rand 0.7.0",
