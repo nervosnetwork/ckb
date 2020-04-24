@@ -15,7 +15,7 @@ tokio = { version = "0.2.11", features = ["time", "io-util", "tcp", "dns", "rt-t
 tokio-util = { version = "0.2.0", features = ["codec"] }
 futures = "0.3"
 crossbeam-channel = "0.3"
-p2p = { version="0.3.0-alpha.2", package="tentacle", features = ["molc"] }
+p2p = { version="0.3.0-alpha.3", package="tentacle", features = ["molc"] }
 p2p-ping = { package="ckb-ping", path = "../protocols/ping" }
 p2p-discovery = { package="ckb-discovery", path = "../protocols/discovery" }
 p2p-identify = { package="ckb-identify", path = "../protocols/identify" }
