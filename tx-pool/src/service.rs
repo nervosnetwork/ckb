@@ -2,18 +2,12 @@ use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
 use crate::config::BlockAssemblerConfig;
 use crate::config::TxPoolConfig;
+use crate::error::handle_try_send_error;
 use crate::pool::{TxPool, TxPoolInfo};
-use crate::process::{
-    BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, ChainReorgProcess,
-    EstimateFeeRateProcess, EstimatorProcessBlockProcess, EstimatorTrackTxProcess, FetchCache,
-    FetchTxRPCProcess, FetchTxsProcess, FetchTxsWithCyclesProcess, FreshProposalsFilterProcess,
-    NewUncleProcess, PackageTxsProcess, PlugEntryProcess, PlugTarget, PreResolveTxsProcess,
-    PrepareUnclesProcess, SubmitTxsProcess, TxPoolInfoProcess, UpdateBlockTemplateCache,
-    UpdateCache, VerifyTxsProcess,
-};
+use crate::process::PlugTarget;
 use crate::FeeRate;
-use ckb_error::{Error, InternalErrorKind};
-use ckb_future_executor::{new_executor, Executor};
+use ckb_async_runtime::{new_runtime, Handle};
+use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
@@ -25,12 +19,13 @@ use ckb_types::{
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use crossbeam_channel;
 use failure::Error as FailureError;
-use futures::future::{self, Future};
-use futures::stream::Stream;
-use futures::sync::{mpsc, oneshot};
+use faketime::unix_time_as_millis;
+use futures::stream::StreamExt;
+use futures::{future, FutureExt};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
-use tokio::sync::lock::Lock;
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 512;
 
@@ -88,14 +83,14 @@ pub enum Message {
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     EstimateFeeRate(Request<usize, FeeRate>),
-    EstimatorTrackTx(Request<(Byte32, FeeRate, u64), ()>),
-    EstimatorProcessBlock(Request<(u64, Vec<Byte32>), ()>),
+    EstimatorTrackTx(Notify<(Byte32, FeeRate, u64)>),
+    EstimatorProcessBlock(Notify<(u64, Vec<Byte32>)>),
 }
 
 #[derive(Clone)]
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
-    executor: Executor,
+    handle: Handle,
     stop: StopHandler<()>,
 }
 
@@ -106,8 +101,8 @@ impl Drop for TxPoolController {
 }
 
 impl TxPoolController {
-    pub fn executor(&self) -> &Executor {
-        &self.executor
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 
     pub fn get_block_template(
@@ -119,16 +114,22 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call((bytes_limit, proposals_limit, max_version), responder);
-        sender.try_send(Message::BlockTemplate(request))?;
+        sender
+            .try_send(Message::BlockTemplate(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.recv().map_err(Into::into)
     }
 
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify(uncle);
-        sender
-            .try_send(Message::NewUncle(notify))
-            .map_err(Into::into)
+        sender.try_send(Message::NewUncle(notify)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e.into()
+        })
     }
 
     pub fn update_tx_pool_for_reorg(
@@ -145,16 +146,20 @@ impl TxPoolController {
             detached_proposal_id,
             snapshot,
         ));
-        sender
-            .try_send(Message::ChainReorg(notify))
-            .map_err(Into::into)
+        sender.try_send(Message::ChainReorg(notify)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e.into()
+        })
     }
 
     pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(txs, responder);
-        sender.try_send(Message::SubmitTxs(request))?;
+        sender.try_send(Message::SubmitTxs(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
     }
 
@@ -166,7 +171,10 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call((entries, target), responder);
-        sender.try_send(Message::PlugEntry(request))?;
+        sender.try_send(Message::PlugEntry(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
     }
 
@@ -177,16 +185,22 @@ impl TxPoolController {
     ) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify((txs, callback));
-        sender
-            .try_send(Message::NotifyTxs(notify))
-            .map_err(Into::into)
+        sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e.into()
+        })
     }
 
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call((), responder);
-        sender.try_send(Message::GetTxPoolInfo(request))?;
+        sender
+            .try_send(Message::GetTxPoolInfo(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.recv().map_err(Into::into)
     }
 
@@ -197,7 +211,12 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(proposals, responder);
-        sender.try_send(Message::FreshProposalsFilter(request))?;
+        sender
+            .try_send(Message::FreshProposalsFilter(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.recv().map_err(Into::into)
     }
 
@@ -205,7 +224,10 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(id, responder);
-        sender.try_send(Message::FetchTxRPC(request))?;
+        sender.try_send(Message::FetchTxRPC(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
     }
 
@@ -216,7 +238,10 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(short_ids, responder);
-        sender.try_send(Message::FetchTxs(request))?;
+        sender.try_send(Message::FetchTxs(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
     }
 
@@ -227,7 +252,12 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(short_ids, responder);
-        sender.try_send(Message::FetchTxsWithCycles(request))?;
+        sender
+            .try_send(Message::FetchTxsWithCycles(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.recv().map_err(Into::into)
     }
 
@@ -235,7 +265,12 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call(expect_confirm_blocks, responder);
-        sender.try_send(Message::EstimateFeeRate(request))?;
+        sender
+            .try_send(Message::EstimateFeeRate(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.recv().map_err(Into::into)
     }
 
@@ -246,10 +281,13 @@ impl TxPoolController {
         height: u64,
     ) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call((tx_hash, fee_rate, height), responder);
-        sender.try_send(Message::EstimatorTrackTx(request))?;
-        response.recv().map_err(Into::into)
+        let notify = Notify::notify((tx_hash, fee_rate, height));
+        sender
+            .try_send(Message::EstimatorTrackTx(notify))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e.into()
+            })
     }
 
     pub fn estimator_process_block(
@@ -258,10 +296,13 @@ impl TxPoolController {
         txs: impl Iterator<Item = Byte32>,
     ) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call((height, txs.collect::<Vec<_>>()), responder);
-        sender.try_send(Message::EstimatorProcessBlock(request))?;
-        response.recv().map_err(Into::into)
+        let notify = Notify::notify((height, txs.collect::<Vec<_>>()));
+        sender
+            .try_send(Message::EstimatorProcessBlock(notify))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e.into()
+            })
     }
 }
 
@@ -274,7 +315,7 @@ impl TxPoolServiceBuilder {
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-        txs_verify_cache: Lock<TxVerifyCache>,
+        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
@@ -297,23 +338,20 @@ impl TxPoolServiceBuilder {
         let (signal_sender, signal_receiver) = oneshot::channel();
 
         let service = self.service.take().expect("tx pool service start once");
-        let server = move |executor: Executor| {
-            receiver
-                .for_each(move |message| {
-                    let service_clone = service.clone();
-                    executor.spawn(service_clone.process(message));
-                    future::ok(())
-                })
-                .select2(signal_receiver)
-                .map(|_| ())
-                .map_err(|_| ())
+        let server = move |handle: Handle| {
+            let process = receiver.for_each(move |message| {
+                let service_clone = service.clone();
+                handle.spawn(process(service_clone, message));
+                future::ready(())
+            });
+            future::select(process, signal_receiver).map(|_| ())
         };
 
-        let (executor, thread) = new_executor(server);
-        let stop = StopHandler::new(SignalSender::Future(signal_sender), thread);
+        let (handle, thread) = new_runtime(server);
+        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
         TxPoolController {
             sender,
-            executor,
+            handle,
             stop,
         }
     }
@@ -321,11 +359,11 @@ impl TxPoolServiceBuilder {
 
 #[derive(Clone)]
 pub struct TxPoolService {
-    tx_pool: Lock<TxPool>,
-    tx_pool_config: TxPoolConfig,
-    block_assembler: Option<BlockAssembler>,
-    txs_verify_cache: Lock<TxVerifyCache>,
-    last_txs_updated_at: Arc<AtomicU64>,
+    pub(crate) tx_pool: Arc<RwLock<TxPool>>,
+    pub(crate) tx_pool_config: Arc<TxPoolConfig>,
+    pub(crate) block_assembler: Option<BlockAssembler>,
+    pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+    pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
 }
 
@@ -333,13 +371,13 @@ impl TxPoolService {
     pub fn new(
         tx_pool: TxPool,
         block_assembler: Option<BlockAssembler>,
-        txs_verify_cache: Lock<TxVerifyCache>,
+        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
-        let tx_pool_config = tx_pool.config;
+        let tx_pool_config = Arc::new(tx_pool.config);
         Self {
-            tx_pool: Lock::new(tx_pool),
+            tx_pool: Arc::new(RwLock::new(tx_pool)),
             tx_pool_config,
             block_assembler,
             txs_verify_cache,
@@ -348,380 +386,175 @@ impl TxPoolService {
         }
     }
 
-    fn snapshot(&self) -> Arc<Snapshot> {
+    pub(crate) fn snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot_mgr.load())
     }
+}
 
-    fn process(&self, message: Message) -> Box<dyn Future<Item = (), Error = ()> + 'static + Send> {
-        match message {
-            Message::GetTxPoolInfo(Request { responder, .. }) => {
-                Box::new(self.get_tx_pool_info().and_then(move |info| {
-                    if let Err(e) = responder.send(info) {
-                        error!("responder send get_tx_pool_info failed {:?}", e);
-                    };
-                    future::ok(())
-                }))
-            }
-            Message::BlockTemplate(Request {
-                responder,
-                arguments: (bytes_limit, proposals_limit, max_version),
-            }) => Box::new(
-                self.get_block_template(bytes_limit, proposals_limit, max_version)
-                    .then(move |block_template_result| {
-                        if let Err(e) = responder.send(block_template_result) {
-                            error!("responder send block_template_result failed {:?}", e);
-                        };
-                        future::ok(())
-                    }),
-            ),
-            Message::SubmitTxs(Request {
-                responder,
-                arguments: txs,
-            }) => Box::new(self.process_txs(txs).then(move |submit_txs_result| {
-                if let Err(e) = responder.send(submit_txs_result) {
-                    error!("responder send submit_txs_result failed {:?}", e);
-                };
-                future::ok(())
-            })),
-            Message::NotifyTxs(Notify {
-                arguments: (txs, callback),
-            }) => Box::new(self.process_txs(txs).then(|ret| {
-                future::lazy(|| {
-                    if let Some(call) = callback {
-                        call(ret)
-                    };
-                    future::ok(())
-                })
-            })),
-            Message::FreshProposalsFilter(Request {
-                responder,
-                arguments: proposals,
-            }) => Box::new(self.fresh_proposals_filter(proposals).and_then(
-                move |fresh_proposals_filter| {
-                    if let Err(e) = responder.send(fresh_proposals_filter) {
-                        error!("responder send fresh_proposals_filter failed {:?}", e);
-                    };
-                    future::ok(())
-                },
-            )),
-            Message::FetchTxRPC(Request {
-                responder,
-                arguments: id,
-            }) => Box::new(self.fetch_tx_for_rpc(id).and_then(move |tx| {
-                if let Err(e) = responder.send(tx) {
-                    error!("responder send fetch_tx_for_rpc failed {:?}", e)
-                };
-                future::ok(())
-            })),
-            Message::FetchTxs(Request {
-                responder,
-                arguments: short_ids,
-            }) => Box::new(self.fetch_txs(short_ids).and_then(move |txs| {
-                if let Err(e) = responder.send(txs) {
-                    error!("responder send fetch_txs failed {:?}", e);
-                };
-                future::ok(())
-            })),
-            Message::FetchTxsWithCycles(Request {
-                responder,
-                arguments: short_ids,
-            }) => Box::new(self.fetch_txs_with_cycles(short_ids).and_then(move |txs| {
-                if let Err(e) = responder.send(txs) {
-                    error!("responder send fetch_txs_with_cycles failed {:?}", e);
-                };
-                future::ok(())
-            })),
-            Message::ChainReorg(Notify {
-                arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-            }) => Box::new(self.update_tx_pool_for_reorg(
-                detached_blocks,
-                attached_blocks,
-                detached_proposal_id,
-                snapshot,
-            )),
-            Message::NewUncle(Notify { arguments: uncle }) => Box::new(self.new_uncle(uncle)),
-            Message::PlugEntry(Request {
-                responder,
-                arguments: (entries, target),
-            }) => Box::new(self.plug_entry(entries, target).and_then(move |_result| {
-                if let Err(e) = responder.send(()) {
-                    error!("responder send plug_entry failed {:?}", e);
-                };
-                future::ok(())
-            })),
-            Message::EstimateFeeRate(Request {
-                responder,
-                arguments: expect_confirm_blocks,
-            }) => Box::new(self.estimate_fee_rate(expect_confirm_blocks).and_then(
-                move |fee_rate| {
-                    if let Err(e) = responder.send(fee_rate) {
-                        error!("responder send estimate_fee_rate failed {:?}", e)
-                    };
-                    future::ok(())
-                },
-            )),
-            Message::EstimatorTrackTx(Request {
-                responder,
-                arguments: (tx_hash, fee_rate, height),
-            }) => Box::new(self.estimator_track_tx(tx_hash, fee_rate, height).and_then(
-                move |_| {
-                    if let Err(e) = responder.send(()) {
-                        error!("responder send estimator_track_tx failed {:?}", e)
-                    };
-                    future::ok(())
-                },
-            )),
-            Message::EstimatorProcessBlock(Request {
-                responder,
-                arguments: (height, txs),
-            }) => Box::new(
-                self.estimator_process_block(height, txs)
-                    .and_then(move |_| {
-                        if let Err(e) = responder.send(()) {
-                            error!("responder send estimator_process_block failed {:?}", e)
-                        };
-                        future::ok(())
-                    }),
-            ),
-        }
-    }
-
-    fn get_tx_pool_info(&self) -> impl Future<Item = TxPoolInfo, Error = ()> {
-        TxPoolInfoProcess {
-            tx_pool: self.tx_pool.clone(),
-        }
-    }
-
-    fn get_block_template(
-        &self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-    ) -> impl Future<Item = BlockTemplate, Error = FailureError> {
-        if self.block_assembler.is_none() {
-            future::Either::A(future::err(
-                InternalErrorKind::System
-                    .reason("BlockAssembler disabled")
-                    .into(),
-            ))
-        } else {
-            let block_assembler = self.block_assembler.clone().unwrap();
-            let snapshot = self.snapshot();
-            let consensus = snapshot.consensus();
-            let cycles_limit = consensus.max_block_cycles();
-            let args = BlockAssembler::transform_params(
-                consensus,
-                bytes_limit,
-                proposals_limit,
-                max_version,
-            );
-            let (bytes_limit, proposals_limit, version) = args;
-
-            let cache = BlockTemplateCacheProcess::new(
-                block_assembler.template_caches.clone(),
-                Arc::clone(&self.last_txs_updated_at),
-                Arc::clone(&block_assembler.last_uncles_updated_at),
-                Arc::clone(&snapshot),
-                args,
-            );
-
-            let build_cellbase = BuildCellbaseProcess::new(
-                Arc::clone(&snapshot),
-                Arc::clone(&block_assembler.config),
-            );
-            let prepare_uncle = PrepareUnclesProcess {
-                snapshot: Arc::clone(&snapshot),
-                last_uncles_updated_at: Arc::clone(&block_assembler.last_uncles_updated_at),
-                candidate_uncles: block_assembler.candidate_uncles.clone(),
+#[allow(clippy::cognitive_complexity)]
+async fn process(service: TxPoolService, message: Message) {
+    match message {
+        Message::GetTxPoolInfo(Request { responder, .. }) => {
+            let info = service.tx_pool.read().await.info();
+            if let Err(e) = responder.send(info) {
+                error!("responder send get_tx_pool_info failed {:?}", e);
             };
-
-            let tx_pool = self.tx_pool.clone();
-            let last_txs_updated_at = Arc::clone(&self.last_txs_updated_at);
-
-            let template_caches = block_assembler.template_caches.clone();
-            let tip_hash = snapshot.tip_hash();
-
-            let process = cache.or_else(move |_| {
-                build_cellbase
-                    .and_then(move |cellbase| {
-                        prepare_uncle.and_then(move |(uncles, current_epoch, uncles_updated_at)| {
-                            let package_txs = PackageTxsProcess {
-                                tx_pool,
-                                bytes_limit,
-                                proposals_limit,
-                                max_block_cycles: cycles_limit,
-                                last_txs_updated_at,
-                                cellbase: cellbase.clone(),
-                                uncles: uncles.clone(),
-                            };
-                            package_txs.and_then(move |(proposals, entries, txs_updated_at)| {
-                                BlockTemplateBuilder {
-                                    snapshot: Arc::clone(&snapshot),
-                                    entries,
-                                    proposals,
-                                    cellbase,
-                                    work_id: Arc::clone(&block_assembler.work_id),
-                                    current_epoch,
-                                    uncles,
-                                    args,
-                                    uncles_updated_at,
-                                    txs_updated_at,
-                                }
-                            })
-                        })
-                    })
-                    .map(move |(template, uncles_updated_at, txs_updated_at)| {
-                        let update_cache = UpdateBlockTemplateCache::new(
-                            template_caches,
-                            (tip_hash, bytes_limit, proposals_limit, version),
-                            uncles_updated_at,
-                            txs_updated_at,
-                            template.clone(),
-                        );
-                        tokio::spawn(update_cache);
-                        template
-                    })
-            });
-            future::Either::B(process)
         }
-    }
-
-    fn process_txs(
-        &self,
-        txs: Vec<TransactionView>,
-    ) -> impl Future<Item = Vec<CacheEntry>, Error = Error> {
-        let keys: Vec<Byte32> = txs.iter().map(|tx| tx.hash()).collect();
-        let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), keys);
-        let txs_verify_cache = self.txs_verify_cache.clone();
-        let tx_pool = self.tx_pool.clone();
-        let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
-
-        let pre_resolve = PreResolveTxsProcess::new(tx_pool.clone(), txs);
-
-        pre_resolve.and_then(move |(tip_hash, snapshot, rtxs, status)| {
-            fetched_cache
-                .then(move |cache| {
-                    VerifyTxsProcess::new(
-                        snapshot,
-                        cache.expect("fetched_cache never fail"),
-                        rtxs,
-                        max_tx_verify_cycles,
-                    )
+        Message::BlockTemplate(Request {
+            responder,
+            arguments: (bytes_limit, proposals_limit, max_version),
+        }) => {
+            let block_template_result = service
+                .get_block_template(bytes_limit, proposals_limit, max_version)
+                .await;
+            if let Err(e) = responder.send(block_template_result) {
+                error!("responder send block_template_result failed {:?}", e);
+            };
+        }
+        Message::SubmitTxs(Request {
+            responder,
+            arguments: txs,
+        }) => {
+            let submit_txs_result = service.process_txs(txs).await;
+            if let Err(e) = responder.send(submit_txs_result) {
+                error!("responder send submit_txs_result failed {:?}", e);
+            };
+        }
+        Message::NotifyTxs(Notify {
+            arguments: (txs, callback),
+        }) => {
+            let submit_txs_result = service.process_txs(txs).await;
+            if let Some(call) = callback {
+                call(submit_txs_result)
+            };
+        }
+        Message::FreshProposalsFilter(Request {
+            responder,
+            arguments: mut proposals,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            proposals.retain(|id| !tx_pool.contains_proposal_id(&id));
+            if let Err(e) = responder.send(proposals) {
+                error!("responder send fresh_proposals_filter failed {:?}", e);
+            };
+        }
+        Message::FetchTxRPC(Request {
+            responder,
+            arguments: id,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let tx = tx_pool
+                .proposed()
+                .get(&id)
+                .map(|entry| (true, entry.transaction.clone()))
+                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)));
+            if let Err(e) = responder.send(tx) {
+                error!("responder send fetch_tx_for_rpc failed {:?}", e)
+            };
+        }
+        Message::FetchTxs(Request {
+            responder,
+            arguments: short_ids,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let txs = short_ids
+                .into_iter()
+                .filter_map(|short_id| {
+                    if let Some(tx) = tx_pool.get_tx_from_pool_or_store(&short_id) {
+                        Some((short_id, tx))
+                    } else {
+                        None
+                    }
                 })
-                .and_then(move |txs| SubmitTxsProcess::new(tx_pool, txs, tip_hash, status))
-                .map(move |(map, cache_entry)| {
-                    tokio::spawn(UpdateCache::new(txs_verify_cache, map));
-                    cache_entry
+                .collect();
+            if let Err(e) = responder.send(txs) {
+                error!("responder send fetch_txs failed {:?}", e);
+            };
+        }
+        Message::FetchTxsWithCycles(Request {
+            responder,
+            arguments: short_ids,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let txs = short_ids
+                .into_iter()
+                .filter_map(|short_id| {
+                    tx_pool
+                        .get_tx_with_cycles(&short_id)
+                        .and_then(|(tx, cycles)| cycles.map(|cycles| (short_id, (tx, cycles))))
                 })
-        })
-    }
-
-    fn plug_entry(
-        &self,
-        entries: Vec<TxEntry>,
-        target: PlugTarget,
-    ) -> impl Future<Item = (), Error = ()> {
-        PlugEntryProcess::new(self.tx_pool.clone(), entries, target)
-    }
-
-    fn fresh_proposals_filter(
-        &self,
-        proposals: Vec<ProposalShortId>,
-    ) -> impl Future<Item = Vec<ProposalShortId>, Error = ()> {
-        FreshProposalsFilterProcess::new(self.tx_pool.clone(), proposals)
-    }
-
-    fn fetch_tx_for_rpc(
-        &self,
-        id: ProposalShortId,
-    ) -> impl Future<Item = Option<(bool, TransactionView)>, Error = ()> {
-        FetchTxRPCProcess::new(self.tx_pool.clone(), id)
-    }
-
-    fn fetch_txs(
-        &self,
-        short_ids: Vec<ProposalShortId>,
-    ) -> impl Future<Item = HashMap<ProposalShortId, TransactionView>, Error = ()> {
-        FetchTxsProcess::new(self.tx_pool.clone(), short_ids)
-    }
-
-    fn fetch_txs_with_cycles(
-        &self,
-        short_ids: Vec<ProposalShortId>,
-    ) -> impl Future<Item = Vec<(ProposalShortId, (TransactionView, Cycle))>, Error = ()> {
-        FetchTxsWithCyclesProcess::new(self.tx_pool.clone(), short_ids)
-    }
-
-    pub fn update_tx_pool_for_reorg(
-        &self,
-        detached_blocks: VecDeque<BlockView>,
-        attached_blocks: VecDeque<BlockView>,
-        detached_proposal_id: HashSet<ProposalShortId>,
-        snapshot: Arc<Snapshot>,
-    ) -> impl Future<Item = (), Error = ()> {
-        let mut detached = HashSet::new();
-        let mut attached = HashSet::new();
-        for blk in &detached_blocks {
-            detached.extend(blk.transactions().iter().skip(1).map(|tx| tx.hash()))
+                .collect();
+            if let Err(e) = responder.send(txs) {
+                error!("responder send fetch_txs_with_cycles failed {:?}", e);
+            };
         }
-        for blk in &attached_blocks {
-            attached.extend(blk.transactions().iter().skip(1).map(|tx| tx.hash()))
-        }
-        let retain: Vec<Byte32> = detached.difference(&attached).cloned().collect();
-
-        let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), retain);
-        let txs_verify_cache = self.txs_verify_cache.clone();
-        let tx_pool = self.tx_pool.clone();
-        fetched_cache
-            .and_then(move |cache| {
-                ChainReorgProcess::new(
-                    tx_pool,
-                    cache,
+        Message::ChainReorg(Notify {
+            arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+        }) => {
+            service
+                .update_tx_pool_for_reorg(
                     detached_blocks,
                     attached_blocks,
                     detached_proposal_id,
                     snapshot,
                 )
-            })
-            .map(move |map| {
-                tokio::spawn(UpdateCache::new(txs_verify_cache, map));
-            })
-    }
-
-    pub fn new_uncle(&self, uncle: UncleBlockView) -> impl Future<Item = (), Error = ()> {
-        if self.block_assembler.is_none() {
-            future::Either::A(future::ok(()))
-        } else {
-            let block_assembler = self.block_assembler.clone().unwrap();
-            future::Either::B(NewUncleProcess::new(
-                block_assembler.candidate_uncles.clone(),
-                Arc::clone(&block_assembler.last_uncles_updated_at),
-                uncle,
-            ))
+                .await
         }
-    }
-
-    pub fn estimate_fee_rate(
-        &self,
-        expect_confirm_blocks: usize,
-    ) -> impl Future<Item = FeeRate, Error = ()> {
-        EstimateFeeRateProcess::new(self.tx_pool.clone(), expect_confirm_blocks)
-    }
-
-    pub fn estimator_track_tx(
-        &self,
-        tx_hash: Byte32,
-        fee_rate: FeeRate,
-        height: u64,
-    ) -> impl Future<Item = (), Error = ()> {
-        EstimatorTrackTxProcess::new(self.tx_pool.clone(), tx_hash, fee_rate, height)
-    }
-
-    pub fn estimator_process_block(
-        &self,
-        height: u64,
-        txs: Vec<Byte32>,
-    ) -> impl Future<Item = (), Error = ()> {
-        EstimatorProcessBlockProcess::new(self.tx_pool.clone(), height, txs)
+        Message::NewUncle(Notify { arguments: uncle }) => {
+            if service.block_assembler.is_some() {
+                let block_assembler = service.block_assembler.clone().unwrap();
+                block_assembler.candidate_uncles.lock().await.insert(uncle);
+                block_assembler
+                    .last_uncles_updated_at
+                    .store(unix_time_as_millis(), Ordering::SeqCst);
+            }
+        }
+        Message::PlugEntry(Request {
+            responder,
+            arguments: (entries, target),
+        }) => {
+            let mut tx_pool = service.tx_pool.write().await;
+            match target {
+                PlugTarget::Pending => {
+                    for entry in entries {
+                        if let Err(err) = tx_pool.add_pending(entry) {
+                            error!("plug entry error {}", err);
+                        }
+                    }
+                }
+                PlugTarget::Proposed => {
+                    for entry in entries {
+                        if let Err(err) = tx_pool.add_proposed(entry) {
+                            error!("plug entry error {}", err);
+                        }
+                    }
+                }
+            };
+            if let Err(e) = responder.send(()) {
+                error!("responder send plug_entry failed {:?}", e);
+            };
+        }
+        Message::EstimateFeeRate(Request {
+            responder,
+            arguments: expect_confirm_blocks,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let fee_rate = tx_pool.fee_estimator.estimate(expect_confirm_blocks);
+            if let Err(e) = responder.send(fee_rate) {
+                error!("responder send estimate_fee_rate failed {:?}", e)
+            };
+        }
+        Message::EstimatorTrackTx(Notify {
+            arguments: (tx_hash, fee_rate, height),
+        }) => {
+            let mut tx_pool = service.tx_pool.write().await;
+            tx_pool.fee_estimator.track_tx(tx_hash, fee_rate, height);
+        }
+        Message::EstimatorProcessBlock(Notify {
+            arguments: (height, txs),
+        }) => {
+            let mut tx_pool = service.tx_pool.write().await;
+            tx_pool.fee_estimator.process_block(height, txs.into_iter());
+        }
     }
 }

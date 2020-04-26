@@ -9,7 +9,6 @@ mod error;
 mod genesis_verifier;
 mod header_verifier;
 mod transaction_verifier;
-pub mod txs_verify_cache;
 mod uncles_verifier;
 
 #[cfg(test)]

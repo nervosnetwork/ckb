@@ -23,9 +23,9 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-chain-spec = { path = "../spec" }
 ckb-snapshot = { path = "../util/snapshot" }
 ckb-error = { path = "../error" }
-futures = "0.1"
-tokio = "0.1"
+futures = "0.3"
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
 crossbeam-channel = "0.3"
-ckb-future-executor = { path = "../util/future-executor" }
+ckb-async-runtime = { path = "../util/runtime" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }

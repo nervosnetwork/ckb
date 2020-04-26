@@ -537,7 +537,7 @@ impl ChainService {
         }
 
         let verify_context = VerifyContext::new(txn, self.shared.consensus());
-        let future_executor = self.shared.tx_pool_controller().executor();
+        let async_handle = self.shared.tx_pool_controller().handle();
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -580,8 +580,8 @@ impl ChainService {
                             match contextual_block_verifier.verify(
                                 &resolved,
                                 b,
-                                txs_verify_cache.clone(),
-                                &future_executor,
+                                Arc::clone(&txs_verify_cache),
+                                &async_handle,
                                 switch,
                             ) {
                                 Ok((cycles, cache_entries)) => {

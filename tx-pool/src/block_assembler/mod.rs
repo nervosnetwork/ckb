@@ -21,9 +21,8 @@ use ckb_types::{
 use failure::Error as FailureError;
 use lru_cache::LruCache;
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::{atomic::AtomicU64, atomic::AtomicUsize};
-use tokio::sync::lock::Lock;
+use std::sync::{atomic::AtomicU64, Arc};
+use tokio::sync::Mutex;
 
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
@@ -51,20 +50,20 @@ pub type BlockTemplateCacheKey = (Byte32, Cycle, u64, Version);
 #[derive(Clone)]
 pub struct BlockAssembler {
     pub(crate) config: Arc<BlockAssemblerConfig>,
-    pub(crate) work_id: Arc<AtomicUsize>,
+    pub(crate) work_id: Arc<AtomicU64>,
     pub(crate) last_uncles_updated_at: Arc<AtomicU64>,
-    pub(crate) template_caches: Lock<LruCache<BlockTemplateCacheKey, TemplateCache>>,
-    pub(crate) candidate_uncles: Lock<CandidateUncles>,
+    pub(crate) template_caches: Arc<Mutex<LruCache<BlockTemplateCacheKey, TemplateCache>>>,
+    pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
 }
 
 impl BlockAssembler {
     pub fn new(config: BlockAssemblerConfig) -> Self {
         Self {
             config: Arc::new(config),
-            work_id: Arc::new(AtomicUsize::new(0)),
+            work_id: Arc::new(AtomicU64::new(0)),
             last_uncles_updated_at: Arc::new(AtomicU64::new(0)),
-            template_caches: Lock::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
-            candidate_uncles: Lock::new(CandidateUncles::new()),
+            template_caches: Arc::new(Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE))),
+            candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
         }
     }
 

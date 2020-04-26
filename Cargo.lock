@@ -326,6 +326,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-async-runtime"
+version = "0.31.0-pre"
+dependencies = [
+ "crossbeam-channel",
+ "tokio 0.2.17",
+]
+
+[[package]]
 name = "ckb-benches"
 version = "0.31.0-pre"
 dependencies = [
@@ -523,17 +531,6 @@ dependencies = [
  "proc-macro2 0.4.27",
  "quote 0.6.11",
  "syn 0.15.29",
-]
-
-[[package]]
-name = "ckb-future-executor"
-version = "0.31.0-pre"
-dependencies = [
- "crossbeam-channel",
- "futures 0.1.29",
- "num_cpus",
- "tokio 0.1.22",
- "tokio-executor",
 ]
 
 [[package]]
@@ -938,6 +935,7 @@ dependencies = [
  "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
+ "tokio 0.2.17",
 ]
 
 [[package]]
@@ -1022,11 +1020,11 @@ dependencies = [
 name = "ckb-tx-pool"
 version = "0.31.0-pre"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-error",
  "ckb-fee-estimator",
- "ckb-future-executor",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-reward-calculator",
@@ -1039,10 +1037,10 @@ dependencies = [
  "crossbeam-channel",
  "failure",
  "faketime",
- "futures 0.1.29",
+ "futures 0.3.4",
  "lru-cache",
  "serde",
- "tokio 0.1.22",
+ "tokio 0.2.17",
 ]
 
 [[package]]
@@ -1078,12 +1076,12 @@ dependencies = [
 name = "ckb-verification"
 version = "0.31.0-pre"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
- "ckb-future-executor",
  "ckb-logger",
  "ckb-pow",
  "ckb-resource",
@@ -1098,11 +1096,10 @@ dependencies = [
  "enum-display-derive",
  "failure",
  "faketime",
- "futures 0.1.29",
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.1.22",
+ "tokio 0.2.17",
 ]
 
 [[package]]
@@ -4149,6 +4146,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39fb9142eb6e9cc37f4f29144e62618440b149a138eee01a7bbe9b9226aaf17c"
 dependencies = [
  "bytes 0.5.4",
+ "fnv",
  "futures-core",
  "iovec",
  "lazy_static",
