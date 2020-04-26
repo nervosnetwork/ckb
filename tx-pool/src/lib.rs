@@ -13,4 +13,4 @@ pub use component::entry::TxEntry;
 pub use config::{BlockAssemblerConfig, TxPoolConfig};
 pub use process::PlugTarget;
 pub use service::{TxPoolController, TxPoolServiceBuilder};
-pub use tokio::sync::lock::Lock as PollLock;
+pub use tokio::sync::RwLock as TokioRwLock;

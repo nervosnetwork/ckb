@@ -4,11 +4,13 @@ use futures::sync::oneshot;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use tokio::sync::oneshot as tokio_oneshot;
 
 #[derive(Debug)]
 pub enum SignalSender {
     Future(oneshot::Sender<()>),
     Crossbeam(Sender<()>),
+    Tokio(tokio_oneshot::Sender<()>),
 }
 
 impl SignalSender {
@@ -20,6 +22,11 @@ impl SignalSender {
                 };
             }
             SignalSender::Future(tx) => {
+                if let Err(e) = tx.send(()) {
+                    error!("handler signal send error {:?}", e);
+                };
+            }
+            SignalSender::Tokio(tx) => {
                 if let Err(e) = tx.send(()) {
                     error!("handler signal send error {:?}", e);
                 };
