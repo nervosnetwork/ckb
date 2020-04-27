@@ -1,3 +1,4 @@
+use ckb_error::Error as CKBError;
 use jsonrpc_core::{Error, ErrorCode, Value};
 use std::fmt::{Debug, Display};
 
@@ -7,13 +8,18 @@ use std::fmt::{Debug, Display};
 pub enum RPCError {
     // ,-- General application errors
     CKBInternalError = -1,
+    Deprecated = -2,
     Invalid = -3,
     RPCModuleIsDisabled = -4,
+    DaoError = -5,
     // ,-- P2P errors
     P2PFailedToBroadcast = -101,
     // ,-- Store errors
     ChainIndexIsInconsistent = -201,
     DatabaseIsCorrupt = -202,
+    // ,-- Transaction errors
+    TransactionFailedToResolve = -301,
+    TransactionFailedToVerify = -302,
     // ,-- Alert module
     AlertFailedToVerifySignatures = -1000,
 }
@@ -40,6 +46,14 @@ impl RPCError {
             code: ErrorCode::ServerError(error_code as i64),
             message: format!("{:?}: {}", error_code, err),
             data: Some(Value::String(format!("{:?}", err))),
+        }
+    }
+
+    pub fn from_ckb_error(err: CKBError) -> Error {
+        use ckb_error::ErrorKind::*;
+        match err.kind() {
+            Dao => Self::custom_with_error(RPCError::DaoError, err),
+            _ => Self::custom_with_error(RPCError::CKBInternalError, err),
         }
     }
 

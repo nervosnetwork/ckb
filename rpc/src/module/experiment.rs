@@ -64,13 +64,13 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let calculator = DaoCalculator::new(consensus, snapshot);
         match calculator.maximum_withdraw(&out_point.into(), &hash.pack()) {
             Ok(capacity) => Ok(capacity.into()),
-            Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", err))),
+            Err(err) => Err(RPCError::from_ckb_error(err)),
         }
     }
 
     fn estimate_fee_rate(&self, _expect_confirm_blocks: Uint64) -> Result<EstimateResult> {
         Err(RPCError::custom(
-            RPCError::Invalid,
+            RPCError::Deprecated,
             "estimate_fee_rate have been deprecated due to it has availability and performance issue"
         ))
     }
@@ -121,10 +121,16 @@ impl<'a> DryRunner<'a> {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: cycles.into(),
                     }),
-                    Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
+                    Err(err) => Err(RPCError::custom_with_error(
+                        RPCError::TransactionFailedToVerify,
+                        err,
+                    )),
                 }
             }
-            Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
+            Err(err) => Err(RPCError::custom_with_error(
+                RPCError::TransactionFailedToResolve,
+                err,
+            )),
         }
     }
 }
