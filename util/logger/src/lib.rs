@@ -340,8 +340,15 @@ pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
 
     let logger = Logger::new(config);
-    log::set_max_level(logger.filter());
-    log::set_boxed_logger(Box::new(logger)).map(|_| LoggerInitGuard)
+    let filter = logger.filter();
+    log::set_boxed_logger(Box::new(logger)).map(|_| {
+        log::set_max_level(filter);
+        LoggerInitGuard
+    })
+}
+
+pub fn silent() {
+    log::set_max_level(LevelFilter::Off);
 }
 
 pub fn flush() {
