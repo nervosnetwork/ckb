@@ -1,6 +1,8 @@
 name: Dummy CI
 
 on:
+  push:
+    branches: [ staging ]
   pull_request:
     branches: [ develop ]
 
