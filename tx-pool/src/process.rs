@@ -260,7 +260,7 @@ impl TxPoolService {
         max_version: Option<Version>,
     ) -> Result<BlockTemplate, FailureError> {
         if self.block_assembler.is_none() {
-            Err(InternalErrorKind::System
+            Err(InternalErrorKind::Config
                 .reason("BlockAssembler disabled")
                 .into())
         } else {

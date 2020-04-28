@@ -30,6 +30,9 @@ pub enum InternalErrorKind {
 
     /// Unknown system error
     System,
+
+    /// The feature is disabled or is conflicted with the configuration
+    Config,
 }
 
 impl fmt::Display for InternalError {
