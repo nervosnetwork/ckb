@@ -691,7 +691,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.17",
+ "tokio 0.2.18",
  "tokio-util",
 ]
 
@@ -974,6 +974,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "crossbeam-channel",
  "failure",
  "faketime",
  "futures 0.3.4",
@@ -3981,7 +3982,7 @@ dependencies = [
  "molecule 0.5.0",
  "tentacle-multiaddr",
  "tentacle-secio",
- "tokio 0.2.17",
+ "tokio 0.2.18",
  "tokio-util",
  "tokio-yamux",
  "winapi 0.3.8",
@@ -4016,7 +4017,7 @@ dependencies = [
  "rand 0.7.0",
  "ring",
  "secp256k1 0.17.2",
- "tokio 0.2.17",
+ "tokio 0.2.18",
  "tokio-util",
  "unsigned-varint",
 ]
@@ -4144,9 +4145,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39fb9142eb6e9cc37f4f29144e62618440b149a138eee01a7bbe9b9226aaf17c"
+checksum = "34ef16d072d2b6dc8b4a56c70f5c5ced1a37752116f8e7c1e80c659aa7cb6713"
 dependencies = [
  "bytes 0.5.4",
  "futures-core",
@@ -4348,7 +4349,7 @@ dependencies = [
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
- "tokio 0.2.17",
+ "tokio 0.2.18",
 ]
 
 [[package]]
@@ -4360,7 +4361,7 @@ dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "tokio 0.2.17",
+ "tokio 0.2.18",
  "tokio-util",
 ]
 

@@ -66,6 +66,9 @@ pub trait CKBProtocolContext: Send {
     fn send_paused(&self) -> bool;
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
+    fn p2p_control(&self) -> Option<&ServiceControl> {
+        None
+    }
 }
 
 pub trait CKBProtocolHandler: Sync + Send {
@@ -398,6 +401,10 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn send_paused(&self) -> bool {
         self.send_paused
+    }
+
+    fn p2p_control(&self) -> Option<&ServiceControl> {
+        Some(&self.p2p_control)
     }
 }
 

@@ -122,12 +122,12 @@ impl<'a> CompactBlockProcess<'a> {
 
         let parent = parent.unwrap();
 
-        if let Some(flight) = shared
+        if let Some(peers) = shared
             .state()
             .read_inflight_blocks()
-            .inflight_state_by_block(&block_hash)
+            .inflight_compact_by_block(&block_hash)
         {
-            if flight.peers.contains(&self.peer) {
+            if peers.contains(&self.peer) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "discard already in-flight compact block {}",
@@ -240,7 +240,7 @@ impl<'a> CompactBlockProcess<'a> {
         if !shared
             .state()
             .write_inflight_blocks()
-            .insert(self.peer, block_hash.clone())
+            .compact_reconstruct(self.peer, block_hash.clone())
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,

@@ -20,12 +20,14 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, metric, trace, warn};
-use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{
+    bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
+};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::cmp::min;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,15 +41,72 @@ const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
+enum FetchCMD {
+    Fetch(Vec<PeerIndex>),
+}
+
+struct BlockFetchCMD {
+    can_fetch_block: Arc<AtomicBool>,
+    sync: Synchronizer,
+    p2p_control: ServiceControl,
+    recv: crossbeam_channel::Receiver<FetchCMD>,
+}
+
+impl BlockFetchCMD {
+    fn run(&self) {
+        while let Ok(cmd) = self.recv.recv() {
+            match cmd {
+                FetchCMD::Fetch(peers) => {
+                    self.can_fetch_block.store(false, Ordering::Release);
+                    for peer in peers {
+                        if let Some(fetch) =
+                            BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
+                        {
+                            for item in fetch {
+                                BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
+                            }
+                        }
+                    }
+                    self.can_fetch_block.store(true, Ordering::Release)
+                }
+            }
+        }
+    }
+
+    fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
+        let content = packed::GetBlocks::new_builder()
+            .block_hashes(v_fetch.clone().pack())
+            .build();
+        let message = packed::SyncMessage::new_builder().set(content).build();
+
+        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
+        if let Err(err) = nc.send_message_to(
+            peer,
+            crate::NetworkProtocol::SYNC.into(),
+            message.as_bytes(),
+        ) {
+            debug!("synchronizer send GetBlocks error: {:?}", err);
+        }
+        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+    }
+}
+
 #[derive(Clone)]
 pub struct Synchronizer {
     chain: ChainController,
     pub shared: Arc<SyncShared>,
+    can_fetch_block: Arc<AtomicBool>,
+    fetch_channel: Option<crossbeam_channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
-        Synchronizer { chain, shared }
+        Synchronizer {
+            chain,
+            shared,
+            can_fetch_block: Arc::new(AtomicBool::new(true)),
+            fetch_channel: None,
+        }
     }
 
     pub fn shared(&self) -> &Arc<SyncShared> {
@@ -163,8 +222,8 @@ impl Synchronizer {
         &self,
         peer: PeerIndex,
         ibd: IBDState,
-    ) -> Option<Vec<packed::Byte32>> {
-        BlockFetcher::new(self.clone(), peer, ibd).fetch()
+    ) -> Option<Vec<Vec<packed::Byte32>>> {
+        BlockFetcher::new(&self, peer, ibd).fetch()
     }
 
     fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -357,33 +416,111 @@ impl Synchronizer {
         }
     }
 
-    fn find_blocks_to_fetch(&self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
+    fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
+        let tip = self.shared.active_chain().tip_number();
+
+        let disconnect_list = {
+            let mut list = self.shared().state().write_inflight_blocks().prune(tip);
+            if let IBDState::In = ibd {
+                // best known < tip and in IBD state, and unknown list is empty,
+                // these node can be disconnect
+                list.extend(
+                    self.shared
+                        .state()
+                        .peers()
+                        .get_best_known_less_than_tip_and_unknown_empty(tip),
+                )
+            };
+            list
+        };
+
+        for peer in disconnect_list.iter() {
+            if self
+                .peers()
+                .get_flag(*peer)
+                .map(|flag| flag.is_whitelist || flag.is_protect)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            if let Err(err) = nc.disconnect(*peer, "sync disconnect") {
+                debug!("synchronizer disconnect error: {:?}", err);
+            }
+        }
+
+        if ibd.into() && !self.can_fetch_block.load(Ordering::Acquire) {
+            return;
+        }
+
         let peers: Vec<PeerIndex> = {
-            self.peers()
+            let state = &self
+                .shared
+                .state()
+                .read_inflight_blocks()
+                .download_schedulers;
+            let mut peers: Vec<PeerIndex> = self
+                .peers()
                 .state
                 .read()
                 .iter()
-                .filter(|(_, state)| match ibd {
-                    IBDState::In => {
-                        state.peer_flags.is_outbound
-                            || state.peer_flags.is_whitelist
-                            || state.peer_flags.is_protect
+                .filter(|(id, state)| {
+                    if disconnect_list.contains(id) {
+                        return false;
+                    };
+                    match ibd {
+                        IBDState::In => {
+                            state.peer_flags.is_outbound
+                                || state.peer_flags.is_whitelist
+                                || state.peer_flags.is_protect
+                        }
+                        IBDState::Out => state.sync_started,
                     }
-                    IBDState::Out => state.sync_started,
                 })
                 .map(|(peer_id, _)| peer_id)
                 .cloned()
-                .collect()
+                .collect();
+            peers.sort_by_key(|id| {
+                state
+                    .get(id)
+                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count())
+            });
+            peers.reverse();
+            peers
         };
 
         trace!("poll find_blocks_to_fetch select peers");
-        {
-            self.shared().state().write_inflight_blocks().prune();
-        }
-        for peer in peers {
-            if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
-                if !fetch.is_empty() {
-                    self.send_getblocks(fetch, nc, peer);
+        // fetch use a lot of cpu time, especially in ibd state
+        // so, the fetch function use another thread
+        match nc.p2p_control() {
+            Some(raw) => match self.fetch_channel {
+                Some(ref sender) => {
+                    let _ = sender.try_send(FetchCMD::Fetch(peers));
+                }
+                None => {
+                    let p2p_control = raw.clone();
+                    let sync = self.clone();
+                    let can_fetch_block = Arc::clone(&self.can_fetch_block);
+                    let (sender, recv) = crossbeam_channel::bounded(2);
+                    sender.send(FetchCMD::Fetch(peers)).unwrap();
+                    self.fetch_channel = Some(sender);
+                    ::std::thread::spawn(move || {
+                        BlockFetchCMD {
+                            sync,
+                            p2p_control,
+                            recv,
+                            can_fetch_block,
+                        }
+                        .run();
+                    });
+                }
+            },
+            _ => {
+                for peer in peers {
+                    if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
+                        for item in fetch {
+                            self.send_getblocks(item, nc, peer);
+                        }
+                    }
                 }
             }
         }
@@ -527,6 +664,9 @@ impl CKBProtocolHandler for Synchronizer {
                     if self.shared.active_chain().is_initial_block_download() {
                         self.find_blocks_to_fetch(nc.as_ref(), IBDState::In);
                     } else {
+                        {
+                            self.shared.state().write_inflight_blocks().adjustment = false;
+                        }
                         self.shared.state().peers().clear_unknown_list();
                         if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).is_err() {
                             trace!("remove ibd block fetch fail");
@@ -1149,16 +1289,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            blocks_to_fetch.first().unwrap(),
+            blocks_to_fetch[0].first().unwrap(),
             &shared2.store().get_block_hash(193).unwrap()
         );
         assert_eq!(
-            blocks_to_fetch.last().unwrap(),
+            blocks_to_fetch[0].last().unwrap(),
             &shared2.store().get_block_hash(200).unwrap()
         );
 
         let mut fetched_blocks = Vec::new();
-        for block_hash in &blocks_to_fetch {
+        for block_hash in &blocks_to_fetch[0] {
             fetched_blocks.push(shared2.store().get_block(block_hash).unwrap());
         }
 
@@ -1176,7 +1316,7 @@ mod tests {
                 .get_last_common_header(peer1)
                 .unwrap()
                 .hash(),
-            blocks_to_fetch.last().unwrap()
+            blocks_to_fetch[0].last().unwrap()
         );
     }
 
