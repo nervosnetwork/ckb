@@ -25,7 +25,9 @@ use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
-use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_network::{
+    bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
+};
 use ckb_tx_pool::FeeRate;
 use ckb_types::core::BlockView;
 use ckb_types::{
@@ -704,7 +706,9 @@ impl CKBProtocolHandler for Relayer {
         let start_time = Instant::now();
         trace_target!(crate::LOG_TARGET_RELAY, "start notify token={}", token);
         match token {
-            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+            TX_PROPOSAL_TOKEN => {
+                tokio::task::block_in_place(|| self.prune_tx_proposal_request(nc.as_ref()))
+            }
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
             _ => unreachable!(),

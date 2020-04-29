@@ -691,7 +691,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.18",
+ "tokio 0.2.20",
  "tokio-util",
 ]
 
@@ -3959,9 +3959,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.3.0-alpha.3"
+version = "0.3.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1fe0d7d314219019230d3a95ba6e5753a969936d9ac6428ed3dd136bb41680a"
+checksum = "2f7cab1d0b16fd44c8981b075625b8a68d838e0181f43b878dbf7f8eea5b2bf9"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
@@ -3971,7 +3971,7 @@ dependencies = [
  "molecule",
  "tentacle-multiaddr",
  "tentacle-secio",
- "tokio 0.2.18",
+ "tokio 0.2.20",
  "tokio-util",
  "tokio-yamux",
  "winapi 0.3.8",
@@ -3992,9 +3992,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "476977fd1e39f88147f1dd70cd60619acf45b673e85aa4013d845add776c4a27"
+checksum = "2e314fcedaa2dfe7b0dc3d4894a21fa3e60b0fe7b4e9e506b1538974ab9ee02f"
 dependencies = [
  "bs58",
  "bytes 0.5.4",
@@ -4006,7 +4006,7 @@ dependencies = [
  "rand 0.7.0",
  "ring",
  "secp256k1 0.17.2",
- "tokio 0.2.18",
+ "tokio 0.2.20",
  "tokio-util",
  "unsigned-varint",
 ]
@@ -4134,9 +4134,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.18"
+version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34ef16d072d2b6dc8b4a56c70f5c5ced1a37752116f8e7c1e80c659aa7cb6713"
+checksum = "05c1d570eb1a36f0345a5ce9c6c6e665b70b73d11236912c0b477616aeec47b1"
 dependencies = [
  "bytes 0.5.4",
  "futures-core",
@@ -4329,28 +4329,28 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "571da51182ec208780505a32528fc5512a8fe1443ab960b3f2f3ef093cd16930"
+checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
  "bytes 0.5.4",
  "futures-core",
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
- "tokio 0.2.18",
+ "tokio 0.2.20",
 ]
 
 [[package]]
 name = "tokio-yamux"
-version = "0.2.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3da58ec1e052364504833f6880a1c936f6e7ccbb6f99b95e2cbc6590ed1808fa"
+checksum = "fadb4597f69de066b89607edb8810ee52d54342702629fc78aece5663f2b8f29"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "tokio 0.2.18",
+ "tokio 0.2.20",
  "tokio-util",
 ]
 

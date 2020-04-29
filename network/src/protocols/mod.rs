@@ -12,7 +12,7 @@ use p2p::{
     builder::MetaBuilder,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
-    service::{ProtocolHandle, ProtocolMeta, ServiceControl, TargetSession},
+    service::{BlockingFlag, ProtocolHandle, ProtocolMeta, ServiceControl, TargetSession},
     traits::ServiceProtocol,
     ProtocolId, SessionId,
 };
@@ -106,6 +106,7 @@ pub struct CKBProtocol {
     max_frame_length: usize,
     handler: Box<dyn Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>,
     network_state: Arc<NetworkState>,
+    flag: BlockingFlag,
 }
 
 impl CKBProtocol {
@@ -116,6 +117,7 @@ impl CKBProtocol {
         max_frame_length: usize,
         handler: F,
         network_state: Arc<NetworkState>,
+        flag: BlockingFlag,
     ) -> Self {
         CKBProtocol {
             id,
@@ -128,6 +130,7 @@ impl CKBProtocol {
                 versions.sort_by(|a, b| b.cmp(a));
                 versions.to_vec()
             },
+            flag,
         }
     }
 
@@ -146,6 +149,7 @@ impl CKBProtocol {
     pub fn build(self) -> ProtocolMeta {
         let protocol_name = self.protocol_name();
         let max_frame_length = self.max_frame_length;
+        let flag = self.flag;
         let supported_versions = self
             .supported_versions
             .iter()
@@ -171,6 +175,7 @@ impl CKBProtocol {
             })
             .before_send(compress)
             .before_receive(|| Some(Box::new(decompress)))
+            .flag(flag)
             .build()
     }
 }
