@@ -401,7 +401,7 @@ impl TxPoolService {
             let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
             // reject txs which fee lower than min fee rate
             if fee < min_fee {
-                return Err(SubmitTxError::LowFeeRate(min_fee.as_u64()).into());
+                return Err(SubmitTxError::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
