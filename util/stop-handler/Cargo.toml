@@ -1,6 +1,6 @@
 [package]
 name = "ckb-stop-handler"
-version = "0.31.0"
+version = "0.31.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"

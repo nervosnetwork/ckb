@@ -285,17 +285,24 @@ impl PingMessage {
             .as_bytes()
     }
 
-    #[allow(clippy::cast_ptr_alignment)]
     fn decode(data: &[u8]) -> Option<PingPayload> {
         let reader = packed::PingMessageReader::from_compatible_slice(data).ok()?;
         match reader.payload().to_enum() {
             packed::PingPayloadUnionReader::Ping(reader) => {
-                let le = reader.nonce().raw_data().as_ptr() as *const u32;
-                Some(PingPayload::Ping(u32::from_le(unsafe { *le })))
+                let nonce = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.nonce().raw_data());
+                    u32::from_le_bytes(b)
+                };
+                Some(PingPayload::Ping(nonce))
             }
             packed::PingPayloadUnionReader::Pong(reader) => {
-                let le = reader.nonce().raw_data().as_ptr() as *const u32;
-                Some(PingPayload::Pong(u32::from_le(unsafe { *le })))
+                let nonce = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.nonce().raw_data());
+                    u32::from_le_bytes(b)
+                };
+                Some(PingPayload::Pong(nonce))
             }
         }
     }
