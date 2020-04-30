@@ -3,7 +3,7 @@ mod eaglesong_simple;
 
 use crate::config::WorkerConfig;
 use ckb_logger::error;
-use ckb_pow::{DummyPowEngine, EaglesongPowEngine, PowEngine, TestnetPowEngine};
+use ckb_pow::{DummyPowEngine, EaglesongBlake2bPowEngine, EaglesongPowEngine, PowEngine};
 use ckb_types::{packed::Byte32, U256};
 use crossbeam_channel::{unbounded, Sender};
 use dummy::Dummy;
@@ -91,17 +91,16 @@ pub fn start_worker(
             }
         }
         WorkerConfig::EaglesongSimple(config) => {
-            let is_testnet = config.is_testnet;
+            let extra_hash_function = config.extra_hash_function;
             if pow.as_any().downcast_ref::<EaglesongPowEngine>().is_some()
-                || pow.as_any().downcast_ref::<TestnetPowEngine>().is_some()
+                || pow
+                    .as_any()
+                    .downcast_ref::<EaglesongBlake2bPowEngine>()
+                    .is_some()
             {
                 let worker_txs = (0..config.threads)
                     .map(|i| {
-                        let worker_name = if is_testnet {
-                            format!("EaglesongSimple-TestnetWorker-{}", i)
-                        } else {
-                            format!("EaglesongSimple-Worker-{}", i)
-                        };
+                        let worker_name = format!("EaglesongSimple-Worker-{}", i);
                         let nonce_range = partition_nonce(i as u128, config.threads as u128);
                         // `100` is the len of progress bar, we can use any dummy value here,
                         // since we only show the spinner in console.
@@ -115,7 +114,7 @@ pub fn start_worker(
                             .name(worker_name)
                             .spawn(move || {
                                 let mut worker =
-                                    EaglesongSimple::new(nonce_tx, worker_rx, is_testnet);
+                                    EaglesongSimple::new(nonce_tx, worker_rx, extra_hash_function);
                                 let rng = nonce_generator(nonce_range);
                                 worker.run(rng, pb);
                             })

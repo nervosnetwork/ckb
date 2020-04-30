@@ -3,9 +3,9 @@ use ckb_hash::blake2b_256;
 use ckb_types::{packed::Header, prelude::*, utilities::compact_to_target, U256};
 use eaglesong::eaglesong;
 
-pub struct TestnetPowEngine;
+pub struct EaglesongBlake2bPowEngine;
 
-impl PowEngine for TestnetPowEngine {
+impl PowEngine for EaglesongBlake2bPowEngine {
     fn verify(&self, header: &Header) -> bool {
         let input =
             crate::pow_message(&header.as_reader().calc_pow_hash(), header.nonce().unpack());

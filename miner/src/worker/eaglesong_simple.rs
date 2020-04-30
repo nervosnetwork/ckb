@@ -13,10 +13,13 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EaglesongSimpleConfig {
     pub threads: usize,
-    // use an explicitly function,
-    // so we don't have to guess the behaviour of rust or serde
-    #[serde(default = "default_is_not_testnet")]
-    pub is_testnet: bool,
+    #[serde(default)]
+    pub extra_hash_function: Option<ExtraHashFunction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExtraHashFunction {
+    Blake2b,
 }
 
 pub struct EaglesongSimple {
@@ -26,18 +29,14 @@ pub struct EaglesongSimple {
     nonce_tx: Sender<(Byte32, u128)>,
     worker_rx: Receiver<WorkerMessage>,
     nonces_found: u128,
-    pub(crate) is_testnet: bool,
-}
-
-const fn default_is_not_testnet() -> bool {
-    false
+    pub(crate) extra_hash_function: Option<ExtraHashFunction>,
 }
 
 impl EaglesongSimple {
     pub fn new(
         nonce_tx: Sender<(Byte32, u128)>,
         worker_rx: Receiver<WorkerMessage>,
-        is_testnet: bool,
+        extra_hash_function: Option<ExtraHashFunction>,
     ) -> Self {
         Self {
             start: true,
@@ -46,7 +45,7 @@ impl EaglesongSimple {
             nonce_tx,
             worker_rx,
             nonces_found: 0,
-            is_testnet,
+            extra_hash_function,
         }
     }
 
@@ -73,10 +72,9 @@ impl EaglesongSimple {
         let output = {
             let mut output_tmp = [0u8; 32];
             eaglesong(&input, &mut output_tmp);
-            if self.is_testnet {
-                blake2b_256(&output_tmp)
-            } else {
-                output_tmp
+            match self.extra_hash_function {
+                Some(ExtraHashFunction::Blake2b) => blake2b_256(&output_tmp),
+                None => output_tmp,
             }
         };
         if U256::from_big_endian(&output[..]).expect("bound checked") <= self.target {
