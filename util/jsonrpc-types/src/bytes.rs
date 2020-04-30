@@ -110,7 +110,6 @@ mod test {
     use super::JsonBytes;
     use regex::Regex;
     use serde::{Deserialize, Serialize};
-    use serde_json;
 
     #[test]
     fn test_de_error() {

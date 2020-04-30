@@ -726,8 +726,6 @@ mod tests {
         U256,
     };
     use ckb_util::Mutex;
-    #[cfg(not(disable_faketime))]
-    use faketime;
     use futures::future::Future;
     use std::{
         collections::{HashMap, HashSet},

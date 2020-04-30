@@ -55,6 +55,8 @@ deploy:
 if: 'type != pull_request or head_branch != develop'
 
 matrix:
+  allow_failures:
+    - rust: stable
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     - name: Tests on macOS
@@ -77,6 +79,20 @@ matrix:
         - make fmt
         - make clippy
         - git diff --exit-code Cargo.lock
+    - name: Latest Linters
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      os: linux
+      rust: stable
+      cache: false
+      addons: { apt: { packages: [] } }
+      env:
+        - CLIPPY_OPTS="-D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from"
+      install:
+        - rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
+        - rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
+      script:
+        - cargo +stable fmt --all -- --check
+        - cargo +stable clippy --all --all-targets --all-features -- ${CLIPPY_OPTS}
     - name: Quick Check
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux

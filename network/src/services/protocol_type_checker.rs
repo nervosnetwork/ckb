@@ -34,7 +34,7 @@ enum ProtocolType {
 
 impl std::fmt::Display for ProtocolType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        use ProtocolType::*;
+        use ProtocolType::{Feeler, FullyOpen};
         match self {
             FullyOpen => write!(f, "fully-open")?,
             Feeler => write!(f, "feeler")?,
@@ -50,7 +50,7 @@ enum ProtocolTypeError {
 
 impl std::fmt::Display for ProtocolTypeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        use ProtocolTypeError::*;
+        use ProtocolTypeError::Incomplete;
         match self {
             Incomplete => write!(f, "incomplete open protocols")?,
         }

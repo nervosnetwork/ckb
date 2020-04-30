@@ -3,7 +3,6 @@ use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
-use serde_json;
 use std::error::Error;
 use std::fs;
 use std::io;

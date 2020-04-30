@@ -17,7 +17,6 @@ use ckb_types::{
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
 };
-use faketime;
 use rand::random;
 use std::sync::Arc;
 

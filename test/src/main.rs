@@ -166,7 +166,7 @@ fn main() {
 
     info!(
         "{} --bin {} --port {} {}",
-        canonicalize_path(env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string())).display(),
+        canonicalize_path(env::args().next().unwrap_or_else(|| "ckb-test".to_string())).display(),
         canonicalize_path(binary).display(),
         start_port,
         rerun_specs.join(" "),

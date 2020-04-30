@@ -23,7 +23,6 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
-use crossbeam_channel;
 use failure::Error as FailureError;
 use futures::future::{self, Future};
 use futures::stream::Stream;
