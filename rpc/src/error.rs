@@ -75,9 +75,11 @@ impl RPCError {
     pub fn from_ckb_error(err: CKBError) -> Error {
         use ckb_error::ErrorKind::*;
         match err.kind() {
-            Dao => Self::custom_with_error(RPCError::DaoError, err),
+            Dao => Self::custom_with_error(RPCError::DaoError, err.as_fail_ref()),
             OutPoint => Self::custom_with_error(RPCError::TransactionFailedToResolve, err),
-            Transaction => Self::custom_with_error(RPCError::TransactionFailedToVerify, err),
+            Transaction => {
+                Self::custom_with_error(RPCError::TransactionFailedToVerify, err.as_fail_ref())
+            }
             SubmitTransaction => {
                 let submit_tx_err = match err.downcast_ref::<SubmitTxError>() {
                     Some(err) => err,
@@ -93,7 +95,7 @@ impl RPCError {
                     }
                 };
 
-                RPCError::custom_with_error(kind, err)
+                RPCError::custom_with_error(kind, submit_tx_err)
             }
             Internal => {
                 let internal_err = match err.downcast_ref::<InternalError>() {
@@ -113,7 +115,7 @@ impl RPCError {
                     _ => RPCError::CKBInternalError,
                 };
 
-                RPCError::custom_with_error(kind, err)
+                RPCError::custom_with_error(kind, internal_err)
             }
             _ => Self::custom_with_error(RPCError::CKBInternalError, err),
         }
@@ -145,7 +147,7 @@ mod tests {
     fn test_dao_error_from_ckb_error() {
         let err: CKBError = DaoError::InvalidHeader.into();
         assert_eq!(
-            "DaoError: Dao(InvalidHeader)",
+            "DaoError: InvalidHeader",
             RPCError::from_ckb_error(err).message
         );
     }
@@ -154,13 +156,13 @@ mod tests {
     fn test_submit_tx_error_from_ckb_error() {
         let err: CKBError = SubmitTxError::LowFeeRate(100, 50).into();
         assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: SubmitTransaction(Transaction fee rate must >= 100 shannons/KB, got: 50)",
+            "PoolRejectedTransactionByMinFeeRate: Transaction fee rate must >= 100 shannons/KB, got: 50",
             RPCError::from_ckb_error(err).message
         );
 
         let err: CKBError = SubmitTxError::ExceededMaximumAncestorsCount.into();
         assert_eq!(
-            "PoolRejectedTransactionByMaxAncestorsCountLimit: SubmitTransaction(Transaction exceeded maximum ancestors count limit, try send it later)",
+            "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit, try send it later",
             RPCError::from_ckb_error(err).message
         );
     }
@@ -169,7 +171,7 @@ mod tests {
     fn test_internal_error_from_ckb_error() {
         let err: CKBError = InternalErrorKind::TransactionPoolFull.into();
         assert_eq!(
-            "PoolIsFull: Internal(TransactionPoolFull)",
+            "PoolIsFull: TransactionPoolFull",
             RPCError::from_ckb_error(err).message
         );
     }
