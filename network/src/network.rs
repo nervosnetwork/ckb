@@ -1078,7 +1078,7 @@ impl NetworkService {
                     .core_threads(num_threads)
                     .enable_all()
                     .threaded_scheduler()
-                    .thread_name("NetworkRuntime-")
+                    .thread_name("NetworkRuntime")
                     .build()
                     .expect("Network tokio runtime init failed");
                 let handle = runtime.spawn(async move {
