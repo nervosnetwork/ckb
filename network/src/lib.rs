@@ -26,10 +26,11 @@ pub use crate::{
 pub use p2p::{
     bytes, multiaddr,
     secio::{PeerId, PublicKey},
-    service::{ServiceControl, SessionType, TargetSession},
+    service::{BlockingFlag, ServiceControl, SessionType, TargetSession},
     traits::ServiceProtocol,
     ProtocolId,
 };
+pub use tokio;
 
 // Max message frame length for sync protocol: 2MB
 //   NOTE: update this value when block size limit changed
