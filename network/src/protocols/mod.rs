@@ -104,18 +104,18 @@ pub struct CKBProtocol {
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
     max_frame_length: usize,
-    handler: Box<dyn Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>,
+    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
     network_state: Arc<NetworkState>,
     flag: BlockingFlag,
 }
 
 impl CKBProtocol {
-    pub fn new<F: Fn() -> Box<dyn CKBProtocolHandler + Send + 'static> + Send + 'static>(
+    pub fn new(
         protocol_name: String,
         id: ProtocolId,
         versions: &[ProtocolVersion],
         max_frame_length: usize,
-        handler: F,
+        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
         network_state: Arc<NetworkState>,
         flag: BlockingFlag,
     ) -> Self {
@@ -123,7 +123,7 @@ impl CKBProtocol {
             id,
             max_frame_length,
             network_state,
-            handler: Box::new(handler),
+            handler,
             protocol_name: format!("/ckb/{}", protocol_name),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
@@ -170,7 +170,7 @@ impl CKBProtocol {
                 ProtocolHandle::Both(Box::new(CKBHandler {
                     proto_id: self.id,
                     network_state: Arc::clone(&self.network_state),
-                    handler: (self.handler)(),
+                    handler: self.handler,
                 }))
             })
             .before_send(compress)
