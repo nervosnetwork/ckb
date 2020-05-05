@@ -114,7 +114,6 @@ impl Net {
             .iter()
             .cloned()
             .map(|tp| {
-                let tx = tx.clone();
                 CKBProtocol::new(
                     tp.protocol_name,
                     tp.id,

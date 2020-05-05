@@ -104,7 +104,7 @@ pub struct CKBProtocol {
     // supported version, used to check protocol version
     supported_versions: Vec<ProtocolVersion>,
     max_frame_length: usize,
-    handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+    handler: Box<dyn CKBProtocolHandler>,
     network_state: Arc<NetworkState>,
     flag: BlockingFlag,
 }
@@ -115,7 +115,7 @@ impl CKBProtocol {
         id: ProtocolId,
         versions: &[ProtocolVersion],
         max_frame_length: usize,
-        handler: Box<dyn CKBProtocolHandler + Send + 'static>,
+        handler: Box<dyn CKBProtocolHandler>,
         network_state: Arc<NetworkState>,
         flag: BlockingFlag,
     ) -> Self {
