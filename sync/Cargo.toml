@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.31.0-pre"
+version = "0.32.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -24,6 +24,7 @@ sentry = "0.16.0"
 futures = "0.3"
 ckb-error = {path = "../error"}
 ckb-tx-pool = { path = "../tx-pool" }
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

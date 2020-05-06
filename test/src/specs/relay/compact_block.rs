@@ -334,8 +334,6 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
-        net.connect(node);
-        let (peer_id, _, _) = net.receive();
 
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // Proposal a tx, and grow up into proposal window
@@ -432,13 +430,14 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .build();
         let old_tip = node.get_tip_block().header().number();
 
+        net.connect(node);
+        let (peer_id, _, _) = net.receive();
+
         net.send(
             NetworkProtocol::RELAY.into(),
             peer_id,
             build_compact_block(&parent),
         );
-        // pending for GetBlockTransactions
-        clear_messages(&net);
 
         net.send(
             NetworkProtocol::SYNC.into(),
@@ -450,14 +449,15 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             peer_id,
             build_header(&block.header()),
         );
-        clear_messages(&net);
 
-        net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(&block));
         net.send(
             NetworkProtocol::RELAY.into(),
             peer_id,
             build_block_transactions(&parent),
         );
+
+        clear_messages(&net);
+        net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(&block));
 
         let ret = wait_until(20, move || {
             node.get_tip_block().header().number() == old_tip + 2

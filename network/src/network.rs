@@ -37,8 +37,8 @@ use p2p::{
     multiaddr::{self, Multiaddr},
     secio::{self, PeerId},
     service::{
-        ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol,
-        TargetSession,
+        BlockingFlag, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
+        TargetProtocol, TargetSession,
     },
     traits::ServiceHandle,
     utils::extract_peer_id,
@@ -848,6 +848,9 @@ impl NetworkService {
     ) -> NetworkService {
         let config = &network_state.config;
 
+        let mut no_blocking_flag = BlockingFlag::default();
+        no_blocking_flag.disable_all();
+
         // == Build special protocols
 
         // TODO: how to deny banned node to open those protocols?
@@ -873,6 +876,7 @@ impl NetworkService {
                     ping_sender,
                 )))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Discovery protocol
@@ -893,6 +897,7 @@ impl NetworkService {
                     config.discovery_local_address,
                 )))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Identify protocol
@@ -911,6 +916,7 @@ impl NetworkService {
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Feeler protocol
@@ -929,6 +935,7 @@ impl NetworkService {
                 let network_state = Arc::clone(&network_state);
                 move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
             })
+            .flag(no_blocking_flag)
             .build();
 
         let disconnect_message_meta = MetaBuilder::default()
@@ -942,6 +949,7 @@ impl NetworkService {
                 )
             })
             .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
+            .flag(no_blocking_flag)
             .build();
 
         // == Build p2p service struct
@@ -1078,7 +1086,7 @@ impl NetworkService {
                     .core_threads(num_threads)
                     .enable_all()
                     .threaded_scheduler()
-                    .thread_name("NetworkRuntime-")
+                    .thread_name("NetworkRuntime")
                     .build()
                     .expect("Network tokio runtime init failed");
                 let handle = runtime.spawn(async move {

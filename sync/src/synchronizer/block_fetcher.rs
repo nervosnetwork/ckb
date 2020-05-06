@@ -1,21 +1,21 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
-use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER};
+use crate::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
 
-pub struct BlockFetcher {
-    synchronizer: Synchronizer,
+pub struct BlockFetcher<'a> {
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
 }
 
-impl BlockFetcher {
-    pub fn new(synchronizer: Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
+impl<'a> BlockFetcher<'a> {
+    pub fn new(synchronizer: &'a Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
         let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
@@ -29,7 +29,7 @@ impl BlockFetcher {
         let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
         // Can't download any more from this peer
-        inflight.peer_inflight_count(self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
+        inflight.peer_can_fetch_count(self.peer) == 0
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -69,7 +69,7 @@ impl BlockFetcher {
         Some(fixed_last_common_header)
     }
 
-    pub fn fetch(self) -> Option<Vec<packed::Byte32>> {
+    pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
         trace!("[block downloader] BlockFetcher process");
 
         if self.reached_inflight_limit() {
@@ -130,7 +130,7 @@ impl BlockFetcher {
         let end = min(best_known_header.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
-            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer)),
+            inflight.peer_can_fetch_count(self.peer),
         );
         let mut fetch = Vec::with_capacity(n_fetch);
 
@@ -146,16 +146,21 @@ impl BlockFetcher {
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
-                // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-                let stored = self
-                    .active_chain
-                    .contains_block_status(&hash, BlockStatus::BLOCK_STORED);
-                if stored {
+
+                let status = self.active_chain.get_block_status(&hash);
+                if status == BlockStatus::BLOCK_STORED {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     break;
-                } else if inflight.insert(self.peer, hash) {
+                } else if self.ibd.into() && status.contains(BlockStatus::BLOCK_RECEIVED) {
+                    // NOTE: NO-IBD Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+                    // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+                    // TODO: If async validation is achieved, then the IBD state judgement here can be removed
+
+                    // On IBD, BLOCK_RECEIVED means this block had been received, so this block doesn't need to fetch
+                    // On NO-IBD, because of the model, this block has to be requested again
+                    // But all of these can do nothing on this branch
+                } else if inflight.insert(self.peer, (header.number(), hash).into()) {
                     fetch.push(header)
                 }
 
@@ -172,6 +177,20 @@ impl BlockFetcher {
 
         // The headers in `fetch` may be unordered. Sort them by number.
         fetch.sort_by_key(|header| header.number());
-        Some(fetch.iter().map(core::HeaderView::hash).collect())
+
+        let tip = self.active_chain.tip_number();
+        let should_mark = fetch.last().map_or(false, |header| {
+            header.number().saturating_sub(crate::CHECK_POINT_WINDOW) > tip
+        });
+        if should_mark {
+            inflight.mark_slow_block(tip);
+        }
+
+        Some(
+            fetch
+                .chunks(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER)
+                .map(|headers| headers.iter().map(core::HeaderView::hash).collect())
+                .collect(),
+        )
     }
 }

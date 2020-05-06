@@ -1,3 +1,9 @@
+# [v0.31.1](https://github.com/nervosnetwork/ckb/compare/v0.31.0...v0.31.1) (2020-04-23)
+
+### Bug Fixes
+
+* [GHSA-q669-2vfg-cxcg](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-q669-2vfg-cxcg): Fix undefined behavior that dereference an unaligned pointer. (@yangby-cryptape)
+
 # [v0.31.0](https://github.com/nervosnetwork/ckb/compare/v0.30.2...v0.31.0) (2020-04-02)
 
 ### Sync Improvements

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-proposal-table"
-version = "0.31.0-pre"
+version = "0.32.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"

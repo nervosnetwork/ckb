@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.31.0-pre"
+version = "0.32.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -67,12 +67,10 @@ members = [
 [profile.release]
 overflow-checks = true
 
-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), not(feature = "profiling")))'.dependencies]
+[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms"] }
-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos"), feature = "profiling"))'.dependencies]
-jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms", "profiling"] }
 
 [features]
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
-profiling = []
+profiling = ["jemallocator/profiling", "ckb-bin/profiling"]

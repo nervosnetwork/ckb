@@ -1,7 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.5.0
+MOLC_VERSION := 0.6.0
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 CKB_TEST_ARGS := -c 4
@@ -77,9 +77,13 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
 
+.PHONY: build-for-profiling-without-debug-symbols
+build-for-profiling-without-debug-symbols: ## Build binary with for profiling without debug symbols.
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --release --features "profiling"
+
 .PHONY: build-for-profiling
 build-for-profiling: ## Build binary with for profiling.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --features "profiling"
+	devtools/release/make-with-debug-symbols build-for-profiling-without-debug-symbols
 
 .PHONY: prod
 prod: ## Build binary for production release.

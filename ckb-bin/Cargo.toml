@@ -1,6 +1,6 @@
 [package]
 name = "ckb-bin"
-version = "0.31.0-pre"
+version = "0.32.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -36,3 +36,4 @@ tempfile = "3.0"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
+profiling = ["ckb-memory-tracker/profiling"]

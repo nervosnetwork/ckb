@@ -122,6 +122,7 @@ impl Net {
                     1024 * 1024,
                     move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
                     Arc::clone(&network_state),
+                    Default::default(),
                 )
             })
             .collect();

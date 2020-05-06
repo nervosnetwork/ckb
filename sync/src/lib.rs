@@ -26,9 +26,14 @@ pub const MAX_INVENTORY_LEN: usize = 50_000;
 pub const MAX_SCHEDULED_LEN: usize = 4 * 1024;
 pub const MAX_BLOCKS_TO_ANNOUNCE: usize = 8;
 pub const MAX_UNCONNECTING_HEADERS: usize = 10;
-pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
 pub const MAX_TIP_AGE: u64 = 24 * 60 * 60 * 1000;
 pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/* About Download Scheduler */
+pub const INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
+pub const FIRST_LEVEL_MAX: usize = 32;
+pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 128;
+pub const CHECK_POINT_WINDOW: u64 = (MAX_BLOCKS_IN_TRANSIT_PER_PEER * 4) as u64;
 
 pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
 
@@ -51,7 +56,6 @@ impl Into<ProtocolId> for NetworkProtocol {
 pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 6 * 60 * 1000; // 6 minutes
 pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; // 1ms/header
 pub const POW_SPACE: u64 = 10_000; // 10s
-pub const MAX_PEERS_PER_BLOCK: usize = 2;
 
 // Protect at least this many outbound peers from disconnection due to slow
 // behind headers chain.

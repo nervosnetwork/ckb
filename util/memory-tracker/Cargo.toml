@@ -1,6 +1,6 @@
 [package]
 name = "ckb-memory-tracker"
-version = "0.31.0-pre"
+version = "0.32.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -21,3 +21,7 @@ heim = "0.0.10"
 futures = "0.3.1"
 jemalloc-ctl = "0.3.3"
 jemalloc-sys = "0.3.2"
+
+[features]
+default = []
+profiling = []
