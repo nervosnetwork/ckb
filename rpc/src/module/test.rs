@@ -2,7 +2,7 @@ use crate::error::RPCError;
 use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_jsonrpc_types::{Block, BlockView, Cycle, Transaction};
 use ckb_logger::error;
-use ckb_network::{bytes, NetworkController};
+use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
@@ -77,10 +77,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .transactions(vec![relay_tx].pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(relay_txs).build();
-        let data = bytes::Bytes::from(message.as_slice().to_vec());
+
         if let Err(err) = self
             .network_controller
-            .broadcast(NetworkProtocol::RELAY.into(), data)
+            .broadcast(NetworkProtocol::RELAY.into(), message.as_bytes())
         {
             error!("Broadcast transaction failed: {:?}", err);
             Err(RPCError::custom(RPCError::Invalid, err.to_string()))

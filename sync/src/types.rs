@@ -9,7 +9,7 @@ use crate::{
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error, metric};
-use ckb_network::{bytes, CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
@@ -1665,8 +1665,7 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let data = bytes::Bytes::from(message.as_slice().to_vec());
-        if let Err(err) = nc.send_message(NetworkProtocol::SYNC.into(), peer, data) {
+        if let Err(err) = nc.send_message(NetworkProtocol::SYNC.into(), peer, message.as_bytes()) {
             debug!("synchronizer send get_headers error: {:?}", err);
         }
     }

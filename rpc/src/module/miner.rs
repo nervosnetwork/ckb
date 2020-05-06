@@ -2,7 +2,7 @@ use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
-use ckb_network::{bytes, NetworkController};
+use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{core, packed, prelude::*, H256};
@@ -103,10 +103,9 @@ impl MinerRpc for MinerRpcImpl {
             );
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
-            let data = bytes::Bytes::from(message.as_slice().to_vec());
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(NetworkProtocol::RELAY.into(), data)
+                .quick_broadcast(NetworkProtocol::RELAY.into(), message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }

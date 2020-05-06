@@ -128,7 +128,7 @@ fn test_unknow_parent() {
         .hash_stop(packed::Byte32::zero())
         .build();
     let message = packed::SyncMessage::new_builder().set(content).build();
-    let data = Bytes::from(message.as_slice().to_vec());
+    let data = message.as_bytes();
 
     // send_getheaders_to_peer
     assert_eq!(
@@ -430,7 +430,7 @@ fn test_send_missing_indexes() {
         .uncle_indexes([0u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let data = Bytes::from(message.as_slice().to_vec());
+    let data = message.as_bytes();
 
     // send missing indexes messages
     assert!(nc
@@ -451,7 +451,7 @@ fn test_send_missing_indexes() {
         .proposals(vec![proposal_id].into_iter().pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let data = Bytes::from(message.as_slice().to_vec());
+    let data = message.as_bytes();
 
     // send proposal request
     assert!(nc
@@ -665,7 +665,7 @@ fn test_collision() {
         .indexes([1u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let data = Bytes::from(message.as_slice().to_vec());
+    let data = message.as_bytes();
 
     // send missing indexes messages
     assert!(nc
