@@ -87,4 +87,4 @@ lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
 
 [pow]
-func = "Eaglesong"
+func = "EaglesongBlake2b"

@@ -46,6 +46,24 @@ CKB now supports following PoW Engines.
 func = "Eaglesong"
 ```
 
+### Eaglesong with an extra Blake2b Hash
+
+Used for testnet.
+
+```
+[pow]
+func = "EaglesongBlake2b"
+```
+
+and the miner workers section in `ckb-miner.toml` should be:
+
+```
+[[miner.workers]]
+worker_type = "EaglesongSimple"
+threads     = 1
+extra_hash_function = "Blake2b"
+```
+
 ### Dummy
 
 ```
