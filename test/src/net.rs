@@ -114,13 +114,12 @@ impl Net {
             .iter()
             .cloned()
             .map(|tp| {
-                let tx = tx.clone();
                 CKBProtocol::new(
                     tp.protocol_name,
                     tp.id,
                     &tp.supported_versions,
                     1024 * 1024,
-                    move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
+                    Box::new(DummyProtocolHandler { tx: tx.clone() }),
                     Arc::clone(&network_state),
                     Default::default(),
                 )

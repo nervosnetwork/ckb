@@ -90,14 +90,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     blocking_recv_flag.disable_disconnected();
     blocking_recv_flag.disable_notify();
 
-    let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
         CKBProtocol::new(
             "syn".to_string(),
             NetworkProtocol::SYNC.into(),
             &["1".to_string()][..],
             MAX_FRAME_LENGTH_SYNC,
-            move || Box::new(synchronizer_clone.clone()),
+            Box::new(synchronizer.clone()),
             Arc::clone(&network_state),
             blocking_recv_flag,
         ),
@@ -106,7 +105,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             NetworkProtocol::RELAY.into(),
             &["1".to_string()][..],
             MAX_FRAME_LENGTH_RELAY,
-            move || Box::new(relayer.clone()),
+            Box::new(relayer),
             Arc::clone(&network_state),
             blocking_recv_flag,
         ),
@@ -115,7 +114,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             NetworkProtocol::TIME.into(),
             &["1".to_string()][..],
             MAX_FRAME_LENGTH_TIME,
-            move || Box::new(net_timer.clone()),
+            Box::new(net_timer),
             Arc::clone(&network_state),
             no_blocking_flag,
         ),
@@ -124,7 +123,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             NetworkProtocol::ALERT.into(),
             &["1".to_string()][..],
             MAX_FRAME_LENGTH_ALERT,
-            move || Box::new(alert_relayer.clone()),
+            Box::new(alert_relayer),
             Arc::clone(&network_state),
             no_blocking_flag,
         ),
