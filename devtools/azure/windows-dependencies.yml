@@ -10,8 +10,8 @@ steps:
   displayName: Add scoop to path
 - script: scoop install llvm
   displayName: Install LLVM
-- script: scoop install msys2
-  displayName: Install msys2
+- script: scoop install gow
+  displayName: Install gow
 - script: scoop install yasm
   displayName: Install yasm
 - script: |
