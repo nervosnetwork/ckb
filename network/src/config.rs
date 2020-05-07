@@ -7,7 +7,6 @@ use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio,
 };
-use rand;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fs;

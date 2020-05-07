@@ -390,7 +390,7 @@ impl Substream {
                 .listens()
                 .iter()
                 .map(|address| multiaddr_to_socketaddr(address).unwrap().port())
-                .nth(0)
+                .next()
         } else {
             None
         };

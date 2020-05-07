@@ -41,7 +41,6 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use rand::{thread_rng, Rng};
-use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;

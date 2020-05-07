@@ -723,7 +723,6 @@ mod tests {
         U256,
     };
     use std::sync::Arc;
-    use tempfile;
 
     fn setup(prefix: &str) -> (DefaultIndexerStore, ChainController, Shared) {
         let builder = SharedBuilder::default();

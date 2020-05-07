@@ -110,16 +110,16 @@ macro_rules! def_setter_for_vector {
         }
         pub fn $func_extend<T>(mut self, v: T) -> Self
         where
-            T: ::std::iter::IntoIterator<Item = packed::$type>
+            T: ::std::iter::IntoIterator<Item = packed::$type>,
         {
             self.$field.extend(v);
             self
         }
         pub fn $func_set(mut self, v: Vec<packed::$type>) -> Self {
-            self.$field= v;
+            self.$field = v;
             self
         }
-    }
+    };
 }
 
 macro_rules! def_setter_for_view_vector {
@@ -130,16 +130,16 @@ macro_rules! def_setter_for_view_vector {
         }
         pub fn $func_extend<T>(mut self, v: T) -> Self
         where
-            T: ::std::iter::IntoIterator<Item = core::$type>
+            T: ::std::iter::IntoIterator<Item = core::$type>,
         {
             self.$field.extend(v);
             self
         }
         pub fn $func_set(mut self, v: Vec<core::$type>) -> Self {
-            self.$field= v;
+            self.$field = v;
             self
         }
-    }
+    };
 }
 
 impl TransactionBuilder {

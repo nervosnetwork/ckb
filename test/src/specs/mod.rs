@@ -28,7 +28,9 @@ use ckb_tx_pool::FeeRate;
 #[macro_export]
 macro_rules! name {
     ($name:literal) => {
-        fn name(&self) -> &'static str { $name }
+        fn name(&self) -> &'static str {
+            $name
+        }
     };
 }
 

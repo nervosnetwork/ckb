@@ -164,7 +164,6 @@ mod tests {
     use crate::migration::{DefaultMigration, Migration, Migrations};
     use rocksdb::ops::Get;
     use std::collections::HashMap;
-    use tempfile;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
         setup_db_with_check(prefix, columns).unwrap()

@@ -339,7 +339,7 @@ impl PingService {
 impl Stream for PingService {
     type Item = ();
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        use Event::*;
+        use Event::{Ping, Pong, Timeout, UnexpectedError};
 
         loop {
             match self.event_receiver.poll_next_unpin(cx) {

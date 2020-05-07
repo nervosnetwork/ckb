@@ -1244,7 +1244,7 @@ impl SyncState {
 
     pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
         let mut map = self.tx_hashes.lock();
-        mem::replace(&mut *map, HashMap::default())
+        mem::take(&mut *map)
     }
 
     pub fn is_initial_header_sync(&self) -> bool {

@@ -15,13 +15,12 @@ pub enum Behaviour {
 
 impl Behaviour {
     pub fn score(self) -> Score {
-        #[allow(unreachable_patterns)]
+        #[cfg(test)]
         match self {
-            #[cfg(test)]
             Behaviour::TestGood => 10,
-            #[cfg(test)]
             Behaviour::TestBad => -10,
-            _ => 0,
         }
+        #[cfg(not(test))]
+        0
     }
 }

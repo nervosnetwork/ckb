@@ -119,7 +119,7 @@ macro_rules! define_simple_getter {
         pub fn $field(&self) -> packed::$type {
             self.$field.clone()
         }
-    }
+    };
 }
 
 macro_rules! define_vector_getter {
@@ -127,7 +127,7 @@ macro_rules! define_vector_getter {
         pub fn $field(&self) -> &[packed::$type] {
             &self.$field[..]
         }
-    }
+    };
 }
 
 impl TransactionView {
@@ -236,7 +236,7 @@ macro_rules! define_header_unpacked_inner_getter {
         pub fn $field(&self) -> $type {
             self.data().as_reader().raw().$field().unpack()
         }
-    }
+    };
 }
 
 macro_rules! define_header_packed_inner_getter {
@@ -244,7 +244,7 @@ macro_rules! define_header_packed_inner_getter {
         pub fn $field(&self) -> packed::$type {
             self.data().raw().$field()
         }
-    }
+    };
 }
 
 impl HeaderView {
@@ -289,7 +289,7 @@ macro_rules! define_uncle_unpacked_inner_getter {
         pub fn $field(&self) -> $type {
             self.data().as_reader().header().raw().$field().unpack()
         }
-    }
+    };
 }
 
 macro_rules! define_uncle_packed_inner_getter {
@@ -297,7 +297,7 @@ macro_rules! define_uncle_packed_inner_getter {
         pub fn $field(&self) -> packed::$type {
             self.data().header().raw().$field()
         }
-    }
+    };
 }
 
 impl UncleBlockView {
@@ -400,7 +400,7 @@ macro_rules! define_block_unpacked_inner_getter {
         pub fn $field(&self) -> $type {
             self.data().as_reader().header().raw().$field().unpack()
         }
-    }
+    };
 }
 
 macro_rules! define_block_packed_inner_getter {
@@ -408,7 +408,7 @@ macro_rules! define_block_packed_inner_getter {
         pub fn $field(&self) -> packed::$type {
             self.data().header().raw().$field()
         }
-    }
+    };
 }
 
 impl BlockView {
