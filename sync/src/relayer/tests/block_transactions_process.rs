@@ -314,7 +314,7 @@ fn test_collision_and_send_missing_indexes() {
         .indexes(vec![1u32, 2u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let data = Bytes::from(message.as_slice().to_vec());
+    let data = message.as_bytes();
 
     // send missing indexes messages
     assert!(nc

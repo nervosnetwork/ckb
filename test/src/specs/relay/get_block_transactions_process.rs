@@ -47,11 +47,7 @@ impl Spec for MissingUncleRequest {
             net.receive(); // ignore three new block announce
         });
 
-        net.send(
-            NetworkProtocol::RELAY.into(),
-            peer_id,
-            Bytes::from(message.as_slice().to_vec()),
-        );
+        net.send(NetworkProtocol::RELAY.into(), peer_id, message.as_bytes());
 
         net.should_receive(
             |data: &Bytes| {
