@@ -5,7 +5,7 @@ use log::{error, info};
 use std::any::Any;
 use std::panic;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU16, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
@@ -40,7 +40,7 @@ pub struct Worker {
     tasks: Arc<Mutex<Tasks>>,
     inbox: Receiver<Command>,
     outbox: Sender<Notify>,
-    start_port: u16,
+    start_port: Arc<AtomicU16>,
     binary: String,
     vendor: PathBuf,
 }
@@ -51,7 +51,7 @@ impl Clone for Worker {
             tasks: Arc::clone(&self.tasks),
             inbox: self.inbox.clone(),
             outbox: self.outbox.clone(),
-            start_port: self.start_port,
+            start_port: Arc::clone(&self.start_port),
             binary: self.binary.clone(),
             vendor: self.vendor.clone(),
         }
@@ -63,7 +63,7 @@ impl Worker {
         tasks: Arc<Mutex<Tasks>>,
         inbox: Receiver<Command>,
         outbox: Sender<Notify>,
-        start_port: u16,
+        start_port: Arc<AtomicU16>,
         binary: String,
         vendor: PathBuf,
     ) -> Self {
@@ -111,11 +111,10 @@ impl Worker {
     }
 
     fn run_spec(&self, spec: &dyn crate::specs::Spec, retried: usize) {
-        let start_port = self.start_port;
         let binary = self.binary.clone();
         let vendor = self.vendor.clone();
         let outbox = self.outbox.clone();
-        let mut net = Net::new(&binary, start_port, vendor, spec.setup());
+        let mut net = Net::new(&binary, Arc::clone(&self.start_port), vendor, spec.setup());
         let now = Instant::now();
         let node_dirs: Vec<_> = net
             .nodes
@@ -191,18 +190,17 @@ impl Workers {
         binary: String,
         vendor: PathBuf,
     ) -> Self {
+        let start_port = Arc::new(AtomicU16::new(start_port));
         let workers: Vec<_> = (0..count)
             .map({
                 let tasks = Arc::clone(&tasks);
-                move |i| {
+                move |_| {
                     let (command_tx, command_rx) = unbounded();
-                    // assign 20 port slot to each spec
-                    let start_port = start_port + (i * 20) as u16;
                     let worker = Worker::new(
                         Arc::clone(&tasks),
                         command_rx,
                         outbox.clone(),
-                        start_port,
+                        Arc::clone(&start_port),
                         binary.to_string(),
                         vendor.clone(),
                     );

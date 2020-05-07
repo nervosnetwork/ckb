@@ -10,7 +10,10 @@ use ckb_util::{Condvar, Mutex};
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU16, Ordering},
+    Arc,
+};
 use std::time::Duration;
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
@@ -18,28 +21,32 @@ pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 pub struct Net {
     pub nodes: Vec<Node>,
     controller: Option<(NetworkController, Receiver<NetMessage>)>,
-    start_port: u16,
+    p2p_port: u16,
     setup: Setup,
     working_dir: String,
     vendor_dir: PathBuf,
 }
 
 impl Net {
-    pub fn new(binary: &str, start_port: u16, vendor_dir: PathBuf, setup: Setup) -> Self {
+    pub fn new(
+        binary: &str,
+        start_port: Arc<AtomicU16>,
+        vendor_dir: PathBuf,
+        setup: Setup,
+    ) -> Self {
+        let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
         let nodes: Vec<Node> = (0..setup.num_nodes)
-            .map(|n| {
-                Node::new(
-                    binary,
-                    start_port + (n * 2 + 1) as u16,
-                    start_port + (n * 2 + 2) as u16,
-                )
+            .map(|_| {
+                let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
+                let rpc_port = start_port.fetch_add(1, Ordering::SeqCst);
+                Node::new(binary, p2p_port, rpc_port)
             })
             .collect();
 
         Self {
             nodes,
             controller: None,
-            start_port,
+            p2p_port,
             setup,
             working_dir: temp_path(),
             vendor_dir,
@@ -66,7 +73,7 @@ impl Net {
     }
 
     pub fn p2p_port(&self) -> u16 {
-        self.start_port
+        self.p2p_port
     }
 
     fn test_protocols(&self) -> &[TestProtocol] {
@@ -86,7 +93,7 @@ impl Net {
 
         let (tx, rx) = crossbeam_channel::unbounded();
         let config = NetworkConfig {
-            listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.start_port)
+            listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.p2p_port())
                 .parse()
                 .expect("invalid address")],
             public_addresses: vec![],
