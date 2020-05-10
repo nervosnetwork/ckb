@@ -5,29 +5,35 @@ use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_store::{ChainStore, StoreTransaction};
+use ckb_store::{
+    ChainStore, StoreTransaction, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_INDEX,
+};
 use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView,
     },
-    packed::{Byte32, ProposalShortId},
+    packed::{Byte32, ProposalShortId, Uint64},
+    prelude::*,
     U256,
 };
 use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
-use crossbeam_channel::{self, select, Receiver, Sender};
+use crossbeam_channel::{self, select, Sender};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
+type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
+    truncate_sender: Sender<TruncateRequest>, // Used for testing only
     stop: StopHandler<()>,
 }
 
@@ -53,10 +59,16 @@ impl ChainController {
                 .into())
         })
     }
-}
 
-struct ChainReceivers {
-    process_block_receiver: Receiver<ProcessBlockRequest>,
+    /// Truncate the main chain
+    /// Use for testing only
+    pub fn truncate(&self, target_tip_hash: Byte32) -> Result<(), Error> {
+        Request::call(&self.truncate_sender, target_tip_hash).unwrap_or_else(|| {
+            Err(InternalErrorKind::System
+                .reason("Chain service has gone")
+                .into())
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -134,6 +146,7 @@ impl ChainService {
             crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (process_block_sender, process_block_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (truncate_sender, truncate_receiver) = crossbeam_channel::bounded(1);
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -141,21 +154,27 @@ impl ChainService {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let receivers = ChainReceivers {
-            process_block_receiver,
-        };
         let thread = thread_builder
             .spawn(move || loop {
                 select! {
                     recv(signal_receiver) -> _ => {
                         break;
                     },
-                    recv(receivers.process_block_receiver) -> msg => match msg {
+                    recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
                             let _ = responder.send(self.process_block(block, verify));
                         },
                         _ => {
                             error!("process_block_receiver closed");
+                            break;
+                        },
+                    },
+                    recv(truncate_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: target_tip_hash }) => {
+                            let _ = responder.send(self.truncate(&target_tip_hash));
+                        },
+                        _ => {
+                            error!("truncate_receiver closed");
                             break;
                         },
                     }
@@ -166,12 +185,81 @@ impl ChainService {
 
         ChainController {
             process_block_sender,
+            truncate_sender,
             stop,
         }
     }
 
     pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
         self.process_block(block, Switch::NONE)
+    }
+
+    // Truncate the main chain
+    // Use for testing only
+    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
+        let snapshot = self.shared.snapshot();
+        assert!(snapshot.is_main_chain(target_tip_hash));
+
+        let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
+        let target_tip_number = target_tip_header.number();
+
+        // Detach blocks from main chain and remove from database
+        let db_txn = self.shared.store().begin_transaction();
+        let mut cursor = snapshot.tip_hash();
+        while target_tip_hash != &cursor {
+            let block = snapshot.get_block(&cursor).expect("checked");
+            let block_number: Uint64 = block.number().pack();
+            db_txn.detach_block(&block)?;
+            detach_block_cell(&db_txn, &block)?;
+
+            // Remove the whole block data from database
+            let columns = vec![
+                COLUMN_INDEX,
+                COLUMN_BLOCK_HEADER,
+                COLUMN_BLOCK_BODY,
+                COLUMN_BLOCK_EXT,
+                COLUMN_BLOCK_PROPOSAL_IDS,
+                COLUMN_BLOCK_EPOCH,
+            ];
+            for column in columns {
+                db_txn.delete(column, cursor.as_slice())?;
+            }
+            db_txn.delete(COLUMN_INDEX, block_number.as_slice())?;
+
+            cursor = block.parent_hash();
+        }
+        db_txn.commit()?;
+
+        // Adjust `proposal_table` to the truncated chain
+        let window = self.shared.consensus().tx_proposal_window();
+        let window_start = cmp::max(1, target_tip_number.saturating_sub(window.farthest()));
+        let window_end = cmp::max(1, target_tip_number.saturating_sub(window.closest()));
+        self.proposal_table = ProposalTable::new(window);
+        for number in window_start..=window_end {
+            let block_hash = snapshot.get_block_hash(number).expect("checked");
+            let block = snapshot.get_block(&block_hash).expect("checked");
+            self.proposal_table
+                .insert(number, block.union_proposal_ids());
+        }
+
+        // Update the snapshot
+        let target_block_ext = snapshot.get_block_ext(target_tip_hash).expect("checked");
+        let target_epoch_ext = snapshot
+            .get_block_epoch_index(target_tip_hash)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .expect("checked");
+        let (_, proposals) = self
+            .proposal_table
+            .finalize(&Default::default(), target_tip_number);
+        let new_snapshot = self.shared.new_snapshot(
+            target_tip_header,
+            target_block_ext.total_difficulty,
+            target_epoch_ext,
+            proposals,
+        );
+        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+
+        Ok(())
     }
 
     // process_block will do block verify
