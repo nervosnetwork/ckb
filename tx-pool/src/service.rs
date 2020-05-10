@@ -81,6 +81,7 @@ pub enum Message {
     EstimateFeeRate(Request<usize, FeeRate>),
     EstimatorTrackTx(Notify<(Byte32, FeeRate, u64)>),
     EstimatorProcessBlock(Notify<(u64, Vec<Byte32>)>),
+    ClearPool(Request<(), ()>),
 }
 
 #[derive(Clone)]
@@ -295,6 +296,19 @@ impl TxPoolController {
         let notify = Notify::notify((height, txs.collect::<Vec<_>>()));
         sender
             .try_send(Message::EstimatorProcessBlock(notify))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e.into()
+            })
+    }
+
+    pub fn clear_pool(&self) -> Result<(), FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = crossbeam_channel::bounded(1);
+        let request = Request::call((), responder);
+        sender
+            .try_send(Message::ClearPool(request))
+        response.recv().map_err(Into::into)
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e.into()
@@ -554,6 +568,10 @@ async fn process(service: TxPoolService, message: Message) {
         }) => {
             let mut tx_pool = service.tx_pool.write().await;
             tx_pool.fee_estimator.process_block(height, txs.into_iter());
+        }
+        Message::ClearPool(Request { responder, .. }) => {
+            let mut tx_pool = service.tx_pool.write().await;
+            tx_pool.clear_pool();
         }
     }
 }
