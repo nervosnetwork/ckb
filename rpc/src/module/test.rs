@@ -24,6 +24,9 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "process_block_without_verify")]
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
 
+    #[rpc(name = "truncate")]
+    fn truncate(&self, target_tip_hash: H256) -> Result<()>;
+
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
 
@@ -64,6 +67,37 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             error!("process_block_without_verify error: {:?}", ret);
             Ok(None)
         }
+    }
+
+    fn truncate(&self, target_tip_hash: H256) -> Result<()> {
+        let header = {
+            let snapshot = self.shared.snapshot();
+            let header = snapshot
+                .get_block_header(&target_tip_hash.pack())
+                .ok_or_else(|| {
+                    RPCError::custom(RPCError::Invalid, "block not found".to_string())
+                })?;
+            if !snapshot.is_main_chain(&header.hash()) {
+                return Err(RPCError::custom(
+                    RPCError::Invalid,
+                    "block not on main chain".to_string(),
+                ));
+            }
+            header
+        };
+
+        // Truncate the chain and database
+        self.chain
+            .truncate(header.hash())
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
+
+        // Clear the tx_pool
+        let tx_pool = self.shared.tx_pool_controller();
+        tx_pool
+            .clear_pool()
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
+
+        Ok(())
     }
 
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
