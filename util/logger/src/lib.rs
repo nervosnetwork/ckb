@@ -26,35 +26,35 @@ macro_rules! env {
 #[macro_export(local_inner_macros)]
 macro_rules! trace {
     ($( $args:tt )*) => {
-        $crate::internal::trace!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+        $crate::internal::trace!($( $args )*);
     }
 }
 
 #[macro_export(local_inner_macros)]
 macro_rules! debug {
     ($( $args:tt )*) => {
-        $crate::internal::debug!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+        $crate::internal::debug!($( $args )*);
     }
 }
 
 #[macro_export(local_inner_macros)]
 macro_rules! info {
     ($( $args:tt )*) => {
-        $crate::internal::info!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+        $crate::internal::info!($( $args )*);
     }
 }
 
 #[macro_export(local_inner_macros)]
 macro_rules! warn {
     ($( $args:tt )*) => {
-        $crate::internal::warn!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+        $crate::internal::warn!($( $args )*);
     }
 }
 
 #[macro_export(local_inner_macros)]
 macro_rules! error {
     ($( $args:tt )*) => {
-        $crate::internal::error!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+        $crate::internal::error!($( $args )*);
     }
 }
 
@@ -89,7 +89,7 @@ macro_rules! __metric_topic {
 #[macro_export(local_inner_macros)]
 macro_rules! log_enabled {
     ($level:expr) => {
-        $crate::internal::log_enabled!(target: $crate::env!("CARGO_PKG_NAME"), $level);
+        $crate::internal::log_enabled!($level);
     };
 }
 
