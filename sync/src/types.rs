@@ -408,8 +408,8 @@ impl DownloadScheduler {
         }
     }
 
-    fn punish(&mut self) {
-        self.task_count >>= 1
+    fn punish(&mut self, num: usize) {
+        self.task_count >>= num
     }
 }
 
@@ -549,13 +549,13 @@ impl InflightBlocks {
                 break;
             }
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
-                download_schedulers
-                    .get_mut(&value.peer)
-                    .map(|set| set.hashes.remove(key));
+                if let Some(set) = download_schedulers.get_mut(&value.peer) {
+                    set.hashes.remove(key);
+                    set.punish(2);
+                };
                 if !trace.is_empty() {
                     trace.remove(&key);
                 }
-                disconnect_list.insert(value.peer);
                 remove_key.push(key.clone());
             }
         }
@@ -591,13 +591,13 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        d.punish();
+                        d.punish(1);
                         d.hashes.remove(key);
                     };
                 } else if let Some(v) = compact_inflight.remove(&key.hash) {
                     for peer in v {
                         if let Some(d) = download_schedulers.get_mut(&peer) {
-                            d.punish();
+                            d.punish(1);
                         }
                     }
                 }

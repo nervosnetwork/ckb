@@ -492,7 +492,7 @@ impl Synchronizer {
                 Some(ref sender) => {
                     if !sender.is_full() {
                         let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                        let _ = sender.try_send(FetchCMD::Fetch(peers));
+                        let _ignore = sender.try_send(FetchCMD::Fetch(peers));
                     }
                 }
                 None => {
