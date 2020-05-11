@@ -27,7 +27,8 @@ use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::cmp::min;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -46,7 +47,6 @@ enum FetchCMD {
 }
 
 struct BlockFetchCMD {
-    can_fetch_block: Arc<AtomicBool>,
     sync: Synchronizer,
     p2p_control: ServiceControl,
     recv: crossbeam_channel::Receiver<FetchCMD>,
@@ -57,7 +57,6 @@ impl BlockFetchCMD {
         while let Ok(cmd) = self.recv.recv() {
             match cmd {
                 FetchCMD::Fetch(peers) => {
-                    self.can_fetch_block.store(false, Ordering::Release);
                     for peer in peers {
                         if let Some(fetch) =
                             BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
@@ -67,7 +66,6 @@ impl BlockFetchCMD {
                             }
                         }
                     }
-                    self.can_fetch_block.store(true, Ordering::Release)
                 }
             }
         }
@@ -95,7 +93,6 @@ impl BlockFetchCMD {
 pub struct Synchronizer {
     chain: ChainController,
     pub shared: Arc<SyncShared>,
-    can_fetch_block: Arc<AtomicBool>,
     fetch_channel: Option<crossbeam_channel::Sender<FetchCMD>>,
 }
 
@@ -104,7 +101,6 @@ impl Synchronizer {
         Synchronizer {
             chain,
             shared,
-            can_fetch_block: Arc::new(AtomicBool::new(true)),
             fetch_channel: None,
         }
     }
@@ -416,6 +412,47 @@ impl Synchronizer {
         }
     }
 
+    fn get_peers_to_fetch(
+        &self,
+        ibd: IBDState,
+        disconnect_list: &HashSet<PeerIndex>,
+    ) -> Vec<PeerIndex> {
+        trace!("poll find_blocks_to_fetch select peers");
+        let state = &self
+            .shared
+            .state()
+            .read_inflight_blocks()
+            .download_schedulers;
+        let mut peers: Vec<PeerIndex> = self
+            .peers()
+            .state
+            .read()
+            .iter()
+            .filter(|(id, state)| {
+                if disconnect_list.contains(id) {
+                    return false;
+                };
+                match ibd {
+                    IBDState::In => {
+                        state.peer_flags.is_outbound
+                            || state.peer_flags.is_whitelist
+                            || state.peer_flags.is_protect
+                    }
+                    IBDState::Out => state.sync_started,
+                }
+            })
+            .map(|(peer_id, _)| peer_id)
+            .cloned()
+            .collect();
+        peers.sort_by_key(|id| {
+            state
+                .get(id)
+                .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count())
+        });
+        peers.reverse();
+        peers
+    }
+
     fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
         let tip = self.shared.active_chain().tip_number();
 
@@ -448,59 +485,21 @@ impl Synchronizer {
             }
         }
 
-        if ibd.into() && !self.can_fetch_block.load(Ordering::Acquire) {
-            return;
-        }
-
-        let peers: Vec<PeerIndex> = {
-            let state = &self
-                .shared
-                .state()
-                .read_inflight_blocks()
-                .download_schedulers;
-            let mut peers: Vec<PeerIndex> = self
-                .peers()
-                .state
-                .read()
-                .iter()
-                .filter(|(id, state)| {
-                    if disconnect_list.contains(id) {
-                        return false;
-                    };
-                    match ibd {
-                        IBDState::In => {
-                            state.peer_flags.is_outbound
-                                || state.peer_flags.is_whitelist
-                                || state.peer_flags.is_protect
-                        }
-                        IBDState::Out => state.sync_started,
-                    }
-                })
-                .map(|(peer_id, _)| peer_id)
-                .cloned()
-                .collect();
-            peers.sort_by_key(|id| {
-                state
-                    .get(id)
-                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count())
-            });
-            peers.reverse();
-            peers
-        };
-
-        trace!("poll find_blocks_to_fetch select peers");
         // fetch use a lot of cpu time, especially in ibd state
         // so, the fetch function use another thread
         match nc.p2p_control() {
             Some(raw) => match self.fetch_channel {
                 Some(ref sender) => {
-                    let _ = sender.try_send(FetchCMD::Fetch(peers));
+                    if !sender.is_full() {
+                        let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
+                        let _ = sender.try_send(FetchCMD::Fetch(peers));
+                    }
                 }
                 None => {
                     let p2p_control = raw.clone();
                     let sync = self.clone();
-                    let can_fetch_block = Arc::clone(&self.can_fetch_block);
                     let (sender, recv) = crossbeam_channel::bounded(2);
+                    let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);
                     ::std::thread::spawn(move || {
@@ -508,14 +507,13 @@ impl Synchronizer {
                             sync,
                             p2p_control,
                             recv,
-                            can_fetch_block,
                         }
                         .run();
                     });
                 }
             },
             _ => {
-                for peer in peers {
+                for peer in self.get_peers_to_fetch(ibd, &disconnect_list) {
                     if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
                         for item in fetch {
                             self.send_getblocks(item, nc, peer);

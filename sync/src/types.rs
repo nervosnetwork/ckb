@@ -3,8 +3,8 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{
-    FIRST_LEVEL_MAX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
-    MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
+    MAX_TIP_AGE, MEDIAN_INDEX, NORMAL_INDEX, RETRY_ASK_TX_TIMEOUT_INCREASE, TIME_TRACE_SIZE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -280,11 +280,90 @@ impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
     }
 }
 
+enum SchedulerOutput {
+    DoubleInCrease,
+    InCrease,
+    Decrease,
+    DoubleDeCrease,
+}
+
+/// Using 512 blocks as a period, dynamically adjust the scheduler's time standard
+/// Divided into three time periods, including:
+///
+/// | fast | normal | penalty | double penalty |
+///
+/// The dividing line is, median position, 4/5 position, 1/10 position.
+///
+/// There is 3/10 normal area, 1/10 penalty area, 1/10 double penalty area, 1/2 accelerated reward area.
+///
+/// Most of the nodes that fall in the normal and accelerated reward area will be retained,
+/// while most of the nodes that fall in the normal and penalty zones will be slowly eliminated
+///
+/// The purpose of dynamic tuning is to reduce the consumption problem of sync networks
+/// by retaining the vast majority of nodes with stable communications and
+/// cleaning up nodes with significantly lower response times than a certain level
+#[derive(Clone)]
+struct DynamicTimeLimit {
+    trace: [u64; TIME_TRACE_SIZE],
+    index: usize,
+    median_time: u64,
+    normal_time: u64,
+    low_time: u64,
+}
+
+impl fmt::Debug for DynamicTimeLimit {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("DynamicTimeLimit")
+            .field("median_time", &self.median_time)
+            .field("normal_time", &self.normal_time)
+            .field("low_time", &self.low_time)
+            .finish()
+    }
+}
+
+impl Default for DynamicTimeLimit {
+    fn default() -> Self {
+        // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
+        Self {
+            trace: [0; TIME_TRACE_SIZE],
+            index: 0,
+            median_time: 1000,
+            normal_time: 1250,
+            low_time: 1500,
+        }
+    }
+}
+
+impl DynamicTimeLimit {
+    fn push_time(&mut self, time: u64) -> SchedulerOutput {
+        if self.index < TIME_TRACE_SIZE {
+            self.trace[self.index] = time;
+            self.index += 1;
+        } else {
+            self.trace.sort_unstable();
+            self.median_time = (self.median_time + self.trace[MEDIAN_INDEX]) >> 1;
+            self.normal_time = (self.normal_time + self.trace[NORMAL_INDEX]) >> 1;
+            self.low_time = (self.low_time + self.trace[LOW_INDEX]) >> 1;
+            self.trace[0] = time;
+            self.index = 1;
+        }
+
+        if time <= self.median_time {
+            SchedulerOutput::DoubleInCrease
+        } else if time <= self.normal_time {
+            SchedulerOutput::InCrease
+        } else if time > self.low_time {
+            SchedulerOutput::DoubleDeCrease
+        } else {
+            SchedulerOutput::Decrease
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadScheduler {
     task_count: usize,
     timeout_count: usize,
-    breakthroughs_count: usize,
     hashes: HashSet<BlockNumberAndHash>,
 }
 
@@ -293,7 +372,6 @@ impl Default for DownloadScheduler {
         Self {
             hashes: HashSet::default(),
             task_count: INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-            breakthroughs_count: 0,
             timeout_count: 0,
         }
     }
@@ -308,60 +386,25 @@ impl DownloadScheduler {
         self.task_count.saturating_sub(self.hashes.len())
     }
 
-    pub(crate) fn task_count(&self) -> usize {
+    pub(crate) const fn task_count(&self) -> usize {
         self.task_count
     }
 
-    fn adjust(&mut self, time: u64, len: u64) {
-        let now = unix_time_as_millis();
-        // 8 means default max outbound
-        // All synchronization tests are based on the assumption of 8 nodes.
-        // If the number of nodes is increased, the number of requests and processing time will increase,
-        // and the corresponding adjustment criteria are needed, so the adjustment is based on 8.
-        //
-        // note: This is an interim scenario and the next step is to consider the median response time
-        // within a certain interval as the adjustment criterion
-        let (quotient, remainder) = if len > 8 { (len >> 3, len % 8) } else { (1, 0) };
-        // Dynamically adjust download tasks based on response time.
-        //
-        // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
+    fn increase(&mut self, num: usize) {
+        if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
+            self.task_count += num
+        }
+    }
+
+    fn decrease(&mut self, num: usize) {
         // But the mark is on the same time, so multiple tasks may be affected by one task,
         // causing all responses to be in the range of reduced tasks.
         // So the adjustment to reduce the number of tasks will be calculated by modulo 3 with the actual number of triggers.
         // Adjust for each block received.
-        match ((now - time) / quotient).saturating_sub(remainder * 100) {
-            // Within 500ms of response, considered better to communicate with that node's network
-            0..=500 => {
-                if self.task_count < FIRST_LEVEL_MAX - 1 {
-                    self.task_count += 2
-                } else {
-                    self.breakthroughs_count += 1
-                }
-            }
-            // Within 1000ms of response time, the network is relatively good and communication should be maintained
-            501..=1000 => {
-                if self.task_count < FIRST_LEVEL_MAX {
-                    self.task_count += 1
-                } else {
-                    self.breakthroughs_count += 1
-                }
-            }
-            // Response time within 1500ms, acceptable range, but not relatively good for nodes and do not adjust
-            1001..=1500 => (),
-            // Above 1500ms, relatively poor network, reduced
-            _ => {
-                self.timeout_count += 1;
-                if self.timeout_count > 3 {
-                    self.task_count = self.task_count.saturating_sub(1);
-                    self.timeout_count = 0;
-                }
-            }
-        }
-        if self.breakthroughs_count > 4 {
-            if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
-                self.task_count += 1;
-            }
-            self.breakthroughs_count = 0;
+        self.timeout_count += num;
+        if self.timeout_count > 2 {
+            self.task_count = self.task_count.saturating_sub(1);
+            self.timeout_count = 0;
         }
     }
 
@@ -377,6 +420,7 @@ pub struct InflightBlocks {
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
+    time_limit: DynamicTimeLimit,
     pub(crate) adjustment: bool,
 }
 
@@ -388,6 +432,7 @@ impl Default for InflightBlocks {
             trace_number: HashMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
+            time_limit: DynamicTimeLimit::default(),
             adjustment: true,
         }
     }
@@ -636,27 +681,32 @@ impl InflightBlocks {
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
-        let len = download_schedulers.len() as u64;
+        let time_limit = &mut self.time_limit;
         let adjustment = self.adjustment;
         self.inflight_states
             .remove(&block)
             .map(|state| {
+                let elapsed = unix_time_as_millis().saturating_sub(state.timestamp);
                 if let Some(set) = download_schedulers.get_mut(&state.peer) {
                     set.hashes.remove(&block);
                     if !compact.is_empty() {
                         compact.remove(&block.hash);
                     }
                     if adjustment {
-                        set.adjust(state.timestamp, len);
+                        match time_limit.push_time(elapsed) {
+                            SchedulerOutput::DoubleInCrease => set.increase(2),
+                            SchedulerOutput::InCrease => set.increase(1),
+                            SchedulerOutput::DoubleDeCrease => set.decrease(2),
+                            SchedulerOutput::Decrease => set.decrease(1),
+                        }
                     }
                     if !trace.is_empty() {
                         trace.remove(&block);
                     }
                 };
-                state.timestamp
+                elapsed
             })
-            .map(|timestamp| {
-                let elapsed = unix_time_as_millis().saturating_sub(timestamp);
+            .map(|elapsed| {
                 metric!({
                     "topic": "blocks_in_flight",
                     "fields": { "total": self.total_inflight_count(), "elapsed": elapsed }
