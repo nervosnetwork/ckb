@@ -72,7 +72,6 @@ impl ExperimentRpc for ExperimentRpcImpl {
         Err(RPCError::custom(
             RPCError::Invalid,
             "estimate_fee_rate have been deprecated due to it has availability and performance issue"
-                .into(),
         ))
     }
 }
