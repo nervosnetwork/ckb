@@ -75,11 +75,12 @@ impl RPCError {
     pub fn from_ckb_error(err: CKBError) -> Error {
         use ckb_error::ErrorKind::*;
         match err.kind() {
-            Dao => Self::custom_with_error(RPCError::DaoError, err.as_fail_ref()),
+            Dao => Self::custom_with_error(RPCError::DaoError, err.unwrap_cause_or_self()),
             OutPoint => Self::custom_with_error(RPCError::TransactionFailedToResolve, err),
-            Transaction => {
-                Self::custom_with_error(RPCError::TransactionFailedToVerify, err.as_fail_ref())
-            }
+            Transaction => Self::custom_with_error(
+                RPCError::TransactionFailedToVerify,
+                err.unwrap_cause_or_self(),
+            ),
             SubmitTransaction => {
                 let submit_tx_err = match err.downcast_ref::<SubmitTxError>() {
                     Some(err) => err,
