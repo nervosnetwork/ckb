@@ -7,7 +7,7 @@ use crate::{
         PeerStore,
     },
 };
-use ckb_logger::debug;
+use ckb_logger::{debug, error};
 use std::fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -49,25 +49,45 @@ impl BanList {
 }
 
 impl PeerStore {
-    pub fn load_from_dir<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn load_from_dir_or_default<P: AsRef<Path>>(path: P) -> Self {
         let addr_manager_path = path.as_ref().join(DEFAULT_ADDR_MANAGER_DB);
         let ban_list_path = path.as_ref().join(DEFAULT_BAN_LIST_DB);
 
-        let addr_manager = if addr_manager_path.exists() {
-            AddrManager::load(File::open(addr_manager_path)?)?
-        } else {
-            debug!("Failed to load addr manager from {:?}", addr_manager_path);
-            AddrManager::default()
-        };
+        let addr_manager = File::open(&addr_manager_path)
+            .map_err(|err| {
+                debug!(
+                    "Failed to open AddrManager db, file: {:?}, error: {:?}",
+                    addr_manager_path, err
+                )
+            })
+            .and_then(|file| {
+                AddrManager::load(file).map_err(|err| {
+                    error!(
+                        "Failed to load AddrManager db, file: {:?}, error: {:?}",
+                        addr_manager_path, err
+                    )
+                })
+            })
+            .unwrap_or_default();
 
-        let ban_list = if ban_list_path.exists() {
-            BanList::load(File::open(ban_list_path)?)?
-        } else {
-            debug!("Failed to load ban list from {:?}", ban_list_path);
-            BanList::default()
-        };
+        let ban_list = File::open(&ban_list_path)
+            .map_err(|err| {
+                debug!(
+                    "Failed to open BanList db, file: {:?}, error: {:?}",
+                    ban_list_path, err
+                )
+            })
+            .and_then(|file| {
+                BanList::load(file).map_err(|err| {
+                    error!(
+                        "Failed to load BanList db, file: {:?}, error: {:?}",
+                        ban_list_path, err
+                    )
+                })
+            })
+            .unwrap_or_default();
 
-        Ok(PeerStore::new(addr_manager, ban_list))
+        PeerStore::new(addr_manager, ban_list)
     }
 
     pub fn dump_to_dir<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
