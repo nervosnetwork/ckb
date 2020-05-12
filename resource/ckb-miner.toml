@@ -57,7 +57,5 @@ worker_type = "EaglesongSimple" # {{
 # }}
 threads     = 1 # {{
 # dev => delay_type = "Constant"\nvalue = 5000
-# }}
-# # {{
-# testnet => extra_hash_function = "Blake2b"
+# testnet => threads     = 1\nextra_hash_function = "Blake2b"
 # }}
