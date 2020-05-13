@@ -145,15 +145,15 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if headers.is_empty() {
-            // Reset headers sync timeout
-            self.synchronizer
-                .peers()
-                .state
-                .write()
-                .get_mut(&self.peer)
-                .expect("Peer must exists")
-                .headers_sync_timeout = None;
             debug!("HeadersProcess is_empty (synchronized)");
+            let ibd = self.active_chain.is_initial_block_download();
+            if !ibd {
+                if let Some(ref mut peer_state) =
+                    self.synchronizer.peers().state.write().get_mut(&self.peer)
+                {
+                    peer_state.stop_headers_sync();
+                }
+            }
             return Status::ok();
         }
 

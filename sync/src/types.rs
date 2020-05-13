@@ -1,13 +1,15 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX,
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_TIP_AGE, NORMAL_INDEX,
-    RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME, TIME_TRACE_SIZE,
+    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
+    HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
+    MAX_TIP_AGE, NORMAL_INDEX, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
+    TIME_TRACE_SIZE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{debug, debug_target, error, metric};
+use ckb_logger::{debug, debug_target, error, metric, trace};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -76,11 +78,134 @@ pub struct PeerFlags {
     pub is_whitelist: bool,
 }
 
+#[derive(Clone, Default, Debug, Copy)]
+pub struct HeadersSyncController {
+    // The timestamp when sync started
+    pub(crate) started_ts: u64,
+    // The timestamp of better tip header when sync started
+    pub(crate) started_tip_ts: u64,
+
+    // The timestamp when the process last updated
+    pub(crate) last_updated_ts: u64,
+    // The timestamp of better tip header when the process last updated
+    pub(crate) last_updated_tip_ts: u64,
+
+    pub(crate) is_close_to_the_end: bool,
+}
+
+impl HeadersSyncController {
+    #[cfg(test)]
+    pub(crate) fn new(
+        started_ts: u64,
+        started_tip_ts: u64,
+        last_updated_ts: u64,
+        last_updated_tip_ts: u64,
+        is_close_to_the_end: bool,
+    ) -> Self {
+        Self {
+            started_ts,
+            started_tip_ts,
+            last_updated_ts,
+            last_updated_tip_ts,
+            is_close_to_the_end,
+        }
+    }
+
+    pub(crate) fn from_header(better_tip_header: &core::HeaderView) -> Self {
+        let started_ts = unix_time_as_millis();
+        let started_tip_ts = better_tip_header.timestamp();
+        Self {
+            started_ts,
+            started_tip_ts,
+            last_updated_ts: started_ts,
+            last_updated_tip_ts: started_tip_ts,
+            is_close_to_the_end: false,
+        }
+    }
+
+    pub(crate) fn is_timeout(&mut self, now_tip_ts: u64, now: u64) -> Option<bool> {
+        let inspect_window = HEADERS_DOWNLOAD_INSPECT_WINDOW;
+        let expected_headers_per_sec = HEADERS_DOWNLOAD_HEADERS_PER_SECOND;
+        let tolerable_bias = HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE;
+
+        let expected_before_finished = now.saturating_sub(now_tip_ts);
+
+        trace!("headers-sync: better tip ts {}; now {}", now_tip_ts, now);
+
+        if self.is_close_to_the_end {
+            let expected_in_base_time =
+                expected_headers_per_sec * inspect_window * POW_INTERVAL / 1000;
+            if expected_before_finished > expected_in_base_time {
+                self.started_ts = now;
+                self.started_tip_ts = now_tip_ts;
+                self.last_updated_ts = now;
+                self.last_updated_tip_ts = now_tip_ts;
+                self.is_close_to_the_end = false;
+                // if the node is behind the estimated tip header too much, sync again;
+                trace!("headers-sync: send GetHeaders again since we behind the tip too much");
+                None
+            } else {
+                // ignore timeout because the tip already almost reach the real time;
+                // we can sync to the estimated tip in 1 inspect window by the slowest speed that we can accept.
+                Some(false)
+            }
+        } else if expected_before_finished < inspect_window {
+            self.is_close_to_the_end = true;
+            trace!("headers-sync: ignore timeout because the tip almost reach the real time");
+            Some(false)
+        } else {
+            let spent_since_last_updated = now.saturating_sub(self.last_updated_ts);
+
+            if spent_since_last_updated < inspect_window {
+                // ignore timeout because the time spent since last updated is not enough as a sample
+                Some(false)
+            } else {
+                let synced_since_last_updated = now_tip_ts.saturating_sub(self.last_updated_tip_ts);
+                let expected_since_last_updated =
+                    expected_headers_per_sec * spent_since_last_updated * POW_INTERVAL / 1000;
+
+                if synced_since_last_updated < expected_since_last_updated / tolerable_bias {
+                    // if instantaneous speed is too slow, we don't care the global average speed
+                    trace!("headers-sync: the instantaneous speed is too slow");
+                    Some(true)
+                } else {
+                    self.last_updated_ts = now;
+                    self.last_updated_tip_ts = now_tip_ts;
+
+                    if synced_since_last_updated > expected_since_last_updated {
+                        trace!("headers-sync: the instantaneous speed is acceptable");
+                        Some(false)
+                    } else {
+                        // tolerate more bias for instantaneous speed, we will check the global average speed
+                        let spent_since_started = now.saturating_sub(self.started_ts);
+                        let synced_since_started = now_tip_ts.saturating_sub(self.started_tip_ts);
+
+                        let expected_since_started =
+                            expected_headers_per_sec * spent_since_started * POW_INTERVAL / 1000;
+
+                        if synced_since_started < expected_since_started {
+                            // the global average speed is too slow
+                            trace!(
+                                "headers-sync: both the global average speed and the instantaneous speed \
+                                is slow than expected"
+                            );
+                            Some(true)
+                        } else {
+                            trace!("headers-sync: the global average speed is acceptable");
+                            Some(false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct PeerState {
     // only use on header sync
     pub sync_started: bool,
-    pub headers_sync_timeout: Option<u64>,
+    pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
@@ -101,7 +226,7 @@ impl PeerState {
     pub fn new(peer_flags: PeerFlags) -> PeerState {
         PeerState {
             sync_started: false,
-            headers_sync_timeout: None,
+            headers_sync_controller: None,
             peer_flags,
             disconnect: false,
             chain_sync: ChainSyncState::default(),
@@ -124,22 +249,21 @@ impl PeerState {
                 .unwrap_or(true)
     }
 
-    pub fn start_sync(&mut self, headers_sync_timeout: u64) {
+    pub fn start_sync(&mut self, headers_sync_controller: HeadersSyncController) {
         self.sync_started = true;
         self.chain_sync.not_sync_until = None;
-        self.headers_sync_timeout = Some(headers_sync_timeout);
+        self.headers_sync_controller = Some(headers_sync_controller);
     }
 
     pub fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
         self.sync_started = false;
         self.chain_sync.not_sync_until = Some(now + suspend_time);
-        self.headers_sync_timeout = None;
+        self.stop_headers_sync();
     }
 
-    // Not use yet
-    pub fn caught_up_sync(&mut self) {
-        self.headers_sync_timeout = Some(std::u64::MAX);
+    pub(crate) fn stop_headers_sync(&mut self) {
+        self.headers_sync_controller = None;
     }
 
     pub fn add_ask_for_tx(
@@ -1290,10 +1414,6 @@ impl SyncState {
     pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
         let mut map = self.tx_hashes.lock();
         mem::take(&mut *map)
-    }
-
-    pub fn is_initial_header_sync(&self) -> bool {
-        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp()) > MAX_TIP_AGE
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
