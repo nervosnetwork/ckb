@@ -684,11 +684,16 @@ impl Peers {
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn set_best_known_header(&self, pi: PeerIndex, header_view: HeaderView) {
-        self.state
-            .write()
-            .entry(pi)
-            .and_modify(|peer_state| peer_state.best_known_header = Some(header_view));
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: &HeaderView) {
+        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+            if let Some(ref hv) = peer_state.best_known_header {
+                if header_view.is_better_than(&hv.total_difficulty()) {
+                    peer_state.best_known_header = Some(header_view.clone());
+                }
+            } else {
+                peer_state.best_known_header = Some(header_view.clone());
+            }
+        }
     }
 
     pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
@@ -703,18 +708,6 @@ impl Peers {
             .write()
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
-    }
-
-    pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
-        if let Some(peer_state) = self.state.write().get_mut(&peer) {
-            if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(&hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view.clone());
-                }
-            } else {
-                peer_state.best_known_header = Some(header_view.clone());
-            }
-        }
     }
 
     pub fn getheaders_received(&self, _peer: PeerIndex) {
@@ -1129,7 +1122,7 @@ impl SyncShared {
         if header_view.is_better_than(&shared_best_header.total_difficulty()) {
             self.state.set_shared_best_header(header_view.clone());
         }
-        self.state.peers().new_header_received(peer, &header_view);
+        self.state.peers().may_set_best_known_header(peer, &header_view);
     }
 
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
@@ -1401,7 +1394,7 @@ impl SyncState {
             // so here you discard and exit early
             for hash in header_list {
                 if let Some(header) = self.header_map.read().get(&hash) {
-                    self.peers.new_header_received(pi, header);
+                    self.peers.may_set_best_known_header(pi, header);
                     break;
                 } else {
                     self.peers.insert_unknown_header_hash(pi, hash)
@@ -1415,7 +1408,7 @@ impl SyncState {
         // when header hash unknown, break loop is ok
         while let Some(hash) = self.peers().take_unknown_last(pi) {
             if let Some(header) = self.header_map.read().get(&hash) {
-                self.peers.new_header_received(pi, header);
+                self.peers.may_set_best_known_header(pi, header);
             } else {
                 self.peers.insert_unknown_header_hash(pi, hash);
                 break;

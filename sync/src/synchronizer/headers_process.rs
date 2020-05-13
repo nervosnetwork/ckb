@@ -345,7 +345,7 @@ where
             let header_view = shared
                 .get_header_view(&self.header.hash())
                 .expect("header with HEADER_VALID should exist");
-            state.peers().new_header_received(self.peer, &header_view);
+            state.peers().may_set_best_known_header(self.peer, &header_view);
             return result;
         }
 
