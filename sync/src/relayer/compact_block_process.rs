@@ -92,7 +92,7 @@ impl<'a> CompactBlockProcess<'a> {
                 .expect("parent block must exist");
             let header_view = {
                 let total_difficulty = parent.total_difficulty() + header.difficulty();
-                crate::types::HeaderView::new(header.clone(), total_difficulty)
+                crate::types::HeaderView::new(header, total_difficulty)
             };
 
             let state = shared.state().peers();

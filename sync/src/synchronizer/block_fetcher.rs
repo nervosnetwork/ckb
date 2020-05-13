@@ -65,7 +65,9 @@ impl<'a> BlockFetcher<'a> {
         let fixed_last_common_header = self
             .active_chain
             .last_common_ancestor(&last_common_header, &best.inner())?;
-        self.synchronizer.peers().set_last_common_header(self.peer, fixed_last_common_header.clone());
+        self.synchronizer
+            .peers()
+            .set_last_common_header(self.peer, fixed_last_common_header.clone());
 
         Some(fixed_last_common_header)
     }
@@ -152,7 +154,9 @@ impl<'a> BlockFetcher<'a> {
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
-                    self.synchronizer.peers().set_last_common_header(self.peer, header.clone());
+                    self.synchronizer
+                        .peers()
+                        .set_last_common_header(self.peer, header.clone());
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly

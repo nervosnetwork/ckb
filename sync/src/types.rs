@@ -997,7 +997,6 @@ impl SyncShared {
     pub fn insert_new_block(
         &self,
         chain: &ChainController,
-        pi: PeerIndex,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         // Insert the given block into orphan_block_pool if its parent is not found
@@ -1007,7 +1006,7 @@ impl SyncShared {
                 block.header().number(),
                 block.header().hash()
             );
-            self.state.insert_orphan_block(pi, (*block).clone());
+            self.state.insert_orphan_block((*block).clone());
             return Ok(false);
         }
 
@@ -1025,8 +1024,8 @@ impl SyncShared {
     }
 
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
-        let descendants = self.state.remove_orphan_by_parent(parent_hash);
-        for (peer, block) in descendants {
+        let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
+        for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
             if !self.is_parent_stored(&block) {
@@ -1118,7 +1117,9 @@ impl SyncShared {
         if header_view.is_better_than(&shared_best_header.total_difficulty()) {
             self.state.set_shared_best_header(header_view.clone());
         }
-        self.state.peers().may_set_best_known_header(peer, &header_view);
+        self.state
+            .peers()
+            .may_set_best_known_header(peer, &header_view);
     }
 
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
@@ -1331,19 +1332,16 @@ impl SyncState {
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
-    pub fn insert_orphan_block(&self, peer: PeerIndex, block: core::BlockView) {
+    pub fn insert_orphan_block(&self, block: core::BlockView) {
         self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-        self.orphan_block_pool.insert(peer, block);
+        self.orphan_block_pool.insert(block);
     }
 
-    pub fn remove_orphan_by_parent(
-        &self,
-        parent_hash: &Byte32,
-    ) -> Vec<(PeerIndex, core::BlockView)> {
+    pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
         let mut block_status_map = self.block_status_map.lock();
-        blocks.iter().for_each(|(_, b)| {
-            block_status_map.remove(&b.hash());
+        blocks.iter().for_each(|block| {
+            block_status_map.remove(&block.hash());
         });
         blocks
     }

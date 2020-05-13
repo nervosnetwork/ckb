@@ -188,11 +188,7 @@ impl Synchronizer {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(
-        &self,
-        peer: PeerIndex,
-        block: core::BlockView,
-    ) -> Result<bool, FailureError> {
+    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
@@ -201,8 +197,7 @@ impl Synchronizer {
             debug!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared
-                .insert_new_block(&self.chain, peer, Arc::new(block))
+            self.shared.insert_new_block(&self.chain, Arc::new(block))
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -1020,7 +1015,6 @@ mod tests {
         let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
         let (chain_controller2, shared2) = start_chain(Some(consensus));
         let block_number = 2000;
-        let peer: PeerIndex = 0.into();
 
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared1
@@ -1046,7 +1040,7 @@ mod tests {
         blocks.into_iter().for_each(|block| {
             synchronizer
                 .shared()
-                .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
+                .insert_new_block(&synchronizer.chain, Arc::new(block))
                 .expect("Insert new block failed");
         });
         assert_eq!(&chain1_last_block.header(), shared2.snapshot().tip_header());
