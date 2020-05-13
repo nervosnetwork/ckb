@@ -1012,7 +1012,7 @@ impl SyncShared {
         }
 
         // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, pi, Arc::clone(&block));
+        let ret = self.accept_block(chain, Arc::clone(&block));
         if ret.is_err() {
             debug!("accept block {:?} {:?}", block, ret);
             return ret;
@@ -1040,7 +1040,7 @@ impl SyncShared {
             }
 
             let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, peer, Arc::clone(&block)) {
+            if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
                 debug!(
                     "accept descendant orphan block {} error {:?}",
                     block.header().hash(),
@@ -1053,7 +1053,6 @@ impl SyncShared {
     fn accept_block(
         &self,
         chain: &ChainController,
-        peer: PeerIndex,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block));
@@ -1070,9 +1069,6 @@ impl SyncShared {
             // status via fetching block_ext from the database.
             self.state.remove_block_status(&block.as_ref().hash());
             self.state.remove_header_view(&block.as_ref().hash());
-            self.state
-                .peers()
-                .set_last_common_header(peer, block.header());
         }
 
         Ok(ret?)

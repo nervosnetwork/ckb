@@ -97,7 +97,6 @@ impl<'a> CompactBlockProcess<'a> {
 
             let state = shared.state().peers();
             state.may_set_best_known_header(self.peer, &header_view);
-            state.set_last_common_header(self.peer, header);
 
             return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {

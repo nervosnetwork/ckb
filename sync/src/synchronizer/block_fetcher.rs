@@ -46,25 +46,26 @@ impl<'a> BlockFetcher<'a> {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 // may reorganized, then it can't be used
                 if header.number() > tip_header.number() {
-                    Some(tip_header)
+                    tip_header
                 } else {
-                    Some(header)
+                    header
                 }
             // Bootstrap quickly by guessing a parent of our best tip is the forking point.
             // Guessing wrong in either direction is not a problem.
             } else if best.number() < tip_header.number() {
                 let last_common_hash = self.active_chain.get_block_hash(best.number())?;
-                self.active_chain.get_block_header(&last_common_hash)
+                self.active_chain.get_block_header(&last_common_hash)?
             } else {
-                Some(tip_header)
+                tip_header
             }
-        }?;
+        };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
         let fixed_last_common_header = self
             .active_chain
             .last_common_ancestor(&last_common_header, &best.inner())?;
+        self.synchronizer.peers().set_last_common_header(self.peer, fixed_last_common_header.clone());
 
         Some(fixed_last_common_header)
     }
@@ -151,6 +152,7 @@ impl<'a> BlockFetcher<'a> {
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
+                    self.synchronizer.peers().set_last_common_header(self.peer, header.clone());
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly

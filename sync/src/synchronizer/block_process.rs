@@ -47,13 +47,6 @@ impl<'a> BlockProcess<'a> {
                     err,
                 ));
             }
-        } else if shared
-            .active_chain()
-            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
-        {
-            state
-                .peers()
-                .set_last_common_header(self.peer, block.header());
         }
 
         Status::ok()
