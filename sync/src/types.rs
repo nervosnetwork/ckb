@@ -1108,18 +1108,10 @@ impl SyncShared {
             .insert(header.hash(), header_view.clone());
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
-
-        // NOTE: Must update best headers(peers/global) after update header_map, otherwise will have
-        //   multiple threads inconsistent bug.
-
-        // Update shared_best_header if the arrived header has greater difficulty
-        let shared_best_header = self.state().shared_best_header();
-        if header_view.is_better_than(&shared_best_header.total_difficulty()) {
-            self.state.set_shared_best_header(header_view.clone());
-        }
         self.state
             .peers()
             .may_set_best_known_header(peer, &header_view);
+        self.state.may_set_shared_best_header(header_view);
     }
 
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
@@ -1257,7 +1249,11 @@ impl SyncState {
         self.shared_best_header.read().to_owned()
     }
 
-    pub fn set_shared_best_header(&self, header: HeaderView) {
+    pub fn may_set_shared_best_header(&self, header: HeaderView) {
+        if !header.is_better_than(&self.shared_best_header.read().total_difficulty()) {
+            return;
+        }
+
         assert!(
             self.header_map.read().contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
