@@ -135,6 +135,12 @@ impl ::std::str::FromStr for Capacity {
 
 impl ::std::fmt::Display for Capacity {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}", self.0)
+        self.0.fmt(f)
+    }
+}
+
+impl ::std::fmt::LowerHex for Capacity {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.0.fmt(f)
     }
 }

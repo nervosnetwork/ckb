@@ -94,7 +94,12 @@ pub fn test_capacity_outofbound() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::InsufficientCellCapacity,
+        TransactionError::InsufficientCellCapacity {
+            source: TransactionErrorSource::Outputs,
+            index: 0,
+            capacity: capacity_bytes!(50),
+            occupied_capacity: capacity_bytes!(92),
+        }
     );
 }
 

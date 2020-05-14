@@ -362,13 +362,21 @@ impl<'a> CapacityVerifier<'a> {
             }
         }
 
-        for (output, data) in self
+        for (index, (output, data)) in self
             .resolved_transaction
             .transaction
             .outputs_with_data_iter()
+            .enumerate()
         {
-            if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
-                return Err((TransactionError::InsufficientCellCapacity).into());
+            let data_occupied_capacity = Capacity::bytes(data.len())?;
+            if output.is_lack_of_capacity(data_occupied_capacity)? {
+                return Err((TransactionError::InsufficientCellCapacity {
+                    index,
+                    source: TransactionErrorSource::Outputs,
+                    capacity: output.capacity().unpack(),
+                    occupied_capacity: output.occupied_capacity(data_occupied_capacity)?,
+                })
+                .into());
             }
         }
 

@@ -1,5 +1,5 @@
 use ckb_error::Error;
-use ckb_types::packed::Byte32;
+use ckb_types::{core::Capacity, packed::Byte32};
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -16,8 +16,16 @@ pub enum TransactionErrorSource {
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
     /// output.occupied_capacity() > output.capacity()
-    #[fail(display = "InsufficientCellCapacity")]
-    InsufficientCellCapacity,
+    #[fail(
+        display = "InsufficientCellCapacity({}[{}]): expected occupied capacity ({:#x}) <= capacity ({:#x})",
+        source, index, occupied_capacity, capacity
+    )]
+    InsufficientCellCapacity {
+        source: TransactionErrorSource,
+        index: usize,
+        occupied_capacity: Capacity,
+        capacity: Capacity,
+    },
 
     /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
     #[fail(display = "OutputsSumOverflow")]
@@ -253,7 +261,7 @@ impl TransactionError {
             TransactionError::OutputsSumOverflow
             | TransactionError::DuplicateDeps
             | TransactionError::Empty
-            | TransactionError::InsufficientCellCapacity
+            | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince
             | TransactionError::ExceededMaximumBlockBytes
             | TransactionError::OutputsDataLengthMismatch
