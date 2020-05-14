@@ -148,18 +148,12 @@ impl<'a> BlockFetcher<'a> {
                 let hash = header.hash();
 
                 let status = self.active_chain.get_block_status(&hash);
-                if status == BlockStatus::BLOCK_STORED {
+                if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     break;
-                } else if self.ibd.into() && status.contains(BlockStatus::BLOCK_RECEIVED) {
-                    // NOTE: NO-IBD Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                    // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-                    // TODO: If async validation is achieved, then the IBD state judgement here can be removed
-
-                    // On IBD, BLOCK_RECEIVED means this block had been received, so this block doesn't need to fetch
-                    // On NO-IBD, because of the model, this block has to be requested again
-                    // But all of these can do nothing on this branch
+                } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
+                    // Do not download repeatedly
                 } else if inflight.insert(self.peer, (header.number(), hash).into()) {
                     fetch.push(header)
                 }
@@ -184,6 +178,19 @@ impl<'a> BlockFetcher<'a> {
         });
         if should_mark {
             inflight.mark_slow_block(tip);
+        }
+
+        if fetch.is_empty() {
+            debug!(
+                "[block fetch empty] fixed_last_common_header = {} \
+                best_known_header = {}, tip = {}, inflight_len = {}, \
+                inflight_state = {:?}",
+                fixed_last_common_header.number(),
+                best_known_header.number(),
+                tip,
+                inflight.total_inflight_count(),
+                *inflight
+            )
         }
 
         Some(
