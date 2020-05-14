@@ -1,4 +1,5 @@
 use crate::cache::CacheEntry;
+use crate::error::TransactionErrorSource;
 use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -272,24 +273,33 @@ impl<'a> MaturityVerifier<'a> {
                 .unwrap_or(false)
         };
 
-        let input_immature_spend = || {
-            self.transaction
-                .resolved_inputs
-                .iter()
-                .any(cellbase_immature)
-        };
-        let dep_immature_spend = || {
-            self.transaction
-                .resolved_cell_deps
-                .iter()
-                .any(cellbase_immature)
-        };
-
-        if input_immature_spend() || dep_immature_spend() {
-            Err(TransactionError::CellbaseImmaturity.into())
-        } else {
-            Ok(())
+        if let Some(index) = self
+            .transaction
+            .resolved_inputs
+            .iter()
+            .position(cellbase_immature)
+        {
+            return Err(TransactionError::CellbaseImmaturity {
+                source: TransactionErrorSource::Inputs,
+                index,
+            }
+            .into());
         }
+
+        if let Some(index) = self
+            .transaction
+            .resolved_cell_deps
+            .iter()
+            .position(cellbase_immature)
+        {
+            return Err(TransactionError::CellbaseImmaturity {
+                source: TransactionErrorSource::CellDeps,
+                index,
+            }
+            .into());
+        }
+
+        Ok(())
     }
 }
 

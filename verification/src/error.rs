@@ -3,39 +3,63 @@ use ckb_types::packed::Byte32;
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
+pub enum TransactionErrorSource {
+    CellDeps,
+    HeaderDeps,
+    Inputs,
+    Outputs,
+    OutputsData,
+    Witnesses,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
     /// output.occupied_capacity() > output.capacity()
+    #[fail(display = "InsufficientCellCapacity")]
     InsufficientCellCapacity,
 
     /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
+    #[fail(display = "OutputsSumOverflow")]
     OutputsSumOverflow,
 
     /// inputs.is_empty() || outputs.is_empty()
+    #[fail(display = "Empty")]
     Empty,
 
     /// Duplicated dep-out-points within the same one transaction
+    #[fail(display = "DuplicateDeps")]
     DuplicateDeps,
 
     /// outputs.len() != outputs_data.len()
+    #[fail(display = "OutputsDataLengthMismatch")]
     OutputsDataLengthMismatch,
 
     /// ANY([o.data_hash != d.data_hash() for (o, d) in ZIP(outputs, outputs_data)])
+    #[fail(display = "OutputDataHashMismatch")]
     OutputDataHashMismatch,
 
     /// The format of `transaction.since` is invalid
+    #[fail(display = "InvalidSince")]
     InvalidSince,
 
     /// The transaction is not mature which is required by `transaction.since`
+    #[fail(display = "Immature")]
     Immature,
 
     /// The transaction is not mature which is required by cellbase maturity rule
-    CellbaseImmaturity,
+    #[fail(display = "CellbaseImmaturity({}[{}])", source, index)]
+    CellbaseImmaturity {
+        source: TransactionErrorSource,
+        index: usize,
+    },
 
     /// The transaction version is mismatched with the system can hold
+    #[fail(display = "MismatchedVersion")]
     MismatchedVersion,
 
     /// The transaction size is too large
+    #[fail(display = "ExceededMaximumBlockBytes")]
     ExceededMaximumBlockBytes,
 }
 
@@ -236,7 +260,7 @@ impl TransactionError {
             | TransactionError::OutputDataHashMismatch => true,
 
             TransactionError::Immature
-            | TransactionError::CellbaseImmaturity
+            | TransactionError::CellbaseImmaturity { .. }
             | TransactionError::MismatchedVersion => false,
         }
     }

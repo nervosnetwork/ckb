@@ -2,6 +2,7 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, OutputsDataVerifier,
     Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
+use crate::error::TransactionErrorSource;
 use crate::TransactionError;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_DAO};
 use ckb_error::{assert_error_eq, Error};
@@ -148,7 +149,10 @@ pub fn test_inputs_cellbase_maturity() {
         if current < threshold {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
-                TransactionError::CellbaseImmaturity,
+                TransactionError::CellbaseImmaturity {
+                    source: TransactionErrorSource::Inputs,
+                    index: 0
+                },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
                 base_epoch,
                 current_epoch,
@@ -251,7 +255,10 @@ pub fn test_deps_cellbase_maturity() {
         if current < threshold {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
-                TransactionError::CellbaseImmaturity,
+                TransactionError::CellbaseImmaturity {
+                    source: TransactionErrorSource::CellDeps,
+                    index: 0
+                },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
                 base_epoch,
                 current_epoch,
