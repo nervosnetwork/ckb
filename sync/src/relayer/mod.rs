@@ -43,6 +43,7 @@ use std::time::{Duration, Instant};
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 pub const TX_HASHES_TOKEN: u64 = 2;
+pub const SEARCH_ORPHAN_POOL_TOKEN: u64 = 3;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
@@ -606,6 +607,9 @@ impl CKBProtocolHandler for Relayer {
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
             .expect("set_notify at init is ok");
+        // todo: remove when the asynchronous verification is completed
+        nc.set_notify(Duration::from_secs(5), SEARCH_ORPHAN_POOL_TOKEN)
+            .expect("set_notify at init is ok");
     }
 
     fn received(
@@ -711,6 +715,12 @@ impl CKBProtocolHandler for Relayer {
             }
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
+            SEARCH_ORPHAN_POOL_TOKEN => tokio::task::block_in_place(|| {
+                self.shared.try_search_orphan_pool(
+                    &self.chain,
+                    &self.shared.active_chain().tip_header().hash(),
+                )
+            }),
             _ => unreachable!(),
         }
         trace_target!(
