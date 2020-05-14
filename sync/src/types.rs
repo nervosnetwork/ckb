@@ -1706,7 +1706,7 @@ impl ActiveChain {
     }
 
     pub fn unknown_block_status(&self, block_hash: &Byte32) -> bool {
-        self.get_block_status(block_hash) == BlockStatus::UNKNOWN
+        self.contains_block_status(block_hash, BlockStatus::UNKNOWN)
     }
 }
 
