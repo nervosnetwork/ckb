@@ -1,5 +1,6 @@
 use crate::utils::{
-    build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
+    build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
+    wait_until,
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
@@ -292,6 +293,78 @@ impl Spec for BlockSyncOrphanBlocks {
         // Send that skipped first block to node0
         sync_block(&net, peer_id, &first);
         let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
+        assert!(ret, "node0 should grow up");
+    }
+}
+
+/// test case:
+/// 1. generate 1-17 block
+/// 2. sync 1-16 header to node
+/// 3. sync 2-16 block to node
+/// 4. sync 1 block to node
+/// 5. relay 17 block to node
+pub struct BlockSyncRelayerCollaboration;
+
+impl Spec for BlockSyncRelayerCollaboration {
+    crate::name!("block_sync_relayer_collaboration");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
+    fn run(&self, net: &mut Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        net.exit_ibd_mode();
+
+        // Generate some blocks from node1
+        let mut blocks: Vec<BlockView> = (1..=17)
+            .map(|_| {
+                let block = node1.new_block(None, None, None);
+                node1.submit_block(&block);
+                block
+            })
+            .collect();
+
+        net.connect(node0);
+        let (peer_id, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+        let rpc_client = node0.rpc_client();
+        let tip_number = rpc_client.get_tip_block_number();
+
+        let last = blocks.pop().unwrap();
+
+        // Send headers to node0, keep blocks body
+        blocks.iter().for_each(|block| {
+            sync_header(&net, peer_id, block);
+        });
+
+        // Wait for block fetch timer
+        let (_, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+
+        // Skip the next block, send the rest blocks to node0
+        let first = blocks.remove(0);
+        blocks.into_iter().for_each(|block| {
+            sync_block(&net, peer_id, &block);
+        });
+
+        let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
+        assert!(!ret, "node0 should stay the same");
+
+        sync_block(&net, peer_id, &first);
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_compact_block(&last),
+        );
+
+        let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
+        log::info!("{}", rpc_client.get_tip_block_number());
         assert!(ret, "node0 should grow up");
     }
 }
