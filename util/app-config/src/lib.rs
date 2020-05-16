@@ -21,9 +21,9 @@ use std::path::PathBuf;
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub struct Setup {
-    subcommand_name: String,
-    config: AppConfig,
-    is_sentry_enabled: bool,
+    pub subcommand_name: String,
+    pub config: AppConfig,
+    pub is_sentry_enabled: bool,
 }
 
 pub struct SetupGuard {
