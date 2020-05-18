@@ -58,9 +58,10 @@ impl OrphanBlockPool {
     }
 
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
-        self.parents.write().get(hash).and_then(|parent_hash| {
-            self.blocks
-                .write()
+        // acquire the `blocks` read lock first, guarantee ordering of acquisition is same as `remove_blocks_by_parent`, avoids deadlocking
+        let guard = self.blocks.read();
+        self.parents.read().get(hash).and_then(|parent_hash| {
+            guard
                 .get(parent_hash)
                 .and_then(|value| value.get(hash).map(|v| v.1.clone()))
         })
@@ -76,6 +77,8 @@ mod tests {
     use faketime::unix_time_as_millis;
     use std::collections::HashSet;
     use std::iter::FromIterator;
+    use std::sync::Arc;
+    use std::thread;
 
     fn gen_block(parent_header: &HeaderView) -> BlockView {
         BlockBuilder::default()
@@ -105,5 +108,32 @@ mod tests {
             HashSet::from_iter(orphan.into_iter().map(|(_, block)| block));
         let block: HashSet<BlockView> = HashSet::from_iter(blocks.into_iter());
         assert_eq!(orphan, block)
+    }
+
+    #[test]
+    fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
+        let consensus = ConsensusBuilder::default().build();
+        let pool = OrphanBlockPool::with_capacity(1024);
+        let mut header = consensus.genesis_block().header();
+        let mut hashes = Vec::new();
+        for _ in 1..1024 {
+            let new_block = gen_block(&header);
+            pool.insert(PeerIndex::new(0usize), new_block.clone());
+            header = new_block.header();
+            hashes.push(header.hash());
+        }
+
+        let pool_arc1 = Arc::new(pool);
+        let pool_arc2 = Arc::clone(&pool_arc1);
+
+        let thread1 = thread::spawn(move || {
+            pool_arc1.remove_blocks_by_parent(&consensus.genesis_block().hash());
+        });
+
+        for hash in hashes.iter().rev() {
+            pool_arc2.get_block(hash);
+        }
+
+        thread1.join().unwrap();
     }
 }
