@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::BLOCK_DOWNLOAD_WINDOW;
-use ckb_logger::{debug, trace};
+use ckb_logger::trace;
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
@@ -40,44 +40,38 @@ impl<'a> BlockFetcher<'a> {
         self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
-    pub fn last_common_header(&self, best: &HeaderView) -> Option<core::HeaderView> {
-        let tip_header = self.active_chain.tip_header();
-        let last_common_header = {
+    pub fn update_last_common_header(&self, best_known: &HeaderView) -> Option<core::HeaderView> {
+        // Bootstrap quickly by guessing a parent of our best tip is t
+        // Guessing wrong in either direction is not a problem.
+        let mut last_common =
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
-                // may reorganized, then it can't be used
-                if header.number() > tip_header.number() {
-                    tip_header
-                } else {
-                    header
-                }
-            // Bootstrap quickly by guessing a parent of our best tip is the forking point.
-            // Guessing wrong in either direction is not a problem.
-            } else if best.number() < tip_header.number() {
-                let last_common_hash = self.active_chain.get_block_hash(best.number())?;
-                self.active_chain.get_block_header(&last_common_hash)?
+                header
             } else {
-                tip_header
-            }
-        };
+                let tip_header = self.active_chain.tip_header();
+                let guess_number = min(tip_header.number(), best_known.number());
+                let guess_hash = self.active_chain.get_block_hash(guess_number)?;
+                self.active_chain.get_block_header(&guess_hash)?
+            };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
-        let fixed_last_common_header = self
+        last_common = self
             .active_chain
-            .last_common_ancestor(&last_common_header, &best.inner())?;
+            .last_common_ancestor(&last_common, &best_known.inner())?;
+
         self.synchronizer
             .peers()
-            .set_last_common_header(self.peer, fixed_last_common_header.clone());
+            .set_last_common_header(self.peer, last_common.clone());
 
-        Some(fixed_last_common_header)
+        Some(last_common)
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
-        trace!("[block downloader] BlockFetcher process");
+        let best_known = self.peer_best_known_header()?;
 
         if self.reached_inflight_limit() {
             trace!(
-                "[block downloader] inflight count reach limit, can't download any more from peer {}",
+                "[block_fetcher] inflight count reach limit, can't download any more from peer {}",
                 self.peer
             );
             return None;
@@ -90,47 +84,19 @@ impl<'a> BlockFetcher<'a> {
                 .try_update_best_known_with_unknown_header_list(self.peer)
         }
 
-        let best_known_header = match self.peer_best_known_header() {
-            Some(best_known_header) => best_known_header,
-            _ => {
-                trace!(
-                    "[block downloader] peer_best_known_header not found peer={}",
-                    self.peer
-                );
-                return None;
-            }
-        };
-
         // This peer has nothing interesting.
-        if !self.is_better_chain(&best_known_header) {
-            trace!(
-                "[block downloader] best_known_header {} chain {}",
-                best_known_header.total_difficulty(),
-                self.active_chain.total_difficulty()
-            );
+        if !self.is_better_chain(&best_known) {
             return None;
         }
 
-        // If the peer reorganized, our previous last_common_header may not be an ancestor
-        // of its current best_known_header. Go back enough to fix that.
-        let fixed_last_common_header = self.last_common_header(&best_known_header)?;
-
-        if &fixed_last_common_header == best_known_header.inner() {
-            trace!("[block downloader] fixed_last_common_header == best_known_header");
+        let last_common = self.update_last_common_header(&best_known)?;
+        if &last_common == best_known.inner() {
             return None;
         }
-
-        debug!(
-            "[block downloader] fixed_last_common_header = {} best_known_header = {}",
-            fixed_last_common_header.number(),
-            best_known_header.number()
-        );
-
-        debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
         let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
-        let mut start = fixed_last_common_header.number() + 1;
-        let end = min(best_known_header.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let mut start = last_common.number() + 1;
+        let end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             inflight.peer_can_fetch_count(self.peer),
@@ -143,7 +109,7 @@ impl<'a> BlockFetcher<'a> {
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
             let mut header = self
                 .active_chain
-                .get_ancestor(&best_known_header.hash(), start + span - 1)?;
+                .get_ancestor(&best_known.hash(), start + span - 1)?;
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
