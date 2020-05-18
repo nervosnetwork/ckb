@@ -126,7 +126,11 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 .PHONY: security-audit
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	# https://rustsec.org/advisories/RUSTSEC-2019-0031: spin is no longer actively maintained, it's not a problem
-	cargo audit --ignore RUSTSEC-2019-0031 --deny-warnings
+	# https://rustsec.org/advisories/RUSTSEC-2020-0016: net2 has been deprecated, but still a lot of required crates are dependent on it
+	cargo audit \
+		--ignore RUSTSEC-2019-0031 \
+		--ignore RUSTSEC-2020-0016 \
+		--deny-warnings
 	# expecting to see "Success No vulnerable packages found"
 
 .PHONY: bench-test
