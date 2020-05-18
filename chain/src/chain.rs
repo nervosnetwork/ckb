@@ -170,6 +170,10 @@ impl ChainService {
         }
     }
 
+    pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
+        self.process_block(block, Switch::NONE)
+    }
+
     // process_block will do block verify
     // but invoker should guarantee block header be verified
     pub(crate) fn process_block(
