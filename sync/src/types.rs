@@ -89,7 +89,9 @@ pub struct PeerState {
     tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
     tx_ask_for_set: HashSet<Byte32>,
 
+    // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
+    // The last block we both stored
     pub last_common_header: Option<core::HeaderView>,
     // use on ibd concurrent block download
     // save `get_headers` locator hashes here
@@ -1538,24 +1540,22 @@ impl ActiveChain {
         locator
     }
 
-    // If the peer reorganized, our previous last_common_header may not be an ancestor
-    // of its current best_known_header. Go back enough to fix that.
     pub fn last_common_ancestor(
         &self,
-        last_common_header: &core::HeaderView,
-        best_known_header: &core::HeaderView,
+        pa: &core::HeaderView,
+        pb: &core::HeaderView,
     ) -> Option<core::HeaderView> {
-        debug_assert!(best_known_header.number() >= last_common_header.number());
+        let (mut m_left, mut m_right) = if pa.number() > pb.number() {
+            (pb.clone(), pa.clone())
+        } else {
+            (pa.clone(), pb.clone())
+        };
 
-        let mut m_right =
-            self.get_ancestor(&best_known_header.hash(), last_common_header.number())?;
-
-        if &m_right == last_common_header {
-            return Some(m_right);
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
+        if m_left == m_right {
+            return Some(m_left);
         }
-
-        let mut m_left = self.shared.get_header(&last_common_header.hash())?;
-        debug_assert!(m_right.number() == m_left.number());
+        debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
             m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
