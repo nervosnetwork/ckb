@@ -23,7 +23,7 @@ jobs:
         )
       )
     pool:
-      vmImage: 'VS2017-Win2016'
+      vmImage: 'windows-2019'
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
@@ -45,7 +45,7 @@ jobs:
         )
       )
     pool:
-      vmImage: 'VS2017-Win2016'
+      vmImage: 'windows-2019'
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
@@ -59,7 +59,7 @@ jobs:
     timeoutInMinutes: 0
     condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/')
     pool:
-      vmImage: 'VS2017-Win2016'
+      vmImage: 'windows-2019'
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
