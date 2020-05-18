@@ -601,29 +601,13 @@ impl CKBProtocolHandler for Synchronizer {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        version: &str,
+        _version: &str,
     ) {
         info!("SyncProtocol.connected peer={}", peer_index);
-        let protocol = nc.protocol_id();
-        let version = version.to_string();
-        nc.with_peer_mut(
-            peer_index,
-            Box::new(move |peer| {
-                peer.protocols.insert(protocol, version);
-            }),
-        );
         self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
-        let protocol = nc.protocol_id();
-        nc.with_peer_mut(
-            peer_index,
-            Box::new(move |peer| {
-                peer.protocols.remove(&protocol);
-            }),
-        );
-
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         let sync_state = self.shared().state();
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);

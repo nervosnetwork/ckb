@@ -755,7 +755,6 @@ impl ServiceHandle for EventHandler {
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
-        // For special protocols: ping/discovery/identify/disconnect_message
         match event {
             ProtocolEvent::Connected {
                 session_context,
