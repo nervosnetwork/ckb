@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
-    types::{BannedAddr, MultiaddrExt},
+    types::{AddrInfo, BannedAddr, IpPort, MultiaddrExt},
     PeerStore,
 };
 use crate::protocols::{
@@ -1223,6 +1223,15 @@ impl NetworkController {
             .lock()
             .ban_list()
             .get_banned_addrs()
+    }
+
+    pub fn addr_info(&self, ip_port: &IpPort) -> Option<AddrInfo> {
+        self.network_state
+            .peer_store
+            .lock()
+            .addr_manager()
+            .get(ip_port)
+            .cloned()
     }
 
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {

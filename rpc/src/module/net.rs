@@ -59,51 +59,43 @@ impl NetworkRpc for NetworkRpcImpl {
 
     fn get_peers(&self) -> Result<Vec<Node>> {
         let peers = self.network_controller.connected_peers();
-        Ok(peers
-            .into_iter()
-            .map(|(peer_id, peer)| {
-                let mut addresses: HashMap<_, _> = peer
-                    .listened_addrs
-                    .iter()
-                    .filter_map(|addr| {
-                        if let Ok((ip_addr, addr)) = addr.extract_ip_addr().and_then(|ip_addr| {
-                            addr.attach_p2p(&peer_id).map(|addr| (ip_addr, addr))
-                        }) {
-                            Some((
-                                ip_addr,
-                                NodeAddress {
-                                    address: addr.to_string(),
-                                    score: 1.into(),
-                                },
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if peer.is_outbound() {
-                    if let Ok(ip_addr) = peer.connected_addr.extract_ip_addr() {
-                        addresses.insert(
-                            ip_addr,
-                            NodeAddress {
-                                address: peer.connected_addr.to_string(),
-                                score: u64::from(std::u8::MAX).into(),
-                            },
-                        );
-                    }
+        let mut nodes = Vec::with_capacity(peers.len());
+        for (peer_id, peer) in peers.into_iter() {
+            let mut addresses = vec![&peer.connected_addr];
+            addresses.extend(peer.listened_addrs.iter());
+
+            let mut node_addresses = HashMap::with_capacity(addresses.len());
+            for address in addresses {
+                if let Ok(ip_port) = address.extract_ip_addr() {
+                    let p2p_address = address.attach_p2p(&peer_id).expect("always ok");
+                    let score = self
+                        .network_controller
+                        .addr_info(&ip_port)
+                        .map(|addr_info| addr_info.score)
+                        .unwrap_or(1);
+                    let non_negative_score = if score > 0 { score as u64 } else { 0 };
+                    node_addresses.insert(
+                        ip_port,
+                        NodeAddress {
+                            address: p2p_address.to_string(),
+                            score: non_negative_score.into(),
+                        },
+                    );
                 }
-                let addresses = addresses.values().cloned().collect();
-                Node {
-                    is_outbound: Some(peer.is_outbound()),
-                    version: peer
-                        .identify_info
-                        .map(|info| info.client_version)
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    node_id: peer_id.to_base58(),
-                    addresses,
-                }
-            })
-            .collect())
+            }
+
+            nodes.push(Node {
+                is_outbound: Some(peer.is_outbound()),
+                version: peer
+                    .identify_info
+                    .map(|info| info.client_version)
+                    .unwrap_or_else(|| "unknown".to_string()),
+                node_id: peer_id.to_base58(),
+                addresses: node_addresses.values().cloned().collect(),
+            });
+        }
+
+        Ok(nodes)
     }
 
     fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>> {
