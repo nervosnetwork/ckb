@@ -323,7 +323,7 @@ impl Setup {
         result
     }
 
-    fn consensus(&self) -> Result<Consensus, ExitCode> {
+    pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         let result = consensus_from_spec(&self.chain_spec()?);
 
         if let Ok(consensus) = &result {
