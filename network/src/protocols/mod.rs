@@ -20,7 +20,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio_util::codec::length_delimited;
 
@@ -167,7 +167,7 @@ impl CKBProtocol {
             })
             .support_versions(supported_versions)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(CKBHandler {
+                ProtocolHandle::Callback(Box::new(CKBHandler {
                     proto_id: self.id,
                     network_state: Arc::clone(&self.network_state),
                     handler: self.handler,
@@ -201,6 +201,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.protocols.insert(self.proto_id, version.to_owned());
+            }
+        });
+
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
@@ -214,6 +220,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.protocols.remove(&self.proto_id);
+            }
+        });
+
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
@@ -227,6 +239,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.last_message_time = Some(Instant::now());
+            }
+        });
+
         trace!(
             "[received message]: {}, {}, length={}",
             self.proto_id,
