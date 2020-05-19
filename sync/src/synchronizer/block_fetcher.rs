@@ -67,8 +67,6 @@ impl<'a> BlockFetcher<'a> {
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
-        let best_known = self.peer_best_known_header()?;
-
         if self.reached_inflight_limit() {
             trace!(
                 "[block_fetcher] inflight count reach limit, can't download any more from peer {}",
@@ -77,6 +75,8 @@ impl<'a> BlockFetcher<'a> {
             return None;
         }
 
+        // Update `best_known_header` based on `unknown_header_list`. It must be involved before
+        // our acquiring the newest `best_known_header`.
         if let IBDState::In = self.ibd {
             self.synchronizer
                 .shared
@@ -85,6 +85,7 @@ impl<'a> BlockFetcher<'a> {
         }
 
         // This peer has nothing interesting.
+        let best_known = self.peer_best_known_header()?;
         if !self.is_better_chain(&best_known) {
             return None;
         }
