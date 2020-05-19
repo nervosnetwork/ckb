@@ -3,8 +3,8 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{
-    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, MEDIAN_INDEX, NORMAL_INDEX, RETRY_ASK_TX_TIMEOUT_INCREASE, TIME_TRACE_SIZE,
+    FAST_INDEX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_HEADERS_LEN, MAX_TIP_AGE, NORMAL_INDEX, RETRY_ASK_TX_TIMEOUT_INCREASE, TIME_TRACE_SIZE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -280,11 +280,11 @@ impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
     }
 }
 
-enum SchedulerOutput {
-    DoubleInCrease,
-    InCrease,
-    Decrease,
-    DoubleDeCrease,
+enum TimeQuantile {
+    MinToFast,
+    FastToNormal,
+    NormalToUpper,
+    UpperToMax,
 }
 
 /// Using 512 blocks as a period, dynamically adjust the scheduler's time standard
@@ -292,9 +292,9 @@ enum SchedulerOutput {
 ///
 /// | fast | normal | penalty | double penalty |
 ///
-/// The dividing line is, median position, 4/5 position, 1/10 position.
+/// The dividing line is, 1/3 position, 4/5 position, 1/10 position.
 ///
-/// There is 3/10 normal area, 1/10 penalty area, 1/10 double penalty area, 1/2 accelerated reward area.
+/// There is 14/30 normal area, 1/10 penalty area, 1/10 double penalty area, 1/3 accelerated reward area.
 ///
 /// Most of the nodes that fall in the normal and accelerated reward area will be retained,
 /// while most of the nodes that fall in the normal and penalty zones will be slowly eliminated
@@ -303,59 +303,59 @@ enum SchedulerOutput {
 /// by retaining the vast majority of nodes with stable communications and
 /// cleaning up nodes with significantly lower response times than a certain level
 #[derive(Clone)]
-struct DynamicTimeLimit {
+struct TimeAnalyzer {
     trace: [u64; TIME_TRACE_SIZE],
     index: usize,
-    median_time: u64,
+    fast_time: u64,
     normal_time: u64,
     low_time: u64,
 }
 
-impl fmt::Debug for DynamicTimeLimit {
+impl fmt::Debug for TimeAnalyzer {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("DynamicTimeLimit")
-            .field("median_time", &self.median_time)
+        fmt.debug_struct("TimeAnalyzer")
+            .field("fast_time", &self.fast_time)
             .field("normal_time", &self.normal_time)
             .field("low_time", &self.low_time)
             .finish()
     }
 }
 
-impl Default for DynamicTimeLimit {
+impl Default for TimeAnalyzer {
     fn default() -> Self {
         // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
         Self {
             trace: [0; TIME_TRACE_SIZE],
             index: 0,
-            median_time: 1000,
+            fast_time: 1000,
             normal_time: 1250,
             low_time: 1500,
         }
     }
 }
 
-impl DynamicTimeLimit {
-    fn push_time(&mut self, time: u64) -> SchedulerOutput {
+impl TimeAnalyzer {
+    fn push_time(&mut self, time: u64) -> TimeQuantile {
         if self.index < TIME_TRACE_SIZE {
             self.trace[self.index] = time;
             self.index += 1;
         } else {
             self.trace.sort_unstable();
-            self.median_time = (self.median_time + self.trace[MEDIAN_INDEX]) >> 1;
-            self.normal_time = (self.normal_time + self.trace[NORMAL_INDEX]) >> 1;
-            self.low_time = (self.low_time + self.trace[LOW_INDEX]) >> 1;
+            self.fast_time = (self.fast_time.saturating_add(self.trace[FAST_INDEX])) >> 1;
+            self.normal_time = (self.normal_time.saturating_add(self.trace[NORMAL_INDEX])) >> 1;
+            self.low_time = (self.low_time.saturating_add(self.trace[LOW_INDEX])) >> 1;
             self.trace[0] = time;
             self.index = 1;
         }
 
-        if time <= self.median_time {
-            SchedulerOutput::DoubleInCrease
+        if time <= self.fast_time {
+            TimeQuantile::MinToFast
         } else if time <= self.normal_time {
-            SchedulerOutput::InCrease
+            TimeQuantile::FastToNormal
         } else if time > self.low_time {
-            SchedulerOutput::DoubleDeCrease
+            TimeQuantile::UpperToMax
         } else {
-            SchedulerOutput::Decrease
+            TimeQuantile::NormalToUpper
         }
     }
 }
@@ -392,24 +392,23 @@ impl DownloadScheduler {
 
     fn increase(&mut self, num: usize) {
         if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
-            self.task_count += num
+            self.task_count = ::std::cmp::min(
+                self.task_count.saturating_add(num),
+                MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+            )
         }
     }
 
     fn decrease(&mut self, num: usize) {
-        // But the mark is on the same time, so multiple tasks may be affected by one task,
-        // causing all responses to be in the range of reduced tasks.
-        // So the adjustment to reduce the number of tasks will be calculated by modulo 3 with the actual number of triggers.
-        // Adjust for each block received.
-        self.timeout_count += num;
+        self.timeout_count = self.task_count.saturating_add(num);
         if self.timeout_count > 2 {
             self.task_count = self.task_count.saturating_sub(1);
             self.timeout_count = 0;
         }
     }
 
-    fn punish(&mut self, num: usize) {
-        self.task_count >>= num
+    fn punish(&mut self, exp: usize) {
+        self.task_count >>= exp
     }
 }
 
@@ -420,7 +419,7 @@ pub struct InflightBlocks {
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
-    time_limit: DynamicTimeLimit,
+    time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
 }
 
@@ -432,7 +431,7 @@ impl Default for InflightBlocks {
             trace_number: HashMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
-            time_limit: DynamicTimeLimit::default(),
+            time_analyzer: TimeAnalyzer::default(),
             adjustment: true,
         }
     }
@@ -463,7 +462,8 @@ impl fmt::Debug for InflightBlocks {
                     .iter()
                     .map(|(k, v)| (format!("{}, {}", k.number, k.hash), v)),
             )
-            .finish()
+            .finish()?;
+        self.time_analyzer.fmt(fmt)
     }
 }
 
@@ -681,7 +681,7 @@ impl InflightBlocks {
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
-        let time_limit = &mut self.time_limit;
+        let time_analyzer = &mut self.time_analyzer;
         let adjustment = self.adjustment;
         self.inflight_states
             .remove(&block)
@@ -693,11 +693,11 @@ impl InflightBlocks {
                         compact.remove(&block.hash);
                     }
                     if adjustment {
-                        match time_limit.push_time(elapsed) {
-                            SchedulerOutput::DoubleInCrease => set.increase(2),
-                            SchedulerOutput::InCrease => set.increase(1),
-                            SchedulerOutput::DoubleDeCrease => set.decrease(2),
-                            SchedulerOutput::Decrease => set.decrease(1),
+                        match time_analyzer.push_time(elapsed) {
+                            TimeQuantile::MinToFast => set.increase(2),
+                            TimeQuantile::FastToNormal => set.increase(1),
+                            TimeQuantile::NormalToUpper => set.decrease(1),
+                            TimeQuantile::UpperToMax => set.decrease(2),
                         }
                     }
                     if !trace.is_empty() {

@@ -445,11 +445,12 @@ impl Synchronizer {
             .cloned()
             .collect();
         peers.sort_by_key(|id| {
-            state
-                .get(id)
-                .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count())
+            ::std::cmp::Reverse(
+                state
+                    .get(id)
+                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count()),
+            )
         });
-        peers.reverse();
         peers
     }
 
