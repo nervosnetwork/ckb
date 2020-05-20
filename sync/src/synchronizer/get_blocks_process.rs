@@ -1,5 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
+use crate::utils::send_sendblock;
 use crate::{Status, StatusCode, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -60,20 +61,10 @@ impl<'a> GetBlocksProcess<'a> {
             }
 
             if let Some(block) = active_chain.get_block(&block_hash) {
-                debug!(
-                    "respond_block {} {} to peer {:?}",
-                    block.number(),
-                    block.hash(),
-                    self.peer,
-                );
-                let content = packed::SendBlock::new_builder().block(block.data()).build();
-                let message = packed::SyncMessage::new_builder().set(content).build();
-
-                if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+                if let Err(err) = send_sendblock(self.nc, self.peer, block) {
                     return StatusCode::Network
-                        .with_context(format!("Send SendBlock error: {:?}", err));
+                        .with_context(format!("send_sendblock error: {:?}", err));
                 }
-                crate::synchronizer::log_sent_metric(message.to_enum().item_name());
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

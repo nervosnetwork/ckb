@@ -1,6 +1,7 @@
 use crate::synchronizer::Synchronizer;
-use crate::{NetworkProtocol, Status, StatusCode, MAX_LOCATOR_SIZE};
-use ckb_logger::{debug, info};
+use crate::utils::{send_inibd, send_sendheaders};
+use crate::{Status, StatusCode, MAX_LOCATOR_SIZE};
+use ckb_logger::{debug, error, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
     core,
@@ -75,20 +76,15 @@ impl<'a> GetHeadersProcess<'a> {
             self.synchronizer.peers().getheaders_received(self.peer);
             let headers: Vec<core::HeaderView> =
                 active_chain.get_locator_response(block_number, &hash_stop);
-            // response headers
 
-            debug!("headers len={}", headers.len());
-
-            let content = packed::SendHeaders::new_builder()
-                .headers(headers.into_iter().map(|x| x.data()).pack())
-                .build();
-            let message = packed::SyncMessage::new_builder().set(content).build();
-
-            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+            if let Err(err) = send_sendheaders(
+                self.nc,
+                self.peer,
+                headers.into_iter().map(|h| h.data()).collect(),
+            ) {
                 return StatusCode::Network
-                    .with_context(format!("Send SendHeaders error: {:?}", err,));
+                    .with_context(format!("send_sendheaders error: {:?}", err));
             }
-            crate::synchronizer::log_sent_metric(message.to_enum().item_name());
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{:#x?}", block_locator_hashes,));
@@ -97,14 +93,8 @@ impl<'a> GetHeadersProcess<'a> {
     }
 
     fn send_in_ibd(&self) {
-        let content = packed::InIBD::new_builder().build();
-        let message = packed::SyncMessage::new_builder().set(content).build();
-
-        if let Err(err) =
-            self.nc
-                .send_message(NetworkProtocol::SYNC.into(), self.peer, message.as_bytes())
-        {
-            debug!("synchronizer send in ibd error: {:?}", err);
+        if let Err(err) = send_inibd(self.nc, self.peer) {
+            error!("send_inibd error: {:?}", err);
         }
     }
 }

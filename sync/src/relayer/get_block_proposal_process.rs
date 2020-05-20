@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use crate::utils::send_blockproposal;
 use crate::{Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -67,20 +68,17 @@ impl<'a> GetBlockProposalProcess<'a> {
             .state()
             .insert_get_block_proposals(self.peer, fresh_proposals);
 
-        let content = packed::BlockProposal::new_builder()
-            .transactions(
-                fetched_transactions
-                    .into_iter()
-                    .map(|(_, tx)| tx.data())
-                    .pack(),
-            )
-            .build();
-        let message = packed::RelayMessage::new_builder().set(content).build();
-
-        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-            StatusCode::Network.with_context(format!("Send GetBlockProposal error: {:?}", err,));
+        if let Err(err) = send_blockproposal(
+            self.nc.as_ref(),
+            self.peer,
+            fetched_transactions
+                .into_iter()
+                .map(|(_, tx)| tx.data())
+                .collect(),
+        ) {
+            return StatusCode::Network
+                .with_context(format!("send_blockproposal error: {:?}", err,));
         }
-        crate::relayer::log_sent_metric(message.to_enum().item_name());
         Status::ok()
     }
 }

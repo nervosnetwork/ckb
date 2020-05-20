@@ -1,6 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
+use crate::utils::send_getblocktransactions;
 use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target, metric};
@@ -271,19 +272,16 @@ impl<'a> CompactBlockProcess<'a> {
             });
         }
 
-        let content = packed::GetBlockTransactions::new_builder()
-            .block_hash(block_hash)
-            .indexes(missing_transactions.pack())
-            .uncle_indexes(missing_uncles.pack())
-            .build();
-        let message = packed::RelayMessage::new_builder().set(content).build();
-
-        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+        if let Err(err) = send_getblocktransactions(
+            self.nc.as_ref(),
+            self.peer,
+            block_hash,
+            missing_transactions,
+            missing_uncles,
+        ) {
             return StatusCode::Network
-                .with_context(format!("Send GetBlockTransactions error: {:?}", err));
+                .with_context(format!("send_getblocktransactions error: {:?}", err));
         }
-        crate::relayer::log_sent_metric(message.to_enum().item_name());
-
         status
     }
 }

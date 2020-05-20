@@ -1,4 +1,5 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
+use crate::utils::send_blocktransactions;
 use crate::{Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -75,18 +76,16 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .filter_map(|i| block.uncles().get(Unpack::<u32>::unpack(&i) as usize))
                 .collect::<Vec<_>>();
 
-            let content = packed::BlockTransactions::new_builder()
-                .block_hash(block_hash)
-                .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
-                .uncles(uncles.into_iter().map(|uncle| uncle.data()).pack())
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-
-            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+            if let Err(err) = send_blocktransactions(
+                self.nc.as_ref(),
+                self.peer,
+                block_hash,
+                transactions.into_iter().map(|tx| tx.data()).collect(),
+                uncles.into_iter().map(|uncle| uncle.data()).collect(),
+            ) {
                 return StatusCode::Network
-                    .with_context(format!("Send BlockTransactions error: {:?}", err));
+                    .with_context(format!("send_blocktransactions error: {:?}", err));
             }
-            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
 
         Status::ok()

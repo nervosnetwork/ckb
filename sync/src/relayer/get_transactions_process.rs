@@ -1,4 +1,5 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH};
+use crate::utils::send_relaytransactions;
 use crate::{attempt, Status, StatusCode};
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -100,19 +101,10 @@ impl<'a> GetTransactionsProcess<'a> {
     }
 
     fn send_relay_transactions(&self, txs: Vec<packed::RelayTransaction>) -> Status {
-        let message = packed::RelayMessage::new_builder()
-            .set(
-                packed::RelayTransactions::new_builder()
-                    .transactions(packed::RelayTransactionVec::new_builder().set(txs).build())
-                    .build(),
-            )
-            .build();
-
-        if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+        if let Err(err) = send_relaytransactions(self.nc.as_ref(), self.peer, txs) {
             return StatusCode::Network
-                .with_context(format!("Send RelayTransactions error: {:?}", err));
+                .with_context(format!("send_relaytransactions error: {:?}", err));
         }
-        crate::relayer::log_sent_metric(message.to_enum().item_name());
         Status::ok()
     }
 }

@@ -13,6 +13,7 @@ use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, IBDState, PeerFlags, Peers, SyncShared};
+use crate::utils::send_getblocks;
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -20,9 +21,7 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, metric, trace, warn};
-use ckb_network::{
-    bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
-};
+use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -48,7 +47,7 @@ enum FetchCMD {
 struct BlockFetchCMD {
     can_fetch_block: Arc<AtomicBool>,
     sync: Synchronizer,
-    p2p_control: ServiceControl,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     recv: crossbeam_channel::Receiver<FetchCMD>,
 }
 
@@ -63,7 +62,9 @@ impl BlockFetchCMD {
                             BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
                         {
                             for item in fetch {
-                                BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
+                                if let Err(err) = send_getblocks(self.nc.as_ref(), peer, item) {
+                                    error!("send_getblocks error: {:?}", err);
+                                }
                             }
                         }
                     }
@@ -71,23 +72,6 @@ impl BlockFetchCMD {
                 }
             }
         }
-    }
-
-    fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
-        let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
-            .build();
-        let message = packed::SyncMessage::new_builder().set(content).build();
-
-        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(
-            peer,
-            crate::NetworkProtocol::SYNC.into(),
-            message.as_bytes(),
-        ) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
-        }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
     }
 }
 
@@ -416,7 +400,7 @@ impl Synchronizer {
         }
     }
 
-    fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
+    fn find_blocks_to_fetch(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, ibd: IBDState) {
         let tip = self.shared.active_chain().tip_number();
 
         let disconnect_list = {
@@ -491,57 +475,39 @@ impl Synchronizer {
         trace!("poll find_blocks_to_fetch select peers");
         // fetch use a lot of cpu time, especially in ibd state
         // so, the fetch function use another thread
-        match nc.p2p_control() {
-            Some(raw) => match self.fetch_channel {
+        if nc.p2p_control().is_some() {
+            match self.fetch_channel {
                 Some(ref sender) => {
                     let _ = sender.try_send(FetchCMD::Fetch(peers));
                 }
                 None => {
-                    let p2p_control = raw.clone();
                     let sync = self.clone();
                     let can_fetch_block = Arc::clone(&self.can_fetch_block);
                     let (sender, recv) = crossbeam_channel::bounded(2);
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);
+                    let block_fetch_cmd = BlockFetchCMD {
+                        sync,
+                        nc: Arc::clone(&nc),
+                        recv,
+                        can_fetch_block,
+                    };
                     ::std::thread::spawn(move || {
-                        BlockFetchCMD {
-                            sync,
-                            p2p_control,
-                            recv,
-                            can_fetch_block,
-                        }
-                        .run();
+                        block_fetch_cmd.run();
                     });
                 }
-            },
-            _ => {
-                for peer in peers {
-                    if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
-                        for item in fetch {
-                            self.send_getblocks(item, nc, peer);
+            }
+        } else {
+            for peer in peers {
+                if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
+                    for item in fetch {
+                        if let Err(err) = send_getblocks(nc.as_ref(), peer, item) {
+                            error!("send_getblocks error: {:?}", err);
                         }
                     }
                 }
             }
         }
-    }
-
-    fn send_getblocks(
-        &self,
-        v_fetch: Vec<packed::Byte32>,
-        nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
-    ) {
-        let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
-            .build();
-        let message = packed::SyncMessage::new_builder().set(content).build();
-
-        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
-        }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
     }
 }
 
@@ -646,7 +612,7 @@ impl CKBProtocolHandler for Synchronizer {
                 }
                 IBD_BLOCK_FETCH_TOKEN => {
                     if self.shared.active_chain().is_initial_block_download() {
-                        self.find_blocks_to_fetch(nc.as_ref(), IBDState::In);
+                        self.find_blocks_to_fetch(Arc::clone(&nc), IBDState::In);
                     } else {
                         {
                             self.shared.state().write_inflight_blocks().adjustment = false;
@@ -659,7 +625,7 @@ impl CKBProtocolHandler for Synchronizer {
                 }
                 NOT_IBD_BLOCK_FETCH_TOKEN => {
                     if !self.shared.active_chain().is_initial_block_download() {
-                        self.find_blocks_to_fetch(nc.as_ref(), IBDState::Out);
+                        self.find_blocks_to_fetch(nc, IBDState::Out);
                     }
                 }
                 TIMEOUT_EVICTION_TOKEN => {
@@ -1557,11 +1523,4 @@ mod tests {
             )
         }
     }
-}
-
-pub(self) fn log_sent_metric(item_name: &str) {
-    metric!({
-        "topic": "sent",
-        "fields": { item_name: 1 }
-    });
 }

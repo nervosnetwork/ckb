@@ -1,7 +1,8 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
+use crate::utils::send_getheaders;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
-use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
+use crate::SUSPEND_SYNC_TIME;
 use crate::{
     FIRST_LEVEL_MAX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
     MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE,
@@ -15,7 +16,6 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
-    prelude::*,
     U256,
 };
 use ckb_util::LinkedHashSet;
@@ -1676,19 +1676,10 @@ impl ActiveChain {
             .write()
             .insert((peer, header.hash()), Instant::now());
 
-        debug!(
-            "send_getheaders_to_peer peer={}, hash={}",
-            peer,
-            header.hash()
-        );
-        let locator_hash = self.get_locator(header);
-        let content = packed::GetHeaders::new_builder()
-            .block_locator_hashes(locator_hash.pack())
-            .hash_stop(packed::Byte32::zero())
-            .build();
-        let message = packed::SyncMessage::new_builder().set(content).build();
-        if let Err(err) = nc.send_message(NetworkProtocol::SYNC.into(), peer, message.as_bytes()) {
-            debug!("synchronizer send get_headers error: {:?}", err);
+        let locator_hashes = self.get_locator(header);
+        let hash_stop = packed::Byte32::zero();
+        if let Err(err) = send_getheaders(nc, peer, locator_hashes, hash_stop) {
+            error!("send_getheaders error {:?}", err);
         }
     }
 

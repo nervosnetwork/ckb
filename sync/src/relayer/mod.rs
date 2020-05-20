@@ -22,6 +22,7 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, SyncShared};
+use crate::utils::{send_blockproposal, send_getblockproposal, send_getrelaytransactions};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_fee_estimator::FeeRate;
@@ -234,23 +235,17 @@ impl Relayer {
             .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
             .collect();
         if !to_ask_proposals.is_empty() {
-            let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block_hash)
-                .proposals(to_ask_proposals.clone().pack())
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-
-            if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
+            if let Err(err) = send_getblockproposal(nc, peer, block_hash, to_ask_proposals.clone())
+            {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "relayer send GetBlockProposal error {:?}",
+                    "send_getblockproposal error {:?}",
                     err,
                 );
                 self.shared()
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
             }
-            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
@@ -517,19 +512,17 @@ impl Relayer {
         }
 
         for (peer_index, txs) in peer_txs {
-            let content = packed::BlockProposal::new_builder()
-                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-
-            if let Err(err) = nc.send_message_to(peer_index, message.as_bytes()) {
+            if let Err(err) = send_blockproposal(
+                nc,
+                peer_index,
+                txs.into_iter().map(|tx| tx.data()).collect(),
+            ) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "relayer send BlockProposal error: {:?}",
+                    "send_blockproposal error: {:?}",
                     err,
                 );
             }
-            crate::relayer::log_sent_metric(message.to_enum().item_name());
         }
     }
 
@@ -552,25 +545,13 @@ impl Relayer {
                 .collect::<Vec<_>>();
 
             if !tx_hashes.is_empty() {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "Send get transaction ({} hashes) to {}",
-                    tx_hashes.len(),
-                    peer,
-                );
-                let content = packed::GetRelayTransactions::new_builder()
-                    .tx_hashes(tx_hashes.pack())
-                    .build();
-                let message = packed::RelayMessage::new_builder().set(content).build();
-
-                if let Err(err) = nc.send_message_to(*peer, message.as_bytes()) {
+                if let Err(err) = send_getrelaytransactions(nc, *peer, tx_hashes) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
-                        "relayer send Transaction error: {:?}",
+                        "send_getrelaytransactions error: {:?}",
                         err,
                     );
                 }
-                crate::relayer::log_sent_metric(message.to_enum().item_name());
             }
         }
     }
@@ -742,12 +723,4 @@ impl CKBProtocolHandler for Relayer {
             start_time.elapsed()
         );
     }
-}
-
-pub(self) fn log_sent_metric(item_name: &str) {
-    metric!({
-        "topic": "sent",
-        "tags": { "target": crate::LOG_TARGET_RELAY },
-        "fields": { item_name: 1 }
-    });
 }

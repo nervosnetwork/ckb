@@ -1,6 +1,7 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
+use crate::utils::send_getblocktransactions;
 use crate::{attempt, Status, StatusCode};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
@@ -148,18 +149,16 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .write_inflight_blocks()
                     .compact_reconstruct(self.peer, block_hash.clone())
                 {
-                    let content = packed::GetBlockTransactions::new_builder()
-                        .block_hash(block_hash.clone())
-                        .indexes(missing_transactions.pack())
-                        .uncle_indexes(missing_uncles.pack())
-                        .build();
-                    let message = packed::RelayMessage::new_builder().set(content).build();
-
-                    if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
+                    if let Err(err) = send_getblocktransactions(
+                        self.nc.as_ref(),
+                        self.peer,
+                        block_hash.clone(),
+                        missing_transactions.clone(),
+                        missing_uncles.clone(),
+                    ) {
                         return StatusCode::Network
-                            .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
+                            .with_context(format!("send_getblocktransactions error: {:?}", err));
                     }
-                    crate::relayer::log_sent_metric(message.to_enum().item_name());
                 }
 
                 mem::replace(expected_transaction_indexes, missing_transactions);
