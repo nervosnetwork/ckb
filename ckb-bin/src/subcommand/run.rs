@@ -17,6 +17,7 @@ use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchroniz
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
+use fail;
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -169,6 +170,12 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let io_handler = builder.build();
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+
+    if fail::has_failpoints() {
+        for (failpoint, actions) in args.config.failpoints.iter() {
+            fail::cfg(failpoint, actions).expect("setup failpoint");
+        }
+    }
 
     wait_for_exit(exit_condvar);
 

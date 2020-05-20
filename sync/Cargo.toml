@@ -27,6 +27,7 @@ ckb-tx-pool = { path = "../tx-pool" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 crossbeam-channel = "0.3"
 ratelimit_meter = "5.0"
+fail = "0.4"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

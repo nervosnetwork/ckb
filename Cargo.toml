@@ -74,3 +74,4 @@ jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
+failpoints = ["ckb-bin/failpoints"]

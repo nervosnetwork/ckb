@@ -33,7 +33,9 @@ ckb-memory-tracker = { path = "../util/memory-tracker" }
 ckb-verification = { path = "../verification" }
 base64 = "0.10.1"
 tempfile = "3.0"
+fail = "0.4"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
 profiling = ["ckb-memory-tracker/profiling"]
+failpoints = ["fail/failpoints"]

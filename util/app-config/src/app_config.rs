@@ -17,6 +17,7 @@ use ckb_resource::Resource;
 use super::configs::*;
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
+use std::collections::HashMap;
 
 pub enum AppConfig {
     CKB(Box<CKBAppConfig>),
@@ -46,6 +47,8 @@ pub struct CKBAppConfig {
     pub alert_signature: Option<NetworkAlertConfig>,
     #[serde(default)]
     pub notify: NotifyConfig,
+    #[serde(default)]
+    pub failpoints: HashMap<String, String>,
 }
 
 // change the order of fields will break integration test, see module doc.
