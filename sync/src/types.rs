@@ -398,7 +398,7 @@ struct DebugHashSet<'a>(&'a HashSet<BlockNumberAndHash>);
 impl<'a> fmt::Debug for DebugHashSet<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_set()
-            .entries(self.0.iter().map(|h| format!("{}", h.hash)))
+            .entries(self.0.iter().map(|h| format!("{}, {}", h.number, h.hash)))
             .finish()
     }
 }
@@ -416,7 +416,7 @@ impl fmt::Debug for InflightBlocks {
             .entries(
                 self.inflight_states
                     .iter()
-                    .map(|(k, v)| (format!("{}", k.hash), v)),
+                    .map(|(k, v)| (format!("{}, {}", k.number, k.hash), v)),
             )
             .finish()
     }
@@ -1019,7 +1019,12 @@ impl SyncShared {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self.state.remove_orphan_by_parent(&block.as_ref().hash());
+        self.try_search_orphan_pool(chain, &block.as_ref().hash());
+        ret
+    }
+
+    pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
+        let descendants = self.state.remove_orphan_by_parent(parent_hash);
         for (peer, block) in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
@@ -1042,7 +1047,6 @@ impl SyncShared {
                 );
             }
         }
-        ret
     }
 
     fn accept_block(
@@ -1309,8 +1313,15 @@ impl SyncState {
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &core::BlockView) -> bool {
-        self.write_inflight_blocks()
+        if self
+            .write_inflight_blocks()
             .remove_by_block((block.number(), block.hash()).into())
+        {
+            self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
