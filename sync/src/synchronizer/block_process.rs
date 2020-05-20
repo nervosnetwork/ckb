@@ -4,10 +4,11 @@ use crate::{
 };
 use ckb_logger::debug;
 use ckb_network::PeerIndex;
+use ckb_types::core::BlockView;
 use ckb_types::{packed, prelude::*};
 
 pub struct BlockProcess<'a> {
-    message: packed::SendBlockReader<'a>,
+    block: BlockView,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
 }
@@ -18,15 +19,28 @@ impl<'a> BlockProcess<'a> {
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
     ) -> Self {
+        let block = message.block().to_entity().into_view();
         BlockProcess {
-            message,
+            block,
             synchronizer,
             peer,
         }
     }
 
     pub fn execute(self) -> Status {
-        let block = self.message.block().to_entity().into_view();
+        {
+            fail::fail_point!("recv_sendblock", |_| {
+                debug!(
+                    "[failpoint] recv_sendblock(number={}, block_hash={:?} from {}",
+                    self.block.number(),
+                    self.block.hash(),
+                    self.peer,
+                );
+                Status::ok()
+            })
+        }
+
+        let block = self.block;
         debug!(
             "BlockProcess received block {} {}",
             block.number(),

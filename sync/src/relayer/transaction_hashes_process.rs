@@ -9,7 +9,7 @@ use ckb_types::{
 use ckb_util::LinkedHashMap;
 
 pub struct TransactionHashesProcess<'a> {
-    message: packed::RelayTransactionHashesReader<'a>,
+    relay_transaction_hashes: packed::RelayTransactionHashes,
     relayer: &'a Relayer,
     peer: PeerIndex,
 }
@@ -20,8 +20,9 @@ impl<'a> TransactionHashesProcess<'a> {
         relayer: &'a Relayer,
         peer: PeerIndex,
     ) -> Self {
+        let relay_transaction_hashes = message.to_entity();
         TransactionHashesProcess {
-            message,
+            relay_transaction_hashes,
             relayer,
             peer,
         }
@@ -30,7 +31,7 @@ impl<'a> TransactionHashesProcess<'a> {
     pub fn execute(self) -> Status {
         let state = self.relayer.shared().state();
         {
-            let relay_transaction_hashes = self.message;
+            let relay_transaction_hashes = &self.relay_transaction_hashes;
             if relay_transaction_hashes.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
@@ -42,10 +43,9 @@ impl<'a> TransactionHashesProcess<'a> {
 
         let hashes: Vec<Byte32> = {
             let tx_filter = state.tx_filter();
-            self.message
+            self.relay_transaction_hashes
                 .tx_hashes()
-                .iter()
-                .map(|x| x.to_entity())
+                .into_iter()
                 .filter(|tx_hash| !tx_filter.contains(&tx_hash))
                 .collect()
         };

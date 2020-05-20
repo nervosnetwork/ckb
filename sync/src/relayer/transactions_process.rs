@@ -18,7 +18,7 @@ use std::time::Duration;
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionsProcess<'a> {
-    message: packed::RelayTransactionsReader<'a>,
+    relay_transactions: packed::RelayTransactions,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
@@ -31,8 +31,9 @@ impl<'a> TransactionsProcess<'a> {
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
+        let relay_transactions = message.to_entity();
         TransactionsProcess {
-            message,
+            relay_transactions,
             relayer,
             nc,
             peer,
@@ -44,15 +45,10 @@ impl<'a> TransactionsProcess<'a> {
         let txs: Vec<(TransactionView, Cycle)> = {
             let tx_filter = shared_state.tx_filter();
 
-            self.message
+            self.relay_transactions
                 .transactions()
-                .iter()
-                .map(|tx| {
-                    (
-                        tx.transaction().to_entity().into_view(),
-                        tx.cycles().unpack(),
-                    )
-                })
+                .into_iter()
+                .map(|tx| (tx.transaction().into_view(), tx.cycles().unpack()))
                 .filter(|(tx, _)| !tx_filter.contains(&tx.hash()))
                 .collect()
         };

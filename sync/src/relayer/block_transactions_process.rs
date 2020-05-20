@@ -21,7 +21,7 @@ use std::sync::Arc;
 // there may be short_id collision in transaction pool.
 // the node retreat to request all the short_ids from the peer.
 pub struct BlockTransactionsProcess<'a> {
-    message: packed::BlockTransactionsReader<'a>,
+    block_transactions: packed::BlockTransactions,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -34,8 +34,9 @@ impl<'a> BlockTransactionsProcess<'a> {
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
+        let block_transactions = message.to_entity();
         BlockTransactionsProcess {
-            message,
+            block_transactions,
             relayer,
             nc,
             peer,
@@ -45,14 +46,15 @@ impl<'a> BlockTransactionsProcess<'a> {
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
-        let block_transactions = self.message.to_entity();
-        let block_hash = block_transactions.block_hash();
-        let received_transactions: Vec<core::TransactionView> = block_transactions
+        let block_hash = self.block_transactions.block_hash();
+        let received_transactions: Vec<core::TransactionView> = self
+            .block_transactions
             .transactions()
             .into_iter()
             .map(|tx| tx.into_view())
             .collect();
-        let received_uncles: Vec<core::UncleBlockView> = block_transactions
+        let received_uncles: Vec<core::UncleBlockView> = self
+            .block_transactions
             .uncles()
             .into_iter()
             .map(|uncle| uncle.into_view())

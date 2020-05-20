@@ -10,7 +10,8 @@ use ckb_types::{
 };
 
 pub struct GetHeadersProcess<'a> {
-    message: packed::GetHeadersReader<'a>,
+    block_locator_hashes: Vec<Byte32>,
+    hash_stop: Byte32,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -23,8 +24,15 @@ impl<'a> GetHeadersProcess<'a> {
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
     ) -> Self {
+        let block_locator_hashes = message
+            .block_locator_hashes()
+            .iter()
+            .map(|x| x.to_entity())
+            .collect::<Vec<Byte32>>();
+        let hash_stop = message.hash_stop().to_entity();
         GetHeadersProcess {
-            message,
+            block_locator_hashes,
+            hash_stop,
             nc,
             synchronizer,
             peer,
@@ -32,16 +40,19 @@ impl<'a> GetHeadersProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let active_chain = self.synchronizer.shared.active_chain();
+        {
+            fail::fail_point!("recv_getheaders", |_| {
+                debug!(
+                    "[failpoint] recv_getheaders({:?} from {}",
+                    self.block_locator_hashes, self.peer
+                );
+                Status::ok()
+            })
+        }
 
-        let block_locator_hashes = self
-            .message
-            .block_locator_hashes()
-            .iter()
-            .map(|x| x.to_entity())
-            .collect::<Vec<Byte32>>();
-        let hash_stop = self.message.hash_stop().to_entity();
-        let locator_size = block_locator_hashes.len();
+        let active_chain = self.synchronizer.shared.active_chain();
+        let hash_stop = &self.hash_stop;
+        let locator_size = self.block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "Locator count({}) > MAX_LOCATOR_SIZE({})",
@@ -58,14 +69,14 @@ impl<'a> GetHeadersProcess<'a> {
             let state = self.synchronizer.shared.state();
             if let Some(flag) = state.peers().get_flag(self.peer) {
                 if flag.is_outbound || flag.is_whitelist || flag.is_protect {
-                    state.insert_peer_unknown_header_list(self.peer, block_locator_hashes);
+                    state.insert_peer_unknown_header_list(self.peer, self.block_locator_hashes);
                 }
             };
             return Status::ignored();
         }
 
         if let Some(block_number) =
-            active_chain.locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
+            active_chain.locate_latest_common_block(&hash_stop, &self.block_locator_hashes[..])
         {
             debug!(
                 "headers latest_common={} tip={} begin",
@@ -87,7 +98,7 @@ impl<'a> GetHeadersProcess<'a> {
             }
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
-                .with_context(format!("{:#x?}", block_locator_hashes,));
+                .with_context(format!("{:#x?}", self.block_locator_hashes));
         }
         Status::ok()
     }

@@ -8,7 +8,7 @@ use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
 pub struct GetBlockTransactionsProcess<'a> {
-    message: packed::GetBlockTransactionsReader<'a>,
+    get_block_transactions: packed::GetBlockTransactions,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -21,8 +21,9 @@ impl<'a> GetBlockTransactionsProcess<'a> {
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
+        let get_block_transactions = message.to_entity();
         GetBlockTransactionsProcess {
-            message,
+            get_block_transactions,
             nc,
             relayer,
             peer,
@@ -32,7 +33,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         {
-            let get_block_transactions = self.message;
+            let get_block_transactions = &self.get_block_transactions;
             if get_block_transactions.indexes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "Indexes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
@@ -49,7 +50,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             }
         }
 
-        let block_hash = self.message.block_hash().to_entity();
+        let block_hash = self.get_block_transactions.block_hash();
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "get_block_transactions {}",
@@ -58,9 +59,9 @@ impl<'a> GetBlockTransactionsProcess<'a> {
 
         if let Some(block) = shared.store().get_block(&block_hash) {
             let transactions = self
-                .message
+                .get_block_transactions
                 .indexes()
-                .iter()
+                .into_iter()
                 .filter_map(|i| {
                     block
                         .transactions()
@@ -70,9 +71,9 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .collect::<Vec<_>>();
 
             let uncles = self
-                .message
+                .get_block_transactions
                 .uncle_indexes()
-                .iter()
+                .into_iter()
                 .filter_map(|i| block.uncles().get(Unpack::<u32>::unpack(&i) as usize))
                 .collect::<Vec<_>>();
 

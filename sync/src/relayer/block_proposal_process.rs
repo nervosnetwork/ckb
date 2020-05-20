@@ -4,26 +4,30 @@ use ckb_logger::warn_target;
 use ckb_types::{core, packed, prelude::*};
 
 pub struct BlockProposalProcess<'a> {
-    message: packed::BlockProposalReader<'a>,
+    block_proposal: packed::BlockProposal,
     relayer: &'a Relayer,
 }
 
 impl<'a> BlockProposalProcess<'a> {
     pub fn new(message: packed::BlockProposalReader<'a>, relayer: &'a Relayer) -> Self {
-        BlockProposalProcess { message, relayer }
+        let block_proposal = message.to_entity();
+        BlockProposalProcess {
+            block_proposal,
+            relayer,
+        }
     }
 
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let sync_state = shared.state();
         {
-            let block_proposals = self.message;
+            let transactions = self.block_proposal.transactions();
             let limit = shared.consensus().max_block_proposals_limit()
                 * (shared.consensus().max_uncles_num() as u64);
-            if (block_proposals.transactions().len() as u64) > limit {
+            if (transactions.len() as u64) > limit {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "Transactions count({}) > consensus max_block_proposals_limit({}) * max_uncles_num({})",
-                    block_proposals.transactions().len(),
+                    transactions.len(),
                     shared.consensus().max_block_proposals_limit(),
                     shared.consensus().max_uncles_num(),
                 ));
@@ -31,10 +35,10 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         let unknown_txs: Vec<core::TransactionView> = self
-            .message
+            .block_proposal
             .transactions()
-            .iter()
-            .map(|x| x.to_entity().into_view())
+            .into_iter()
+            .map(|x| x.into_view())
             .filter(|tx| !sync_state.already_known_tx(&tx.hash()))
             .collect();
 

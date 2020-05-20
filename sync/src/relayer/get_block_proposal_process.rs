@@ -7,7 +7,7 @@ use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a> {
-    message: packed::GetBlockProposalReader<'a>,
+    get_block_proposal: packed::GetBlockProposal,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -20,8 +20,9 @@ impl<'a> GetBlockProposalProcess<'a> {
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
+        let get_block_proposal = message.to_entity();
         GetBlockProposalProcess {
-            message,
+            get_block_proposal,
             nc,
             relayer,
             peer,
@@ -31,7 +32,7 @@ impl<'a> GetBlockProposalProcess<'a> {
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         {
-            let get_block_proposal = self.message;
+            let get_block_proposal = &self.get_block_proposal;
             let limit = shared.consensus().max_block_proposals_limit()
                 * (shared.consensus().max_uncles_num() as u64);
             if (get_block_proposal.proposals().len() as u64) > limit {
@@ -43,7 +44,7 @@ impl<'a> GetBlockProposalProcess<'a> {
         }
 
         let proposals: Vec<packed::ProposalShortId> =
-            self.message.proposals().to_entity().into_iter().collect();
+            self.get_block_proposal.proposals().into_iter().collect();
 
         let fetched_transactions = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();

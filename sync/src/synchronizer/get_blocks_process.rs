@@ -4,10 +4,11 @@ use crate::utils::send_sendblock;
 use crate::{Status, StatusCode, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_types::packed::Byte32Vec;
 use ckb_types::{packed, prelude::*};
 
 pub struct GetBlocksProcess<'a> {
-    message: packed::GetBlocksReader<'a>,
+    block_hashes: Byte32Vec,
     synchronizer: &'a Synchronizer,
     nc: &'a dyn CKBProtocolContext,
     peer: PeerIndex,
@@ -20,30 +21,32 @@ impl<'a> GetBlocksProcess<'a> {
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
     ) -> Self {
+        let block_hashes = message.block_hashes().to_entity();
         GetBlocksProcess {
+            block_hashes,
             peer,
-            message,
             nc,
             synchronizer,
         }
     }
 
     pub fn execute(self) -> Status {
-        let block_hashes = self.message.block_hashes();
         // use MAX_HEADERS_LEN as limit, we may increase the value of INIT_BLOCKS_IN_TRANSIT_PER_PEER in the future
-        if block_hashes.len() > MAX_HEADERS_LEN {
+        if self.block_hashes.len() > MAX_HEADERS_LEN {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "BlockHashes count({}) > MAX_HEADERS_LEN({})",
-                block_hashes.len(),
+                self.block_hashes.len(),
                 MAX_HEADERS_LEN,
             ));
         }
         let active_chain = self.synchronizer.shared.active_chain();
 
-        for block_hash in block_hashes.iter().take(INIT_BLOCKS_IN_TRANSIT_PER_PEER) {
+        for block_hash in self
+            .block_hashes
+            .into_iter()
+            .take(INIT_BLOCKS_IN_TRANSIT_PER_PEER)
+        {
             debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
-            let block_hash = block_hash.to_entity();
-
             if !active_chain.contains_block_status(&block_hash, BlockStatus::BLOCK_VALID) {
                 debug!(
                     "ignoring get_block {} request from peer={} for unverified",

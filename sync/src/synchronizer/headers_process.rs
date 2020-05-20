@@ -14,7 +14,7 @@ use ckb_types::{
 use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
 
 pub struct HeadersProcess<'a> {
-    message: packed::SendHeadersReader<'a>,
+    headers: Vec<core::HeaderView>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -87,8 +87,14 @@ impl<'a> HeadersProcess<'a> {
         nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         let active_chain = synchronizer.shared.active_chain();
+        let headers = message
+            .headers()
+            .to_entity()
+            .into_iter()
+            .map(packed::Header::into_view)
+            .collect::<Vec<_>>();
         HeadersProcess {
-            message,
+            headers,
             nc,
             synchronizer,
             peer,
@@ -130,13 +136,7 @@ impl<'a> HeadersProcess<'a> {
     pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
         let shared = self.synchronizer.shared();
-        let headers = self
-            .message
-            .headers()
-            .to_entity()
-            .into_iter()
-            .map(packed::Header::into_view)
-            .collect::<Vec<_>>();
+        let headers = &self.headers;
 
         if headers.len() > MAX_HEADERS_LEN {
             shared.state().misbehavior(self.peer, 20);
@@ -157,7 +157,7 @@ impl<'a> HeadersProcess<'a> {
             return Status::ok();
         }
 
-        if !self.is_continuous(&headers) {
+        if !self.is_continuous(headers) {
             shared.state().misbehavior(self.peer, 20);
             debug!("HeadersProcess is not continuous");
             return Status::ok();

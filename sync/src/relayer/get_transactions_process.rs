@@ -7,7 +7,7 @@ use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
 pub struct GetTransactionsProcess<'a> {
-    message: packed::GetRelayTransactionsReader<'a>,
+    get_relay_transactions: packed::GetRelayTransactions,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -20,8 +20,9 @@ impl<'a> GetTransactionsProcess<'a> {
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
+        let get_relay_transactions = message.to_entity();
         GetTransactionsProcess {
-            message,
+            get_relay_transactions,
             relayer,
             nc,
             peer,
@@ -30,7 +31,7 @@ impl<'a> GetTransactionsProcess<'a> {
 
     pub fn execute(self) -> Status {
         {
-            let get_transactions = self.message;
+            let get_transactions = &self.get_relay_transactions;
             if get_transactions.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
@@ -40,7 +41,7 @@ impl<'a> GetTransactionsProcess<'a> {
             }
         }
 
-        let tx_hashes = self.message.tx_hashes();
+        let tx_hashes = self.get_relay_transactions.tx_hashes();
 
         trace_target!(
             crate::LOG_TARGET_RELAY,
@@ -54,8 +55,8 @@ impl<'a> GetTransactionsProcess<'a> {
 
             let fetch_txs_with_cycles = tx_pool.fetch_txs_with_cycles(
                 tx_hashes
-                    .iter()
-                    .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity()))
+                    .into_iter()
+                    .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash))
                     .collect(),
             );
 

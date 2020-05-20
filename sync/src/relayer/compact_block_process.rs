@@ -26,7 +26,7 @@ use std::sync::Arc;
 // 2. otherwise, there may be short_id collision in transaction pool,
 // the node retreat to request all the short_ids from the peer.
 pub struct CompactBlockProcess<'a> {
-    message: packed::CompactBlockReader<'a>,
+    compact_block: packed::CompactBlock,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -39,8 +39,9 @@ impl<'a> CompactBlockProcess<'a> {
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
+        let compact_block = message.to_entity();
         CompactBlockProcess {
-            message,
+            compact_block,
             nc,
             relayer,
             peer,
@@ -50,7 +51,7 @@ impl<'a> CompactBlockProcess<'a> {
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         {
-            let compact_block = self.message;
+            let compact_block = &self.compact_block;
             if compact_block.uncles().len() > shared.consensus().max_uncles_num() {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "CompactBlock uncles count({}) > consensus max_uncles_num({})",
@@ -69,7 +70,7 @@ impl<'a> CompactBlockProcess<'a> {
             }
         }
 
-        let compact_block = self.message.to_entity();
+        let compact_block = self.compact_block.clone();
         let header = compact_block.header().into_view();
         let block_hash = header.hash();
 
