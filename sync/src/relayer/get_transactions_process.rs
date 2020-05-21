@@ -31,6 +31,18 @@ impl<'a> GetTransactionsProcess<'a> {
 
     pub fn execute(self) -> Status {
         {
+            fail::fail_point!("recv_getrelaytransactions", |_| {
+                let length = self.get_relay_transactions.tx_hashes().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_getrelaytransactions(len={}) from {}",
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
+        {
             let get_transactions = &self.get_relay_transactions;
             if get_transactions.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(

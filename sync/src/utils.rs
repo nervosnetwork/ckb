@@ -28,7 +28,7 @@ pub fn send_getheaders(
     log_sent_sync_metric("getheaders");
 
     fail_point!("send_getheaders", |_| {
-        debug!("[fail_point] send_getheaders to {}", peer);
+        debug!("[failpoint] send_getheaders to {}", peer);
         Ok(())
     });
 
@@ -48,7 +48,7 @@ pub fn send_sendheaders(
     log_sent_sync_metric("sendheaders");
 
     fail_point!("send_sendheaders", |_| {
-        debug!("[fail_point] send_sendheaders(len={}) to {}", length, peer);
+        debug!("[failpoint] send_sendheaders(len={}) to {}", length, peer);
         Ok(())
     });
 
@@ -68,7 +68,7 @@ pub fn send_getblocks(
     log_sent_sync_metric("getblocks");
 
     fail_point!("send_getblocks", |_| {
-        debug!("[fail_point] send_getblocks(len={}) to {}", length, peer);
+        debug!("[failpoint] send_getblocks(len={}) to {}", length, peer);
         Ok(())
     });
 
@@ -93,7 +93,7 @@ pub fn send_sendblock(
 
     fail_point!("send_sendblock", |_| {
         debug!(
-            "[fail_point] send_sendblock(number={}, block_hash={:?}) to {}",
+            "[failpoint] send_sendblock(number={}, block_hash={:?}) to {}",
             number, block_hash, peer
         );
         Ok(())
@@ -110,7 +110,7 @@ pub fn send_inibd(nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Result<(), Er
     log_sent_sync_metric("inibd");
 
     fail_point!("send_inibd", |_| {
-        debug!("[fail_point] send_inibd to {}", peer);
+        debug!("[failpoint] send_inibd to {}", peer);
         Ok(())
     });
 
@@ -138,7 +138,7 @@ pub fn send_getblockproposal(
 
     fail_point!("send_getblockproposal", |_| {
         debug!(
-            "[fail_point] send_getblockproposal(block_hash={:?}, len={}) to {}",
+            "[failpoint] send_getblockproposal(block_hash={:?}, len={}) to {}",
             block_hash, length, peer
         );
         Ok(())
@@ -162,10 +162,7 @@ pub fn send_blockproposal(
     log_sent_relay_metric("blockproposal");
 
     fail_point!("send_blockproposal", |_| {
-        debug!(
-            "[fail_point] send_blockproposal(len={}) to {}",
-            length, peer
-        );
+        debug!("[failpoint] send_blockproposal(len={}) to {}", length, peer);
         Ok(())
     });
 
@@ -188,7 +185,7 @@ pub fn send_relaytransactions(
 
     fail_point!("send_relaytransactions", |_| {
         debug!(
-            "[fail_point] send_relaytransactions(len={}) to {}",
+            "[failpoint] send_relaytransactions(len={}) to {}",
             length, peer
         );
         Ok(())
@@ -220,7 +217,7 @@ pub fn send_getblocktransactions(
     log_sent_relay_metric("getBlocktransactions");
 
     fail_point!("send_getblocktransactions", |_| {
-        debug!("[fail_point] send_getblocktransactions(block_hash: {:?}, indexes_len={}, uncle_indexes_len={}) to {}", block_hash, indexes_length, uncle_indexes_length, peer);
+        debug!("[failpoint] send_getblocktransactions(block_hash: {:?}, indexes_len={}, uncle_indexes_len={}) to {}", block_hash, indexes_length, uncle_indexes_length, peer);
         Ok(())
     });
 
@@ -251,7 +248,7 @@ pub fn send_blocktransactions(
 
     fail_point!("send_blocktransactions", |_| {
         debug!(
-            "[fail_point] send_blocktransactions(block_hash: {:?}, indexes_len={}, uncle_indexes_len={}) to {}",
+            "[failpoint] send_blocktransactions(block_hash: {:?}, indexes_len={}, uncle_indexes_len={}) to {}",
             block_hash, indexes_length, uncle_indexes_length, peer,
         );
         Ok(())
@@ -276,7 +273,7 @@ pub fn send_getrelaytransactions(
 
     fail_point!("send_getrelaytransactions", |_| {
         debug!(
-            "[fail_point] send_getrelaytransactions(len={}) to {}",
+            "[failpoint] send_getrelaytransactions(len={}) to {}",
             length, peer
         );
         Ok(())

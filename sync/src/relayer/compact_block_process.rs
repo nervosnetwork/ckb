@@ -49,6 +49,21 @@ impl<'a> CompactBlockProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_compactblock", |_| {
+                let header = self.compact_block.header().into_view();
+                let number = header.number();
+                let block_hash = header.hash();
+                ckb_logger::debug!(
+                    "[failpoint] recv_compactblock(number={}, block_hash: {:?}) from {}",
+                    number,
+                    block_hash,
+                    self.peer,
+                );
+                Status::ignored()
+            })
+        }
+
         let shared = self.relayer.shared();
         {
             let compact_block = &self.compact_block;

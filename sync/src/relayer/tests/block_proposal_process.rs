@@ -1,6 +1,7 @@
 use crate::relayer::block_proposal_process::BlockProposalProcess;
 use crate::relayer::tests::helper::{build_chain, new_transaction};
 use crate::Status;
+use ckb_network::PeerIndex;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
 
@@ -19,7 +20,7 @@ fn test_no_unknown() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, PeerIndex::new(1));
     assert_eq!(process.execute(), Status::ignored());
 }
 
@@ -34,7 +35,7 @@ fn test_no_asked() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, PeerIndex::new(1));
     assert_eq!(process.execute(), Status::ignored());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
@@ -60,7 +61,7 @@ fn test_ok() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer, PeerIndex::new(1));
     assert_eq!(process.execute(), Status::ok());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());

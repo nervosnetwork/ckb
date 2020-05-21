@@ -149,7 +149,7 @@ impl Relayer {
                 GetBlockProposalProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
-                BlockProposalProcess::new(reader, self).execute()
+                BlockProposalProcess::new(reader, self, peer).execute()
             }
         }
     }

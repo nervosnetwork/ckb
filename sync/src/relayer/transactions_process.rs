@@ -41,6 +41,18 @@ impl<'a> TransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_relaytransactions", |_| {
+                let length = self.relay_transactions.transactions().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_relaytransactions(len={}) from {}",
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
         let shared_state = self.relayer.shared().state();
         let txs: Vec<(TransactionView, Cycle)> = {
             let tx_filter = shared_state.tx_filter();

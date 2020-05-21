@@ -1,23 +1,42 @@
 use crate::relayer::Relayer;
 use crate::{Status, StatusCode};
 use ckb_logger::warn_target;
+use ckb_network::PeerIndex;
 use ckb_types::{core, packed, prelude::*};
 
 pub struct BlockProposalProcess<'a> {
     block_proposal: packed::BlockProposal,
     relayer: &'a Relayer,
+    _peer: PeerIndex,
 }
 
 impl<'a> BlockProposalProcess<'a> {
-    pub fn new(message: packed::BlockProposalReader<'a>, relayer: &'a Relayer) -> Self {
+    pub fn new(
+        message: packed::BlockProposalReader<'a>,
+        relayer: &'a Relayer,
+        peer: PeerIndex,
+    ) -> Self {
         let block_proposal = message.to_entity();
         BlockProposalProcess {
             block_proposal,
             relayer,
+            _peer: peer,
         }
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_blockproposal", |_| {
+                let length = self.block_proposal.transactions().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_blockproposal(len={}) from {}",
+                    length,
+                    self._peer
+                );
+                Status::ignored()
+            })
+        }
+
         let shared = self.relayer.shared();
         let sync_state = shared.state();
         {

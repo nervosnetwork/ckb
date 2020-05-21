@@ -44,6 +44,19 @@ impl<'a> BlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_blocktransactions", |_| {
+                let block_hash = self.block_transactions.block_hash();
+                let indexes_length = self.block_transactions.transactions().len();
+                let uncle_indexes_length = self.block_transactions.uncles().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_blocktransactions(block_hash: {:?}, indexes_len={}, uncle_indexes_len={}) from {}",
+                     block_hash, indexes_length, uncle_indexes_length, self.peer,
+                );
+                Status::ignored()
+            })
+        }
+
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
         let block_hash = self.block_transactions.block_hash();

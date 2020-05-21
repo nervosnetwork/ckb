@@ -29,6 +29,18 @@ impl<'a> TransactionHashesProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_relaytransactionhashes", |_| {
+                let length = self.relay_transaction_hashes.tx_hashes().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_relaytransactionhashes(len={}) from {}",
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
         let state = self.relayer.shared().state();
         {
             let relay_transaction_hashes = &self.relay_transaction_hashes;

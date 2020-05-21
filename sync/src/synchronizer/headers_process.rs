@@ -134,6 +134,18 @@ impl<'a> HeadersProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_sendheaders", |_| {
+                let length = self.headers.len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_sendheaders(length={}) from {}",
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
         debug!("HeadersProcess begin");
         let shared = self.synchronizer.shared();
         let headers = &self.headers;

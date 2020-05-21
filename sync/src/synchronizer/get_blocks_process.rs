@@ -31,6 +31,18 @@ impl<'a> GetBlocksProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_getblocks", |_| {
+                let length = self.block_hashes.len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_getblocks(len={}) from {}",
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
         // use MAX_HEADERS_LEN as limit, we may increase the value of INIT_BLOCKS_IN_TRANSIT_PER_PEER in the future
         if self.block_hashes.len() > MAX_HEADERS_LEN {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(

@@ -30,13 +30,15 @@ impl<'a> BlockProcess<'a> {
     pub fn execute(self) -> Status {
         {
             fail::fail_point!("recv_sendblock", |_| {
-                debug!(
-                    "[failpoint] recv_sendblock(number={}, block_hash={:?} from {}",
-                    self.block.number(),
-                    self.block.hash(),
-                    self.peer,
+                let number = self.block.number();
+                let block_hash = self.block.hash();
+                ckb_logger::debug!(
+                    "[failpoint] recv_sendblock(number={}, block_hash={:?}) from {}",
+                    number,
+                    block_hash,
+                    self.peer
                 );
-                Status::ok()
+                Status::ignored()
             })
         }
 

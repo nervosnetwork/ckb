@@ -30,6 +30,20 @@ impl<'a> GetBlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_getblockproposal", |_| {
+                let block_hash = self.get_block_proposal.block_hash();
+                let length = self.get_block_proposal.proposals().len();
+                ckb_logger::debug!(
+                    "[failpoint] recv_getblockproposal(block_hash={:?}, len={}) from {}",
+                    block_hash,
+                    length,
+                    self.peer
+                );
+                Status::ignored()
+            })
+        }
+
         let shared = self.relayer.shared();
         {
             let get_block_proposal = &self.get_block_proposal;

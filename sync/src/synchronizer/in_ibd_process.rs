@@ -23,6 +23,13 @@ impl<'a> InIBDProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        {
+            fail::fail_point!("recv_inibd", |_| {
+                ckb_logger::debug!("[failpoint] recv_inibd from {}", self.peer);
+                Status::ignored()
+            })
+        }
+
         info!("getheader with ibd peer {:?}", self.peer);
         if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
             // Don't assume that the peer is sync_started.

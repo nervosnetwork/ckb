@@ -46,7 +46,7 @@ impl<'a> GetHeadersProcess<'a> {
                     "[failpoint] recv_getheaders({:?} from {}",
                     self.block_locator_hashes, self.peer
                 );
-                Status::ok()
+                Status::ignored()
             })
         }
 
