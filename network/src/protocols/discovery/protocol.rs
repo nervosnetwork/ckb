@@ -45,11 +45,10 @@ impl Decoder for DiscoveryCodec {
     }
 }
 
-impl Encoder for DiscoveryCodec {
-    type Item = DiscoveryMessage;
+impl Encoder<DiscoveryMessage> for DiscoveryCodec {
     type Error = io::Error;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: DiscoveryMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.inner.encode(item.encode(), dst)
     }
 }

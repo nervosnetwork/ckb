@@ -59,7 +59,7 @@ impl From<CellStatus> for CellWithStatus {
             CellStatus::Unknown => (None, "unknown"),
         };
         Self {
-            cell: cell.map(|cell_meta| (*cell_meta).into()),
+            cell: cell.map(Into::into),
             status: status.to_string(),
         }
     }

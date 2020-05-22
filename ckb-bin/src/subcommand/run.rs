@@ -5,15 +5,16 @@ use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
-    CKBProtocol, NetworkService, NetworkState, MAX_FRAME_LENGTH_ALERT, MAX_FRAME_LENGTH_RELAY,
-    MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
+    BlockingFlag, CKBProtocol, NetworkService, NetworkState, MAX_FRAME_LENGTH_ALERT,
+    MAX_FRAME_LENGTH_RELAY, MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
-use ckb_types::prelude::*;
+use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
@@ -41,6 +42,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
+
+    setup_system_cell_cache(
+        shared.consensus().genesis_block(),
+        &shared.store().cell_provider(),
+    );
 
     ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
 
@@ -76,6 +82,14 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let alert_notifier = Arc::clone(alert_relayer.notifier());
     let alert_verifier = Arc::clone(alert_relayer.verifier());
 
+    let mut no_blocking_flag = BlockingFlag::default();
+    no_blocking_flag.disable_all();
+
+    let mut blocking_recv_flag = BlockingFlag::default();
+    blocking_recv_flag.disable_connected();
+    blocking_recv_flag.disable_disconnected();
+    blocking_recv_flag.disable_notify();
+
     let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
         CKBProtocol::new(
@@ -85,6 +99,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             MAX_FRAME_LENGTH_SYNC,
             move || Box::new(synchronizer_clone.clone()),
             Arc::clone(&network_state),
+            blocking_recv_flag,
         ),
         CKBProtocol::new(
             "rel".to_string(),
@@ -93,6 +108,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             MAX_FRAME_LENGTH_RELAY,
             move || Box::new(relayer.clone()),
             Arc::clone(&network_state),
+            blocking_recv_flag,
         ),
         CKBProtocol::new(
             "tim".to_string(),
@@ -101,6 +117,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             MAX_FRAME_LENGTH_TIME,
             move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
+            no_blocking_flag,
         ),
         CKBProtocol::new(
             "alt".to_string(),
@@ -109,6 +126,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             MAX_FRAME_LENGTH_ALERT,
             move || Box::new(alert_relayer.clone()),
             Arc::clone(&network_state),
+            no_blocking_flag,
         ),
     ];
 
@@ -148,14 +166,12 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_debug();
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+    let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
     wait_for_exit(exit_condvar);
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 
-    rpc_server.close();
-    info_target!(crate::LOG_TARGET_MAIN, "Jsonrpc shutdown");
     Ok(())
 }
 

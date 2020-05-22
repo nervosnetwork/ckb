@@ -7,7 +7,7 @@ labels: t:bug
 **Environment**
 
 - **CKB version**: output of `ckb --version`
-- **Chain**: dev / staging / testnet / mainnet ...
+- **Chain**: dev / testnet / mainnet ...
 - **Operating system**: Linux / macOS / Windows
 - **Arch**: x64
 - **Installation**: GitHub Release / Built from source

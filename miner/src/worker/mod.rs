@@ -3,7 +3,7 @@ mod eaglesong_simple;
 
 use crate::config::WorkerConfig;
 use ckb_logger::error;
-use ckb_pow::{DummyPowEngine, EaglesongPowEngine, PowEngine};
+use ckb_pow::{DummyPowEngine, EaglesongBlake2bPowEngine, EaglesongPowEngine, PowEngine};
 use ckb_types::{packed::Byte32, U256};
 use crossbeam_channel::{unbounded, Sender};
 use dummy::Dummy;
@@ -91,7 +91,13 @@ pub fn start_worker(
             }
         }
         WorkerConfig::EaglesongSimple(config) => {
-            if pow.as_any().downcast_ref::<EaglesongPowEngine>().is_some() {
+            let extra_hash_function = config.extra_hash_function;
+            if pow.as_any().downcast_ref::<EaglesongPowEngine>().is_some()
+                || pow
+                    .as_any()
+                    .downcast_ref::<EaglesongBlake2bPowEngine>()
+                    .is_some()
+            {
                 let worker_txs = (0..config.threads)
                     .map(|i| {
                         let worker_name = format!("EaglesongSimple-Worker-{}", i);
@@ -107,7 +113,8 @@ pub fn start_worker(
                         thread::Builder::new()
                             .name(worker_name)
                             .spawn(move || {
-                                let mut worker = EaglesongSimple::new(nonce_tx, worker_rx);
+                                let mut worker =
+                                    EaglesongSimple::new(nonce_tx, worker_rx, extra_hash_function);
                                 let rng = nonce_generator(nonce_range);
                                 worker.run(rng, pb);
                             })

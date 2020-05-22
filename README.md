@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.31.1-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Version](https://img.shields.io/badge/version-0.32.0-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
 
@@ -61,7 +61,7 @@ Mainnet Lina or Testnet Aggron, switch to the branch [master].
 
 [master]: https://github.com/nervosnetwork/ckb/tree/master#documentations
 
-- [Get CKB](docs/get-ckb.md)
+- [Get CKB](docs/get-ckb.md) via downloading or building from source.
 - [Quick Start](docs/quick-start.md)
 - [Run CKB with Docker](docs/run-ckb-with-docker.md)
 - [Configure CKB](docs/configure.md)

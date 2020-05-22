@@ -6,10 +6,10 @@ use crate::peer_store::{
 };
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
-    discovery::{DiscoveryProtocol, DiscoveryService},
+    discovery::DiscoveryProtocol,
     feeler::Feeler,
-    identify::IdentifyCallback,
-    ping::PingService,
+    identify::{IdentifyCallback, IdentifyProtocol},
+    ping::{PingHandler, PingService},
 };
 use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
@@ -25,10 +25,7 @@ use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{
-    channel::{
-        mpsc::{self, channel},
-        oneshot,
-    },
+    channel::{mpsc::channel, oneshot},
     Future, StreamExt,
 };
 use ipnetwork::IpNetwork;
@@ -40,15 +37,13 @@ use p2p::{
     multiaddr::{self, Multiaddr},
     secio::{self, PeerId},
     service::{
-        ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol,
-        TargetSession,
+        BlockingFlag, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
+        TargetProtocol, TargetSession,
     },
     traits::ServiceHandle,
     utils::extract_peer_id,
     SessionId,
 };
-use p2p_identify::IdentifyProtocol;
-use p2p_ping::PingHandler;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -110,7 +105,9 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store = Mutex::new(PeerStore::load_from_dir(config.peer_store_path())?);
+        let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
+            config.peer_store_path(),
+        ));
         let bootnodes = config.bootnodes()?;
 
         let whitelist_peers = config
@@ -853,6 +850,9 @@ impl NetworkService {
     ) -> NetworkService {
         let config = &network_state.config;
 
+        let mut no_blocking_flag = BlockingFlag::default();
+        no_blocking_flag.disable_all();
+
         // == Build special protocols
 
         // TODO: how to deny banned node to open those protocols?
@@ -878,10 +878,11 @@ impl NetworkService {
                     ping_sender,
                 )))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Discovery protocol
-        let (disc_sender, disc_receiver) = mpsc::unbounded();
+        let disc_network_state = Arc::clone(&network_state);
         let disc_meta = MetaBuilder::default()
             .id(DISCOVERY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/discovery".to_string())
@@ -893,11 +894,12 @@ impl NetworkService {
                 )
             })
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(
-                    DiscoveryProtocol::new(disc_sender.clone())
-                        .global_ip_only(!config.discovery_local_address),
-                ))
+                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
+                    disc_network_state,
+                    config.discovery_local_address,
+                )))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Identify protocol
@@ -916,6 +918,7 @@ impl NetworkService {
             .service_handle(move || {
                 ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
             })
+            .flag(no_blocking_flag)
             .build();
 
         // Feeler protocol
@@ -934,6 +937,7 @@ impl NetworkService {
                 let network_state = Arc::clone(&network_state);
                 move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
             })
+            .flag(no_blocking_flag)
             .build();
 
         let disconnect_message_meta = MetaBuilder::default()
@@ -947,6 +951,7 @@ impl NetworkService {
                 )
             })
             .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
+            .flag(no_blocking_flag)
             .build();
 
         // == Build p2p service struct
@@ -977,11 +982,6 @@ impl NetworkService {
             .build(event_handler);
 
         // == Build background service tasks
-        let disc_service = DiscoveryService::new(
-            Arc::clone(&network_state),
-            disc_receiver,
-            config.discovery_local_address,
-        );
         let mut ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().to_owned(),
@@ -1001,7 +1001,6 @@ impl NetworkService {
                     }
                 }
             }) as Pin<Box<_>>,
-            Box::pin(disc_service) as Pin<Box<_>>,
             Box::pin(dump_peer_store_service) as Pin<Box<_>>,
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
@@ -1089,7 +1088,7 @@ impl NetworkService {
                     .core_threads(num_threads)
                     .enable_all()
                     .threaded_scheduler()
-                    .thread_name("NetworkRuntime-")
+                    .thread_name("NetworkRuntime")
                     .build()
                     .expect("Network tokio runtime init failed");
                 let handle = runtime.spawn(async move {

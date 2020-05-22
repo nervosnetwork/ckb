@@ -1,29 +1,34 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::{
-    convert::TryFrom,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-use ckb_logger::{debug, warn};
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
+    channel::mpsc::{self, channel, Receiver, Sender},
     prelude::*,
     stream::FusedStream,
     Stream,
 };
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    convert::TryFrom,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+
+use ckb_logger::{debug, error, trace, warn};
+use ckb_util::RwLock;
 use p2p::{
     bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::Multiaddr,
+    secio::PeerId,
     traits::ServiceProtocol,
-    utils::{is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     SessionId,
 };
 use rand::seq::SliceRandom;
 use tokio::time::Interval;
 
-use std::time::{Duration, Instant};
+// use crate::peer_store::Behaviour;
+use crate::NetworkState;
 
 const CHECK_INTERVAL: Duration = Duration::from_secs(3);
 
@@ -31,102 +36,12 @@ mod addr;
 mod protocol;
 mod substream;
 
-pub use crate::{
+use self::{addr::DEFAULT_MAX_KNOWN, substream::RemoteAddress};
+pub use self::{
     addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior, RawAddr},
     protocol::{DiscoveryMessage, Node, Nodes},
     substream::{Substream, SubstreamKey, SubstreamValue},
 };
-
-use crate::{addr::DEFAULT_MAX_KNOWN, substream::RemoteAddress};
-
-pub struct DiscoveryProtocol<M> {
-    discovery: Option<Discovery<M>>,
-    discovery_handle: DiscoveryHandle,
-    discovery_senders: HashMap<SessionId, Sender<Vec<u8>>>,
-}
-
-impl<M: AddressManager + Unpin> DiscoveryProtocol<M> {
-    pub fn new(discovery: Discovery<M>) -> DiscoveryProtocol<M> {
-        let discovery_handle = discovery.handle();
-        DiscoveryProtocol {
-            discovery: Some(discovery),
-            discovery_handle,
-            discovery_senders: HashMap::default(),
-        }
-    }
-}
-
-impl<M: AddressManager + Unpin + Send + 'static> ServiceProtocol for DiscoveryProtocol<M> {
-    fn init(&mut self, context: &mut ProtocolContext) {
-        debug!("protocol [discovery({})]: init", context.proto_id);
-
-        let discovery_task = self
-            .discovery
-            .take()
-            .map(|mut discovery| {
-                debug!("Start discovery future_task");
-                async move {
-                    loop {
-                        if discovery.next().await.is_none() {
-                            warn!("discovery stream shutdown");
-                            break;
-                        }
-                    }
-                }
-                .boxed()
-            })
-            .unwrap();
-        if context.future_task(discovery_task).is_err() {
-            warn!("start discovery fail");
-        };
-    }
-
-    fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
-        let session = context.session;
-        debug!(
-            "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
-            session.id, session.address, session.ty
-        );
-
-        let (sender, receiver) = channel(8);
-        self.discovery_senders.insert(session.id, sender);
-        let substream = Substream::new(context, receiver);
-        match self.discovery_handle.substream_sender.try_send(substream) {
-            Ok(_) => {
-                debug!("Send substream success");
-            }
-            Err(err) => {
-                // TODO: handle channel is full (wait for poll API?)
-                warn!("Send substream failed : {:?}", err);
-            }
-        }
-    }
-
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
-        self.discovery_senders.remove(&context.session.id);
-        debug!(
-            "protocol [discovery] close on session [{}]",
-            context.session.id
-        );
-    }
-
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
-        debug!("[received message]: length={}", data.len());
-
-        if let Some(ref mut sender) = self.discovery_senders.get_mut(&context.session.id) {
-            // TODO: handle channel is full (wait for poll API?)
-            if let Err(err) = sender.try_send(data.to_vec()) {
-                if err.is_full() {
-                    warn!("channel is full");
-                } else if err.is_disconnected() {
-                    warn!("channel is disconnected");
-                } else {
-                    warn!("other channel error: {:?}", err);
-                }
-            }
-        }
-    }
-}
 
 pub struct Discovery<M> {
     // Default: 5000
@@ -184,10 +99,6 @@ impl<M: AddressManager + Unpin> Discovery<M> {
         self
     }
 
-    pub fn addr_mgr(&self) -> &M {
-        &self.addr_mgr
-    }
-
     pub fn handle(&self) -> DiscoveryHandle {
         DiscoveryHandle {
             substream_sender: self.substream_sender.clone(),
@@ -206,7 +117,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
             {
                 Poll::Ready(Some(substream)) => {
                     let key = substream.key();
-                    debug!("Received a substream: key={:?}", key);
+                    trace!("Received a substream: key={:?}", key);
                     let value = SubstreamValue::new(
                         key.direction,
                         substream,
@@ -217,7 +128,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
                 }
                 Poll::Ready(None) => unreachable!(),
                 Poll::Pending => {
-                    debug!("Discovery.substream_receiver Async::NotReady");
+                    trace!("Discovery.substream_receiver Async::NotReady");
                     break;
                 }
             }
@@ -233,7 +144,7 @@ impl<M: AddressManager + Unpin> Discovery<M> {
             match Pin::new(&mut interval).as_mut().poll_next(cx) {
                 Poll::Ready(Some(_)) => {}
                 Poll::Ready(None) => {
-                    debug!("Discovery check_interval poll finished");
+                    trace!("Discovery check_interval poll finished");
                     break;
                 }
                 Poll::Pending => break,
@@ -343,7 +254,7 @@ impl<M: AddressManager + Unpin> Stream for Discovery<M> {
     type Item = ();
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        debug!("Discovery.poll()");
+        trace!("Discovery.poll()");
         self.recv_substreams(cx);
         self.check_interval(cx);
 
@@ -355,14 +266,14 @@ impl<M: AddressManager + Unpin> Stream for Discovery<M> {
 
         let mut rng = rand::thread_rng();
         let mut remain_keys = self.substreams.keys().cloned().collect::<Vec<_>>();
-        debug!("announce_multiaddrs: {:?}", announce_multiaddrs);
+        trace!("announce_multiaddrs: {:?}", announce_multiaddrs);
         for announce_multiaddr in announce_multiaddrs.into_iter() {
             let announce_addr = RawAddr::try_from(announce_multiaddr.clone()).unwrap();
             remain_keys.shuffle(&mut rng);
             for i in 0..2 {
                 if let Some(key) = remain_keys.get(i) {
                     if let Some(value) = self.substreams.get_mut(key) {
-                        debug!(
+                        trace!(
                             ">> send {} to: {:?}, contains: {}",
                             announce_multiaddr,
                             value.remote_addr,
@@ -393,5 +304,188 @@ impl<M: AddressManager + Unpin> Stream for Discovery<M> {
             }
             None => Poll::Pending,
         }
+    }
+}
+
+pub struct DiscoveryProtocol {
+    discovery: Option<Discovery<DiscoveryAddressManager>>,
+    discovery_handle: DiscoveryHandle,
+    discovery_senders: HashMap<SessionId, mpsc::Sender<Vec<u8>>>,
+    sessions: Arc<RwLock<HashMap<SessionId, PeerId>>>,
+}
+
+impl DiscoveryProtocol {
+    pub fn new(
+        network_state: Arc<NetworkState>,
+        discovery_local_address: bool,
+    ) -> DiscoveryProtocol {
+        let sessions = Arc::new(RwLock::new(HashMap::default()));
+        let addr_mgr = DiscoveryAddressManager {
+            sessions: Arc::clone(&sessions),
+            network_state,
+            discovery_local_address,
+        };
+        let discovery = Discovery::new(addr_mgr, Some(Duration::from_secs(7)))
+            .global_ip_only(!discovery_local_address);
+        let discovery_handle = discovery.handle();
+        DiscoveryProtocol {
+            discovery: Some(discovery),
+            discovery_handle,
+            discovery_senders: HashMap::default(),
+            sessions,
+        }
+    }
+}
+
+impl ServiceProtocol for DiscoveryProtocol {
+    fn init(&mut self, context: &mut ProtocolContext) {
+        debug!("protocol [discovery({})]: init", context.proto_id);
+
+        let discovery_task = self
+            .discovery
+            .take()
+            .map(|mut discovery| {
+                debug!("Start discovery future_task");
+                async move {
+                    loop {
+                        if discovery.next().await.is_none() {
+                            warn!("discovery stream shutdown");
+                            break;
+                        }
+                    }
+                }
+                .boxed()
+            })
+            .expect("Discovery init only once");
+        if let Err(err) = context.future_task(discovery_task) {
+            error!("Start discovery_task failed: {:?}", err);
+        }
+    }
+
+    fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
+        let session = context.session;
+        debug!(
+            "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
+            session.id, session.address, session.ty
+        );
+
+        if let Some(pubkey) = session.remote_pubkey.as_ref() {
+            self.sessions.write().insert(session.id, pubkey.peer_id());
+        }
+
+        let (sender, receiver) = mpsc::channel(8);
+        self.discovery_senders.insert(session.id, sender);
+        let substream = Substream::new(context, receiver);
+        match self.discovery_handle.substream_sender.try_send(substream) {
+            Ok(_) => {
+                trace!("Send substream success");
+            }
+            Err(err) => {
+                // TODO: handle channel is full (wait for poll API?)
+                warn!("Send substream failed : {:?}", err);
+            }
+        }
+    }
+
+    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+        let session = context.session;
+        self.sessions.write().remove(&session.id);
+        self.discovery_senders.remove(&session.id);
+        debug!("protocol [discovery] close on session [{}]", session.id);
+    }
+
+    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+        let session = context.session;
+        trace!("[received message]: length={}", data.len());
+
+        if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
+            // TODO: handle channel is full (wait for poll API?)
+            if let Err(err) = sender.try_send(data.to_vec()) {
+                if err.is_full() {
+                    warn!("channel is full");
+                } else if err.is_disconnected() {
+                    warn!("channel is disconnected");
+                } else {
+                    warn!("other channel error: {:?}", err);
+                }
+                self.discovery_senders.remove(&session.id);
+            }
+        }
+    }
+}
+
+pub struct DiscoveryAddressManager {
+    network_state: Arc<NetworkState>,
+    sessions: Arc<RwLock<HashMap<SessionId, PeerId>>>,
+    discovery_local_address: bool,
+}
+
+impl DiscoveryAddressManager {
+    fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
+        if !self.discovery_local_address {
+            let local_or_invalid = multiaddr_to_socketaddr(&addr)
+                .map(|socket_addr| !is_reachable(socket_addr.ip()))
+                .unwrap_or(true);
+            !local_or_invalid
+        } else {
+            true
+        }
+    }
+}
+
+impl AddressManager for DiscoveryAddressManager {
+    fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr) {
+        self.add_new_addrs(session_id, vec![addr])
+    }
+
+    fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
+        if addrs.is_empty() {
+            return;
+        }
+
+        if let Some(_peer_id) = self.sessions.read().get(&session_id) {
+            // TODO: wait for peer store update
+            for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
+                trace!("Add discovered address:{:?}", addr);
+                if let Some(peer_id) = extract_peer_id(&addr) {
+                    self.network_state.with_peer_store_mut(|peer_store| {
+                        if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
+                            debug!(
+                                "Failed to add discoved address to peer_store {:?} {:?}",
+                                err, peer_id
+                            );
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    fn misbehave(&mut self, _session_id: SessionId, _kind: Misbehavior) -> MisbehaveResult {
+        // FIXME:
+        MisbehaveResult::Disconnect
+    }
+
+    fn get_random(&mut self, n: usize) -> Vec<Multiaddr> {
+        let fetch_random_addrs = self
+            .network_state
+            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n));
+        let addrs = fetch_random_addrs
+            .into_iter()
+            .filter_map(|paddr| {
+                if !self.is_valid_addr(&paddr.addr) {
+                    return None;
+                }
+                match paddr.multiaddr() {
+                    Ok(addr) => Some(addr),
+                    Err(err) => {
+                        error!("return discovery addresses error: {:?}", err);
+                        None
+                    }
+                }
+            })
+            .collect();
+        trace!("discovery send random addrs: {:?}", addrs);
+        addrs
     }
 }

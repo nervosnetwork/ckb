@@ -1,4 +1,5 @@
 use super::{Worker, WorkerMessage};
+use ckb_hash::blake2b_256;
 use ckb_logger::{debug, error};
 use ckb_pow::pow_message;
 use ckb_types::{packed::Byte32, U256};
@@ -12,6 +13,13 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EaglesongSimpleConfig {
     pub threads: usize,
+    #[serde(default)]
+    pub extra_hash_function: Option<ExtraHashFunction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExtraHashFunction {
+    Blake2b,
 }
 
 pub struct EaglesongSimple {
@@ -21,10 +29,15 @@ pub struct EaglesongSimple {
     nonce_tx: Sender<(Byte32, u128)>,
     worker_rx: Receiver<WorkerMessage>,
     nonces_found: u128,
+    pub(crate) extra_hash_function: Option<ExtraHashFunction>,
 }
 
 impl EaglesongSimple {
-    pub fn new(nonce_tx: Sender<(Byte32, u128)>, worker_rx: Receiver<WorkerMessage>) -> Self {
+    pub fn new(
+        nonce_tx: Sender<(Byte32, u128)>,
+        worker_rx: Receiver<WorkerMessage>,
+        extra_hash_function: Option<ExtraHashFunction>,
+    ) -> Self {
         Self {
             start: true,
             pow_hash: None,
@@ -32,6 +45,7 @@ impl EaglesongSimple {
             nonce_tx,
             worker_rx,
             nonces_found: 0,
+            extra_hash_function,
         }
     }
 
@@ -55,8 +69,14 @@ impl EaglesongSimple {
     fn solve(&mut self, pow_hash: &Byte32, nonce: u128) {
         debug!("solve, pow_hash {}, nonce {:?}", pow_hash, nonce);
         let input = pow_message(&pow_hash, nonce);
-        let mut output = [0u8; 32];
-        eaglesong(&input, &mut output);
+        let output = {
+            let mut output_tmp = [0u8; 32];
+            eaglesong(&input, &mut output_tmp);
+            match self.extra_hash_function {
+                Some(ExtraHashFunction::Blake2b) => blake2b_256(&output_tmp),
+                None => output_tmp,
+            }
+        };
         if U256::from_big_endian(&output[..]).expect("bound checked") <= self.target {
             debug!(
                 "send new found nonce, pow_hash {}, nonce {:?}",

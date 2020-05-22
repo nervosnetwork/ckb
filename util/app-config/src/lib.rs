@@ -129,12 +129,14 @@ impl Setup {
     pub fn prof<'m>(self, matches: &ArgMatches<'m>) -> Result<ProfArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
+        let tmp_target = value_t!(matches, cli::ARG_TMP_TARGET, PathBuf)?;
         let from = value_t!(matches, cli::ARG_FROM, u64)?;
         let to = value_t!(matches, cli::ARG_TO, u64)?;
 
         Ok(ProfArgs {
             config,
             consensus,
+            tmp_target,
             from,
             to,
         })

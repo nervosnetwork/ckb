@@ -8,6 +8,8 @@ use crate::{
 };
 
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
 
 #[test]
 fn test_peer_store_persistent() {
@@ -71,7 +73,7 @@ fn test_peer_store_persistent() {
     // dump and load
     let dir = tempfile::tempdir().unwrap();
     peer_store.dump_to_dir(&dir.path()).unwrap();
-    let peer_store2 = PeerStore::load_from_dir(&dir.path()).unwrap();
+    let peer_store2 = PeerStore::load_from_dir_or_default(&dir.path());
 
     // check addr manager
     let addr_manager2 = peer_store2.addr_manager();
@@ -94,4 +96,51 @@ fn test_peer_store_persistent() {
             .collect::<HashSet<_>>(),
         vec![ban1, ban2, ban3].into_iter().collect::<HashSet<_>>()
     );
+}
+
+#[test]
+fn test_peer_store_load_from_dir_should_not_panic() {
+    // should return an empty store when dir does not exist
+    {
+        let peer_store = PeerStore::load_from_dir_or_default("/tmp/a_directory_does_not_exist");
+        assert_eq!(0, peer_store.addr_manager().count());
+        assert_eq!(0, peer_store.ban_list().get_banned_addrs().len());
+    }
+
+    // should return an empty store when AddrManager db is empty or broken
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("addr_manager.db");
+        let mut file = File::create(file_path).unwrap();
+        writeln!(file).unwrap();
+        let peer_store = PeerStore::load_from_dir_or_default(dir);
+        assert_eq!(0, peer_store.addr_manager().count());
+    }
+
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("addr_manager.db");
+        let mut file = File::create(file_path).unwrap();
+        writeln!(file, "broken").unwrap();
+        let peer_store = PeerStore::load_from_dir_or_default(dir);
+        assert_eq!(0, peer_store.addr_manager().count());
+    }
+
+    // should return an empty store when BanList db is empty or broken
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("ban_list.db");
+        let mut file = File::create(file_path).unwrap();
+        writeln!(file).unwrap();
+        let peer_store = PeerStore::load_from_dir_or_default(dir);
+        assert_eq!(0, peer_store.ban_list().get_banned_addrs().len());
+    }
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("ban_list.db");
+        let mut file = File::create(file_path).unwrap();
+        writeln!(file, "broken").unwrap();
+        let peer_store = PeerStore::load_from_dir_or_default(dir);
+        assert_eq!(0, peer_store.ban_list().get_banned_addrs().len());
+    }
 }

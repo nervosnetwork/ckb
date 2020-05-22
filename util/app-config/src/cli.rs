@@ -41,6 +41,7 @@ pub const ARG_NETWORK: &str = "network";
 pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
 pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
 pub const ARG_LOGS: &str = "logs";
+pub const ARG_TMP_TARGET: &str = "tmp-target";
 
 const GROUP_BA: &str = "ba";
 
@@ -174,20 +175,23 @@ pub(crate) fn stats() -> App<'static, 'static> {
 fn prof() -> App<'static, 'static> {
     SubCommand::with_name(CMD_PROF)
         .about(
-            "Profiles ckb node\n\
+            "Profiles ckb process block\n\
              Example: Process 1..500 blocks then output flagme graph\n\
-             cargo flamegraph --bin ckb -- -C <dir> prof 1 500",
+             cargo flamegraph --bin ckb -- -C <dir> prof <TMP> 1 500",
         )
+        .arg(Arg::with_name(ARG_TMP_TARGET).required(true).index(1).help(
+            "Specifies a target path, prof command make a temporary directory inside of target and the directory will be automatically deleted when finished",
+        ))
         .arg(
             Arg::with_name(ARG_FROM)
                 .required(true)
-                .index(1)
+                .index(2)
                 .help("Specifies from block number."),
         )
         .arg(
             Arg::with_name(ARG_TO)
                 .required(true)
-                .index(2)
+                .index(3)
                 .help("Specifies to block number."),
         )
 }

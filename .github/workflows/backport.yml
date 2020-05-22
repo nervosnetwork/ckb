@@ -1,0 +1,27 @@
+name: Backport
+on:
+  push:
+    branches: [ develop ]
+
+jobs:
+  backport:
+    runs-on: ubuntu-18.04
+    name: Backport
+    steps:
+      - name: Create Reminder for Bug Fixings
+        run: |
+          curl \
+            --url https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }} \
+            --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+          | jq -r .commit.message \
+          | grep '\([0-9]\+: \)\?fix: ' \
+          | while IFS= read -r line; do
+            title="$(echo "Backport Reminder: $line" | jq -R -c .)"
+            curl --request POST \
+              --url https://api.github.com/repos/${{ github.repository }}/issues \
+              --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+              --data '{
+                "title": '"$title"',
+                "body": "This issue was automatically created by the GitHub Action workflow **${{ github.workflow }}**. \n\n The commit hash was: ${{ github.sha }}."
+              }'
+          done

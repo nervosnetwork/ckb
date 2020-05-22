@@ -28,6 +28,7 @@ pub struct RunArgs {
 pub struct ProfArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
+    pub tmp_target: PathBuf,
     pub from: u64,
     pub to: u64,
 }

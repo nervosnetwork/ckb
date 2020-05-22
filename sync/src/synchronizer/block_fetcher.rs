@@ -1,21 +1,21 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
-use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+use crate::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
 
-pub struct BlockFetcher {
-    synchronizer: Synchronizer,
+pub struct BlockFetcher<'a> {
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
 }
 
-impl BlockFetcher {
-    pub fn new(synchronizer: Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
+impl<'a> BlockFetcher<'a> {
+    pub fn new(synchronizer: &'a Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
         let active_chain = synchronizer.shared.active_chain();
         BlockFetcher {
             peer,
@@ -29,7 +29,7 @@ impl BlockFetcher {
         let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
         // Can't download any more from this peer
-        inflight.peer_inflight_count(self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
+        inflight.peer_can_fetch_count(self.peer) == 0
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -69,7 +69,7 @@ impl BlockFetcher {
         Some(fixed_last_common_header)
     }
 
-    pub fn fetch(self) -> Option<Vec<packed::Byte32>> {
+    pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
         trace!("[block downloader] BlockFetcher process");
 
         if self.reached_inflight_limit() {
@@ -126,16 +126,16 @@ impl BlockFetcher {
         debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
         let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
-        let count =
-            MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.peer_inflight_count(self.peer));
-        let mut fetch = Vec::with_capacity(count);
         let mut start = fixed_last_common_header.number() + 1;
+        let end = min(best_known_header.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let n_fetch = min(
+            end.saturating_sub(start) as usize + 1,
+            inflight.peer_can_fetch_count(self.peer),
+        );
+        let mut fetch = Vec::with_capacity(n_fetch);
 
-        while fetch.len() < count && start <= best_known_header.number() {
-            let span = min(
-                best_known_header.number() - start + 1,
-                (count - fetch.len()) as u64,
-            );
+        while fetch.len() < n_fetch && start <= end {
+            let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
             let mut header = self
@@ -146,16 +146,15 @@ impl BlockFetcher {
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
-                // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
-                // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-                let stored = self
-                    .active_chain
-                    .contains_block_status(&hash, BlockStatus::BLOCK_STORED);
-                if stored {
+
+                let status = self.active_chain.get_block_status(&hash);
+                if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     break;
-                } else if inflight.insert(self.peer, hash) {
+                } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
+                    // Do not download repeatedly
+                } else if inflight.insert(self.peer, (header.number(), hash).into()) {
                     fetch.push(header)
                 }
 
@@ -172,6 +171,33 @@ impl BlockFetcher {
 
         // The headers in `fetch` may be unordered. Sort them by number.
         fetch.sort_by_key(|header| header.number());
-        Some(fetch.iter().map(core::HeaderView::hash).collect())
+
+        let tip = self.active_chain.tip_number();
+        let should_mark = fetch.last().map_or(false, |header| {
+            header.number().saturating_sub(crate::CHECK_POINT_WINDOW) > tip
+        });
+        if should_mark {
+            inflight.mark_slow_block(tip);
+        }
+
+        if fetch.is_empty() {
+            debug!(
+                "[block fetch empty] fixed_last_common_header = {} \
+                best_known_header = {}, tip = {}, inflight_len = {}, \
+                inflight_state = {:?}",
+                fixed_last_common_header.number(),
+                best_known_header.number(),
+                tip,
+                inflight.total_inflight_count(),
+                *inflight
+            )
+        }
+
+        Some(
+            fetch
+                .chunks(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER)
+                .map(|headers| headers.iter().map(core::HeaderView::hash).collect())
+                .collect(),
+        )
     }
 }

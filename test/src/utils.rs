@@ -17,7 +17,7 @@ use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
-use tempfile::tempdir;
+use tempfile;
 
 pub const FLAG_SINCE_RELATIVE: u64 =
     0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
@@ -217,7 +217,14 @@ pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
 /// We use `tempdir` only for generating a random path, and expect the corresponding directory
 /// that `tempdir` creates be deleted when go out of this function.
 pub fn temp_path() -> String {
-    let tempdir = tempdir().expect("create tempdir failed");
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("ckb-it-");
+    let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
+        builder.tempdir_in(val)
+    } else {
+        builder.tempdir()
+    }
+    .expect("create tempdir failed");
     let path = tempdir.path().to_str().unwrap().to_owned();
     tempdir.close().expect("close tempdir failed");
     path

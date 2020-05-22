@@ -2,7 +2,6 @@ use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
 use crate::types::InflightBlocks;
-use crate::MAX_PEERS_PER_BLOCK;
 use crate::{NetworkProtocol, Status, StatusCode};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
@@ -201,7 +200,7 @@ fn test_already_in_flight() {
 
     // Already in flight
     let mut in_flight_blocks = InflightBlocks::default();
-    in_flight_blocks.insert(peer_index, block.header().hash());
+    in_flight_blocks.compact_reconstruct(peer_index, block.header().hash());
     *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
 
     let compact_block_process = CompactBlockProcess::new(
@@ -349,8 +348,8 @@ fn test_inflight_blocks_reach_limit() {
     // in_flight_blocks is full
     {
         let mut in_flight_blocks = InflightBlocks::default();
-        for i in 0..=MAX_PEERS_PER_BLOCK {
-            in_flight_blocks.insert(i.into(), block.header().hash());
+        for i in 0..=2 {
+            in_flight_blocks.compact_reconstruct(i.into(), block.header().hash());
         }
         *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
     }
