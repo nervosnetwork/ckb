@@ -1,16 +1,21 @@
+use crate::NetworkProtocol;
 use ckb_logger::{debug, metric};
-use ckb_network::{CKBProtocolContext, Error, PeerIndex};
+use ckb_network::{CKBProtocolContext, Error, PeerIndex, ProtocolId};
 use ckb_types::packed::{BlockTransactions, GetHeaders, UncleBlock};
 use ckb_types::{
     core,
     packed::{
         BlockProposal, Byte32, GetBlockProposal, GetBlockTransactions, GetBlocks,
         GetRelayTransactions, Header, InIBD, ProposalShortId, RelayMessage, RelayTransaction,
-        RelayTransactions, SendBlock, SendHeaders, SyncMessage, Transaction,
+        RelayTransactions, SendBlock, SendHeaders, SyncMessage, Time, Transaction,
     },
     prelude::*,
 };
 use fail::fail_point;
+
+const SYNC_PROTOCOL_ID: ProtocolId = ProtocolId::new(NetworkProtocol::SYNC as usize);
+const RELAY_PROTOCOL_ID: ProtocolId = ProtocolId::new(NetworkProtocol::RELAY as usize);
+const TIME_PROTOCOL_ID: ProtocolId = ProtocolId::new(NetworkProtocol::TIME as usize);
 
 pub fn send_getheaders(
     nc: &dyn CKBProtocolContext,
@@ -32,7 +37,7 @@ pub fn send_getheaders(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(SYNC_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_sendheaders(
@@ -52,7 +57,7 @@ pub fn send_sendheaders(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(SYNC_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_getblocks(
@@ -72,7 +77,7 @@ pub fn send_getblocks(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(SYNC_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_sendblock(
@@ -99,7 +104,7 @@ pub fn send_sendblock(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(SYNC_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_inibd(nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Result<(), Error> {
@@ -114,7 +119,7 @@ pub fn send_inibd(nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Result<(), Er
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(SYNC_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_getblockproposal(
@@ -144,7 +149,7 @@ pub fn send_getblockproposal(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_blockproposal(
@@ -166,7 +171,7 @@ pub fn send_blockproposal(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_relaytransactions(
@@ -191,7 +196,7 @@ pub fn send_relaytransactions(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_getblocktransactions(
@@ -221,7 +226,7 @@ pub fn send_getblocktransactions(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_blocktransactions(
@@ -254,7 +259,7 @@ pub fn send_blocktransactions(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 pub fn send_getrelaytransactions(
@@ -279,7 +284,14 @@ pub fn send_getrelaytransactions(
         Ok(())
     });
 
-    nc.send_message_to(peer, message.as_bytes())
+    nc.send_message(RELAY_PROTOCOL_ID, peer, message.as_bytes())
+}
+
+pub fn send_time(nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Result<(), Error> {
+    let now = faketime::unix_time_as_millis();
+    let content = Time::new_builder().timestamp(now.pack()).build();
+    let message = content;
+    nc.send_message(TIME_PROTOCOL_ID, peer, message.as_bytes())
 }
 
 fn log_sent_sync_metric(item_name: &str) {

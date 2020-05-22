@@ -433,11 +433,7 @@ fn test_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc
-        .as_ref()
-        .sent_messages_to
-        .borrow()
-        .contains(&(peer_index, data)));
+    assert!(nc.has_sent(NetworkProtocol::RELAY.into(), peer_index, data));
 
     // insert inflight proposal
     assert!(relayer
@@ -454,11 +450,7 @@ fn test_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send proposal request
-    assert!(nc
-        .as_ref()
-        .sent_messages_to
-        .borrow()
-        .contains(&(peer_index, data)));
+    assert!(nc.has_sent(NetworkProtocol::RELAY.into(), peer_index, data));
 }
 
 #[test]
@@ -668,9 +660,5 @@ fn test_collision() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc
-        .as_ref()
-        .sent_messages_to
-        .borrow()
-        .contains(&(peer_index, data)));
+    assert!(nc.has_sent(NetworkProtocol::RELAY.into(), peer_index, data));
 }
