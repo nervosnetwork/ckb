@@ -1,3 +1,27 @@
+# [v0.32.0](https://github.com/nervosnetwork/ckb/compare/v0.31.1...v0.32.0) (2020-05-22)
+
+### Features
+
+* #2002: Avoid explosion of disordering blocks based on BLOCK_DOWNLOAD_WINDOW (@keroro520)
+* #2018: Prof command support specify execution path (@zhangsoledad)
+* #1999: Optimize block download tasks with a simple task scheduler (@driftluo)
+* #2069: Reset testnet aggron to v4 (@doitian)
+* #2084: Expose methods so we can use CKB as a library (@xxuejie)
+
+### Bug Fixes
+
+* #2039: Use wrong function to get a slice to decode ping messages (@yangby-cryptape)
+* #2035: Remove unsupport configurations in Cargo.toml (@yangby-cryptape)
+* #2054: Fix a typo of a thread name (@yangby-cryptape)
+* #2074: Orphan block pool deadlock (@quake)
+* #2075: Fix collaboration issues between two protocol (@driftluo)
+* #2063: Should use an empty peer store when failed to load data from file (@quake)
+
+### Improvements
+
+* #1968: Simplify network protocols (@TheWaWaR)
+* #2006: Cache system cell for resolve deps (@zhangsoledad)
+
 # [v0.31.1](https://github.com/nervosnetwork/ckb/compare/v0.31.0...v0.31.1) (2020-04-23)
 
 ### Bug Fixes
