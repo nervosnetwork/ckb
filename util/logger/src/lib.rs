@@ -157,14 +157,31 @@ fn enable_ansi_support() {
 #[cfg(not(target_os = "windows"))]
 fn enable_ansi_support() {}
 
+// Parse crate name leniently in logger filter: convert "-" to "_".
+fn convert_compatible_crate_name(spec: &str) -> String {
+    let mut parts = spec.splitn(2, '/');
+    match (parts.next(), parts.next()) {
+        (Some(mods), Some(filter)) => [&mods.replace("-", "_"), filter].join("/"),
+        _ => spec.replace("-", "_"),
+    }
+}
+
+#[test]
+fn test_convert_compatible_crate_name() {
+    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace/*[0-9]";
+    let expected = "info,a_b=trace,c_d_e_f=warn,g_h_i=debug,jkl=trace/*[0-9]";
+    let result = convert_compatible_crate_name(&spec);
+    assert_eq!(&result, &expected);
+}
+
 impl Logger {
     fn new(config: Config) -> Logger {
         let mut builder = Builder::new();
 
         if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
-            builder.parse(env_filter);
+            builder.parse(&convert_compatible_crate_name(env_filter));
         } else if let Some(ref config_filter) = config.filter {
-            builder.parse(config_filter);
+            builder.parse(&convert_compatible_crate_name(config_filter));
         }
 
         let (sender, receiver) = unbounded();
