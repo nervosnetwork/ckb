@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::BLOCK_DOWNLOAD_WINDOW;
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
@@ -158,8 +158,8 @@ impl<'a> BlockFetcher<'a> {
                 "[block fetch empty] fixed_last_common_header = {} \
                 best_known_header = {}, tip = {}, inflight_len = {}, \
                 inflight_state = {:?}",
-                fixed_last_common_header.number(),
-                best_known_header.number(),
+                last_common.number(),
+                best_known.number(),
                 tip,
                 inflight.total_inflight_count(),
                 *inflight

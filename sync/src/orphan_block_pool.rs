@@ -115,7 +115,7 @@ mod tests {
         let mut hashes = Vec::new();
         for _ in 1..1024 {
             let new_block = gen_block(&header);
-            pool.insert(PeerIndex::new(0usize), new_block.clone());
+            pool.insert(new_block.clone());
             header = new_block.header();
             hashes.push(header.hash());
         }
