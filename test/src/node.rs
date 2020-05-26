@@ -276,7 +276,13 @@ impl Node {
     }
 
     pub fn generate_blocks(&self, blocks_num: usize) -> Vec<Byte32> {
-        (0..blocks_num).map(|_| self.generate_block()).collect()
+        (0..blocks_num).map(|i| {
+            // sleep 1 sec for each 20 blocks, avoids relay message rate limiter
+            if (i + 1) % 20 == 0 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            self.generate_block()
+        }).collect()
     }
 
     // generate a new block and submit it through rpc.
