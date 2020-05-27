@@ -99,11 +99,18 @@ impl Relayer {
         peer: PeerIndex,
         message: packed::RelayMessageUnionReader<'r>,
     ) -> Status {
-        if self
-            .rate_limiter
-            .lock()
-            .check((peer, message.item_id()))
-            .is_err()
+        // CompactBlock will be verified by POW, it's OK to skip rate limit checking.
+        let should_check_rate = match message {
+            packed::RelayMessageUnionReader::CompactBlock(_) => false,
+            _ => true,
+        };
+
+        if should_check_rate
+            && self
+                .rate_limiter
+                .lock()
+                .check((peer, message.item_id()))
+                .is_err()
         {
             return StatusCode::TooManyRequests.with_context(message.item_name());
         }
