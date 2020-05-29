@@ -96,6 +96,9 @@ pub enum StatusCode {
     /// Cannot locate the common blocks based on the GetHeaders
     GetHeadersMissCommonAncestors = 414,
 
+    /// Generic rate limit error
+    TooManyRequests = 429,
+
     ///////////////////////////////////
     //      Warning 5xx              //
     ///////////////////////////////////
