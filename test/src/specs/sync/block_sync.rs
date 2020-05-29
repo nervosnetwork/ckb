@@ -8,7 +8,7 @@ use ckb_network::{bytes::Bytes, PeerIndex};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
     core::BlockView,
-    packed::{self, Byte32, SyncMessage},
+    packed::{self, Byte32, GetBlocks, SyncMessage},
     prelude::*,
 };
 use std::time::Duration;
@@ -278,9 +278,14 @@ impl Spec for BlockSyncOrphanBlocks {
         });
 
         // Wait for block fetch timer
-        let (_, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
+        net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == GetBlocks::NAME)
+                    .unwrap_or(false)
+            },
+            "Test node should receive GetBlocks message from node0",
+        );
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
@@ -343,9 +348,14 @@ impl Spec for BlockSyncRelayerCollaboration {
         });
 
         // Wait for block fetch timer
-        let (_, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
+        net.should_receive(
+            |data: &Bytes| {
+                SyncMessage::from_slice(&data)
+                    .map(|message| message.to_enum().item_name() == GetBlocks::NAME)
+                    .unwrap_or(false)
+            },
+            "Test node should receive GetBlocks message from node0",
+        );
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
