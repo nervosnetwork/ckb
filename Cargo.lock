@@ -326,6 +326,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-async-runtime"
+version = "0.33.0-pre"
+dependencies = [
+ "crossbeam-channel",
+ "tokio 0.2.20",
+]
+
+[[package]]
 name = "ckb-benches"
 version = "0.33.0-pre"
 dependencies = [
@@ -523,17 +531,6 @@ dependencies = [
  "proc-macro2 0.4.27",
  "quote 0.6.11",
  "syn 0.15.29",
-]
-
-[[package]]
-name = "ckb-future-executor"
-version = "0.33.0-pre"
-dependencies = [
- "crossbeam-channel",
- "futures 0.1.29",
- "num_cpus",
- "tokio 0.1.22",
- "tokio-executor",
 ]
 
 [[package]]
@@ -939,6 +936,7 @@ dependencies = [
  "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
+ "tokio 0.2.20",
 ]
 
 [[package]]
@@ -1024,11 +1022,11 @@ dependencies = [
 name = "ckb-tx-pool"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-error",
  "ckb-fee-estimator",
- "ckb-future-executor",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-reward-calculator",
@@ -1041,10 +1039,9 @@ dependencies = [
  "crossbeam-channel",
  "failure",
  "faketime",
- "futures 0.1.29",
  "lru-cache",
  "serde",
- "tokio 0.1.22",
+ "tokio 0.2.20",
 ]
 
 [[package]]
@@ -1080,12 +1077,12 @@ dependencies = [
 name = "ckb-verification"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
- "ckb-future-executor",
  "ckb-logger",
  "ckb-pow",
  "ckb-resource",
@@ -1100,11 +1097,10 @@ dependencies = [
  "enum-display-derive",
  "failure",
  "faketime",
- "futures 0.1.29",
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.1.22",
+ "tokio 0.2.20",
 ]
 
 [[package]]
@@ -4140,6 +4136,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05c1d570eb1a36f0345a5ce9c6c6e665b70b73d11236912c0b477616aeec47b1"
 dependencies = [
  "bytes 0.5.4",
+ "fnv",
  "futures-core",
  "iovec",
  "lazy_static",
@@ -4148,6 +4145,7 @@ dependencies = [
  "num_cpus",
  "pin-project-lite",
  "slab",
+ "tokio-macros",
 ]
 
 [[package]]
@@ -4212,6 +4210,17 @@ dependencies = [
  "bytes 0.4.12",
  "futures 0.1.29",
  "log 0.4.8",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
+dependencies = [
+ "proc-macro2 1.0.8",
+ "quote 1.0.6",
+ "syn 1.0.14",
 ]
 
 [[package]]

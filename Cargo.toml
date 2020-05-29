@@ -30,7 +30,7 @@ members = [
     "util/stop-handler",
     "util/occupied-capacity",
     "util/types",
-    "util/future-executor",
+    "util/runtime",
     "util/jsonrpc-types",
     "util/fee-estimator",
     "script/data-loader",

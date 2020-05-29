@@ -9,7 +9,7 @@ use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_tx_pool::{
-    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
+    BlockAssemblerConfig, TokioRwLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
 };
 use ckb_types::{
     core::{EpochExt, HeaderView},
@@ -25,7 +25,7 @@ pub struct Shared {
     pub(crate) store: Arc<ChainDB>,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
-    pub(crate) txs_verify_cache: PollLock<TxVerifyCache>,
+    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
 }
@@ -48,8 +48,9 @@ impl Shared {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
 
-        let txs_verify_cache =
-            PollLock::new(TxVerifyCache::new(tx_pool_config.max_verify_cache_size));
+        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
+            tx_pool_config.max_verify_cache_size,
+        )));
         let snapshot = Arc::new(Snapshot::new(
             tip_header,
             total_difficulty,
@@ -64,7 +65,7 @@ impl Shared {
             tx_pool_config,
             Arc::clone(&snapshot),
             block_assembler_config,
-            txs_verify_cache.clone(),
+            Arc::clone(&txs_verify_cache),
             Arc::clone(&snapshot_mgr),
         );
 
@@ -151,8 +152,8 @@ impl Shared {
         &self.tx_pool_controller
     }
 
-    pub fn txs_verify_cache(&self) -> PollLock<TxVerifyCache> {
-        self.txs_verify_cache.clone()
+    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
+        Arc::clone(&self.txs_verify_cache)
     }
 
     pub fn notify_controller(&self) -> &NotifyController {

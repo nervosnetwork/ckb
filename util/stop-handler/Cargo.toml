@@ -10,3 +10,4 @@ parking_lot = "=0.7.1"
 crossbeam-channel = "0.3"
 ckb-logger = { path = "../logger" }
 futures = "0.1"
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }

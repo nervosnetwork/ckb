@@ -1,5 +1,6 @@
 use ckb_error::{Error, ErrorKind};
 use failure::Fail;
+use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum SubmitTxError {
@@ -24,4 +25,16 @@ pub enum BlockAssemblerError {
     InvalidParams(String),
     #[fail(display = "Disabled")]
     Disabled,
+}
+
+#[derive(Fail, Debug)]
+#[fail(display = "TrySendError {}.", _0)]
+pub struct TrySendError(String);
+
+pub fn handle_try_send_error<T>(error: TokioTrySendError<T>) -> (T, TrySendError) {
+    let e = TrySendError(format!("{}", error));
+    let m = match error {
+        TokioTrySendError::Full(t) | TokioTrySendError::Closed(t) => t,
+    };
+    (m, e)
 }
