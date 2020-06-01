@@ -16,7 +16,7 @@ use p2p::{
 
 mod protocol;
 
-use crate::{network::FEELER_PROTOCOL_ID, NetworkState, PeerIdentifyInfo};
+use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols};
 use ckb_types::{packed, prelude::*};
 
 use protocol::IdentifyMessage;
@@ -415,7 +415,7 @@ impl Callback for IdentifyCallback {
                     {
                         let _ = context.open_protocols(
                             context.session.id,
-                            TargetProtocol::Single(FEELER_PROTOCOL_ID.into()),
+                            TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
                         );
                     } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
@@ -423,7 +423,7 @@ impl Callback for IdentifyCallback {
                         // The remote end can support all local protocols.
                         let protos = self
                             .network_state
-                            .get_protocol_ids(|id| id != FEELER_PROTOCOL_ID.into());
+                            .get_protocol_ids(|id| id != SupportProtocols::Feeler.protocol_id());
 
                         let _ = context
                             .open_protocols(context.session.id, TargetProtocol::Multi(protos));

@@ -8,10 +8,7 @@
 /// 2. feeler: only open feeler protocol is open.
 ///
 /// Other protocols will be closed after a timeout.
-use crate::{
-    network::{disconnect_with_message, FEELER_PROTOCOL_ID},
-    NetworkState, Peer, ProtocolId,
-};
+use crate::{network::disconnect_with_message, NetworkState, Peer, ProtocolId, SupportProtocols};
 use ckb_logger::{debug, warn};
 use futures::{Future, Stream};
 use p2p::service::ServiceControl;
@@ -109,7 +106,7 @@ impl ProtocolTypeCheckerService {
     fn opened_procotol_type(&self, peer: &Peer) -> Result<ProtocolType, ProtocolTypeError> {
         if peer
             .protocols
-            .contains_key(&ProtocolId::new(FEELER_PROTOCOL_ID))
+            .contains_key(&SupportProtocols::Feeler.protocol_id())
         {
             Ok(ProtocolType::Feeler)
         } else if self

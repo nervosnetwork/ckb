@@ -2,8 +2,8 @@ use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
 use crate::types::InflightBlocks;
-use crate::{NetworkProtocol, Status, StatusCode};
-use ckb_network::PeerIndex;
+use crate::{Status, StatusCode};
+use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
@@ -133,7 +133,11 @@ fn test_unknow_parent() {
     // send_getheaders_to_peer
     assert_eq!(
         nc.as_ref().sent_messages,
-        RefCell::new(vec![(NetworkProtocol::SYNC.into(), peer_index, data)])
+        RefCell::new(vec![(
+            SupportProtocols::Sync.protocol_id(),
+            peer_index,
+            data
+        )])
     );
 }
 

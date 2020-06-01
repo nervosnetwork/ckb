@@ -22,6 +22,7 @@ use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, metric, trace, warn};
 use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
+    SupportProtocols,
 };
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
@@ -80,7 +81,7 @@ impl BlockFetchCMD {
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
         if let Err(err) = nc.send_message_to(
             peer,
-            crate::NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             message.as_bytes(),
         ) {
             debug!("synchronizer send GetBlocks error: {:?}", err);

@@ -5,15 +5,14 @@ use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
-    BlockingFlag, CKBProtocol, DefaultExitHandler, ExitHandler, NetworkService, NetworkState,
-    MAX_FRAME_LENGTH_ALERT, MAX_FRAME_LENGTH_RELAY, MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
+    CKBProtocol, DefaultExitHandler, ExitHandler, NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
-use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
@@ -84,54 +83,30 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let alert_notifier = Arc::clone(alert_relayer.notifier());
     let alert_verifier = Arc::clone(alert_relayer.verifier());
 
-    let mut no_blocking_flag = BlockingFlag::default();
-    no_blocking_flag.disable_all();
-
-    let mut blocking_recv_flag = BlockingFlag::default();
-    blocking_recv_flag.disable_connected();
-    blocking_recv_flag.disable_disconnected();
-    blocking_recv_flag.disable_notify();
-
     let protocols = vec![
-        CKBProtocol::new(
-            "syn".to_string(),
-            NetworkProtocol::SYNC.into(),
-            &["1".to_string()][..],
-            MAX_FRAME_LENGTH_SYNC,
+        CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Sync,
             Box::new(synchronizer.clone()),
             Arc::clone(&network_state),
-            blocking_recv_flag,
         ),
-        CKBProtocol::new(
-            "rel".to_string(),
-            NetworkProtocol::RELAY.into(),
-            &["1".to_string()][..],
-            MAX_FRAME_LENGTH_RELAY,
+        CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Relay,
             Box::new(relayer),
             Arc::clone(&network_state),
-            blocking_recv_flag,
         ),
-        CKBProtocol::new(
-            "tim".to_string(),
-            NetworkProtocol::TIME.into(),
-            &["1".to_string()][..],
-            MAX_FRAME_LENGTH_TIME,
+        CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Time,
             Box::new(net_timer),
             Arc::clone(&network_state),
-            no_blocking_flag,
         ),
-        CKBProtocol::new(
-            "alt".to_string(),
-            NetworkProtocol::ALERT.into(),
-            &["1".to_string()][..],
-            MAX_FRAME_LENGTH_ALERT,
+        CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Alert,
             Box::new(alert_relayer),
             Arc::clone(&network_state),
-            no_blocking_flag,
         ),
     ];
 
-    let required_protocol_ids = vec![NetworkProtocol::SYNC.into()];
+    let required_protocol_ids = vec![SupportProtocols::Sync.protocol_id()];
 
     let network_controller = NetworkService::new(
         Arc::clone(&network_state),

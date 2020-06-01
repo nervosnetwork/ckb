@@ -2,9 +2,8 @@ use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
-use ckb_network::NetworkController;
+use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
-use ckb_sync::NetworkProtocol;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use faketime::unix_time_as_millis;
@@ -105,7 +104,7 @@ impl MinerRpc for MinerRpcImpl {
             let message = packed::RelayMessage::new_builder().set(content).build();
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(NetworkProtocol::RELAY.into(), message.as_bytes())
+                .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }

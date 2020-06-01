@@ -1,7 +1,8 @@
 use super::utils::wait_get_blocks;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
-use ckb_sync::{NetworkProtocol, BLOCK_DOWNLOAD_TIMEOUT};
+use ckb_network::SupportProtocols;
+use ckb_sync::BLOCK_DOWNLOAD_TIMEOUT;
 use ckb_types::core::HeaderView;
 use log::info;
 use std::time::Instant;
@@ -30,7 +31,11 @@ impl Spec for GetBlocksTimeout {
         net.connect(&node1);
         let (pi, _, _) = net.receive();
         info!("Send Headers to node1");
-        net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
+        net.send(
+            SupportProtocols::Sync.protocol_id(),
+            pi,
+            build_headers(&headers),
+        );
         info!("Receive GetBlocks from node1");
 
         let block_download_timeout_secs = BLOCK_DOWNLOAD_TIMEOUT / 1000;
