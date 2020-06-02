@@ -108,3 +108,20 @@ table WitnessArgs {
     input_type:             BytesOpt,          // Type args for input
     output_type:            BytesOpt,          // Type args for output
 }
+
+
+/* Types for CellDB */
+
+table CellEntry {
+    output:                CellOutput,
+    block_hash:            Byte32,
+    block_number:          Uint64,
+    block_epoch:           Uint64,
+    index:                 Uint32,
+    data_size:             Uint64,
+}
+
+table CellDataEntry {
+    output_data:           Bytes,
+    output_data_hash:      Byte32,
+}

@@ -16,7 +16,7 @@ use ckb_types::{
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 
-pub const PAGE_SIZE: u64 = 100;
+// pub const PAGE_SIZE: u64 = 100;
 
 #[rpc(server)]
 pub trait ChainRpc {
@@ -217,74 +217,69 @@ impl ChainRpc for ChainRpcImpl {
     // TODO: we need to build a proper index instead of scanning every time
     fn get_cells_by_lock_hash(
         &self,
-        lock_hash: H256,
-        from: BlockNumber,
-        to: BlockNumber,
+        _lock_hash: H256,
+        _from: BlockNumber,
+        _to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
-        let lock_hash = lock_hash.pack();
-        let mut result = Vec::new();
-        let snapshot = self.shared.snapshot();
-        let from = from.into();
-        let to = to.into();
-        if from > to {
-            return Err(RPCError::invalid_params(format!(
-                "Expected from <= to in params[0], got from={:#x} to={:#x}",
-                from, to
-            )));
-        } else if to - from > PAGE_SIZE {
-            return Err(RPCError::invalid_params(format!(
-                "Expected to - from <= {} in params[0], got {}",
-                PAGE_SIZE,
-                to - from,
-            )));
-        }
+        unimplemented!("remove get_tx_meta");
+        // let lock_hash = lock_hash.pack();
+        // let mut result = Vec::new();
+        // let snapshot = self.shared.snapshot();
+        // let from = from.into();
+        // let to = to.into();
+        // if from > to {
+        //     return Err(RPCError::custom(
+        //         RPCError::Invalid,
+        //         "from greater than to".to_owned(),
+        //     ));
+        // } else if to - from > PAGE_SIZE {
+        //     return Err(RPCError::custom(
+        //         RPCError::Invalid,
+        //         "too large page size".to_owned(),
+        //     ));
+        // }
 
-        for block_number in from..=to {
-            let block_hash = snapshot.get_block_hash(block_number);
-            if block_hash.is_none() {
-                break;
-            }
+        // for block_number in from..=to {
+        //     let block_hash = snapshot.get_block_hash(block_number);
+        //     if block_hash.is_none() {
+        //         break;
+        //     }
 
-            let block_hash = block_hash.unwrap();
-            let block = snapshot.get_block(&block_hash).ok_or_else(|| {
-                let message = format!(
-                    "Chain Index says block #{:#x} is {:#x}, but that block is not in the database",
-                    block_number, block_hash
-                );
-                error!("{}", message);
-                RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
-            })?;
-            for transaction in block.transactions() {
-                if let Some(transaction_meta) = snapshot.get_tx_meta(&transaction.hash()) {
-                    for (i, output) in transaction.outputs().into_iter().enumerate() {
-                        if output.calc_lock_hash() == lock_hash
-                            && transaction_meta.is_dead(i) == Some(false)
-                        {
-                            let out_point = packed::OutPoint::new_builder()
-                                .tx_hash(transaction.hash())
-                                .index(i.pack())
-                                .build();
-                            result.push(CellOutputWithOutPoint {
-                                out_point: out_point.into(),
-                                block_hash: block_hash.unpack(),
-                                capacity: output.capacity().unpack(),
-                                lock: output.lock().clone().into(),
-                                type_: output.type_().to_opt().map(Into::into),
-                                output_data_len: (transaction
-                                    .outputs_data()
-                                    .get(i)
-                                    .expect("verified tx")
-                                    .len()
-                                    as u64)
-                                    .into(),
-                                cellbase: transaction_meta.is_cellbase(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        Ok(result)
+        //     let block_hash = block_hash.unwrap();
+        //     let block = snapshot
+        //         .get_block(&block_hash)
+        //         .ok_or_else(Error::internal_error)?;
+        //     for transaction in block.transactions() {
+        //         if let Some(transaction_meta) = snapshot.get_tx_meta(&transaction.hash()) {
+        //             for (i, output) in transaction.outputs().into_iter().enumerate() {
+        //                 if output.calc_lock_hash() == lock_hash
+        //                     && transaction_meta.is_dead(i) == Some(false)
+        //                 {
+        //                     let out_point = packed::OutPoint::new_builder()
+        //                         .tx_hash(transaction.hash())
+        //                         .index(i.pack())
+        //                         .build();
+        //                     result.push(CellOutputWithOutPoint {
+        //                         out_point: out_point.into(),
+        //                         block_hash: block_hash.unpack(),
+        //                         capacity: output.capacity().unpack(),
+        //                         lock: output.lock().clone().into(),
+        //                         type_: output.type_().to_opt().map(Into::into),
+        //                         output_data_len: (transaction
+        //                             .outputs_data()
+        //                             .get(i)
+        //                             .expect("verified tx")
+        //                             .len()
+        //                             as u64)
+        //                             .into(),
+        //                         cellbase: transaction_meta.is_cellbase(),
+        //                     });
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // Ok(result)
     }
 
     fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
