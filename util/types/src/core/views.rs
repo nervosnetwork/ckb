@@ -186,6 +186,12 @@ impl TransactionView {
             .collect()
     }
 
+    pub fn output_pts_iter(&self) -> impl Iterator<Item = packed::OutPoint> + '_ {
+        let tx_hash = self.hash();
+        (0..self.data().raw().outputs().len())
+            .map(move |x| packed::OutPoint::new(tx_hash.clone(), x as u32))
+    }
+
     pub fn input_pts_iter(&self) -> impl Iterator<Item = packed::OutPoint> {
         self.data()
             .raw()

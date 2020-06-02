@@ -1,6 +1,6 @@
 use crate::db::cf_handle;
 use crate::{internal_error, Col, Result};
-use rocksdb::ops::{DeleteCF, GetCF, PutCF};
+use rocksdb::ops::{DeleteCF, GetCF, Put, PutCF};
 pub use rocksdb::{DBPinnableSlice, DBVector};
 use rocksdb::{
     OptimisticTransaction, OptimisticTransactionDB, OptimisticTransactionSnapshot, ReadOptions,
@@ -21,6 +21,10 @@ impl RocksDBTransaction {
     pub fn put(&self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
+    }
+
+    pub fn put_default(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.inner.put(key, value).map_err(internal_error)
     }
 
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<()> {
