@@ -9,7 +9,7 @@ use lru_cache::LruCache;
 
 pub struct StoreCache {
     pub headers: Mutex<LruCache<Byte32, HeaderView>>,
-    pub cell_data: Mutex<LruCache<(Byte32, u32), (Bytes, Byte32)>>,
+    pub cell_data: Mutex<LruCache<Vec<u8>, (Bytes, Byte32)>>,
     pub block_proposals: Mutex<LruCache<Byte32, ProposalShortIdVec>>,
     pub block_tx_hashes: Mutex<LruCache<Byte32, Vec<Byte32>>>,
     pub block_uncles: Mutex<LruCache<Byte32, UncleBlockVecView>>,

@@ -9,10 +9,7 @@ use ckb_db::{
     Col, DBPinnableSlice, RocksDB,
 };
 use ckb_error::Error;
-use ckb_types::{
-    core::{BlockExt, TransactionMeta},
-    prelude::*,
-};
+use ckb_types::{core::BlockExt, packed, prelude::*};
 use std::sync::Arc;
 
 pub struct ChainDB {
@@ -82,31 +79,67 @@ impl ChainDB {
             txs_fees: vec![],
         };
 
-        let block_number = genesis.number();
-        let epoch_with_fraction = genesis.epoch();
-        let block_hash = genesis.hash();
+        let transactions = genesis.transactions();
+        let cells = transactions
+            .iter()
+            .enumerate()
+            .map(move |(tx_index, tx)| {
+                let tx_hash = tx.hash();
+                let block_hash = genesis.header().hash();
+                let block_number = genesis.header().number();
+                let block_epoch = genesis.header().epoch();
 
-        for tx in genesis.transactions().iter() {
-            let outputs_len = tx.outputs().len();
-            let tx_meta = if tx.is_cellbase() {
-                TransactionMeta::new_cellbase(
-                    block_number,
-                    epoch_with_fraction.number(),
-                    block_hash.clone(),
-                    outputs_len,
-                    false,
-                )
-            } else {
-                TransactionMeta::new(
-                    block_number,
-                    epoch_with_fraction.number(),
-                    block_hash.clone(),
-                    outputs_len,
-                    false,
-                )
-            };
-            db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
-        }
+                tx.outputs_with_data_iter()
+                    .enumerate()
+                    .map(move |(index, (cell_output, data))| {
+                        let out_point = packed::OutPoint::new_builder()
+                            .tx_hash(tx_hash.clone())
+                            .index(index.pack())
+                            .build();
+                        let data_hash = packed::CellOutput::calc_data_hash(&data);
+
+                        let entry = packed::CellEntryBuilder::default()
+                            .output(cell_output)
+                            .block_hash(block_hash.clone())
+                            .block_number(block_number.pack())
+                            .block_epoch(block_epoch.pack())
+                            .index(tx_index.pack())
+                            .data_size((data.len() as u64).pack())
+                            .build();
+
+                        let data_entry = packed::CellDataEntryBuilder::default()
+                            .output_data(data.pack())
+                            .output_data_hash(data_hash)
+                            .build();
+
+                        (out_point, entry, data_entry)
+                    })
+            })
+            .flatten();
+
+        db_txn.insert_cells(cells)?;
+
+        // for tx in genesis.transactions().iter() {
+        //     let outputs_len = tx.outputs().len();
+        //     let tx_meta = if tx.is_cellbase() {
+        //         TransactionMeta::new_cellbase(
+        //             block_number,
+        //             epoch_with_fraction.number(),
+        //             block_hash.clone(),
+        //             outputs_len,
+        //             false,
+        //         )
+        //     } else {
+        //         TransactionMeta::new(
+        //             block_number,
+        //             epoch_with_fraction.number(),
+        //             block_hash.clone(),
+        //             outputs_len,
+        //             false,
+        //         )
+        //     };
+        //     db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
+        // }
 
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 

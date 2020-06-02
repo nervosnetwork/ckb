@@ -4,7 +4,6 @@ use ckb_types::{
     bytes::Bytes,
     core::{cell::CellMeta, BlockExt, EpochExt, HeaderView},
     packed::Byte32,
-    prelude::*,
 };
 
 pub struct DataLoaderWrapper<'a, T>(&'a T);
@@ -19,10 +18,7 @@ impl<'a, T: ChainStore<'a>> DataLoader for DataLoaderWrapper<'a, T> {
         cell.mem_cell_data
             .as_ref()
             .map(ToOwned::to_owned)
-            .or_else(|| {
-                self.0
-                    .get_cell_data(&cell.out_point.tx_hash(), cell.out_point.index().unpack())
-            })
+            .or_else(|| self.0.get_cell_data(&cell.out_point))
     }
     // load BlockExt
     #[inline]

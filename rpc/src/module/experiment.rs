@@ -113,15 +113,15 @@ pub(crate) struct DryRunner<'a> {
 impl<'a> CellProvider for DryRunner<'a> {
     fn cell(&self, out_point: &packed::OutPoint, with_data: bool) -> CellStatus {
         let snapshot = self.shared.snapshot();
+
         snapshot
-            .get_cell_meta(&out_point.tx_hash(), out_point.index().unpack())
+            .get_cell(out_point)
             .map(|mut cell_meta| {
                 if with_data {
-                    cell_meta.mem_cell_data = snapshot
-                        .get_cell_data(&out_point.tx_hash(), out_point.index().unpack());
+                    cell_meta.mem_cell_data = snapshot.get_cell_data(out_point);
                 }
                 CellStatus::live_cell(cell_meta)
-            })  // treat as live cell, regardless of live or dead
+            })
             .unwrap_or(CellStatus::Unknown)
     }
 }
