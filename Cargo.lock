@@ -330,7 +330,7 @@ name = "ckb-async-runtime"
 version = "0.33.0-pre"
 dependencies = [
  "crossbeam-channel",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -689,7 +689,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 
@@ -936,7 +936,7 @@ dependencies = [
  "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -1041,7 +1041,7 @@ dependencies = [
  "faketime",
  "lru-cache",
  "serde",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -1100,7 +1100,7 @@ dependencies = [
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -3968,7 +3968,7 @@ dependencies = [
  "molecule",
  "tentacle-multiaddr",
  "tentacle-secio",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
  "tokio-yamux",
  "winapi 0.3.8",
@@ -4003,7 +4003,7 @@ dependencies = [
  "rand 0.7.0",
  "ring",
  "secp256k1 0.17.2",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
  "unsigned-varint",
 ]
@@ -4131,9 +4131,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.20"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05c1d570eb1a36f0345a5ce9c6c6e665b70b73d11236912c0b477616aeec47b1"
+checksum = "d099fa27b9702bed751524694adbe393e18b36b204da91eb1cbbbbb4a5ee2d58"
 dependencies = [
  "bytes 0.5.4",
  "fnv",
@@ -4348,7 +4348,7 @@ dependencies = [
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -4360,7 +4360,7 @@ dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 
