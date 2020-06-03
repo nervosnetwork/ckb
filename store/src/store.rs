@@ -442,10 +442,7 @@ fn cell_key_from_out_point(out_point: &OutPoint) -> Vec<u8> {
     key
 }
 
-fn build_cell_meta_from_reader(
-    out_point: OutPoint,
-    reader: packed::CellEntryReader,
-) -> CellMeta {
+fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryReader) -> CellMeta {
     CellMeta {
         out_point,
         cell_output: reader.output().to_entity(),

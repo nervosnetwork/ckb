@@ -9,13 +9,11 @@ use std::result;
 
 pub mod db;
 pub mod iter;
-mod migration;
 pub mod snapshot;
 pub mod transaction;
 
 pub use crate::db::RocksDB;
 pub use crate::iter::DBIterator;
-pub use crate::migration::{DefaultMigration, Migration, Migrations};
 pub use crate::snapshot::RocksDBSnapshot;
 pub use crate::transaction::{RocksDBTransaction, RocksDBTransactionSnapshot};
 pub use rocksdb::{DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode};

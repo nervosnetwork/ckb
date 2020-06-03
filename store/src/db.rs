@@ -44,6 +44,10 @@ impl ChainDB {
         }
     }
 
+    pub fn into_inner(self) -> RocksDB {
+        self.db
+    }
+
     pub fn property_value(&self, col: Col, name: &str) -> Result<Option<String>, Error> {
         self.db.property_value(col, name)
     }

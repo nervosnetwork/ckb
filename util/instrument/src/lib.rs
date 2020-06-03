@@ -9,7 +9,6 @@
 
 mod export;
 mod import;
-mod iter;
 
 pub use crate::export::Export;
 pub use crate::import::Import;

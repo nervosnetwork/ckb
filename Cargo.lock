@@ -415,6 +415,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-chain-iter"
+version = "0.33.0-pre"
+dependencies = [
+ "ckb-store",
+ "ckb-types",
+]
+
+[[package]]
 name = "ckb-chain-spec"
 version = "0.33.0-pre"
 dependencies = [
@@ -482,6 +490,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-db-migration"
+version = "0.33.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-chain-spec",
+ "ckb-db",
+ "ckb-error",
+ "ckb-logger",
+ "tempfile",
+]
+
+[[package]]
 name = "ckb-error"
 version = "0.33.0-pre"
 dependencies = [
@@ -544,6 +564,7 @@ dependencies = [
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-migration",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-resource",
@@ -559,9 +580,9 @@ name = "ckb-instrument"
 version = "0.33.0-pre"
 dependencies = [
  "ckb-chain",
+ "ckb-chain-iter",
  "ckb-jsonrpc-types",
  "ckb-shared",
- "ckb-store",
  "ckb-types",
  "indicatif",
  "serde_json",
@@ -584,8 +605,7 @@ dependencies = [
 [[package]]
 name = "ckb-librocksdb-sys"
 version = "6.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5adffc9a78875e74c158e5e717fca7e292e455ab83519943a5e5e3483ebb6ca6"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#8cf99e25502479e7973fa102361807c2a6f0307d"
 dependencies = [
  "cc",
  "glob",
@@ -805,8 +825,7 @@ dependencies = [
 [[package]]
 name = "ckb-rocksdb"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f052aeebebfff06901d2d930d8b04181fe79f9fd629972478d2a9d4a62a09247"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#8cf99e25502479e7973fa102361807c2a6f0307d"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
@@ -899,8 +918,10 @@ version = "0.33.0-pre"
 dependencies = [
  "arc-swap",
  "ckb-app-config",
+ "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-migration",
  "ckb-error",
  "ckb-notify",
  "ckb-proposal-table",

@@ -1,17 +1,17 @@
-use crate::migration::Migrations;
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::{internal_error, Col, Result};
 use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
-use rocksdb::ops::{GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF, SetOptions};
+use rocksdb::ops::{
+    CreateCf, DropCf, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF,
+    Put, SetOptions,
+};
 use rocksdb::{
     ffi, ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
     OptimisticTransactionOptions, Options, WriteOptions,
 };
 use std::sync::Arc;
-
-pub const VERSION_KEY: &str = "db-version";
 
 #[derive(Clone)]
 pub struct RocksDB {
@@ -19,11 +19,7 @@ pub struct RocksDB {
 }
 
 impl RocksDB {
-    pub(crate) fn open_with_check(
-        config: &DBConfig,
-        columns: u32,
-        migrations: Migrations,
-    ) -> Result<Self> {
+    pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
         let mut opts = Options::default();
         opts.create_if_missing(false);
         opts.create_missing_column_families(true);
@@ -78,17 +74,13 @@ impl RocksDB {
                 .map_err(|_| internal_error("failed to set database option"))?;
         }
 
-        let rocks_db = RocksDB {
+        Ok(RocksDB {
             inner: Arc::new(db),
-        };
-
-        migrations.migrate(&rocks_db)?;
-
-        Ok(rocks_db)
+        })
     }
 
-    pub fn open(config: &DBConfig, columns: u32, migrations: Migrations) -> Self {
-        Self::open_with_check(config, columns, migrations).unwrap_or_else(|err| panic!("{}", err))
+    pub fn open(config: &DBConfig, columns: u32) -> Self {
+        Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
     pub fn open_tmp(columns: u32) -> Self {
@@ -97,13 +89,16 @@ impl RocksDB {
             path: tmp_dir.path().to_path_buf(),
             ..Default::default()
         };
-        Self::open_with_check(&config, columns, Migrations::default())
-            .unwrap_or_else(|err| panic!("{}", err))
+        Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.inner, col)?;
         self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
+    }
+
+    pub fn get_pinned_defalt(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+        self.inner.get_pinned(&key).map_err(internal_error)
     }
 
     pub fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
@@ -153,6 +148,27 @@ impl RocksDB {
             .property_int_value_cf(cf, name)
             .map_err(internal_error)
     }
+
+    pub fn put<K, V>(&self, key: K, value: V) -> Result<()>
+    where
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        self.inner.put(key, value).map_err(internal_error)
+    }
+
+    pub fn create_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
+        let opts = Options::default();
+        inner.create_cf(col, &opts).map_err(internal_error)
+    }
+
+    pub fn drop_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
+        inner.drop_cf(col).map_err(internal_error)
+    }
 }
 
 pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&ColumnFamily> {
@@ -162,9 +178,7 @@ pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&Colum
 
 #[cfg(test)]
 mod tests {
-    use super::{DBConfig, Result, RocksDB, VERSION_KEY};
-    use crate::migration::{DefaultMigration, Migration, Migrations};
-    use rocksdb::ops::Get;
+    use super::{DBConfig, Result, RocksDB};
     use std::collections::HashMap;
 
     fn setup_db(prefix: &str, columns: u32) -> RocksDB {
@@ -178,7 +192,7 @@ mod tests {
             ..Default::default()
         };
 
-        RocksDB::open_with_check(&config, columns, Migrations::default())
+        RocksDB::open_with_check(&config, columns)
     }
 
     #[test]
@@ -195,7 +209,7 @@ mod tests {
                 opts
             }),
         };
-        RocksDB::open(&config, 2, Migrations::default()); // no panic
+        RocksDB::open(&config, 2); // no panic
     }
 
     #[test]
@@ -213,7 +227,7 @@ mod tests {
                 opts
             }),
         };
-        RocksDB::open(&config, 2, Migrations::default()); // panic
+        RocksDB::open(&config, 2); // panic
     }
 
     #[test]
@@ -288,105 +302,5 @@ mod tests {
         let ret = db.get_pinned("0", &[0, 0]).unwrap().unwrap();
 
         assert!(vec![4u8, 3, 2].as_slice() == &ret.as_ref()[1..4]);
-    }
-
-    #[test]
-    fn test_default_migration() {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_default_migration")
-            .tempdir()
-            .unwrap();
-        let config = DBConfig {
-            path: tmp_dir.as_ref().to_path_buf(),
-            ..Default::default()
-        };
-
-        {
-            let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
-            assert_eq!(
-                b"20191116225943".to_vec(),
-                r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
-            );
-        }
-        {
-            let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            migrations.add_migration(Box::new(DefaultMigration::new("20191127101121")));
-            let r = RocksDB::open_with_check(&config, 1, migrations).unwrap();
-            assert_eq!(
-                b"20191127101121".to_vec(),
-                r.inner.get(VERSION_KEY).unwrap().unwrap().to_vec()
-            );
-        }
-    }
-
-    #[test]
-    fn test_customized_migration() {
-        struct CustomizedMigration;
-        const COLUMN: &str = "0";
-        const VERSION: &str = "20191127101121";
-
-        impl Migration for CustomizedMigration {
-            fn migrate(&self, db: &RocksDB) -> Result<()> {
-                let txn = db.transaction();
-                // append 1u8 to each value of column `0`
-                let migration = |key: &[u8], value: &[u8]| -> Result<()> {
-                    let mut new_value = value.to_vec();
-                    new_value.push(1);
-                    txn.put(COLUMN, key, &new_value)?;
-                    Ok(())
-                };
-                db.traverse(COLUMN, migration)?;
-                txn.commit()
-            }
-
-            fn version(&self) -> &str {
-                VERSION
-            }
-        }
-
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("test_customized_migration")
-            .tempdir()
-            .unwrap();
-        let config = DBConfig {
-            path: tmp_dir.as_ref().to_path_buf(),
-            ..Default::default()
-        };
-
-        {
-            let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
-            let txn = db.transaction();
-            txn.put(COLUMN, &[1, 1], &[1, 1, 1]).unwrap();
-            txn.put(COLUMN, &[2, 2], &[2, 2, 2]).unwrap();
-            txn.commit().unwrap();
-        }
-        {
-            let mut migrations = Migrations::default();
-            migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            migrations.add_migration(Box::new(CustomizedMigration));
-            let db = RocksDB::open_with_check(&config, 1, migrations).unwrap();
-            assert!(
-                vec![1u8, 1, 1, 1].as_slice()
-                    == db.get_pinned(COLUMN, &[1, 1]).unwrap().unwrap().as_ref()
-            );
-            assert!(
-                vec![2u8, 2, 2, 1].as_slice()
-                    == db.get_pinned(COLUMN, &[2, 2]).unwrap().unwrap().as_ref()
-            );
-            assert_eq!(
-                VERSION.as_bytes(),
-                db.inner
-                    .get(VERSION_KEY)
-                    .unwrap()
-                    .unwrap()
-                    .to_vec()
-                    .as_slice()
-            );
-        }
     }
 }
