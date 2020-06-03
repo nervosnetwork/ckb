@@ -18,6 +18,7 @@ ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }
 ckb-error = { path = "../error" }
+ckb-app-config = { path = "../util/app-config" }
 bitflags = "1.0"
 
 [dev-dependencies]

@@ -1,7 +1,7 @@
 use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
 use crate::error::SubmitTxError;
-use crate::FeeRate;
+use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus},

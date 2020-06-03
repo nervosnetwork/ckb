@@ -17,3 +17,4 @@ ckb-snapshot = { path = "../util/snapshot" }
 ckb-tx-pool = { path = "../tx-pool" }
 ckb-verification = { path = "../verification" }
 ckb-notify = { path = "../notify" }
+ckb-app-config = { path = "../util/app-config" }

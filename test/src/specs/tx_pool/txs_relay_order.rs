@@ -1,6 +1,6 @@
 use crate::{utils::sleep, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
-use ckb_tx_pool::FeeRate;
+use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,

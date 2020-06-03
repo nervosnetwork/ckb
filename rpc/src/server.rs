@@ -1,6 +1,6 @@
-use crate::config::Config;
 use crate::module::{SubscriptionRpc, SubscriptionRpcImpl, SubscriptionSession};
 use crate::IoHandler;
+use ckb_app_config::RpcConfig;
 use ckb_notify::NotifyController;
 use jsonrpc_pubsub::Session;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -15,7 +15,7 @@ pub struct RpcServer {
 
 impl RpcServer {
     pub fn new(
-        config: Config,
+        config: RpcConfig,
         io_handler: IoHandler,
         notify_controller: &NotifyController,
     ) -> RpcServer {

@@ -67,11 +67,11 @@ impl Config {
         self.modules.contains(&Module::IntegrationTest)
     }
 
-    pub(crate) fn alert_enable(&self) -> bool {
+    pub fn alert_enable(&self) -> bool {
         self.modules.contains(&Module::Alert)
     }
 
-    pub(crate) fn debug_enable(&self) -> bool {
+    pub fn debug_enable(&self) -> bool {
         self.modules.contains(&Module::Debug)
     }
 }

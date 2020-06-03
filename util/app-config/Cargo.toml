@@ -15,19 +15,13 @@ ckb-logger = { path = "../../util/logger" }
 sentry = "0.16.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}
-ckb-network = { path = "../../network"}
-ckb-rpc = { path = "../../rpc"}
-ckb-miner = { path = "../../miner" }
-ckb-db = { path = "../../db" }
 ckb-pow = { path = "../../pow" }
 ckb-resource = { path = "../../resource"}
-ckb-store = { path = "../../store" }
-ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
-ckb-memory-tracker = { path = "../memory-tracker" }
-ckb-indexer = { path = "../../indexer" }
-ckb-tx-pool = { path = "../../tx-pool" }
-ckb-notify = { path = "../../notify" }
+ckb-types = { path = "../types" }
+ckb-fee-estimator = { path = "../fee-estimator" }
+p2p = { version="0.3.0-alpha.4", package="tentacle", features = ["molc"] }
+rand = "0.6"
 
 [dev-dependencies]
 tempfile = "3.0"

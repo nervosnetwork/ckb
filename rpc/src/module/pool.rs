@@ -1,12 +1,13 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_tx_pool::{error::SubmitTxError, FeeRate};
+use ckb_tx_pool::error::SubmitTxError;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::{Error, Result};

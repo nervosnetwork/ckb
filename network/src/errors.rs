@@ -9,7 +9,6 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     Peer(PeerError),
-    Config(ConfigError),
     Protocol(ProtocolError),
     Io(IoError),
     P2P(P2PError),
@@ -24,12 +23,6 @@ pub enum PeerStoreError {
     /// indicate the peer store is full
     EvictionFailed,
     Serde(serde_json::Error),
-}
-
-#[derive(Debug)]
-pub enum ConfigError {
-    BadAddress,
-    InvalidKey,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -75,12 +68,6 @@ impl From<IoError> for Error {
     }
 }
 
-impl From<ConfigError> for Error {
-    fn from(err: ConfigError) -> Error {
-        Error::Config(err)
-    }
-}
-
 impl From<ProtocolError> for Error {
     fn from(err: ProtocolError) -> Error {
         Error::Protocol(err)
@@ -100,12 +87,6 @@ impl From<AddrError> for Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

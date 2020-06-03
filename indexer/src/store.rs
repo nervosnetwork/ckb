@@ -1,8 +1,9 @@
 use crate::migrations;
 use crate::types::{
-    CellTransaction, IndexerConfig, LiveCell, LockHashCapacity, LockHashCellOutput, LockHashIndex,
+    CellTransaction, LiveCell, LockHashCapacity, LockHashCellOutput, LockHashIndex,
     LockHashIndexState, TransactionPoint,
 };
+use ckb_app_config::IndexerConfig;
 use ckb_db::{
     db::RocksDB, Col, DBIterator, DefaultMigration, Direction, IteratorMode, Migrations,
     RocksDBTransaction,

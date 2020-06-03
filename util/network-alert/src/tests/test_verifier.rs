@@ -1,5 +1,5 @@
-use crate::config::SignatureConfig;
 use crate::verifier::Verifier;
+use ckb_app_config::NetworkAlertConfig;
 use ckb_crypto::secp::Generator;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{packed, prelude::*};
@@ -7,7 +7,7 @@ use ckb_types::{packed, prelude::*};
 #[test]
 fn test_veirifer() {
     let keypairs: Vec<_> = (0..3).map(move |_| Generator::random_keypair()).collect();
-    let config = SignatureConfig {
+    let config = NetworkAlertConfig {
         signatures_threshold: 2,
         public_keys: keypairs
             .iter()

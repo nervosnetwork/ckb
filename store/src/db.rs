@@ -1,8 +1,8 @@
 use crate::cache::StoreCache;
-use crate::config::StoreConfig;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
 use crate::StoreSnapshot;
+use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},

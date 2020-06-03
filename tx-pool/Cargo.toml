@@ -8,7 +8,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
 ckb-types = { path = "../util/types" }
 ckb-logger = {path = "../util/logger"}
 ckb-verification = { path = "../verification" }
@@ -28,3 +27,4 @@ crossbeam-channel = "0.3"
 ckb-async-runtime = { path = "../util/runtime" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
+ckb-app-config = { path = "../util/app-config" }

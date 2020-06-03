@@ -1,7 +1,8 @@
 use crate::migration::Migrations;
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
-use crate::{internal_error, Col, DBConfig, Result};
+use crate::{internal_error, Col, Result};
+use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{GetColumnFamilys, GetPinnedCF, GetPropertyCF, IterateCF, OpenCF, SetOptions};
 use rocksdb::{

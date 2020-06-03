@@ -1,11 +1,9 @@
 mod client;
-mod config;
 mod error;
 mod miner;
 mod worker;
 
 pub use crate::client::Client;
-pub use crate::config::{ClientConfig, MinerConfig, WorkerConfig};
 pub use crate::error::Error;
 pub use crate::miner::Miner;
 

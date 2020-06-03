@@ -1,14 +1,15 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
+use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_tx_pool::{BlockAssemblerConfig, FeeRate, TxPoolConfig};
 use ckb_types::{
     bytes::Bytes,
     core::{

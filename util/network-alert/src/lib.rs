@@ -8,7 +8,6 @@
 //! Network Alert will be removed soon once the CKB network is considered mature.
 //!
 pub mod alert_relayer;
-pub mod config;
 pub mod notifier;
 #[cfg(test)]
 mod tests;

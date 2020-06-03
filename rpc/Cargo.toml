@@ -18,6 +18,7 @@ ckb-chain = { path = "../chain" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
+ckb-app-config = { path = "../util/app-config" }
 jsonrpc-core = "~14.1"
 jsonrpc-derive = "14.0" # quote requirement conflict
 jsonrpc-http-server = "~14.1"

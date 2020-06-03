@@ -8,7 +8,7 @@ use super::{
 use crate::{
     network::EventHandler,
     network::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID},
-    NetworkConfig, NetworkState, PeerIdentifyInfo,
+    NetworkState, PeerIdentifyInfo,
 };
 
 use std::{
@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ckb_app_config::NetworkConfig;
 use ckb_util::{Condvar, Mutex};
 use futures::{channel::mpsc::channel, StreamExt};
 use p2p::{

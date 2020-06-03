@@ -1,4 +1,5 @@
 use super::{Worker, WorkerMessage};
+use ckb_app_config::ExtraHashFunction;
 use ckb_hash::blake2b_256;
 use ckb_logger::{debug, error};
 use ckb_pow::pow_message;
@@ -6,21 +7,8 @@ use ckb_types::{packed::Byte32, U256};
 use crossbeam_channel::{Receiver, Sender};
 use eaglesong::eaglesong;
 use indicatif::ProgressBar;
-use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct EaglesongSimpleConfig {
-    pub threads: usize,
-    #[serde(default)]
-    pub extra_hash_function: Option<ExtraHashFunction>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ExtraHashFunction {
-    Blake2b,
-}
 
 pub struct EaglesongSimple {
     start: bool,

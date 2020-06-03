@@ -1,5 +1,4 @@
 mod cache;
-mod config;
 pub mod data_loader_wrapper;
 mod db;
 mod snapshot;
@@ -7,7 +6,6 @@ mod store;
 mod transaction;
 
 pub use cache::StoreCache;
-pub use config::StoreConfig;
 pub use db::ChainDB;
 pub use snapshot::StoreSnapshot;
 pub use store::ChainStore;

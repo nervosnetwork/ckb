@@ -12,13 +12,11 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
-ckb-tx-pool = { path = "../tx-pool" }
+ckb-fee-estimator = { path = "../util/fee-estimator" }
 ckb-types = { path = "../util/types" }
 ckb-hash = { path = "../util/hash" }
 ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
-ckb-rpc= { path = "../rpc" }
-ckb-network-alert = { path = "../util/network-alert" }
 ckb-crypto = { path = "../util/crypto" }
 ckb-dao = { path = "../util/dao" }
 ckb-dao-utils = { path = "../util/dao/utils" }

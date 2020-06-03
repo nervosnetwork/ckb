@@ -1,4 +1,5 @@
-use crate::{ClientConfig, Work};
+use crate::Work;
+use ckb_app_config::MinerClientConfig;
 use ckb_jsonrpc_types::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
@@ -109,12 +110,12 @@ impl Drop for Rpc {
 pub struct Client {
     pub current_work_id: Option<u64>,
     pub new_work_tx: Sender<Work>,
-    pub config: ClientConfig,
+    pub config: MinerClientConfig,
     pub rpc: Rpc,
 }
 
 impl Client {
-    pub fn new(new_work_tx: Sender<Work>, config: ClientConfig) -> Client {
+    pub fn new(new_work_tx: Sender<Work>, config: MinerClientConfig) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
         Client {

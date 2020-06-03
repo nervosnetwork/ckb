@@ -3,16 +3,16 @@ use crate::module::{
     MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
+use ckb_app_config::{IndexerConfig, NetworkAlertConfig, NetworkConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
+use ckb_fee_estimator::FeeRate;
+use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
-use ckb_network::{NetworkConfig, NetworkService, NetworkState};
-use ckb_network_alert::{
-    alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
-};
+use ckb_network::{NetworkService, NetworkState};
+use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -21,7 +21,6 @@ use ckb_shared::{
 use ckb_store::ChainStore;
 use ckb_sync::{SyncShared, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
-use ckb_tx_pool::FeeRate;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
@@ -228,7 +227,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
             notify_controller,
-            AlertSignatureConfig::default(),
+            NetworkAlertConfig::default(),
         );
         let alert_notifier = alert_relayer.notifier();
         let alert = AlertBuilder::default()

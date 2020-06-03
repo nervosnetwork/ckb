@@ -1,4 +1,5 @@
 use super::{Worker, WorkerMessage};
+use ckb_app_config::DummyConfig;
 use ckb_logger::error;
 use ckb_types::packed::Byte32;
 use crossbeam_channel::{Receiver, Sender};
@@ -7,18 +8,8 @@ use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
 };
-use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "delay_type")]
-pub enum DummyConfig {
-    Constant { value: u64 },
-    Uniform { low: u64, high: u64 },
-    Normal { mean: f64, std_dev: f64 },
-    Poisson { lambda: f64 },
-}
 
 pub struct Dummy {
     delay: Delay,

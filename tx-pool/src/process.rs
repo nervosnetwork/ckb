@@ -1,13 +1,13 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
-use crate::config::BlockAssemblerConfig;
 use crate::error::{BlockAssemblerError, SubmitTxError};
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
-use crate::FeeRate;
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
+use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug_target, info};
 use ckb_snapshot::Snapshot;

@@ -1,9 +1,9 @@
 mod candidate_uncles;
 
 use crate::component::entry::TxEntry;
-use crate::config::BlockAssemblerConfig;
 use crate::error::BlockAssemblerError as Error;
 pub use candidate_uncles::CandidateUncles;
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use ckb_reward_calculator::RewardCalculator;

@@ -1,6 +1,7 @@
 use crate::{Relayer, SyncShared};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_fee_estimator::FeeRate;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
     TargetSession,
@@ -8,7 +9,6 @@ use ckb_network::{
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_tx_pool::FeeRate;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
