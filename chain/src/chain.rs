@@ -1,11 +1,10 @@
-use crate::cell::{attach_block_cell, detach_block_cell};
 use crate::switch::Switch;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_store::{ChainStore, StoreTransaction};
+use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},

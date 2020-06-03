@@ -49,6 +49,11 @@ impl ChainDB {
         &self.db
     }
 
+    pub fn into_inner(self) -> RocksDB {
+        self.db
+
+    }
+
     pub fn begin_transaction(&self) -> StoreTransaction {
         StoreTransaction {
             inner: self.db.transaction(),

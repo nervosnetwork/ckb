@@ -1,14 +1,15 @@
+use crate::migrations::FreezerMigration;
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::{DefaultMigration, Migrations, RocksDB};
+use ckb_db::RocksDB;
+use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
-use ckb_store::ChainDB;
-use ckb_store::{ChainStore, COLUMNS};
+use ckb_store::{ChainDB, ChainStore, COLUMNS};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{EpochExt, HeaderView},
@@ -227,10 +228,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     pub fn with_db_config(config: &DBConfig) -> Self {
-        let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-
-        let db = RocksDB::open(config, COLUMNS, migrations);
+        let db = RocksDB::open(config, COLUMNS);
         SharedBuilder {
             db,
             consensus: None,
@@ -273,7 +271,12 @@ impl SharedBuilder {
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
-        let store = ChainDB::new(self.db, store_config);
+
+        let mut migrations = Migrations::new(&consensus);
+        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
+        migrations.add_migration(Box::new(FreezerMigration::new()));
+        let db = migrations.migrate(self.db)?;
+        let store = ChainDB::new(db, store_config);
         Shared::init(
             store,
             consensus,

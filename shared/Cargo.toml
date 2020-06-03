@@ -10,6 +10,7 @@ ckb-types = { path = "../util/types" }
 ckb-chain-spec = { path = "../spec" }
 ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
+ckb-db-migration = { path = "../db-migration" }
 ckb-proposal-table = { path = "../util/proposal-table" }
 arc-swap = "0.4"
 ckb-error = { path = "../error" }
@@ -18,3 +19,4 @@ ckb-tx-pool = { path = "../tx-pool" }
 ckb-verification = { path = "../verification" }
 ckb-notify = { path = "../notify" }
 ckb-app-config = { path = "../util/app-config" }
+ckb-chain-iter = { path = "../util/chain-iter" }

@@ -4,10 +4,8 @@ use crate::types::{
     LockHashIndexState, TransactionPoint,
 };
 use ckb_app_config::IndexerConfig;
-use ckb_db::{
-    db::RocksDB, Col, DBIterator, DefaultMigration, Direction, IteratorMode, Migrations,
-    RocksDBTransaction,
-};
+use ckb_db::{db::RocksDB, Col, DBIterator, Direction, IteratorMode, RocksDBTransaction};
+use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -286,13 +284,15 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl DefaultIndexerStore {
     pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
-        let mut migrations = Migrations::default();
+        let mut migrations = Migrations::new(shared.consensus());
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::AddFieldsToLiveCell::new(
             shared.clone(),
         )));
 
-        let db = RocksDB::open(&config.db, COLUMNS, migrations);
+        let db = migrations
+            .migrate(RocksDB::open(&config.db, COLUMNS))
+            .unwrap_or_else(|err| panic!("{}", err));
         DefaultIndexerStore {
             db: Arc::new(db),
             shared,
