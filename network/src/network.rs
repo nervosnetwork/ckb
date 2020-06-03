@@ -634,15 +634,17 @@ impl ServiceHandle for EventHandler {
                     },
                 );
 
-                if let P2pError::ProtoHandleAbnormallyClosed(Some(id)) = error {
-                    self.network_state.ban_session(
-                        &context.control(),
-                        id,
-                        Duration::from_secs(300),
-                        format!("protocol {} panic when process peer message", proto_id),
-                    );
+                if let P2pError::ProtoHandleAbnormallyClosed(opt_session_id) = error {
+                    if let Some(id) = opt_session_id {
+                        self.network_state.ban_session(
+                            &context.control(),
+                            id,
+                            Duration::from_secs(300),
+                            format!("protocol {} panic when process peer message", proto_id),
+                        );
+                    }
+                    self.exit_condvar.1.notify_all();
                 }
-                self.exit_condvar.1.notify_all();
             }
         }
     }
