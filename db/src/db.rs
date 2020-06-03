@@ -16,10 +16,6 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @quake
-pub const VERSION_KEY: &str = "db-version";
-
-/// TODO(doc): @quake
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
