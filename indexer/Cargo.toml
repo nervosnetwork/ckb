@@ -14,9 +14,10 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-logger = { path = "../util/logger" }
 ckb-util = { path = "../util" }
 ckb-app-config = { path = "../util/app-config" }
+ckb-db-migration = { path = "../db-migration" }
+ckb-chain-spec = { path = "../spec" }
 
 [dev-dependencies]
 tempfile = "3.0"
 ckb-chain =  { path = "../chain" }
-ckb-chain-spec = { path = "../spec" }
 ckb-resource = { path = "../resource" }
