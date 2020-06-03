@@ -1,5 +1,5 @@
+use crate::{ChainStore, StoreTransaction};
 use ckb_error::Error;
-use ckb_store::{ChainStore, StoreTransaction};
 use ckb_types::{core::BlockView, packed, prelude::*};
 use std::collections::HashMap;
 

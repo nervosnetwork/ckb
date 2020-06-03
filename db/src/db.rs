@@ -3,14 +3,14 @@ use crate::transaction::RocksDBTransaction;
 use crate::{internal_error, Col, Result};
 use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
-use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions};
+use rocksdb::ops::{
+    CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,
+};
 use rocksdb::{
     ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
     OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteOptions,
 };
 use std::sync::Arc;
-
-pub const VERSION_KEY: &str = "db-version";
 
 #[derive(Clone)]
 pub struct RocksDB {
@@ -131,7 +131,7 @@ impl RocksDB {
         self.inner.get_pinned(&key).map_err(internal_error)
     }
 
-    pub fn put<K, V>(&self, key: K, value: V) -> Result<()>
+    pub fn put_default<K, V>(&self, key: K, value: V) -> Result<()>
     where
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
@@ -175,6 +175,19 @@ impl RocksDB {
 
     pub fn inner(&self) -> Arc<OptimisticTransactionDB> {
         Arc::clone(&self.inner)
+    }
+
+    pub fn create_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
+        let opts = Options::default();
+        inner.create_cf(col, &opts).map_err(internal_error)
+    }
+
+    pub fn drop_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
+        inner.drop_cf(col).map_err(internal_error)
     }
 }
 

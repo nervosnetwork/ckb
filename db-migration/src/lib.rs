@@ -36,7 +36,7 @@ impl Migrations {
             Some(v) => {
                 for m in self.migrations.iter().filter(|m| m.version() > v.as_str()) {
                     db = m.migrate(db)?;
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
                 }
@@ -45,7 +45,7 @@ impl Migrations {
             None => {
                 if let Some(m) = self.migrations.last() {
                     info!("Init database version {}", m.version());
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
                 }

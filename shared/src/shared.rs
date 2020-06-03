@@ -8,8 +8,7 @@ use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
-use ckb_store::ChainDB;
-use ckb_store::{ChainStore, COLUMNS};
+use ckb_store::{ChainDB, ChainStore, COLUMNS};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{EpochExt, HeaderView},
