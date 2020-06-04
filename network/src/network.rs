@@ -21,7 +21,6 @@ use crate::{
     MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
 };
 use ckb_app_config::NetworkConfig;
-use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
@@ -859,6 +858,7 @@ pub struct NetworkService<T> {
     network_state: Arc<NetworkState>,
     // Background services
     bg_services: Vec<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
+    version: String,
 }
 
 impl<T: ExitHandler> NetworkService<T> {
@@ -867,7 +867,7 @@ impl<T: ExitHandler> NetworkService<T> {
         protocols: Vec<CKBProtocol>,
         required_protocol_ids: Vec<ProtocolId>,
         name: String,
-        client_version: String,
+        version: String,
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
@@ -926,7 +926,7 @@ impl<T: ExitHandler> NetworkService<T> {
 
         // Identify protocol
         let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
+            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/identify".to_string())
@@ -1045,14 +1045,11 @@ impl<T: ExitHandler> NetworkService<T> {
             p2p_service,
             network_state,
             bg_services,
+            version,
         }
     }
 
-    pub fn start<S: ToString>(
-        self,
-        node_version: Version,
-        thread_name: Option<S>,
-    ) -> Result<NetworkController, Error> {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
@@ -1090,6 +1087,7 @@ impl<T: ExitHandler> NetworkService<T> {
 
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
+        let version = self.version.clone();
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -1190,7 +1188,7 @@ impl<T: ExitHandler> NetworkService<T> {
 
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
-            node_version,
+            version,
             network_state,
             p2p_control,
             stop,
@@ -1200,7 +1198,7 @@ impl<T: ExitHandler> NetworkService<T> {
 
 #[derive(Clone)]
 pub struct NetworkController {
-    node_version: Version,
+    version: String,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     stop: StopHandler<()>,
@@ -1211,8 +1209,8 @@ impl NetworkController {
         self.network_state.public_urls(max_urls)
     }
 
-    pub fn node_version(&self) -> &Version {
-        &self.node_version
+    pub fn version(&self) -> &String {
+        &self.version
     }
 
     pub fn node_id(&self) -> String {

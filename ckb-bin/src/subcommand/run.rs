@@ -141,7 +141,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         version.to_string(),
         exit_handler.clone(),
     )
-    .start(version, Some("NetworkService"))
+    .start(Some("NetworkService"))
     .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)

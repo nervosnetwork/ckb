@@ -177,7 +177,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
             "0.1.0".to_string(),
             DefaultExitHandler::default(),
         )
-        .start::<&str>(Default::default(), None)
+        .start(Some("rpc-test-network"))
         .expect("Start network service failed")
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone()));

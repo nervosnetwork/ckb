@@ -142,7 +142,7 @@ impl Net {
                 "0.1.0".to_string(),
                 DefaultExitHandler::default(),
             )
-            .start(Default::default(), Some("NetworkService"))
+            .start(Some("NetworkService"))
             .expect("Start network service failed"),
             rx,
         ));
