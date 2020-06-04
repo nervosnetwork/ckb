@@ -1,12 +1,12 @@
-use crate::helper::{deadlock_detection, wait_for_exit};
+use crate::helper::deadlock_detection;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
-    BlockingFlag, CKBProtocol, NetworkService, NetworkState, MAX_FRAME_LENGTH_ALERT,
-    MAX_FRAME_LENGTH_RELAY, MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
+    BlockingFlag, CKBProtocol, DefaultExitHandler, ExitHandler, NetworkService, NetworkState,
+    MAX_FRAME_LENGTH_ALERT, MAX_FRAME_LENGTH_RELAY, MAX_FRAME_LENGTH_SYNC, MAX_FRAME_LENGTH_TIME,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
@@ -15,7 +15,6 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
-use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
 
@@ -26,7 +25,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
-    let exit_condvar = Arc::new((Mutex::new(()), Condvar::new()));
+    let exit_handler = DefaultExitHandler::default();
 
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
@@ -140,7 +139,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         required_protocol_ids,
         shared.consensus().identify_name(),
         version.to_string(),
-        Arc::<(Mutex<()>, Condvar)>::clone(&exit_condvar),
+        exit_handler.clone(),
     )
     .start(version, Some("NetworkService"))
     .expect("Start network service failed");
@@ -170,7 +169,12 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
-    wait_for_exit(exit_condvar);
+    let exit_handler_clone = exit_handler.clone();
+    ctrlc::set_handler(move || {
+        exit_handler_clone.notify_exit();
+    })
+    .expect("Error setting Ctrl-C handler");
+    exit_handler.wait_for_exit();
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 

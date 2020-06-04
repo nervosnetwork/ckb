@@ -7,7 +7,6 @@ use ckb_network::{
     NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
 use ckb_types::core::{BlockNumber, BlockView};
-use ckb_util::{Condvar, Mutex};
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -141,7 +140,7 @@ impl Net {
                 Vec::new(),
                 node.consensus().identify_name(),
                 "0.1.0".to_string(),
-                Arc::new((Mutex::new(()), Condvar::new())),
+                DefaultExitHandler::default(),
             )
             .start(Default::default(), Some("NetworkService"))
             .expect("Start network service failed"),

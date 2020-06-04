@@ -6,7 +6,7 @@ use super::{
 };
 
 use crate::{
-    network::EventHandler,
+    network::{DefaultExitHandler, EventHandler},
     network::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID},
     NetworkState, PeerIdentifyInfo,
 };
@@ -19,7 +19,6 @@ use std::{
 };
 
 use ckb_app_config::NetworkConfig;
-use ckb_util::{Condvar, Mutex};
 use futures::{channel::mpsc::channel, StreamExt};
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
@@ -197,7 +196,7 @@ fn net_service_start(name: String) -> Node {
         .forever(true)
         .build(EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_condvar: Arc::new((Mutex::new(()), Condvar::new())),
+            exit_handler: DefaultExitHandler::default(),
         });
 
     let mut ping_service = PingService::new(
