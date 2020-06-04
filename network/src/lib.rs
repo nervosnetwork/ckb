@@ -1,6 +1,5 @@
 mod behaviour;
 mod compress;
-mod config;
 pub mod errors;
 pub mod network;
 mod network_group;
@@ -15,7 +14,6 @@ mod tests;
 
 pub use crate::{
     behaviour::Behaviour,
-    config::NetworkConfig,
     errors::Error,
     network::{NetworkController, NetworkService, NetworkState},
     peer::{Peer, PeerIdentifyInfo},
@@ -52,8 +50,5 @@ pub const MAX_FRAME_LENGTH_IDENTIFY: usize = 2 * 1024;
 pub const MAX_FRAME_LENGTH_DISCONNECTMSG: usize = 1024;
 // Max message frame length for feeler protocol: 1KB
 pub const MAX_FRAME_LENGTH_FEELER: usize = 1024;
-
-// Max data size in send buffer: 24MB (a little larger than max frame length)
-pub const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
 pub type ProtocolVersion = String;

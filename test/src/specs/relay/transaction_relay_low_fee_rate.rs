@@ -1,8 +1,8 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
+use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::Status;
-use ckb_tx_pool::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
 

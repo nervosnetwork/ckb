@@ -1,9 +1,10 @@
 use crate::specs::TestProtocol;
 use crate::utils::{temp_path, wait_until};
 use crate::{Node, Setup};
+use ckb_app_config::NetworkConfig;
 use ckb_network::{
-    bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig,
-    NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
+    bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkController,
+    NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
 use ckb_types::core::{BlockNumber, BlockView};
 use ckb_util::{Condvar, Mutex};

@@ -1,3 +1,4 @@
+use ckb_app_config::NotifyConfig;
 use ckb_logger::{debug, error, trace};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
@@ -5,7 +6,6 @@ use ckb_types::{
     packed::Alert,
 };
 use crossbeam_channel::{bounded, select, Receiver, RecvError, Sender};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
 use std::thread;
@@ -32,13 +32,13 @@ impl Drop for NotifyController {
 }
 
 pub struct NotifyService {
-    config: Config,
+    config: NotifyConfig,
     new_block_subscribers: HashMap<String, Sender<BlockView>>,
     network_alert_subscribers: HashMap<String, Sender<Alert>>,
 }
 
 impl NotifyService {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: NotifyConfig) -> Self {
         Self {
             config,
             new_block_subscribers: HashMap::default(),
@@ -190,10 +190,4 @@ impl NotifyController {
     pub fn notify_network_alert(&self, alert: Alert) {
         let _ = self.network_alert_notifier.send(alert);
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
-pub struct Config {
-    pub new_block_notify_script: Option<String>,
-    pub network_alert_notify_script: Option<String>,
 }

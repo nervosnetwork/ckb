@@ -302,26 +302,20 @@ version = "0.33.0-pre"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
- "ckb-db",
- "ckb-indexer",
+ "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
- "ckb-memory-tracker",
- "ckb-miner",
- "ckb-network",
- "ckb-network-alert",
- "ckb-notify",
  "ckb-pow",
  "ckb-resource",
- "ckb-rpc",
- "ckb-store",
- "ckb-tx-pool",
+ "ckb-types",
  "clap",
  "path-clean",
+ "rand 0.6.5",
  "sentry",
  "serde",
  "serde_plain",
  "tempfile",
+ "tentacle",
  "toml",
 ]
 
@@ -337,18 +331,19 @@ dependencies = [
 name = "ckb-benches"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-crypto",
  "ckb-dao",
  "ckb-dao-utils",
+ "ckb-fee-estimator",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-shared",
  "ckb-store",
  "ckb-system-scripts",
  "ckb-test-chain-utils",
- "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
  "criterion",
@@ -399,6 +394,7 @@ name = "ckb-chain"
 version = "0.33.0-pre"
 dependencies = [
  "bitflags",
+ "ckb-app-config",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-dao-utils",
@@ -477,11 +473,11 @@ dependencies = [
 name = "ckb-db"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-error",
  "ckb-logger",
  "ckb-rocksdb",
  "libc",
- "serde",
  "tempfile",
 ]
 
@@ -544,6 +540,7 @@ dependencies = [
 name = "ckb-indexer"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-db",
@@ -554,7 +551,6 @@ dependencies = [
  "ckb-store",
  "ckb-types",
  "ckb-util",
- "serde",
  "tempfile",
 ]
 
@@ -623,13 +619,13 @@ dependencies = [
  "heim",
  "jemalloc-ctl",
  "jemalloc-sys",
- "serde",
 ]
 
 [[package]]
 name = "ckb-miner"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -665,6 +661,7 @@ name = "ckb-network"
 version = "0.33.0-pre"
 dependencies = [
  "bs58",
+ "ckb-app-config",
  "ckb-build-info",
  "ckb-hash",
  "ckb-logger",
@@ -697,6 +694,7 @@ dependencies = [
 name = "ckb-network-alert"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-crypto",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -709,19 +707,17 @@ dependencies = [
  "faketime",
  "lru-cache",
  "semver",
- "serde",
- "toml",
 ]
 
 [[package]]
 name = "ckb-notify"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-logger",
  "ckb-stop-handler",
  "ckb-types",
  "crossbeam-channel",
- "serde",
 ]
 
 [[package]]
@@ -820,6 +816,7 @@ dependencies = [
 name = "ckb-rpc"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",
@@ -901,6 +898,7 @@ name = "ckb-shared"
 version = "0.33.0-pre"
 dependencies = [
  "arc-swap",
+ "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
@@ -943,6 +941,7 @@ dependencies = [
 name = "ckb-store"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
@@ -950,7 +949,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "lru-cache",
- "serde",
 ]
 
 [[package]]
@@ -963,6 +961,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-fee-estimator",
  "ckb-logger",
  "ckb-network",
  "ckb-shared",
@@ -1022,6 +1021,7 @@ dependencies = [
 name = "ckb-tx-pool"
 version = "0.33.0-pre"
 dependencies = [
+ "ckb-app-config",
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-dao",
@@ -1040,7 +1040,6 @@ dependencies = [
  "failure",
  "faketime",
  "lru-cache",
- "serde",
  "tokio 0.2.20",
 ]
 

@@ -26,7 +26,8 @@ ckb-crypto = { path = "../util/crypto" }
 faketime = "0.2.0"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-verification = { path = "../verification" }
-ckb-tx-pool = { path = "../tx-pool" }
+ckb-app-config = { path = "../util/app-config" }
+ckb-fee-estimator = { path = "../util/fee-estimator" }
 
 [[bench]]
 name = "bench_main"

@@ -24,6 +24,7 @@ sentry = "0.16.0"
 futures = "0.3"
 ckb-error = {path = "../error"}
 ckb-tx-pool = { path = "../tx-pool" }
+ckb-fee-estimator = { path = "../util/fee-estimator" }
 crossbeam-channel = "0.3"
 
 [dev-dependencies]

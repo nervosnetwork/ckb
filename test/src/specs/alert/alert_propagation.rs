@@ -1,10 +1,8 @@
 use super::new_alert_config;
 use crate::utils::wait_until;
 use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
+use ckb_app_config::{CKBAppConfig, NetworkAlertConfig, RpcModule};
 use ckb_crypto::secp::{Message, Privkey};
-use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
-use ckb_rpc::Module as RPCModule;
 use ckb_types::{
     bytes::Bytes,
     packed::{self, Alert, RawAlert},
@@ -13,7 +11,7 @@ use ckb_types::{
 use log::info;
 
 pub struct AlertPropagation {
-    alert_config: AlertSignatureConfig,
+    alert_config: NetworkAlertConfig,
     privkeys: Vec<Privkey>,
 }
 
@@ -135,7 +133,7 @@ impl Spec for AlertPropagation {
             // set test alert config
             config.alert_signature = Some(alert_config.clone());
             // enable alert RPC
-            config.rpc.modules.push(RPCModule::Alert);
+            config.rpc.modules.push(RpcModule::Alert);
         })
     }
 }

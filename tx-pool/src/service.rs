@@ -1,13 +1,12 @@
 use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
-use crate::config::BlockAssemblerConfig;
-use crate::config::TxPoolConfig;
 use crate::error::handle_try_send_error;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
-use crate::FeeRate;
+use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_error::Error;
+use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};

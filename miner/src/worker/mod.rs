@@ -1,7 +1,7 @@
 mod dummy;
 mod eaglesong_simple;
 
-use crate::config::WorkerConfig;
+use ckb_app_config::MinerWorkerConfig;
 use ckb_logger::error;
 use ckb_pow::{DummyPowEngine, EaglesongBlake2bPowEngine, EaglesongPowEngine, PowEngine};
 use ckb_types::{packed::Byte32, U256};
@@ -13,9 +13,6 @@ use rand::{random, Rng};
 use std::ops::Range;
 use std::sync::Arc;
 use std::thread;
-
-pub use dummy::DummyConfig;
-pub use eaglesong_simple::EaglesongSimpleConfig;
 
 #[derive(Clone)]
 pub enum WorkerMessage {
@@ -63,12 +60,12 @@ const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elaps
 
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
-    config: &WorkerConfig,
+    config: &MinerWorkerConfig,
     nonce_tx: Sender<(Byte32, u128)>,
     mp: &MultiProgress,
 ) -> WorkerController {
     match config {
-        WorkerConfig::Dummy(config) => {
+        MinerWorkerConfig::Dummy(config) => {
             if pow.as_any().downcast_ref::<DummyPowEngine>().is_some() {
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
@@ -90,7 +87,7 @@ pub fn start_worker(
                 panic!("incompatible pow engine and worker type");
             }
         }
-        WorkerConfig::EaglesongSimple(config) => {
+        MinerWorkerConfig::EaglesongSimple(config) => {
             let extra_hash_function = config.extra_hash_function;
             if pow.as_any().downcast_ref::<EaglesongPowEngine>().is_some()
                 || pow

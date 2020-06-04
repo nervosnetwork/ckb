@@ -1,16 +1,15 @@
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
+use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::{DBConfig, DefaultMigration, Migrations, RocksDB};
+use ckb_db::{DefaultMigration, Migrations, RocksDB};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_notify::{Config as NotifyConfig, NotifyController, NotifyService};
+use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_store::ChainDB;
-use ckb_store::{ChainStore, StoreConfig, COLUMNS};
-use ckb_tx_pool::{
-    BlockAssemblerConfig, TokioRwLock, TxPoolConfig, TxPoolController, TxPoolServiceBuilder,
-};
+use ckb_store::{ChainStore, COLUMNS};
+use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{EpochExt, HeaderView},
     packed::Byte32,

@@ -6,9 +6,9 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+ckb-app-config = { path = "../util/app-config" }
 ckb-logger = { path = "../util/logger" }
-tempfile = "3.0"
 ckb-error = { path = "../error" }
+tempfile = "3.0"
 libc = "0.2"
 rocksdb = { package = "ckb-rocksdb", version = "=0.13.0", features = ["snappy"] }

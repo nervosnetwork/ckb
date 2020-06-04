@@ -1,5 +1,5 @@
-use ckb_app_config::{ExitCode, MinerArgs};
-use ckb_miner::{Client, Miner, MinerConfig};
+use ckb_app_config::{ExitCode, MinerArgs, MinerConfig};
+use ckb_miner::{Client, Miner};
 use crossbeam_channel::unbounded;
 use std::thread;
 

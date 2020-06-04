@@ -11,19 +11,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
-use ckb_db::DBConfig;
-use ckb_indexer::IndexerConfig;
 use ckb_logger::Config as LogConfig;
-use ckb_memory_tracker::Config as MemoryTrackerConfig;
-use ckb_miner::MinerConfig;
-use ckb_network::NetworkConfig;
-use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
-use ckb_notify::Config as NotifyConfig;
 use ckb_resource::Resource;
-use ckb_rpc::Config as RpcConfig;
-use ckb_store::StoreConfig;
-use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig};
 
+use super::configs::*;
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
 
@@ -52,7 +43,7 @@ pub struct CKBAppConfig {
     pub tx_pool: TxPoolConfig,
     #[serde(default)]
     pub store: StoreConfig,
-    pub alert_signature: Option<AlertSignatureConfig>,
+    pub alert_signature: Option<NetworkAlertConfig>,
     #[serde(default)]
     pub notify: NotifyConfig,
 }

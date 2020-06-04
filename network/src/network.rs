@@ -16,10 +16,11 @@ use crate::services::{
     outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
 };
 use crate::{
-    Behaviour, CKBProtocol, NetworkConfig, Peer, ProtocolId, ProtocolVersion, PublicKey,
-    ServiceControl, MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY,
-    MAX_FRAME_LENGTH_FEELER, MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
+    Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
+    MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY, MAX_FRAME_LENGTH_FEELER,
+    MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
 };
+use ckb_app_config::NetworkConfig;
 use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};

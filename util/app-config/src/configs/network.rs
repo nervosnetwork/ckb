@@ -1,21 +1,18 @@
-use crate::{
-    errors::{ConfigError, Error},
-    PeerId, DEFAULT_SEND_BUFFER,
-};
-use ckb_logger::info;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
-    secio,
+    secio::{self, PeerId},
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::PathBuf;
 
+// Max data size in send buffer: 24MB (a little larger than max frame length)
+const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct NetworkConfig {
+pub struct Config {
     #[serde(default)]
     pub whitelist_only: bool,
     pub max_peers: u32,
@@ -54,7 +51,7 @@ fn generate_random_key() -> [u8; 32] {
     }
 }
 
-impl NetworkConfig {
+impl Config {
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
@@ -69,9 +66,10 @@ impl NetworkConfig {
 
     pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
         if !self.path.exists() {
-            fs::create_dir(&self.path)?;
+            fs::create_dir(&self.path)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     pub fn max_inbound_peers(&self) -> u32 {
@@ -93,23 +91,21 @@ impl NetworkConfig {
             Err(_) => return Ok(None),
         };
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
-        Ok(Some(secio::SecioKeyPair::secp256k1_raw_key(&buf).map_err(
-            |_err: secio::error::SecioError| ConfigError::InvalidKey,
-        )?))
+        file.read_to_end(&mut buf).and_then(|_read_size| {
+            secio::SecioKeyPair::secp256k1_raw_key(&buf)
+                .map(Some)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid secret key data"))
+        })
     }
 
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
-        info!("Generate random key");
         let random_key_pair = generate_random_key();
-        info!("write random secret key to {:?}", path);
         fs::OpenOptions::new()
             .create(true)
             .write(true)
             .open(path)
             .and_then(|mut file| file.write_all(&random_key_pair))
-            .map_err(Into::into)
     }
 
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
@@ -127,10 +123,15 @@ impl NetworkConfig {
         for addr_str in &self.whitelist_peers {
             let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => {
-                    PeerId::from_bytes(key.to_vec()).map_err(|_| ConfigError::BadAddress)?
+                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec()).map_err(|_| {
+                    Error::new(ErrorKind::InvalidData, "invalid whitelist peers config")
+                })?,
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid whitelist peers config",
+                    ))
                 }
-                _ => return Err(ConfigError::BadAddress.into()),
             };
             peers.push((peer_id, addr))
         }
@@ -142,10 +143,14 @@ impl NetworkConfig {
         for addr_str in &self.bootnodes {
             let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => {
-                    PeerId::from_bytes(key.to_vec()).map_err(|_| ConfigError::BadAddress)?
+                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec())
+                    .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid bootnodes config"))?,
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid bootnodes config",
+                    ))
                 }
-                _ => return Err(ConfigError::BadAddress.into()),
             };
             peers.push((peer_id, addr));
         }

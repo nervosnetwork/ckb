@@ -1,7 +1,7 @@
 use crate::client::Client;
-use crate::config::WorkerConfig;
 use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
+use ckb_app_config::MinerWorkerConfig;
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
 use ckb_types::{
@@ -35,7 +35,7 @@ impl Miner {
         pow: Arc<dyn PowEngine>,
         client: Client,
         work_rx: Receiver<Work>,
-        workers: &[WorkerConfig],
+        workers: &[MinerWorkerConfig],
         limit: u128,
     ) -> Miner {
         let (nonce_tx, nonce_rx) = unbounded();

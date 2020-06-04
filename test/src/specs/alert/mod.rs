@@ -2,9 +2,9 @@ mod alert_propagation;
 
 pub use alert_propagation::*;
 
+use ckb_app_config::NetworkAlertConfig;
 use ckb_crypto::secp::Privkey;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
 use rand::{thread_rng, Rng};
 
 pub(crate) fn random_privkey() -> Privkey {
@@ -22,9 +22,9 @@ pub(crate) fn random_privkey() -> Privkey {
 pub(crate) fn new_alert_config(
     signatures_threshold: usize,
     key_num: usize,
-) -> (AlertSignatureConfig, Vec<Privkey>) {
+) -> (NetworkAlertConfig, Vec<Privkey>) {
     let privkeys: Vec<_> = (0..key_num).map(|_| random_privkey()).collect();
-    let alert_config = AlertSignatureConfig {
+    let alert_config = NetworkAlertConfig {
         signatures_threshold,
         public_keys: privkeys
             .iter()

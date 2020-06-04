@@ -24,11 +24,11 @@ use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
+use ckb_fee_estimator::FeeRate;
 use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
 use ckb_network::{
     bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
 };
-use ckb_tx_pool::FeeRate;
 use ckb_types::core::BlockView;
 use ckb_types::{
     core::{self, Cycle},

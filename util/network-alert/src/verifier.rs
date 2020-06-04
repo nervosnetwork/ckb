@@ -1,4 +1,4 @@
-use crate::config::SignatureConfig;
+use ckb_app_config::NetworkAlertConfig;
 use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 use ckb_types::{packed, prelude::*};
@@ -6,12 +6,12 @@ use failure::Error;
 use std::collections::HashSet;
 
 pub struct Verifier {
-    config: SignatureConfig,
+    config: NetworkAlertConfig,
     pubkeys: HashSet<Pubkey>,
 }
 
 impl Verifier {
-    pub fn new(config: SignatureConfig) -> Self {
+    pub fn new(config: NetworkAlertConfig) -> Self {
         let pubkeys = config
             .public_keys
             .iter()

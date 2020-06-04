@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
     ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
@@ -6,24 +5,26 @@ use crate::module::{
     StatsRpcImpl,
 };
 use crate::IoHandler;
+use ckb_app_config::IndexerConfig;
+use ckb_app_config::RpcConfig;
 use ckb_chain::chain::ChainController;
-use ckb_indexer::{DefaultIndexerStore, IndexerConfig};
+use ckb_fee_estimator::FeeRate;
+use ckb_indexer::DefaultIndexerStore;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_sync::Synchronizer;
-use ckb_tx_pool::FeeRate;
 use ckb_util::Mutex;
 use std::sync::Arc;
 
 pub struct ServiceBuilder<'a> {
-    config: &'a Config,
+    config: &'a RpcConfig,
     io_handler: IoHandler,
 }
 
 impl<'a> ServiceBuilder<'a> {
-    pub fn new(config: &'a Config) -> Self {
+    pub fn new(config: &'a RpcConfig) -> Self {
         Self {
             config,
             io_handler: IoHandler::default(),

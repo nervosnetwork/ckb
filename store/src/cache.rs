@@ -1,4 +1,4 @@
-use crate::config::StoreConfig;
+use ckb_app_config::StoreConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{HeaderView, TransactionView, UncleBlockVecView},

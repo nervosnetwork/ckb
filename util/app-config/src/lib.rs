@@ -1,6 +1,7 @@
 mod app_config;
 mod args;
 pub mod cli;
+mod configs;
 mod exit_code;
 mod sentry_config;
 
@@ -8,7 +9,7 @@ pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, ResetDataArgs, RunArgs, StatsArgs,
 };
-pub use ckb_tx_pool::BlockAssemblerConfig;
+pub use configs::*;
 pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;
