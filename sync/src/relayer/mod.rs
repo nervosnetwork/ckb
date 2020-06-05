@@ -35,7 +35,9 @@ use ckb_types::{
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
+use ckb_util::Mutex;
 use faketime::unix_time_as_millis;
+use ratelimit_meter::KeyedRateLimiter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -63,6 +65,7 @@ pub struct Relayer {
     pub(crate) shared: Arc<SyncShared>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
+    rate_limiter: Arc<Mutex<KeyedRateLimiter<(PeerIndex, u32)>>>,
 }
 
 impl Relayer {
@@ -72,11 +75,17 @@ impl Relayer {
         min_fee_rate: FeeRate,
         max_tx_verify_cycles: Cycle,
     ) -> Self {
+        // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
+        // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
+        let rate_limiter = Arc::new(Mutex::new(KeyedRateLimiter::per_second(
+            std::num::NonZeroU32::new(30).unwrap(),
+        )));
         Relayer {
             chain,
             shared,
             min_fee_rate,
             max_tx_verify_cycles,
+            rate_limiter,
         }
     }
 
@@ -85,11 +94,27 @@ impl Relayer {
     }
 
     fn try_process<'r>(
-        &self,
+        &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::RelayMessageUnionReader<'r>,
     ) -> Status {
+        // CompactBlock will be verified by POW, it's OK to skip rate limit checking.
+        let should_check_rate = match message {
+            packed::RelayMessageUnionReader::CompactBlock(_) => false,
+            _ => true,
+        };
+
+        if should_check_rate
+            && self
+                .rate_limiter
+                .lock()
+                .check((peer, message.item_id()))
+                .is_err()
+        {
+            return StatusCode::TooManyRequests.with_context(message.item_name());
+        }
+
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
                 CompactBlockProcess::new(reader, self, nc, peer).execute()
@@ -129,7 +154,7 @@ impl Relayer {
     }
 
     fn process<'r>(
-        &self,
+        &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::RelayMessageUnionReader<'r>,
@@ -699,6 +724,8 @@ impl CKBProtocolHandler for Relayer {
                 peer.protocols.remove(&protocol);
             }),
         );
+        // remove all rate limiter keys that have been expireable for 1 minutes:
+        self.rate_limiter.lock().cleanup(Duration::from_secs(60));
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

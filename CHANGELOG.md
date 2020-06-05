@@ -1,3 +1,9 @@
+# [v0.32.1](https://github.com/nervosnetwork/ckb/compare/v0.32.0...v0.32.1) (2020-05-29)
+
+### Bug Fixes
+
+* [GHSA-84x2-2qv6-qg56](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-84x2-2qv6-qg56): Add rate limit to avoid p2p DoS attacks.
+
 # [v0.32.0](https://github.com/nervosnetwork/ckb/compare/v0.31.1...v0.32.0) (2020-05-22)
 
 ### Features
