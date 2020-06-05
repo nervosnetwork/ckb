@@ -978,6 +978,7 @@ dependencies = [
  "futures 0.3.4",
  "lru-cache",
  "rand 0.6.5",
+ "ratelimit_meter",
  "sentry",
 ]
 
@@ -1516,6 +1517,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "evmap"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fdb60074c9b82c91f8702fa5351b85d22b668dae7f73bf06b44a09bc372380f"
+dependencies = [
+ "hashbrown",
+ "smallvec 0.6.10",
+]
+
+[[package]]
 name = "failure"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1815,6 +1826,12 @@ dependencies = [
  "string",
  "tokio-io",
 ]
+
+[[package]]
+name = "hashbrown"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1de41fb8dba9714efd92241565cdff73f78508c95697dd56787d3cba27e2353"
 
 [[package]]
 name = "heapsize"
@@ -2709,6 +2726,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nonzero_ext"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db1b4163932b207be6e3a06412aed4d84cca40dc087419f231b3a38cba2ca8e9"
+
+[[package]]
 name = "ntapi"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2904,6 +2927,17 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f842b1982eb6c2fe34036a4fbfb06dd185a3f5c8edfaacdf7d1ea10b07de6252"
+dependencies = [
+ "lock_api 0.3.4",
+ "parking_lot_core 0.6.2",
+ "rustc_version",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3a704eb390aafdc107b0e392f56a82b668e3a71366993b5340f5833fd62505e"
@@ -2925,6 +2959,21 @@ dependencies = [
  "rustc_version",
  "smallvec 0.6.10",
  "thread-id",
+ "winapi 0.3.8",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b876b1b9e7ac6e1a74a6da34d25c42e17e8862aa409cbbbdcfc8d86c6f3bc62b"
+dependencies = [
+ "cfg-if",
+ "cloudabi",
+ "libc",
+ "redox_syscall",
+ "rustc_version",
+ "smallvec 0.6.10",
  "winapi 0.3.8",
 ]
 
@@ -3382,6 +3431,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e18c91676f670f6f0312764c759405f13afb98d5d73819840cf72a518487bff"
 dependencies = [
  "rand_core 0.5.0",
+]
+
+[[package]]
+name = "ratelimit_meter"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a37d4f95369ef809d01448bdf8d82ef974e3b21f3698d87015a575bb26f27724"
+dependencies = [
+ "evmap",
+ "nonzero_ext",
+ "parking_lot 0.9.0",
 ]
 
 [[package]]

@@ -732,6 +732,14 @@ impl Peers {
             .and_modify(|state| state.unknown_header_list.push(hash));
     }
 
+    pub fn unknown_header_list_is_empty(&self, peer: PeerIndex) -> bool {
+        self.state
+            .read()
+            .get(&peer)
+            .map(|state| state.unknown_header_list.is_empty())
+            .unwrap_or(true)
+    }
+
     pub fn clear_unknown_list(&self) {
         self.state.write().values_mut().for_each(|state| {
             if !state.unknown_header_list.is_empty() {
@@ -1387,20 +1395,23 @@ impl SyncState {
     }
 
     pub fn insert_peer_unknown_header_list(&self, pi: PeerIndex, header_list: Vec<Byte32>) {
-        // header list Is an ordered list, sorted from highest to lowest,
-        // so here you discard and exit early
-        for hash in header_list {
-            if let Some(header) = self.header_map.read().get(&hash) {
-                self.peers.new_header_received(pi, header);
-                break;
-            } else {
-                self.peers.insert_unknown_header_hash(pi, hash)
+        // update peer's unknown_header_list only once
+        if self.peers.unknown_header_list_is_empty(pi) {
+            // header list is an ordered list, sorted from highest to lowest,
+            // so here you discard and exit early
+            for hash in header_list {
+                if let Some(header) = self.header_map.read().get(&hash) {
+                    self.peers.new_header_received(pi, header);
+                    break;
+                } else {
+                    self.peers.insert_unknown_header_hash(pi, hash)
+                }
             }
         }
     }
 
     pub fn try_update_best_known_with_unknown_header_list(&self, pi: PeerIndex) {
-        // header list Is an ordered list, sorted from highest to lowest,
+        // header list is an ordered list, sorted from highest to lowest,
         // when header hash unknown, break loop is ok
         while let Some(hash) = self.peers().take_unknown_last(pi) {
             if let Some(header) = self.header_map.read().get(&hash) {
