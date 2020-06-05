@@ -482,16 +482,14 @@ impl TxPoolService {
             .fetch_txs_verify_cache(detached_txs.difference(&attached_txs))
             .await;
         let mut tx_pool = self.tx_pool.write().await;
-        let updated_cache = block_in_place(|| {
-            _update_tx_pool_for_reorg(
-                &mut tx_pool,
-                &fetched_cache,
-                detached_blocks,
-                attached_blocks,
-                detached_proposal_id,
-                snapshot,
-            )
-        });
+        let updated_cache = _update_tx_pool_for_reorg(
+            &mut tx_pool,
+            &fetched_cache,
+            detached_blocks,
+            attached_blocks,
+            detached_proposal_id,
+            snapshot,
+        );
 
         let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
         tokio::spawn(async move {
@@ -640,10 +638,10 @@ fn _update_tx_pool_for_reorg(
 
     for blk in attached_blocks {
         attached.extend(blk.transactions().iter().skip(1).cloned());
-        tx_pool.fee_estimator.process_block(
-            blk.header().number(),
-            blk.transactions().iter().skip(1).map(|tx| tx.hash()),
-        );
+        // tx_pool.fee_estimator.process_block(
+        //     blk.header().number(),
+        //     blk.transactions().iter().skip(1).map(|tx| tx.hash()),
+        // );
     }
 
     let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
