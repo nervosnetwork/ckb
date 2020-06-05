@@ -32,8 +32,8 @@ pub enum TransactionError {
     OutputsSumOverflow,
 
     /// inputs.is_empty() || outputs.is_empty()
-    #[fail(display = "Empty")]
-    Empty,
+    #[fail(display = "Empty({})", source)]
+    Empty { source: TransactionErrorSource },
 
     /// Duplicated dep-out-points within the same one transaction
     #[fail(display = "DuplicateDeps")]
@@ -260,7 +260,7 @@ impl TransactionError {
         match self {
             TransactionError::OutputsSumOverflow
             | TransactionError::DuplicateDeps
-            | TransactionError::Empty
+            | TransactionError::Empty { .. }
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince
             | TransactionError::ExceededMaximumBlockBytes

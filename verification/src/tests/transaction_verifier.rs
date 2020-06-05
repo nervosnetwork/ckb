@@ -29,7 +29,12 @@ pub fn test_empty() {
     let transaction = TransactionBuilder::default().build();
     let verifier = EmptyVerifier::new(&transaction);
 
-    assert_error_eq!(verifier.verify().unwrap_err(), TransactionError::Empty);
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::Empty {
+            source: TransactionErrorSource::Inputs,
+        }
+    );
 }
 
 #[test]
