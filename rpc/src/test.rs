@@ -11,7 +11,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeRate;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
-use ckb_network::{NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::{
