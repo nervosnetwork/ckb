@@ -491,8 +491,8 @@ impl NetworkState {
     }
 
     pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
-        let mut public_addrs = self.public_addrs.write();
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
+        let mut public_addrs = self.public_addrs.write();
         for addr in iter {
             if let Some(score) = public_addrs.get_mut(&addr) {
                 *score = score.saturating_add(1);
