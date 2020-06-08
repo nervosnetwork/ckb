@@ -1,6 +1,7 @@
 mod block_assembler;
 mod component;
 pub mod error;
+mod fee_estimate;
 pub mod pool;
 mod process;
 pub mod service;

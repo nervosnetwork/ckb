@@ -1,11 +1,13 @@
 use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
 use crate::error::handle_try_send_error;
+use crate::fee_estimate;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_error::Error;
+use ckb_fee_estimator::Estimator as FeeEstimator;
 use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
@@ -363,6 +365,7 @@ pub struct TxPoolService {
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
+    pub(crate) fee_estimator: Arc<RwLock<FeeEstimator>>,
     snapshot_mgr: Arc<SnapshotMgr>,
 }
 
@@ -377,6 +380,7 @@ impl TxPoolService {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
+            fee_estimator: Arc::new(RwLock::new(FeeEstimator::default())),
             tx_pool_config,
             block_assembler,
             txs_verify_cache,
@@ -414,17 +418,28 @@ async fn process(service: TxPoolService, message: Message) {
             responder,
             arguments: txs,
         }) => {
-            let submit_txs_result = service.process_txs(txs).await;
-            if let Err(e) = responder.send(submit_txs_result) {
-                error!("responder send submit_txs_result failed {:?}", e);
+            let result = service.process_txs(txs).await.map(|(ret, sample)| {
+                tokio::spawn(async {
+                    fee_estimate::track_tx(service.fee_estimator, sample).await;
+                });
+                ret
+            });
+
+            if let Err(e) = responder.send(result) {
+                error!("responder send submit_txs_ret failed {:?}", e);
             };
         }
         Message::NotifyTxs(Notify {
             arguments: (txs, callback),
         }) => {
-            let submit_txs_result = service.process_txs(txs).await;
+            let result = service.process_txs(txs).await.map(|(ret, sample)| {
+                tokio::spawn(async {
+                    fee_estimate::track_tx(service.fee_estimator, sample).await;
+                });
+                ret
+            });
             if let Some(call) = callback {
-                call(submit_txs_result)
+                call(result)
             };
         }
         Message::FreshProposalsFilter(Request {
@@ -490,6 +505,30 @@ async fn process(service: TxPoolService, message: Message) {
         Message::ChainReorg(Notify {
             arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
         }) => {
+            let estimate_sample = attached_blocks
+                .iter()
+                .map(|blk| {
+                    (
+                        blk.header().number(),
+                        blk.transactions()
+                            .iter()
+                            .skip(1)
+                            .map(|tx| tx.hash())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let fee_estimator = Arc::clone(&service.fee_estimator);
+            tokio::spawn(async move {
+                for (height, txs) in estimate_sample {
+                    fee_estimate::process_block(
+                        Arc::clone(&fee_estimator),
+                        height,
+                        txs.into_iter(),
+                    )
+                    .await;
+                }
+            });
             service
                 .update_tx_pool_for_reorg(
                     detached_blocks,
@@ -537,8 +576,8 @@ async fn process(service: TxPoolService, message: Message) {
             responder,
             arguments: expect_confirm_blocks,
         }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let fee_rate = tx_pool.fee_estimator.estimate(expect_confirm_blocks);
+            let fee_rate =
+                fee_estimate::estimate(service.fee_estimator, expect_confirm_blocks).await;
             if let Err(e) = responder.send(fee_rate) {
                 error!("responder send estimate_fee_rate failed {:?}", e)
             };
@@ -546,14 +585,13 @@ async fn process(service: TxPoolService, message: Message) {
         Message::EstimatorTrackTx(Notify {
             arguments: (tx_hash, fee_rate, height),
         }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            tx_pool.fee_estimator.track_tx(tx_hash, fee_rate, height);
+            fee_estimate::track_tx(service.fee_estimator, (height, vec![(tx_hash, fee_rate)]))
+                .await;
         }
         Message::EstimatorProcessBlock(Notify {
             arguments: (height, txs),
         }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            tx_pool.fee_estimator.process_block(height, txs.into_iter());
+            fee_estimate::process_block(service.fee_estimator, height, txs.into_iter()).await;
         }
     }
 }

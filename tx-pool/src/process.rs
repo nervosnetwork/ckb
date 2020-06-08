@@ -2,6 +2,7 @@ use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCach
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
 use crate::error::{BlockAssemblerError, SubmitTxError};
+use crate::fee_estimate::FeeRateSample;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
@@ -380,9 +381,10 @@ impl TxPoolService {
         txs: Vec<(ResolvedTransaction, CacheEntry)>,
         pre_resolve_tip: Byte32,
         status: Vec<(usize, Capacity, TxStatus)>,
-    ) -> Result<(), Error> {
+    ) -> Result<FeeRateSample, Error> {
         let mut tx_pool = self.tx_pool.write().await;
         let snapshot = tx_pool.snapshot();
+        let height = tx_pool.snapshot().tip_number();
 
         if pre_resolve_tip != snapshot.tip_hash() {
             let mut txs_provider = TransactionsProvider::default();
@@ -393,6 +395,7 @@ impl TxPoolService {
             }
         }
 
+        let mut sample = Vec::with_capacity(status.len());
         for ((rtx, cache_entry), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter())
         {
             if tx_pool.reach_cycles_limit(cache_entry.cycles) {
@@ -418,9 +421,8 @@ impl TxPoolService {
                     let tx_hash = entry.transaction.hash();
                     let inserted = tx_pool.add_pending(entry)?;
                     if inserted {
-                        let height = tx_pool.snapshot().tip_number();
                         let fee_rate = FeeRate::calculate(fee, tx_size);
-                        tx_pool.fee_estimator.track_tx(tx_hash, fee_rate, height);
+                        sample.push((tx_hash, fee_rate));
                     }
                     inserted
                 }
@@ -431,13 +433,13 @@ impl TxPoolService {
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
-        Ok(())
+        Ok((height, sample))
     }
 
     pub(crate) async fn process_txs(
         &self,
         txs: Vec<TransactionView>,
-    ) -> Result<Vec<CacheEntry>, Error> {
+    ) -> Result<(Vec<CacheEntry>, FeeRateSample), Error> {
         let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let (tip_hash, snapshot, rtxs, status) = self.pre_resolve_txs(&txs).await?;
         let fetched_cache = self.fetch_txs_verify_cache(txs.iter()).await;
@@ -451,7 +453,7 @@ impl TxPoolService {
             .collect::<Vec<_>>();
         let cycles_vec = verified.iter().map(|(_, cycles)| *cycles).collect();
 
-        self.submit_txs(verified, tip_hash, status).await?;
+        let fee_rate = self.submit_txs(verified, tip_hash, status).await?;
 
         let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
         tokio::spawn(async move {
@@ -460,7 +462,7 @@ impl TxPoolService {
                 guard.insert(k, v);
             }
         });
-        Ok(cycles_vec)
+        Ok((cycles_vec, fee_rate))
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -482,16 +484,14 @@ impl TxPoolService {
             .fetch_txs_verify_cache(detached_txs.difference(&attached_txs))
             .await;
         let mut tx_pool = self.tx_pool.write().await;
-        let updated_cache = block_in_place(|| {
-            _update_tx_pool_for_reorg(
-                &mut tx_pool,
-                &fetched_cache,
-                detached_blocks,
-                attached_blocks,
-                detached_proposal_id,
-                snapshot,
-            )
-        });
+        let updated_cache = _update_tx_pool_for_reorg(
+            &mut tx_pool,
+            &fetched_cache,
+            detached_blocks,
+            attached_blocks,
+            detached_proposal_id,
+            snapshot,
+        );
 
         let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
         tokio::spawn(async move {
@@ -640,10 +640,6 @@ fn _update_tx_pool_for_reorg(
 
     for blk in attached_blocks {
         attached.extend(blk.transactions().iter().skip(1).cloned());
-        tx_pool.fee_estimator.process_block(
-            blk.header().number(),
-            blk.transactions().iter().skip(1).map(|tx| tx.hash()),
-        );
     }
 
     let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
