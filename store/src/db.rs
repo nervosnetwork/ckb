@@ -15,6 +15,7 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct ChainDB {
     db: RocksDB,
     cache: Arc<StoreCache>,

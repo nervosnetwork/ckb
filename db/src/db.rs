@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub const VERSION_KEY: &str = "db-version";
 
+#[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
 }
