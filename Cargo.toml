@@ -42,6 +42,7 @@ members = [
     "util/rust-unstable-port",
     "db",
     "db-migration",
+    "freezer",
     "resource",
     "pow",
     "network",

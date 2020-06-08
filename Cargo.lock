@@ -574,6 +574,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-freezer"
+version = "0.33.0-pre"
+dependencies = [
+ "ckb-error",
+ "ckb-logger",
+ "ckb-types",
+]
+
+[[package]]
 name = "ckb-hash"
 version = "0.36.0-pre"
 dependencies = [
