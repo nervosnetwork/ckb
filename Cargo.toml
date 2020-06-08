@@ -37,6 +37,7 @@ members = [
     "script/data-loader",
     "db",
     "db-migration",
+    "freezer",
     "resource",
     "pow",
     "network",
