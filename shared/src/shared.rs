@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Shared {
-    pub(crate) store: Arc<ChainDB>,
+    pub(crate) store: ChainDB,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
     pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
@@ -44,7 +44,6 @@ impl Shared {
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
 
-        let store = Arc::new(store);
         let consensus = Arc::new(consensus);
 
         let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
