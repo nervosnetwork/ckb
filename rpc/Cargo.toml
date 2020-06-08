@@ -50,4 +50,3 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"
 ckb-dao-utils = { path = "../util/dao/utils" }
-rand = "0.7"

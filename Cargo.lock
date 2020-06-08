@@ -853,7 +853,6 @@ dependencies = [
  "jsonrpc-ws-server",
  "num_cpus",
  "pretty_assertions",
- "rand 0.7.0",
  "reqwest",
  "sentry",
  "serde",

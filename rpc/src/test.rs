@@ -27,9 +27,7 @@ use ckb_types::{
         EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{
-        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder,
-    },
+    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
     H256,
 };
@@ -39,7 +37,6 @@ use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
@@ -148,42 +145,17 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .build()
         .unwrap();
     let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
-    let tx_pool_controller = shared.tx_pool_controller();
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
-
-    // prepare fee estimator samples
-    let sample_txs: Vec<Byte32> = (0..30)
-        .map(|_| {
-            let mut buf = [0u8; 32];
-            let mut rng = thread_rng();
-            rng.fill(&mut buf);
-            buf.pack()
-        })
-        .collect();
-    let fee_rate = FeeRate::from_u64(2_000);
-    let send_height = height.saturating_sub(9);
 
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
             .process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
-        // Fake fee estimator samples
-        if block.header().number() == send_height {
-            for tx_hash in sample_txs.clone() {
-                tx_pool_controller
-                    .estimator_track_tx(tx_hash, fee_rate, send_height)
-                    .expect("prepare estimator samples");
-            }
-        }
         parent = block;
     }
-    // mark txs as confirmed
-    tx_pool_controller
-        .estimator_process_block(height + 1, sample_txs.into_iter())
-        .expect("process estimator samples");
 
     // Start network services
     let dir = tempfile::tempdir()
