@@ -97,6 +97,7 @@ max_request_body_size = 10485760
 
 # List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Indexer", "Experiment", "Debug"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
+# dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
 # }}
 
