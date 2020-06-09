@@ -41,7 +41,7 @@ pub struct Config {
     pub max_send_buffer: Option<usize>,
 }
 
-fn generate_random_key() -> [u8; 32] {
+pub(crate) fn generate_random_key() -> [u8; 32] {
     loop {
         let mut key: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut key);
@@ -49,6 +49,27 @@ fn generate_random_key() -> [u8; 32] {
             return key;
         }
     }
+}
+
+pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), Error> {
+    fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(&secret))
+}
+
+pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPair>, Error> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).and_then(|_read_size| {
+        secio::SecioKeyPair::secp256k1_raw_key(&buf)
+            .map(Some)
+            .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid secret key data"))
+    })
 }
 
 impl Config {
@@ -86,26 +107,13 @@ impl Config {
 
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
         let path = self.secret_key_path();
-        let mut file = match fs::File::open(path) {
-            Ok(file) => file,
-            Err(_) => return Ok(None),
-        };
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).and_then(|_read_size| {
-            secio::SecioKeyPair::secp256k1_raw_key(&buf)
-                .map(Some)
-                .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid secret key data"))
-        })
+        read_secret_key(path)
     }
 
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
         let random_key_pair = generate_random_key();
-        fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(path)
-            .and_then(|mut file| file.write_all(&random_key_pair))
+        write_secret_to_file(&random_key_pair, path)
     }
 
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {

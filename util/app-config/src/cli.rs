@@ -11,6 +11,9 @@ pub const CMD_PROF: &str = "prof";
 pub const CMD_STATS: &str = "stats";
 pub const CMD_LIST_HASHES: &str = "list-hashes";
 pub const CMD_RESET_DATA: &str = "reset-data";
+pub const CMD_PEERID: &str = "peer-id";
+pub const CMD_GEN_SECRET: &str = "gen";
+pub const CMD_FROM_SECRET: &str = "from-secret";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -42,6 +45,7 @@ pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
 pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
 pub const ARG_LOGS: &str = "logs";
 pub const ARG_TMP_TARGET: &str = "tmp-target";
+pub const ARG_SECRET_PATH: &str = "secret-path";
 
 const GROUP_BA: &str = "ba";
 
@@ -69,6 +73,7 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(prof())
         .subcommand(stats())
         .subcommand(reset_data())
+        .subcommand(peer_id())
 }
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
@@ -347,6 +352,33 @@ fn init() -> App<'static, 'static> {
                 .long("spec")
                 .takes_value(true)
                 .hidden(true),
+        )
+}
+
+fn peer_id() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_PEERID)
+        .about("About peer id, base on Secp256k1")
+        .subcommand(
+            SubCommand::with_name(CMD_FROM_SECRET)
+                .about("Generate peer id from secret file")
+                .arg(
+                    Arg::with_name(ARG_SECRET_PATH)
+                        .takes_value(true)
+                        .long(ARG_SECRET_PATH)
+                        .required(true)
+                        .help("Generate peer id from secret file path"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name(CMD_GEN_SECRET)
+                .about("Generate random key to file")
+                .arg(
+                    Arg::with_name(ARG_SECRET_PATH)
+                        .long(ARG_SECRET_PATH)
+                        .required(true)
+                        .takes_value(true)
+                        .help("Generate peer id to file path"),
+                ),
         )
 }
 

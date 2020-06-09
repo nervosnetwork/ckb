@@ -18,6 +18,13 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         (cli::CMD_LIST_HASHES, Some(matches)) => {
             return subcommand::list_hashes(Setup::root_dir_from_matches(&matches)?, matches);
         }
+        (cli::CMD_PEERID, Some(matches)) => match matches.subcommand() {
+            (cli::CMD_GEN_SECRET, Some(matches)) => return Setup::gen(&matches),
+            (cli::CMD_FROM_SECRET, Some(matches)) => {
+                return subcommand::peer_id(Setup::peer_id(&matches)?);
+            }
+            _ => {}
+        },
         _ => {
             // continue
         }
