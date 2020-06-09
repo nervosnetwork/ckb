@@ -975,6 +975,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
+ "ckb-logger",
  "ckb-script-data-loader",
  "ckb-types",
  "ckb-util",

@@ -18,6 +18,7 @@ pub use crate::snapshot::RocksDBSnapshot;
 pub use crate::transaction::{RocksDBTransaction, RocksDBTransactionSnapshot};
 pub use rocksdb::{
     self as internal, DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode,
+    ReadOptions, WriteBatch,
 };
 
 pub type Col = &'static str;
