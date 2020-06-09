@@ -1049,6 +1049,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
+ "ckb-logger",
  "ckb-traits",
  "ckb-types",
  "ckb-util",

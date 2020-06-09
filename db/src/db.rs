@@ -12,6 +12,8 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
+pub const MAX_DELETE_BATCH_SIZE: usize = 32 * 1024;
+
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
@@ -175,6 +177,44 @@ impl RocksDB {
 
     pub fn inner(&self) -> Arc<OptimisticTransactionDB> {
         Arc::clone(&self.inner)
+    }
+
+    pub fn delete_file_in_range<K>(&self, col: Col, start_key: K, end_key: K) -> Result<()>
+    where
+        K: AsRef<[u8]>,
+    {
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner
+            .delete_file_in_range_cf(cf, start_key, end_key)
+            .map_err(internal_error)
+    }
+
+    pub fn batch_delete<K>(
+        &self,
+        col: Col,
+        wb: &mut WriteBatch,
+        keys: impl Iterator<Item = K>,
+    ) -> Result<()>
+    where
+        K: AsRef<[u8]>,
+    {
+        let cf = cf_handle(&self.inner, col)?;
+        for key in keys {
+            wb.delete_cf(cf, key).map_err(internal_error)?;
+            if wb.size_in_bytes() >= MAX_DELETE_BATCH_SIZE {
+                self.write_batch(&wb)?;
+                wb.clear().map_err(internal_error)?;
+            }
+        }
+
+        if !wb.is_empty() {
+            self.write_batch(&wb)?;
+        }
+        Ok(())
+    }
+
+    pub fn write_batch(&self, batch: &WriteBatch) -> Result<()> {
+        self.inner.write(batch).map_err(internal_error)
     }
 
     pub fn create_cf(&mut self, col: Col) -> Result<()> {

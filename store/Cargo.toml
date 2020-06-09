@@ -14,3 +14,4 @@ ckb-traits = { path = "../traits" }
 ckb-util = { path = "../util" }
 ckb-error = { path = "../error" }
 ckb-app-config = { path = "../util/app-config" }
+ckb-logger = { path = "../util/logger" }
