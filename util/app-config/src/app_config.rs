@@ -29,6 +29,7 @@ pub enum AppConfig {
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
     pub tmp_dir: Option<PathBuf>,
+    pub ancient: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     #[serde(default)]
@@ -173,6 +174,7 @@ impl CKBAppConfig {
         self.indexer
             .db
             .adjust(root_dir, &self.data_dir, "indexer_db");
+        self.ancient = path_exists_or_else(&self.ancient, || self.data_dir.join("ancient"));
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
@@ -250,6 +252,15 @@ fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
     } else {
         eprintln!("Not a CKB directory, initialize one with `ckb init`.");
         Err(ExitCode::Config)
+    }
+}
+
+fn path_exists_or_else<P: AsRef<Path>, F: FnOnce() -> PathBuf>(path: P, f: F) -> PathBuf {
+    let path_ref = path.as_ref();
+    if path_ref.to_str().is_none() || path_ref.to_str() == Some("") {
+        f()
+    } else {
+        path_ref.to_path_buf()
     }
 }
 

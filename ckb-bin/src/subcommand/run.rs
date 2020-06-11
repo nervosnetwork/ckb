@@ -2,6 +2,7 @@ use crate::helper::deadlock_detection;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
+use ckb_freezer::FreezerService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
@@ -151,6 +152,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let io_handler = builder.build();
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+
+    let _freezer = FreezerService::new(args.config.ancient, shared.clone()).start();
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
