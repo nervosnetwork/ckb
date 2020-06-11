@@ -11,3 +11,7 @@ edition = "2018"
 ckb-types = { path = "../util/types", version = "= 0.39.0-pre" }
 ckb-error = { path = "../error", version = "= 0.39.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.39.0-pre" }
+ckb-shared = { path = "../shared", version = "= 0.39.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.0-pre" }
+crossbeam-channel = "0.3"
+ckb-store = { path = "../store", version = "= 0.39.0-pre" }

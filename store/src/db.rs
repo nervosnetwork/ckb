@@ -129,60 +129,6 @@ impl ChainDB {
         db_txn.commit()?;
         Ok(())
     }
-
-    fn seek_delete_range(&self, col: Col, start_key: &[u8], end_key: &[u8]) -> Result<(), Error> {
-        let mut wb = WriteBatch::default();
-        let mut iter_opt = ReadOptions::default();
-        iter_opt.set_iterate_upper_bound(end_key);
-        let iter = self.db.iter_opt(
-            col,
-            IteratorMode::From(start_key, Direction::Forward),
-            &iter_opt,
-        )?;
-
-        self.db
-            .batch_delete(col, &mut wb, iter.map(|(key, _)| key))?;
-        Ok(())
-    }
-
-    pub fn unsafe_delete_range(
-        &self,
-        col: Col,
-        start_key: &[u8],
-        end_key: &[u8],
-    ) -> Result<(), Error> {
-        // delete_range is dangerous operation.
-        // passing empty key as start or end will be set MIN_KEY or MAX_KEY
-        assert!(!start_key.is_empty());
-        assert!(!end_key.is_empty());
-
-        // call delete_file_in_range try to free disk space
-        let start_time = time::Instant::now();
-        self.db.delete_file_in_range(col, start_key, end_key)?;
-
-        let encoded_start_key = hex_string(start_key);
-        let encoded_end_key = hex_string(end_key);
-
-        ckb_logger::info!(
-            "unsafe_delete_range finished call delete_file_in_range {}, {}, {}",
-            encoded_start_key,
-            encoded_end_key,
-            start_time.elapsed().as_micros()
-        );
-
-        // delete remain keys in the range.
-        let start_time = time::Instant::now();
-        self.seek_delete_range(col, start_key, end_key)?;
-
-        ckb_logger::info!(
-            "unsafe_delete_range finished call seek_delete_range {}, {}, {}",
-            encoded_start_key,
-            encoded_end_key,
-            start_time.elapsed().as_micros()
-        );
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

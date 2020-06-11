@@ -86,6 +86,36 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
+    fn get_archived_block(&'a self, hash: &packed::Byte32) -> Option<packed::ArchivedBlock> {
+        let prefix = hash.as_slice();
+        let transactions: packed::TransactionVec = self
+            .get_iter(
+                COLUMN_BLOCK_BODY,
+                IteratorMode::From(prefix, Direction::Forward),
+            )
+            .take_while(|(key, _)| key.starts_with(prefix))
+            .map(|(_key, value)| {
+                let reader =
+                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
+                reader.data().to_entity()
+            })
+            .pack();
+
+        let uncles = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
+            let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
+            reader.data().to_entity()
+        })?;
+
+        let proposals = self.get_block_proposal_txs_ids(hash)?;
+        Some(
+            packed::ArchivedBlock::new_builder()
+                .uncles(uncles)
+                .transactions(transactions)
+                .proposals(proposals)
+                .build(),
+        )
+    }
+
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache() {

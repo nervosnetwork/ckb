@@ -480,6 +480,7 @@ dependencies = [
  "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-channel",
+ "ckb-freezer",
  "ckb-instrument",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -689,7 +690,11 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-error",
  "ckb-logger",
+ "ckb-shared",
+ "ckb-stop-handler",
+ "ckb-store",
  "ckb-types",
+ "crossbeam-channel 0.3.9",
 ]
 
 [[package]]

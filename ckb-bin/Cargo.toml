@@ -24,6 +24,7 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.39.0-pre" }
 ckb-chain = { path = "../chain", version = "= 0.39.0-pre" }
 ckb-shared = { path = "../shared", version = "= 0.39.0-pre" }
 ckb-store = { path = "../store", version = "= 0.39.0-pre" }
+ckb-freezer = { path = "../freezer", version = "= 0.39.0-pre" }
 ckb-chain-spec = {path = "../spec", version = "= 0.39.0-pre"}
 ckb-miner = { path = "../miner", version = "= 0.39.0-pre" }
 ckb-network = { path = "../network", version = "= 0.39.0-pre"}
