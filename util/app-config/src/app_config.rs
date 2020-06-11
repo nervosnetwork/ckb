@@ -27,6 +27,7 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    pub ancient: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     #[serde(default)]
@@ -176,6 +177,7 @@ impl CKBAppConfig {
             )?);
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
+        self.ancient = mkdir(self.data_dir.join("ancient"))?;
         self.indexer.db.path = mkdir(self.data_dir.join("indexer_db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);

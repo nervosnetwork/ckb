@@ -11,3 +11,7 @@ edition = "2018"
 ckb-types = { path = "../util/types" }
 ckb-error = { path = "../error" }
 ckb-logger = { path = "../util/logger" }
+ckb-shared = { path = "../shared" }
+ckb-stop-handler = { path = "../util/stop-handler" }
+crossbeam-channel = "0.3"
+ckb-store = { path = "../store" }

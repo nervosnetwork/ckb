@@ -18,6 +18,7 @@ use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
+use ckb_freezer::FreezerService;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
@@ -169,6 +170,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let io_handler = builder.build();
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+
+    let _freezer = FreezerService::new(args.config.ancient, shared.clone()).start();
 
     wait_for_exit(exit_condvar);
 

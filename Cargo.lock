@@ -361,6 +361,7 @@ dependencies = [
  "ckb-build-info",
  "ckb-chain",
  "ckb-chain-spec",
+ "ckb-freezer",
  "ckb-instrument",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -555,7 +556,11 @@ version = "0.33.0-pre"
 dependencies = [
  "ckb-error",
  "ckb-logger",
+ "ckb-shared",
+ "ckb-stop-handler",
+ "ckb-store",
  "ckb-types",
+ "crossbeam-channel",
 ]
 
 [[package]]
