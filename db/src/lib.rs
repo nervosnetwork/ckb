@@ -18,7 +18,9 @@ pub use crate::iter::DBIterator;
 pub use crate::migration::{DefaultMigration, Migration, Migrations};
 pub use crate::snapshot::RocksDBSnapshot;
 pub use crate::transaction::{RocksDBTransaction, RocksDBTransactionSnapshot};
-pub use rocksdb::{DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode};
+pub use rocksdb::{
+    self as internal, DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode,
+};
 
 pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;

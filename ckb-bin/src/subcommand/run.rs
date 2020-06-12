@@ -48,7 +48,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         &shared.store().cell_provider(),
     );
 
-    ckb_memory_tracker::track_current_process(args.config.memory_tracker.interval);
+    ckb_memory_tracker::track_current_process(
+        args.config.memory_tracker.interval,
+        Some(shared.store().db().inner()),
+    );
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
