@@ -1,19 +1,24 @@
 use ansi_term::{self, Colour};
 use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
+use ckb_util::{Mutex, RwLock};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
 use lazy_static::lazy_static;
 use log::{LevelFilter, Log, Metadata, Record};
-use parking_lot::Mutex;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
-use std::{fs, panic, thread};
+use std::{fs, panic, sync, thread};
 
 pub use log::{self as internal, Level, SetLoggerError};
 pub use serde_json::{json, Map, Value};
+
+lazy_static! {
+    static ref CONTROL_HANDLE: sync::Arc<RwLock<Option<crossbeam_channel::Sender<Message>>>> =
+        sync::Arc::new(RwLock::new(None));
+}
 
 #[doc(hidden)]
 #[macro_export]
@@ -137,6 +142,7 @@ macro_rules! log_enabled_target {
 
 enum Message {
     Record(String),
+    Filter(Filter),
     Terminate,
 }
 
@@ -144,7 +150,7 @@ enum Message {
 pub struct Logger {
     sender: crossbeam_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
-    filter: Filter,
+    filter: sync::Arc<RwLock<Filter>>,
     emit_sentry_breadcrumbs: bool,
 }
 
@@ -185,6 +191,7 @@ impl Logger {
         }
 
         let (sender, receiver) = unbounded();
+        CONTROL_HANDLE.write().replace(sender.clone());
         let Config {
             color,
             file,
@@ -193,6 +200,8 @@ impl Logger {
             ..
         } = config;
         let file = if log_to_file { file } else { None };
+        let filter = sync::Arc::new(RwLock::new(builder.build()));
+        let filter_for_update = sync::Arc::clone(&filter);
 
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
@@ -209,15 +218,26 @@ impl Logger {
                         })
                 });
 
-                while let Ok(Message::Record(record)) = receiver.recv() {
-                    let removed_color = sanitize_color(record.as_ref());
-                    let output = if color { record } else { removed_color.clone() };
-                    if let Some(mut file) = file.as_ref() {
-                        let _ = file.write_all(removed_color.as_bytes());
-                        let _ = file.write_all(b"\n");
-                    };
-                    if log_to_stdout {
-                        println!("{}", output);
+                loop {
+                    match receiver.recv() {
+                        Ok(Message::Record(record)) => {
+                            let removed_color = sanitize_color(record.as_ref());
+                            let output = if color { record } else { removed_color.clone() };
+                            if let Some(mut file) = file.as_ref() {
+                                let _ = file.write_all(removed_color.as_bytes());
+                                let _ = file.write_all(b"\n");
+                            };
+                            if log_to_stdout {
+                                println!("{}", output);
+                            }
+                        }
+                        Ok(Message::Filter(filter)) => {
+                            *filter_for_update.write() = filter;
+                            log::set_max_level(filter_for_update.read().filter());
+                        }
+                        Ok(Message::Terminate) | Err(_) => {
+                            break;
+                        }
                     }
                 }
             })
@@ -226,13 +246,13 @@ impl Logger {
         Logger {
             sender,
             handle: Mutex::new(Some(tb)),
-            filter: builder.build(),
+            filter,
             emit_sentry_breadcrumbs: config.emit_sentry_breadcrumbs.unwrap_or_default(),
         }
     }
 
     pub fn filter(&self) -> LevelFilter {
-        self.filter.filter()
+        self.filter.read().filter()
     }
 }
 
@@ -261,12 +281,12 @@ impl Default for Config {
 
 impl Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        self.filter.enabled(metadata)
+        self.filter.read().enabled(metadata)
     }
 
     fn log(&self, record: &Record) {
         // Check if the record is matched by the filter
-        if self.filter.matches(record) {
+        if self.filter.read().matches(record) {
             if self.emit_sentry_breadcrumbs {
                 use sentry::{add_breadcrumb, integrations::log::breadcrumb_from_record};
                 add_breadcrumb(|| breadcrumb_from_record(record));
@@ -376,4 +396,14 @@ pub fn __log_metric(metric: &mut Value, default_target: &str) {
         })
     });
     trace_target!("ckb-metrics", "{}", metric);
+}
+
+pub fn configure_logger_filter(filter_str: &str) {
+    let filter = Builder::new()
+        .parse(&convert_compatible_crate_name(filter_str))
+        .build();
+    let _ = CONTROL_HANDLE
+        .read()
+        .as_ref()
+        .map(|sender| sender.send(Message::Filter(filter)));
 }
