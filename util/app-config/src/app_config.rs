@@ -37,6 +37,7 @@ pub struct CKBAppConfig {
     /// TODO(doc): @doitian
     pub tmp_dir: Option<PathBuf>,
     /// freezer files path
+    #[serde(default)]
     pub ancient: PathBuf,
     /// TODO(doc): @doitian
     pub logger: LogConfig,

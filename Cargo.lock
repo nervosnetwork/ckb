@@ -695,6 +695,7 @@ dependencies = [
  "ckb-store",
  "ckb-types",
  "crossbeam-channel 0.3.9",
+ "fs2",
 ]
 
 [[package]]
@@ -1965,6 +1966,16 @@ checksum = "ece68d15c92e84fa4f19d3780f1294e5ca82a78a6d515f1efaabcc144688be00"
 dependencies = [
  "matches",
  "percent-encoding 2.1.0",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.8",
 ]
 
 [[package]]
