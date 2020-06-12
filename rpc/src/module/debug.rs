@@ -1,5 +1,5 @@
 use ckb_logger::configure_logger_filter;
-use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::time;
 
@@ -20,14 +20,8 @@ impl DebugRpc for DebugRpcImpl {
             .unwrap()
             .as_secs();
         let filename = format!("ckb-jeprof.{}.heap", timestamp);
-        match ckb_memory_tracker::jemalloc_profiling_dump(&filename) {
-            Ok(()) => Ok(filename),
-            Err(err) => Err(Error {
-                code: InternalError,
-                message: err,
-                data: None,
-            }),
-        }
+        ckb_memory_tracker::jemalloc_profiling_dump(filename.clone());
+        Ok(filename)
     }
 
     fn set_logger_filter(&self, filter: String) -> Result<()> {

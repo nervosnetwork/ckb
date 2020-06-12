@@ -1,6 +1,6 @@
 use ckb_logger::info;
-use std::{ffi, mem, ptr};
 use ckb_logger::warn;
+use std::{ffi, mem, ptr};
 
 pub fn jemalloc_profiling_dump(filename: &str) -> Result<(), String> {
     let mut filename0 = format!("{}\0", filename);
