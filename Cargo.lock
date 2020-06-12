@@ -561,6 +561,7 @@ dependencies = [
  "ckb-store",
  "ckb-types",
  "crossbeam-channel",
+ "fs2",
 ]
 
 [[package]]
@@ -619,7 +620,7 @@ dependencies = [
 [[package]]
 name = "ckb-librocksdb-sys"
 version = "6.7.3"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#8cf99e25502479e7973fa102361807c2a6f0307d"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#c8a3931e96f03d61610305d2f7b3570e749d8ede"
 dependencies = [
  "cc",
  "glob",
@@ -840,7 +841,7 @@ dependencies = [
 [[package]]
 name = "ckb-rocksdb"
 version = "0.13.0"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#8cf99e25502479e7973fa102361807c2a6f0307d"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?branch=delete_file_in_range#c8a3931e96f03d61610305d2f7b3570e749d8ede"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
@@ -937,6 +938,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-migration",
  "ckb-error",
+ "ckb-logger",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -1649,6 +1651,16 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.8",
+]
 
 [[package]]
 name = "fs_extra"

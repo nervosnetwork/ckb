@@ -284,7 +284,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl DefaultIndexerStore {
     pub fn new(config: &IndexerConfig, shared: Shared) -> Self {
-        let mut migrations = Migrations::new(shared.consensus());
+        let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::AddFieldsToLiveCell::new(
             shared.clone(),

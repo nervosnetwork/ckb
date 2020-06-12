@@ -8,7 +8,7 @@ use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000;
-const INDEX_FILE_NAME: &str = "index";
+const INDEX_FILE_NAME: &str = "INDEX";
 const INDEX_ENTRY_SIZE: u64 = 12;
 
 pub type FileId = u32;
@@ -63,6 +63,7 @@ impl IndexEntry {
     }
 
     pub fn decode(raw: &[u8]) -> Result<Self, Error> {
+        assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
         let (raw_file_id, raw_offset) = raw.split_at(::std::mem::size_of::<u32>());
         let file_id = u32::from_be_bytes(raw_file_id.try_into().map_err(internal_error)?);
         let offset = u64::from_be_bytes(raw_offset.try_into().map_err(internal_error)?);
@@ -89,7 +90,7 @@ impl FreezerFiles {
 
             // release old head, reopen with read only
             self.release(head_id);
-            self.open_read_only(head_id);
+            self.open_read_only(head_id)?;
 
             self.head_id = next_id;
             self.head = Head::new(new_head_file, 0);
@@ -158,15 +159,19 @@ impl FreezerFilesBuilder {
         let index_meta = index.metadata().map_err(internal_error)?;
         let mut index_size = index_meta.len();
 
-        let mut buffer = Vec::with_capacity(INDEX_ENTRY_SIZE as usize);
+        let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
         // index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
         // index.read_exact(&mut buffer).map_err(internal_error)?;
         // let tail_index = IndexEntry::decode(&buffer)?;
+
+        ckb_logger::info!("index_size {}", index_size,);
 
         index
             .seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))
             .map_err(internal_error)?;
         index.read_exact(&mut buffer).map_err(internal_error)?;
+
+        ckb_logger::info!("buffer {:?}", buffer,);
         let mut head_index = IndexEntry::decode(&buffer)?;
         let head_file_name = helper::file_name(head_index.file_id);
         let mut head = self.open_append(self.file_path.join(head_file_name))?;
@@ -241,7 +246,7 @@ impl FreezerFilesBuilder {
     fn open_index(&self) -> Result<File, Error> {
         let mut index = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
         let metadata = index.metadata().map_err(internal_error)?;
-        if metadata.len() != 0 {
+        if metadata.len() == 0 {
             index
                 .write_all(&IndexEntry::default().encode())
                 .map_err(internal_error)?;

@@ -1,4 +1,3 @@
-use ckb_chain_spec::consensus::Consensus;
 use ckb_db::RocksDB;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info;
@@ -9,15 +8,14 @@ fn internal_error(reason: String) -> Error {
     InternalErrorKind::Database.reason(reason).into()
 }
 
-pub struct Migrations<'a> {
+#[derive(Default)]
+pub struct Migrations {
     migrations: Vec<Box<dyn Migration>>,
-    consensus: &'a Consensus,
 }
 
-impl<'a> Migrations<'a> {
-    pub fn new(consensus: &'a Consensus) -> Self {
+impl Migrations {
+    pub fn new() -> Self {
         Migrations {
-            consensus,
             migrations: vec![],
         }
     }
@@ -39,7 +37,7 @@ impl<'a> Migrations<'a> {
         match db_version {
             Some(v) => {
                 for m in self.migrations.iter().filter(|m| m.version() > v.as_str()) {
-                    db = m.migrate(db, self.consensus)?;
+                    db = m.migrate(db)?;
                     db.put(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
@@ -60,7 +58,7 @@ impl<'a> Migrations<'a> {
 }
 
 pub trait Migration {
-    fn migrate(&self, _db: RocksDB, _consensus: &Consensus) -> Result<RocksDB, Error>;
+    fn migrate(&self, _db: RocksDB) -> Result<RocksDB, Error>;
 
     /// returns migration version, use `yyyymmddhhmmss` timestamp format
     fn version(&self) -> &str;
@@ -79,7 +77,7 @@ impl DefaultMigration {
 }
 
 impl Migration for DefaultMigration {
-    fn migrate(&self, db: RocksDB, _consensus: &Consensus) -> Result<RocksDB, Error> {
+    fn migrate(&self, db: RocksDB) -> Result<RocksDB, Error> {
         Ok(db)
     }
 
@@ -103,10 +101,8 @@ mod tests {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
-        let consensus = Consensus::default();
-
         {
-            let mut migrations = Migrations::new(&consensus);
+            let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
             assert_eq!(
@@ -115,7 +111,7 @@ mod tests {
             );
         }
         {
-            let mut migrations = Migrations::new(&consensus);
+            let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             migrations.add_migration(Box::new(DefaultMigration::new("20191127101121")));
             let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
@@ -163,7 +159,7 @@ mod tests {
         let consensus = Consensus::default();
 
         {
-            let mut migrations = Migrations::new(&consensus);
+            let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             let db = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
             let txn = db.transaction();
@@ -172,7 +168,7 @@ mod tests {
             txn.commit().unwrap();
         }
         {
-            let mut migrations = Migrations::new(&consensus);
+            let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
             migrations.add_migration(Box::new(CustomizedMigration));
             let db = migrations.migrate(RocksDB::open(&config, 1)).unwrap();

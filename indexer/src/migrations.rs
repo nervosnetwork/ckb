@@ -1,5 +1,4 @@
 use crate::types::LockHashIndex;
-use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{Col, Result, RocksDB};
 use ckb_db_migration::Migration;
 use ckb_shared::shared::Shared;
@@ -21,7 +20,7 @@ impl AddFieldsToLiveCell {
 }
 
 impl Migration for AddFieldsToLiveCell {
-    fn migrate(&self, db: RocksDB, _consensus: &Consensus) -> Result<RocksDB> {
+    fn migrate(&self, db: RocksDB) -> Result<RocksDB> {
         const COLUMN_LOCK_HASH_LIVE_CELL: Col = "1";
 
         let snapshot = self.shared.snapshot();

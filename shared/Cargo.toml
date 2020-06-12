@@ -20,3 +20,4 @@ ckb-verification = { path = "../verification" }
 ckb-notify = { path = "../notify" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-chain-iter = { path = "../util/chain-iter" }
+ckb-logger = { path = "../util/logger" }

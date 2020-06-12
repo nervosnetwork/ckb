@@ -2,6 +2,7 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
+use ckb_freezer::FreezerService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
@@ -18,7 +19,6 @@ use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_util::{Condvar, Mutex};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
-use ckb_freezer::FreezerService;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 

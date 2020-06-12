@@ -27,6 +27,7 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    #[serde(default)]
     pub ancient: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,

@@ -272,7 +272,7 @@ impl SharedBuilder {
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
 
-        let mut migrations = Migrations::new(&consensus);
+        let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(FreezerMigration::new()));
         let db = migrations.migrate(self.db)?;
