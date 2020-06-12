@@ -5,18 +5,14 @@ use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_store::{
-    ChainStore, StoreTransaction, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
-    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_INDEX,
-};
+use ckb_store::{ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView,
+        BlockExt, BlockNumber, BlockView, HeaderView,
     },
-    packed::{Byte32, ProposalShortId, Uint64},
-    prelude::*,
+    packed::{Byte32, ProposalShortId},
     U256,
 };
 use ckb_verification::InvalidParentError;
@@ -194,70 +190,66 @@ impl ChainService {
         self.process_block(block, Switch::NONE)
     }
 
+    fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
+        let mut fork = ForkChanges::default();
+        let store = self.shared.store();
+        for bn in (target.number() + 1)..=current_tip.number() {
+            let hash = store.get_block_hash(bn).expect("index checked");
+            let old_block = store.get_block(&hash).expect("index checked");
+            fork.detached_blocks.push_front(old_block);
+        }
+        fork
+    }
+
     // Truncate the main chain
     // Use for testing only
     pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
-        let snapshot = self.shared.snapshot();
+        let snapshot = Arc::clone(&self.shared.snapshot());
         assert!(snapshot.is_main_chain(target_tip_hash));
 
         let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
-        let target_tip_number = target_tip_header.number();
-
-        // Detach blocks from main chain and remove from database
-        let db_txn = self.shared.store().begin_transaction();
-        let mut cursor = snapshot.tip_hash();
-        while target_tip_hash != &cursor {
-            let block = snapshot.get_block(&cursor).expect("checked");
-            let block_number: Uint64 = block.number().pack();
-            db_txn.detach_block(&block)?;
-            detach_block_cell(&db_txn, &block)?;
-
-            // Remove the whole block data from database
-            let columns = vec![
-                COLUMN_INDEX,
-                COLUMN_BLOCK_HEADER,
-                COLUMN_BLOCK_BODY,
-                COLUMN_BLOCK_EXT,
-                COLUMN_BLOCK_PROPOSAL_IDS,
-                COLUMN_BLOCK_EPOCH,
-            ];
-            for column in columns {
-                db_txn.delete(column, cursor.as_slice())?;
-            }
-            db_txn.delete(COLUMN_INDEX, block_number.as_slice())?;
-
-            cursor = block.parent_hash();
-        }
-        db_txn.commit()?;
-
-        // Adjust `proposal_table` to the truncated chain
-        let window = self.shared.consensus().tx_proposal_window();
-        let window_start = cmp::max(1, target_tip_number.saturating_sub(window.farthest()));
-        let window_end = cmp::max(1, target_tip_number.saturating_sub(window.closest()));
-        self.proposal_table = ProposalTable::new(window);
-        for number in window_start..=window_end {
-            let block_hash = snapshot.get_block_hash(number).expect("checked");
-            let block = snapshot.get_block(&block_hash).expect("checked");
-            self.proposal_table
-                .insert(number, block.union_proposal_ids());
-        }
-
-        // Update the snapshot
         let target_block_ext = snapshot.get_block_ext(target_tip_hash).expect("checked");
         let target_epoch_ext = snapshot
             .get_block_epoch_index(target_tip_hash)
             .and_then(|index| snapshot.get_epoch_ext(&index))
             .expect("checked");
-        let (_, proposals) = self
+        let origin_proposals = snapshot.proposals();
+        let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
+
+        let db_txn = self.shared.store().begin_transaction();
+        self.rollback(&fork, &db_txn)?;
+
+        db_txn.insert_tip_header(&target_tip_header)?;
+        db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
+
+        for blk in fork.attached_blocks() {
+            db_txn.delete_block(&blk.hash(), blk.transactions().len())?;
+        }
+        db_txn.commit()?;
+
+        self.update_proposal_table(&fork);
+        let (detached_proposal_id, new_proposals) = self
             .proposal_table
-            .finalize(&Default::default(), target_tip_number);
+            .finalize(origin_proposals, target_tip_header.number());
+        fork.detached_proposal_id = detached_proposal_id;
+
         let new_snapshot = self.shared.new_snapshot(
             target_tip_header,
             target_block_ext.total_difficulty,
             target_epoch_ext,
-            proposals,
+            new_proposals,
         );
+
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
+
+        if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
+            fork.detached_blocks().clone(),
+            fork.attached_blocks().clone(),
+            fork.detached_proposal_id().clone(),
+            new_snapshot,
+        ) {
+            error!("notify update_tx_pool_for_reorg error {}", e);
+        }
 
         Ok(())
     }

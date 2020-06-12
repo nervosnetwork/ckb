@@ -123,6 +123,22 @@ impl StoreTransaction {
         Ok(())
     }
 
+    pub fn delete_block(&self, hash: &packed::Byte32, txs_len: usize) -> Result<(), Error> {
+        self.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
+        self.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
+        self.delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
+        // currently rocksdb transaction do not support `DeleteRange`
+        // https://github.com/facebook/rocksdb/issues/4812
+        for index in 0..txs_len {
+            let key = packed::TransactionKey::new_builder()
+                .block_hash(hash.clone())
+                .index(index.pack())
+                .build();
+            self.delete(COLUMN_BLOCK_BODY, key.as_slice())?;
+        }
+        Ok(())
+    }
+
     pub fn insert_block_ext(
         &self,
         block_hash: &packed::Byte32,
