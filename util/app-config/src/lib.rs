@@ -7,7 +7,8 @@ mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, ResetDataArgs, RunArgs, StatsArgs,
+    ExportArgs, ImportArgs, InitArgs, MinerArgs, PeerIDArgs, ProfArgs, ResetDataArgs, RunArgs,
+    StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
@@ -336,6 +337,23 @@ impl Setup {
         }
 
         result
+    }
+
+    pub fn peer_id<'m>(matches: &ArgMatches<'m>) -> Result<PeerIDArgs, ExitCode> {
+        let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
+        match read_secret_key(path.into()) {
+            Ok(Some(key)) => Ok(PeerIDArgs {
+                peer_id: key.peer_id(),
+            }),
+            Err(_) => Err(ExitCode::Failure),
+            Ok(None) => Err(ExitCode::IO),
+        }
+    }
+
+    pub fn gen<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
+        let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
+        configs::write_secret_to_file(&configs::generate_random_key(), path.into())
+            .map_err(|_| ExitCode::IO)
     }
 }
 

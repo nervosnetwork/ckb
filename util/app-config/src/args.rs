@@ -79,3 +79,7 @@ pub struct ResetDataArgs {
     pub network_secret_key_path: PathBuf,
     pub logs_dir: Option<PathBuf>,
 }
+
+pub struct PeerIDArgs {
+    pub peer_id: p2p::secio::PeerId,
+}
