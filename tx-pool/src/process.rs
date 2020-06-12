@@ -29,7 +29,6 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
-use std::ops::DerefMut;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
@@ -498,9 +497,7 @@ impl TxPoolService {
         let config = tx_pool.config;
         let snapshot = Arc::clone(&tx_pool.snapshot);
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        let mut new_pool = TxPool::new(config, snapshot, last_txs_updated_at);
-        let old_pool = tx_pool.deref_mut();
-        ::std::mem::swap(old_pool, &mut new_pool);
+        *tx_pool = TxPool::new(config, snapshot, last_txs_updated_at);
     }
 }
 
