@@ -258,13 +258,11 @@ impl TxPoolController {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
         let request = Request::call((), responder);
-        sender
-            .try_send(Message::ClearPool(request))
+        sender.try_send(Message::ClearPool(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
     }
 }
 
@@ -500,8 +498,10 @@ async fn process(service: TxPoolService, message: Message) {
             };
         }
         Message::ClearPool(Request { responder, .. }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            tx_pool.clear_pool();
+            service.clear_pool().await;
+            if let Err(e) = responder.send(()) {
+                error!("responder send clear_pool failed {:?}", e)
+            };
         }
     }
 }
