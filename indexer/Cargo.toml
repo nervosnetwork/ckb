@@ -20,3 +20,4 @@ ckb-db-migration = { path = "../db-migration" }
 tempfile = "3.0"
 ckb-chain =  { path = "../chain" }
 ckb-resource = { path = "../resource" }
+ckb-chain-spec = { path = "../spec" }

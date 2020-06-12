@@ -1,4 +1,5 @@
 use crate::cache::StoreCache;
+use crate::cell::attach_block_cell;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
 use crate::StoreSnapshot;
@@ -9,7 +10,7 @@ use ckb_db::{
     Col, DBPinnableSlice, Direction, ReadOptions, RocksDB, WriteBatch,
 };
 use ckb_error::Error;
-use ckb_types::{core::BlockExt, packed, prelude::*};
+use ckb_types::{core::BlockExt, prelude::*};
 use std::sync::Arc;
 use std::time;
 
@@ -81,45 +82,7 @@ impl ChainDB {
             txs_fees: vec![],
         };
 
-        let transactions = genesis.transactions();
-        let cells = transactions
-            .iter()
-            .enumerate()
-            .map(move |(tx_index, tx)| {
-                let tx_hash = tx.hash();
-                let block_hash = genesis.header().hash();
-                let block_number = genesis.header().number();
-                let block_epoch = genesis.header().epoch();
-
-                tx.outputs_with_data_iter()
-                    .enumerate()
-                    .map(move |(index, (cell_output, data))| {
-                        let out_point = packed::OutPoint::new_builder()
-                            .tx_hash(tx_hash.clone())
-                            .index(index.pack())
-                            .build();
-                        let data_hash = packed::CellOutput::calc_data_hash(&data);
-
-                        let entry = packed::CellEntryBuilder::default()
-                            .output(cell_output)
-                            .block_hash(block_hash.clone())
-                            .block_number(block_number.pack())
-                            .block_epoch(block_epoch.pack())
-                            .index(tx_index.pack())
-                            .data_size((data.len() as u64).pack())
-                            .build();
-
-                        let data_entry = packed::CellDataEntryBuilder::default()
-                            .output_data(data.pack())
-                            .output_data_hash(data_hash)
-                            .build();
-
-                        (out_point, entry, data_entry)
-                    })
-            })
-            .flatten();
-
-        db_txn.insert_cells(cells)?;
+        attach_block_cell(&db_txn, &genesis)?;
 
         // for tx in genesis.transactions().iter() {
         //     let outputs_len = tx.outputs().len();

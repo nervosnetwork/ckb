@@ -29,6 +29,7 @@ pub enum AppConfig {
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
     pub tmp_dir: Option<PathBuf>,
+    #[serde(default)]
     pub ancient: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,

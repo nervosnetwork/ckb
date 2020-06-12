@@ -125,7 +125,7 @@ impl RocksDB {
     }
 
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
-        let cf = cf_handle(&self.inner, col)?;
+        let cf = self.cf_handle(col)?;
         self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
     }
 
@@ -145,7 +145,7 @@ impl RocksDB {
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
-        let cf = cf_handle(&self.inner, col)?;
+        let cf = self.cf_handle(col)?;
         let iter = self
             .inner
             .full_iterator_cf(cf, IteratorMode::Start)
@@ -183,7 +183,7 @@ impl RocksDB {
     where
         K: AsRef<[u8]>,
     {
-        let cf = cf_handle(&self.inner, col)?;
+        let cf = self.cf_handle(col)?;
         self.inner
             .delete_file_in_range_cf(cf, start_key, end_key)
             .map_err(internal_error)
@@ -198,7 +198,7 @@ impl RocksDB {
     where
         K: AsRef<[u8]>,
     {
-        let cf = cf_handle(&self.inner, col)?;
+        let cf = self.cf_handle(col)?;
         for key in keys {
             wb.delete_cf(cf, key).map_err(internal_error)?;
             if wb.size_in_bytes() >= MAX_DELETE_BATCH_SIZE {
@@ -228,6 +228,10 @@ impl RocksDB {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
         inner.drop_cf(col).map_err(internal_error)
+    }
+
+    pub fn cf_handle(&self, col: Col) -> Result<&ColumnFamily> {
+        cf_handle(&self.inner, col)
     }
 }
 
