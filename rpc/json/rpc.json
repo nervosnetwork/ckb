@@ -599,7 +599,8 @@
         ],
         "result": {
             "fee_rate": "0x7d0"
-        }
+        },
+        "skip": true
     },
     {
         "description": "Send new transaction into transaction pool.",
