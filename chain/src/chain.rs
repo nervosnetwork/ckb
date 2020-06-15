@@ -242,14 +242,7 @@ impl ChainService {
 
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-        if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
-            fork.detached_blocks().clone(),
-            fork.attached_blocks().clone(),
-            fork.detached_proposal_id().clone(),
-            new_snapshot,
-        ) {
-            error!("notify update_tx_pool_for_reorg error {}", e);
-        }
+        // NOTE: Dont update tx-pool when truncate
 
         Ok(())
     }

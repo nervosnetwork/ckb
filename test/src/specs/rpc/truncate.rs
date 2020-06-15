@@ -57,17 +57,15 @@ impl Spec for RpcTruncate {
         assert_eq!(cell1.status, "live", "cell1 is alive after roll-backing");
 
         let tx_pool_info = node.rpc_client().tx_pool_info();
-        assert!(
-            tx_pool_info.total_tx_size.value() == 0,
+        assert_eq!(tx_pool_info.orphan.value(), 0, "tx-pool was cleared");
+        assert_eq!(tx_pool_info.pending.value(), 0, "tx-pool was cleared");
+        assert_eq!(tx_pool_info.proposed.value(), 0, "tx-pool was cleared");
+        assert_eq!(
+            tx_pool_info.total_tx_cycles.value(),
+            0,
             "tx-pool was cleared"
         );
-        assert!(tx_pool_info.orphan.value() == 0, "tx-pool was cleared");
-        assert!(tx_pool_info.pending.value() == 0, "tx-pool was cleared");
-        assert!(tx_pool_info.proposed.value() == 0, "tx-pool was cleared");
-        assert!(
-            tx_pool_info.total_tx_cycles.value() == 0,
-            "tx-pool was cleared"
-        );
+        assert_eq!(tx_pool_info.total_tx_size.value(), 0, "tx-pool was cleared");
 
         // The chain can generate new blocks
         node.generate_blocks(3);
