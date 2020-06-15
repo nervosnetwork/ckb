@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test"
-version = "0.32.1"
+version = "0.32.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

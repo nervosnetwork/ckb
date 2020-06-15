@@ -490,8 +490,8 @@ impl NetworkState {
     }
 
     pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
-        let mut public_addrs = self.public_addrs.write();
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
+        let mut public_addrs = self.public_addrs.write();
         for addr in iter {
             if let Some(score) = public_addrs.get_mut(&addr) {
                 *score = score.saturating_add(1);
@@ -634,15 +634,17 @@ impl ServiceHandle for EventHandler {
                     },
                 );
 
-                if let P2pError::ProtoHandleAbnormallyClosed(Some(id)) = error {
-                    self.network_state.ban_session(
-                        &context.control(),
-                        id,
-                        Duration::from_secs(300),
-                        format!("protocol {} panic when process peer message", proto_id),
-                    );
+                if let P2pError::ProtoHandleAbnormallyClosed(opt_session_id) = error {
+                    if let Some(id) = opt_session_id {
+                        self.network_state.ban_session(
+                            &context.control(),
+                            id,
+                            Duration::from_secs(300),
+                            format!("protocol {} panic when process peer message", proto_id),
+                        );
+                    }
+                    self.exit_condvar.1.notify_all();
                 }
-                self.exit_condvar.1.notify_all();
             }
         }
     }
