@@ -141,9 +141,9 @@ impl SubstreamValue {
                 count: MAX_ADDR_TO_SEND as u32,
                 listen_port: substream.listen_port,
             });
-            addr_known.insert(RawAddr::from(
-                multiaddr_to_socketaddr(&substream.remote_addr).unwrap(),
-            ));
+            if let Some(addr) = multiaddr_to_socketaddr(&substream.remote_addr) {
+                addr_known.insert(RawAddr::from(addr));
+            }
 
             RemoteAddress::Listen(substream.remote_addr)
         } else {
@@ -389,7 +389,11 @@ impl Substream {
             context
                 .listens()
                 .iter()
-                .map(|address| multiaddr_to_socketaddr(address).unwrap().port())
+                .map(|address| {
+                    multiaddr_to_socketaddr(address)
+                        .map(|addr| addr.port())
+                        .unwrap_or_default()
+                })
                 .next()
         } else {
             None
