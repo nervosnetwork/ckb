@@ -7,7 +7,6 @@ use crate::error::SubmitTxError;
 use ckb_app_config::TxPoolConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, ErrorKind, InternalErrorKind};
-use ckb_fee_estimator::Estimator as FeeEstimator;
 use ckb_logger::{debug_target, error_target, trace_target};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -51,8 +50,6 @@ pub struct TxPool {
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
-    // tx fee estimator
-    pub(crate) fee_estimator: FeeEstimator,
     pub snapshot: Arc<Snapshot>,
 }
 
@@ -87,7 +84,6 @@ impl TxPool {
             total_tx_size: 0,
             total_tx_cycles: 0,
             snapshot,
-            fee_estimator: FeeEstimator::default(),
         }
     }
 
@@ -683,7 +679,6 @@ impl TxPool {
     ) -> Option<(Byte32, CacheEntry)> {
         let mut ret = None;
         let tx_hash = tx.hash();
-        let mut readd_tx = false;
         let cache_entry = txs_verify_cache.get(&tx_hash).cloned();
         let tx_short_id = tx.proposal_short_id();
         let tx_size = tx.data().serialized_size_in_block();
@@ -691,30 +686,24 @@ impl TxPool {
             if let Ok(new_cache_entry) = self.proposed_tx_and_descendants(cache_entry, tx_size, tx)
             {
                 if cache_entry.is_none() {
-                    ret = Some((tx_hash.clone(), new_cache_entry));
+                    ret = Some((tx_hash, new_cache_entry));
                 }
                 self.update_statics_for_add_tx(tx_size, new_cache_entry.cycles);
-                readd_tx = true;
             }
         } else if snapshot.proposals().contains_gap(&tx_short_id) {
             if let Ok(new_cache_entry) = self.gap_tx(cache_entry, tx_size, tx) {
                 if cache_entry.is_none() {
-                    ret = Some((tx_hash.clone(), new_cache_entry));
+                    ret = Some((tx_hash, new_cache_entry));
                 }
                 self.update_statics_for_add_tx(tx_size, cache_entry.map(|c| c.cycles).unwrap_or(0));
-                readd_tx = true;
             }
         } else if let Ok(new_cache_entry) = self.pending_tx(cache_entry, tx_size, tx) {
             if cache_entry.is_none() {
-                ret = Some((tx_hash.clone(), new_cache_entry));
+                ret = Some((tx_hash, new_cache_entry));
             }
             self.update_statics_for_add_tx(tx_size, cache_entry.map(|c| c.cycles).unwrap_or(0));
-            readd_tx = true;
         }
 
-        if !readd_tx {
-            self.fee_estimator.drop_tx(&tx_hash);
-        }
         ret
     }
 

@@ -6,7 +6,6 @@ use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_error::Error;
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
@@ -78,7 +77,6 @@ pub enum Message {
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
-    EstimateFeeRate(Request<usize, FeeRate>),
 }
 
 #[derive(Clone)]
@@ -248,19 +246,6 @@ impl TxPoolController {
         let request = Request::call(short_ids, responder);
         sender
             .try_send(Message::FetchTxsWithCycles(request))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e
-            })?;
-        response.recv().map_err(Into::into)
-    }
-
-    pub fn estimate_fee_rate(&self, expect_confirm_blocks: usize) -> Result<FeeRate, FailureError> {
-        let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call(expect_confirm_blocks, responder);
-        sender
-            .try_send(Message::EstimateFeeRate(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -498,16 +483,6 @@ async fn process(service: TxPoolService, message: Message) {
             };
             if let Err(e) = responder.send(()) {
                 error!("responder send plug_entry failed {:?}", e);
-            };
-        }
-        Message::EstimateFeeRate(Request {
-            responder,
-            arguments: expect_confirm_blocks,
-        }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let fee_rate = tx_pool.fee_estimator.estimate(expect_confirm_blocks);
-            if let Err(e) = responder.send(fee_rate) {
-                error!("responder send estimate_fee_rate failed {:?}", e)
             };
         }
     }

@@ -7,7 +7,6 @@ use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug_target, info};
 use ckb_snapshot::Snapshot;
@@ -414,16 +413,7 @@ impl TxPoolService {
                 related_dep_out_points,
             );
             let inserted = match status {
-                TxStatus::Fresh => {
-                    let tx_hash = entry.transaction.hash();
-                    let inserted = tx_pool.add_pending(entry)?;
-                    if inserted {
-                        let height = tx_pool.snapshot().tip_number();
-                        let fee_rate = FeeRate::calculate(fee, tx_size);
-                        tx_pool.fee_estimator.track_tx(tx_hash, fee_rate, height);
-                    }
-                    inserted
-                }
+                TxStatus::Fresh => tx_pool.add_pending(entry)?,
                 TxStatus::Gap => tx_pool.add_gap(entry)?,
                 TxStatus::Proposed => tx_pool.add_proposed(entry)?,
             };
@@ -640,10 +630,6 @@ fn _update_tx_pool_for_reorg(
 
     for blk in attached_blocks {
         attached.extend(blk.transactions().iter().skip(1).cloned());
-        tx_pool.fee_estimator.process_block(
-            blk.header().number(),
-            blk.transactions().iter().skip(1).map(|tx| tx.hash()),
-        );
     }
 
     let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
