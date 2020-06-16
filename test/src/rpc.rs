@@ -6,9 +6,9 @@ mod error;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
     BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
-    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LockHashIndexState,
-    Node, OutPoint, PeerState, Timestamp, Transaction, TransactionWithStatus, TxPoolInfo, Uint64,
-    Version,
+    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LocalNode,
+    LockHashIndexState, OutPoint, PeerState, RemoteNode, Timestamp, Transaction,
+    TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -126,13 +126,13 @@ impl RpcClient {
             .expect("rpc call get_epoch_by_number")
     }
 
-    pub fn local_node_info(&self) -> Node {
+    pub fn local_node_info(&self) -> LocalNode {
         self.inner
             .local_node_info()
             .expect("rpc call local_node_info")
     }
 
-    pub fn get_peers(&self) -> Vec<Node> {
+    pub fn get_peers(&self) -> Vec<RemoteNode> {
         self.inner.get_peers().expect("rpc call get_peers")
     }
 
@@ -333,8 +333,8 @@ jsonrpc!(pub struct Inner {
     pub fn get_current_epoch(&self) -> EpochView;
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
 
-    pub fn local_node_info(&self) -> Node;
-    pub fn get_peers(&self) -> Vec<Node>;
+    pub fn local_node_info(&self) -> LocalNode;
+    pub fn get_peers(&self) -> Vec<RemoteNode>;
     pub fn get_banned_addresses(&self) -> Vec<BannedAddr>;
     pub fn set_ban(
         &self,

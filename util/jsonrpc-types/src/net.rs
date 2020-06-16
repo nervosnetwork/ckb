@@ -1,13 +1,19 @@
 use crate::{Timestamp, Uint64};
 use serde::{Deserialize, Serialize};
 
-// TODO add more fields from PeerIdentifyInfo
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct Node {
+pub struct LocalNode {
     pub version: String,
     pub node_id: String,
     pub addresses: Vec<NodeAddress>,
-    pub is_outbound: Option<bool>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct RemoteNode {
+    pub version: String,
+    pub node_id: String,
+    pub addresses: Vec<NodeAddress>,
+    pub is_outbound: bool,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

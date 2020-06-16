@@ -1866,7 +1866,6 @@ http://localhost:8114
                 "score": "0x1"
             }
         ],
-        "is_outbound": null,
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
         "version": "0.0.0"
     }
