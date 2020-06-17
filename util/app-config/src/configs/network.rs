@@ -56,14 +56,49 @@ pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), E
         .create(true)
         .write(true)
         .open(path)
-        .and_then(|mut file| file.write_all(&secret))
+        .and_then(|mut file| {
+            file.write_all(&secret)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(fs::Permissions::from_mode(0o400))
+            }
+            #[cfg(not(unix))]
+            {
+                let mut permissions = file.metadata()?.permissions();
+                permissions.set_readonly(true);
+                file.set_permissions(permissions)
+            }
+        })
 }
 
 pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPair>, Error> {
-    let mut file = match fs::File::open(path) {
+    let mut file = match fs::File::open(path.clone()) {
         Ok(file) => file,
         Err(_) => return Ok(None),
     };
+    let warn = |m: bool, d: &str| {
+        if m {
+            ckb_logger::warn!(
+                "Your network secret file's permission is not {}, path: {:?}, \
+                please fix it as soon as possible",
+                d,
+                path
+            )
+        }
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        warn(
+            file.metadata()?.permissions().mode() & 0o177 != 0,
+            "less than 0o600",
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        warn(!file.metadata()?.permissions().readonly(), "readonly");
+    }
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).and_then(|_read_size| {
         secio::SecioKeyPair::secp256k1_raw_key(&buf)
