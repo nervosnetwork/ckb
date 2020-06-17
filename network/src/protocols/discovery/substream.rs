@@ -389,11 +389,8 @@ impl Substream {
             context
                 .listens()
                 .iter()
-                .map(|address| {
-                    multiaddr_to_socketaddr(address)
-                        .map(|addr| addr.port())
-                        .unwrap_or_default()
-                })
+                .filter_map(|address| multiaddr_to_socketaddr(address))
+                .map(|addr| addr.port())
                 .next()
         } else {
             None
