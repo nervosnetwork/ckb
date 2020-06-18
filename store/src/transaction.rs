@@ -11,6 +11,7 @@ use ckb_db_schema::{
     META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
+use ckb_freezer::Freezer;
 use ckb_types::{
     core::{BlockExt, BlockView, EpochExt, HeaderView},
     packed,
@@ -21,6 +22,7 @@ use std::sync::Arc;
 /// TODO(doc): @quake
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
+    pub(crate) freezer: Option<Freezer>,
     pub(crate) cache: Arc<StoreCache>,
 }
 
@@ -29,6 +31,10 @@ impl<'a> ChainStore<'a> for StoreTransaction {
 
     fn cache(&'a self) -> Option<&'a StoreCache> {
         Some(&self.cache)
+    }
+
+    fn freezer(&'a self) -> Option<&'a Freezer> {
+        self.freezer.as_ref()
     }
 
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
@@ -44,6 +50,7 @@ impl<'a> ChainStore<'a> for StoreTransaction {
 
 pub struct StoreTransactionSnapshot<'a> {
     pub(crate) inner: RocksDBTransactionSnapshot<'a>,
+    pub(crate) freezer: Option<Freezer>,
     pub(crate) cache: Arc<StoreCache>,
 }
 
@@ -52,6 +59,10 @@ impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
 
     fn cache(&'a self) -> Option<&'a StoreCache> {
         Some(&self.cache)
+    }
+
+    fn freezer(&'a self) -> Option<&'a Freezer> {
+        self.freezer.as_ref()
     }
 
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
@@ -85,6 +96,7 @@ impl StoreTransaction {
     pub fn get_snapshot(&self) -> StoreTransactionSnapshot<'_> {
         StoreTransactionSnapshot {
             inner: self.inner.get_snapshot(),
+            freezer: self.freezer.clone(),
             cache: Arc::clone(&self.cache),
         }
     }

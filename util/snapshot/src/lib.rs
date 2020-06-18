@@ -8,6 +8,7 @@ use ckb_db::{
 };
 use ckb_db_schema::Col;
 use ckb_error::Error;
+use ckb_freezer::Freezer;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
@@ -155,6 +156,10 @@ impl<'a> ChainStore<'a> for Snapshot {
 
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.store.get(col, key)
+    }
+
+    fn freezer(&'a self) -> Option<&'a Freezer> {
+        self.store.freezer()
     }
 
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {

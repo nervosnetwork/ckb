@@ -7,6 +7,7 @@ use ckb_db_schema::{
     COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
+use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -26,7 +27,8 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     type Vector: AsRef<[u8]>;
     /// TODO(doc): @quake
     fn cache(&'a self) -> Option<&'a StoreCache>;
-    /// TODO(doc): @quake
+    /// Return freezer reference
+    fn freezer(&'a self) -> Option<&'a Freezer>;
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
@@ -38,6 +40,21 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
         self.get_block_header(h).map(|header| {
+            if let Some(freezer) = self.freezer() {
+                if header.number() > 0 && header.number() < freezer.number() {
+                    let raw_archived_block =
+                        freezer.retrieve(header.number()).expect("block frozen");
+                    let reader =
+                        packed::ArchivedBlockReader::from_slice_should_be_ok(&raw_archived_block);
+                    return packed::Block::new_builder()
+                        .header(header.data())
+                        .uncles(reader.uncles().to_entity())
+                        .transactions(reader.transactions().to_entity())
+                        .proposals(reader.proposals().to_entity())
+                        .build()
+                        .into_view();
+                }
+            }
             let body = self.get_block_body(h);
             let uncles = self
                 .get_block_uncles(h)

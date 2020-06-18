@@ -13,6 +13,8 @@ pub struct Config {
     pub options: HashMap<String, String>,
     /// TODO(doc): @doitian
     pub options_file: Option<PathBuf>,
+    #[serde(default)]
+    pub ancient: PathBuf,
 }
 
 impl Config {

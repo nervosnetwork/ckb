@@ -36,10 +36,6 @@ pub struct CKBAppConfig {
     pub data_dir: PathBuf,
     /// TODO(doc): @doitian
     pub tmp_dir: Option<PathBuf>,
-    /// freezer files path
-    #[serde(default)]
-    pub ancient: PathBuf,
-    /// TODO(doc): @doitian
     pub logger: LogConfig,
     /// TODO(doc): @doitian
     #[cfg(feature = "with_sentry")]
@@ -219,7 +215,7 @@ impl CKBAppConfig {
         self.indexer
             .db
             .adjust(root_dir, &self.data_dir, "indexer_db");
-        self.ancient = path_exists_or_else(&self.ancient, || self.data_dir.join("ancient"));
+
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
