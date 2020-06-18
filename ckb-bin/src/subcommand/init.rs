@@ -144,18 +144,22 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.root_dir.display()
     );
 
-    let mut context = TemplateContext {
-        spec: &args.chain,
-        rpc_port: &args.rpc_port,
-        p2p_port: &args.p2p_port,
-        log_to_file: args.log_to_file,
-        log_to_stdout: args.log_to_stdout,
-        block_assembler: &block_assembler,
-        spec_source: "bundled",
-    };
+    let log_to_file = args.log_to_file.to_string();
+    let log_to_stdout = args.log_to_stdout.to_string();
+    let mut context = TemplateContext::new(
+        &args.chain,
+        vec![
+            ("rpc_port", args.rpc_port.as_str()),
+            ("p2p_port", args.p2p_port.as_str()),
+            ("log_to_file", log_to_file.as_str()),
+            ("log_to_stdout", log_to_stdout.as_str()),
+            ("block_assembler", block_assembler.as_str()),
+            ("spec_source", "bundled"),
+        ],
+    );
 
     if let Some(spec_file) = args.import_spec {
-        context.spec_source = "file";
+        context.insert("spec_source", "file");
 
         let specs_dir = args.root_dir.join("specs");
         fs::create_dir_all(&specs_dir)?;

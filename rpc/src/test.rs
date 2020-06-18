@@ -322,12 +322,17 @@ fn request_of(method: &str, params: Value) -> Value {
 
 // Get the actual result of the given case
 fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -> Value {
-    let request = request_of(method, params);
+    let request = request_of(method, params.clone());
     match client
         .post(uri)
         .json(&request)
         .send()
-        .expect("send request")
+        .unwrap_or_else(|_| {
+            panic!(
+                "send request error, method: {:?}, params: {:?}",
+                method, params
+            )
+        })
         .json::<JsonResponse>()
     {
         Err(err) => panic!("{} response error: {:?}", method, err),
