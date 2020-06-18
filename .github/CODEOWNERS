@@ -1,1 +1,39 @@
 * @nervosnetwork/ckb-code-review
+
+# Modules
+benches/ @zhangsoledad @quake @nervosnetwork/ckb-code-review
+chain/ @zhangsoledad @quake @nervosnetwork/ckb-code-review
+ckb-bin/ @doitian @nervosnetwork/ckb-code-review
+db/ @quake @zhangsoledad @nervosnetwork/ckb-code-review
+docker/ @zhangsoledad @doitian @nervosnetwork/ckb-code-review
+error/ @keroro520 @nervosnetwork/ckb-code-review
+indexer/ @quake @nervosnetwork/ckb-code-review
+miner/ @zhangsoledad @quake @nervosnetwork/ckb-code-review
+network/ @jjyr @doitian @TheWaWaR @nervosnetwork/ckb-code-review
+notify/ @zhangsoledad @quake @nervosnetwork/ckb-code-review
+pow/ @zhangsoledad @nervosnetwork/ckb-code-review
+resource/ @doitian @nervosnetwork/ckb-code-review
+rpc/ @quake @keroro520 @nervosnetwork/ckb-code-review
+script/ @xxuejie @nervosnetwork/ckb-code-review
+shared/ @zhangsoledad @nervosnetwork/ckb-code-review
+spec/ @zhangsoledad @doitian @nervosnetwork/ckb-code-review
+src/ @zhangsoledad @doitian @nervosnetwork/ckb-code-review
+store/ @yangby-cryptape @zhangsoledad @nervosnetwork/ckb-code-review
+sync/ @zhangsoledad @keroro520 @quake @nervosnetwork/ckb-code-review
+test/ @keroro520 @quake @nervosnetwork/ckb-code-review
+traits/ @zhangsoledad @keroro520 @nervosnetwork/ckb-code-review
+tx-pool/ @zhangsoledad @nervosnetwork/ckb-code-review
+util/ @yangby-cryptape @nervosnetwork/ckb-code-review
+verification/ @zhangsoledad @nervosnetwork/ckb-code-review
+wasm-build-test/ @xxuejie @nervosnetwork/ckb-code-review
+
+# Docs
+*.md @nervosnetwork/ckb-dev
+docs/ @nervosnetwork/ckb-dev
+
+# Security Related
+Makefile @doitian
+azure-pipelines.yml @doitian
+.travis.yml @doitian
+.github/ @doitian
+devtools/ @doitian
