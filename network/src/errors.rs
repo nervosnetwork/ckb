@@ -1,5 +1,12 @@
 use crate::ProtocolId;
-use p2p::{error::Error as P2PError, secio::PeerId, SessionId};
+use p2p::{
+    error::{
+        DialerErrorKind, ListenErrorKind, ProtocolHandleErrorKind, SendErrorKind,
+        TransportErrorKind,
+    },
+    secio::PeerId,
+    SessionId,
+};
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
@@ -16,6 +23,15 @@ pub enum Error {
     Dial(String),
     PeerStore(PeerStoreError),
     Shutdown,
+}
+
+#[derive(Debug)]
+pub enum P2PError {
+    Transport(TransportErrorKind),
+    Protocol(ProtocolHandleErrorKind),
+    Dail(DialerErrorKind),
+    Listen(ListenErrorKind),
+    Send(SendErrorKind),
 }
 
 #[derive(Debug)]
@@ -86,6 +102,36 @@ impl From<AddrError> for Error {
     }
 }
 
+impl From<TransportErrorKind> for Error {
+    fn from(err: TransportErrorKind) -> Error {
+        Error::P2P(P2PError::Transport(err))
+    }
+}
+
+impl From<ProtocolHandleErrorKind> for Error {
+    fn from(err: ProtocolHandleErrorKind) -> Error {
+        Error::P2P(P2PError::Protocol(err))
+    }
+}
+
+impl From<DialerErrorKind> for Error {
+    fn from(err: DialerErrorKind) -> Error {
+        Error::P2P(P2PError::Dail(err))
+    }
+}
+
+impl From<ListenErrorKind> for Error {
+    fn from(err: ListenErrorKind) -> Error {
+        Error::P2P(P2PError::Listen(err))
+    }
+}
+
+impl From<SendErrorKind> for Error {
+    fn from(err: SendErrorKind) -> Error {
+        Error::P2P(P2PError::Send(err))
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -99,6 +145,12 @@ impl Display for PeerError {
 }
 
 impl Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Display for P2PError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

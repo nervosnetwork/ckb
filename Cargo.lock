@@ -324,7 +324,7 @@ name = "ckb-async-runtime"
 version = "0.33.0-pre"
 dependencies = [
  "crossbeam-channel",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -687,7 +687,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 
@@ -934,7 +934,7 @@ dependencies = [
  "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -1041,7 +1041,7 @@ dependencies = [
  "failure",
  "faketime",
  "lru-cache",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -1100,7 +1100,7 @@ dependencies = [
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -4018,9 +4018,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.3.0-alpha.4"
+version = "0.3.0-alpha.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f7cab1d0b16fd44c8981b075625b8a68d838e0181f43b878dbf7f8eea5b2bf9"
+checksum = "d372fcc0a53b9ca6705cc8e46b0a68850280c1b48f78c8c177eb8dfe50232413"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
@@ -4030,7 +4030,8 @@ dependencies = [
  "molecule",
  "tentacle-multiaddr",
  "tentacle-secio",
- "tokio 0.2.20",
+ "thiserror",
+ "tokio 0.2.21",
  "tokio-util",
  "tokio-yamux",
  "winapi 0.3.8",
@@ -4051,9 +4052,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e314fcedaa2dfe7b0dc3d4894a21fa3e60b0fe7b4e9e506b1538974ab9ee02f"
+checksum = "58e14b0d86f0a9a2580cb4fb866ba15dcd1ddd6f055f342b806009dd401381a0"
 dependencies = [
  "bs58",
  "bytes 0.5.4",
@@ -4065,7 +4066,7 @@ dependencies = [
  "rand 0.7.0",
  "ring",
  "secp256k1 0.17.2",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
  "unsigned-varint",
 ]
@@ -4106,6 +4107,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dfdd070ccd8ccb78f4ad66bf1982dc37f620ef696c6b5028fe2ed83dd3d0d08"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd80fc12f73063ac132ac92aceea36734f04a1d93c1240c6944e23a3b8841793"
+dependencies = [
+ "proc-macro2 1.0.8",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
@@ -4193,9 +4214,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.20"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05c1d570eb1a36f0345a5ce9c6c6e665b70b73d11236912c0b477616aeec47b1"
+checksum = "d099fa27b9702bed751524694adbe393e18b36b204da91eb1cbbbbb4a5ee2d58"
 dependencies = [
  "bytes 0.5.4",
  "fnv",
@@ -4410,19 +4431,19 @@ dependencies = [
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
 name = "tokio-yamux"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fadb4597f69de066b89607edb8810ee52d54342702629fc78aece5663f2b8f29"
+checksum = "24efa898a2c99b751966227ee5dedcb4a9dc549471eadde0df92bd16fc7f34d5"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
  "log 0.4.8",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 
