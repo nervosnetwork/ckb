@@ -32,6 +32,7 @@ impl Head {
 
 pub struct FreezerFiles {
     pub files: BTreeMap<FileId, File>,
+    pub(crate) tail_id: FileId,
     pub(crate) head: Head,
     pub number: u64,
     pub max_size: u64,
@@ -63,7 +64,7 @@ impl IndexEntry {
     }
 
     pub fn decode(raw: &[u8]) -> Result<Self, Error> {
-        assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
+        debug_assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
         let (raw_file_id, raw_offset) = raw.split_at(::std::mem::size_of::<u32>());
         let file_id = u32::from_be_bytes(raw_file_id.try_into().map_err(internal_error)?);
         let offset = u64::from_be_bytes(raw_offset.try_into().map_err(internal_error)?);
@@ -73,7 +74,9 @@ impl IndexEntry {
 
 impl FreezerFiles {
     pub fn open(file_path: PathBuf) -> Result<FreezerFiles, Error> {
-        FreezerFilesBuilder::new(file_path).build()
+        let mut files = FreezerFilesBuilder::new(file_path).build()?;
+        files.preopen()?;
+        Ok(files)
     }
 
     pub fn append(&mut self, number: u64, data: &[u8]) -> Result<(), Error> {
@@ -102,9 +105,80 @@ impl FreezerFiles {
         Ok(())
     }
 
+    pub(crate) fn read_all_index(&self) -> Result<Vec<u8>, Error> {
+        let mut index = &self.index;
+        let mut ret = Vec::new();
+        index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
+        index.read_to_end(&mut ret).map_err(internal_error)?;
+        Ok(ret)
+    }
+
     pub fn sync_all(&self) -> Result<(), Error> {
         self.index.sync_all().map_err(internal_error)?;
         self.head.file.sync_all().map_err(internal_error)?;
+        Ok(())
+    }
+
+    pub fn retrieve(&self, item: u64) -> Result<Vec<u8>, Error> {
+        if item < 1 {
+            return Err(internal_error("retrieve out of bounds"));
+        }
+
+        if self.number <= item {
+            return Err(internal_error("retrieve out of bounds"));
+        }
+
+        let (start_offset, end_offset, file_id) = self.get_bounds(item)?;
+
+        let mut file = self
+            .files
+            .get(&file_id)
+            .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
+
+        let size = (end_offset - start_offset) as usize;
+        let mut ret = Vec::with_capacity(size);
+        ret.resize_with(size, Default::default);
+        file.seek(SeekFrom::Start(start_offset))
+            .map_err(internal_error)?;
+        file.read_exact(&mut ret).map_err(internal_error)?;
+        Ok(ret)
+    }
+
+    fn get_bounds(&self, item: u64) -> Result<(u64, u64, FileId), Error> {
+        let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
+        let mut index = &self.index;
+        index
+            .seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE))
+            .map_err(internal_error)?;
+        index.read_exact(&mut buffer).map_err(internal_error)?;
+        let end_index = IndexEntry::decode(&buffer)?;
+        if item == 1 {
+            return Ok((0, end_index.offset, end_index.file_id));
+        }
+
+        index
+            .seek(SeekFrom::Start((item - 1) * INDEX_ENTRY_SIZE))
+            .map_err(internal_error)?;
+        index.read_exact(&mut buffer).map_err(internal_error)?;
+        let start_index = IndexEntry::decode(&buffer)?;
+
+        if start_index.file_id != end_index.file_id {
+            return Ok((0, end_index.offset, end_index.file_id));
+        }
+
+        Ok((start_index.offset, end_index.offset, end_index.file_id))
+    }
+
+    fn preopen(&mut self) -> Result<(), Error> {
+        self.release_after(0);
+
+        for id in self.tail_id..self.head_id {
+            self.open_read_only(id)?;
+        }
+        self.files.insert(
+            self.head_id,
+            self.head.file.try_clone().map_err(internal_error)?,
+        );
         Ok(())
     }
 
@@ -118,6 +192,10 @@ impl FreezerFiles {
 
     fn release(&mut self, id: FileId) {
         self.files.remove(&id);
+    }
+
+    fn release_after(&mut self, id: FileId) {
+        self.files.split_off(&id);
     }
 
     fn open_read_only(&mut self, id: FileId) -> Result<File, Error> {
@@ -145,14 +223,23 @@ impl FreezerFiles {
 
 pub struct FreezerFilesBuilder {
     file_path: PathBuf,
+    max_file_size: u64,
 }
 
 impl FreezerFilesBuilder {
-    fn new(file_path: PathBuf) -> Self {
-        FreezerFilesBuilder { file_path }
+    pub fn new(file_path: PathBuf) -> Self {
+        FreezerFilesBuilder {
+            file_path,
+            max_file_size: MAX_FILE_SIZE,
+        }
     }
 
-    fn build(self) -> Result<FreezerFiles, Error> {
+    pub fn max_file_size(mut self, size: u64) -> Self {
+        self.max_file_size = size;
+        self
+    }
+
+    pub fn build(self) -> Result<FreezerFiles, Error> {
         fs::create_dir_all(&self.file_path).map_err(internal_error)?;
         let mut index = self.open_index()?;
 
@@ -160,18 +247,18 @@ impl FreezerFilesBuilder {
         let mut index_size = index_meta.len();
 
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
-        // index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
-        // index.read_exact(&mut buffer).map_err(internal_error)?;
-        // let tail_index = IndexEntry::decode(&buffer)?;
-
-        ckb_logger::info!("index_size {}", index_size,);
+        index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
+        index.read_exact(&mut buffer).map_err(internal_error)?;
+        let tail_index = IndexEntry::decode(&buffer)?;
+        let tail_id = tail_index.file_id;
 
         index
             .seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))
             .map_err(internal_error)?;
         index.read_exact(&mut buffer).map_err(internal_error)?;
 
-        ckb_logger::info!("buffer {:?}", buffer,);
+        ckb_logger::debug!("Freezer index_size {} head {:?}", index_size, buffer);
+
         let mut head_index = IndexEntry::decode(&buffer)?;
         let head_file_name = helper::file_name(head_index.file_id);
         let mut head = self.open_append(self.file_path.join(head_file_name))?;
@@ -224,8 +311,9 @@ impl FreezerFilesBuilder {
         Ok(FreezerFiles {
             files: BTreeMap::new(),
             head: Head::new(head, head_size),
+            tail_id,
             number,
-            max_size: MAX_FILE_SIZE,
+            max_size: self.max_file_size,
             head_id: head_index.file_id,
             file_path: self.file_path,
             index,
@@ -246,6 +334,7 @@ impl FreezerFilesBuilder {
     fn open_index(&self) -> Result<File, Error> {
         let mut index = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
         let metadata = index.metadata().map_err(internal_error)?;
+        println!("open_index {}", metadata.len());
         if metadata.len() == 0 {
             index
                 .write_all(&IndexEntry::default().encode())

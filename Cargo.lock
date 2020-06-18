@@ -562,6 +562,7 @@ dependencies = [
  "ckb-types",
  "crossbeam-channel",
  "fs2",
+ "tempfile",
 ]
 
 [[package]]

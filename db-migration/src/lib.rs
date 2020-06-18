@@ -15,9 +15,7 @@ pub struct Migrations {
 
 impl Migrations {
     pub fn new() -> Self {
-        Migrations {
-            migrations: vec![],
-        }
+        Migrations { migrations: vec![] }
     }
 
     pub fn add_migration(&mut self, migration: Box<dyn Migration>) {
