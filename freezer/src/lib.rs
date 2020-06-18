@@ -1,5 +1,7 @@
 mod freezer;
 mod freezer_files;
+#[cfg(test)]
+mod tests;
 
 use ckb_error::{Error, InternalErrorKind};
 use std::fmt::{Debug, Display};
