@@ -6,6 +6,8 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000;
 const INDEX_FILE_NAME: &str = "INDEX";
@@ -34,7 +36,7 @@ pub struct FreezerFiles {
     pub files: BTreeMap<FileId, File>,
     pub(crate) tail_id: FileId,
     pub(crate) head: Head,
-    pub number: u64,
+    pub number: Arc<AtomicU64>,
     pub max_size: u64,
     pub head_id: FileId,
     pub file_path: PathBuf,
@@ -80,7 +82,7 @@ impl FreezerFiles {
     }
 
     pub fn append(&mut self, number: u64, data: &[u8]) -> Result<(), Error> {
-        if self.number != number {
+        if self.number.load(Ordering::SeqCst) != number {
             return Err(internal_error(""));
         }
 
@@ -101,7 +103,7 @@ impl FreezerFiles {
 
         self.head.write(data)?;
         self.write_index(self.head_id, self.head.bytes)?;
-        self.number += 1;
+        self.number.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -124,7 +126,7 @@ impl FreezerFiles {
             return Err(internal_error("retrieve out of bounds"));
         }
 
-        if self.number <= item {
+        if self.number.load(Ordering::SeqCst) <= item {
             return Err(internal_error("retrieve out of bounds"));
         }
 
@@ -234,7 +236,7 @@ impl FreezerFilesBuilder {
         }
     }
 
-    pub fn max_file_size(mut self, size: u64) -> Self {
+    pub(crate) fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
         self
     }
@@ -312,7 +314,7 @@ impl FreezerFilesBuilder {
             files: BTreeMap::new(),
             head: Head::new(head, head_size),
             tail_id,
-            number,
+            number: Arc::new(AtomicU64::new(number)),
             max_size: self.max_file_size,
             head_id: head_index.file_id,
             file_path: self.file_path,

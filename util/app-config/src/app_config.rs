@@ -29,8 +29,6 @@ pub enum AppConfig {
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
     pub tmp_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub ancient: PathBuf,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     #[serde(default)]
@@ -175,7 +173,8 @@ impl CKBAppConfig {
         self.indexer
             .db
             .adjust(root_dir, &self.data_dir, "indexer_db");
-        self.ancient = path_exists_or_else(&self.ancient, || self.data_dir.join("ancient"));
+        self.db.ancient = self.db.adjust(root_dir, &self.data_dir, "ancient");
+
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));

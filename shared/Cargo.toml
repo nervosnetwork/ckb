@@ -21,3 +21,7 @@ ckb-app-config = { path = "../util/app-config" }
 ckb-db-migration = { path = "../db-migration" }
 ckb-chain-iter = { path = "../util/chain-iter" }
 ckb-logger = { path = "../util/logger" }
+ckb-freezer = { path = "../freezer" }
+ckb-stop-handler = { path = "../util/stop-handler" }
+crossbeam-channel = "0.3"
+tempfile = "3.0"

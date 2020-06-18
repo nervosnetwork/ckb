@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-parking_lot = "=0.7.1"
+parking_lot = "0.10"
 linked-hash-map = "0.5"
 regex = "1.1.6"
 

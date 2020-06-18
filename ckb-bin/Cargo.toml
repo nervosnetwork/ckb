@@ -21,7 +21,6 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
-ckb-freezer = { path = "../freezer" }
 ckb-chain-spec = {path = "../spec"}
 ckb-miner = { path = "../miner" }
 ckb-network = { path = "../network"}

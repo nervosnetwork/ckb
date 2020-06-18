@@ -6,18 +6,37 @@ use ckb_chain_spec::SpecError;
 use ckb_db::RocksDB;
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_error::{Error, InternalErrorKind};
+use ckb_freezer::Freezer;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore, COLUMNS};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
-    core::{EpochExt, HeaderView},
+    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::Byte32,
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
+use std::cmp;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
+const THRESHOLD_EPOCH: EpochNumber = 2;
+const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
+
+pub struct FreezerClose {
+    stop: StopHandler<()>,
+}
+
+impl Drop for FreezerClose {
+    fn drop(&mut self) {
+        self.stop.try_send();
+    }
+}
 
 #[derive(Clone)]
 pub struct Shared {
@@ -146,6 +165,67 @@ impl Shared {
         }
     }
 
+    pub fn spawn_freeze(&self) -> FreezerClose {
+        let (signal_sender, signal_receiver) =
+            crossbeam_channel::bounded::<()>(service::SIGNAL_CHANNEL_SIZE);
+        let shared = self.clone();
+        let thread = thread::Builder::new()
+            .spawn(move || loop {
+                match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
+                    Err(_) => {
+                        if let Err(e) = shared.freeze() {
+                            ckb_logger::error!("Freezer error {}", e);
+                        }
+                    }
+                    Ok(_) => {
+                        ckb_logger::info!("Freezer closing");
+                        break;
+                    }
+                }
+            })
+            .expect("Start FreezerService failed");
+
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+        FreezerClose { stop }
+    }
+
+    fn freeze(&self) -> Result<(), Error> {
+        let freezer = self.store.freezer().expect("freezer inited");
+        let snapshot = self.snapshot();
+        let current_epoch = snapshot.epoch_ext().number();
+
+        ckb_logger::debug!("freezer current_epoch {}", current_epoch);
+
+        if current_epoch <= THRESHOLD_EPOCH {
+            ckb_logger::debug!("freezer loaf");
+            return Ok(());
+        }
+
+        let limit_block_hash = snapshot
+            .get_epoch_index(current_epoch + 1 - THRESHOLD_EPOCH)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .expect("get_epoch_ext")
+            .last_block_hash_in_previous_epoch();
+
+        let frozen_number = freezer.number();
+
+        let threshold = cmp::min(
+            snapshot
+                .get_block_number(&limit_block_hash)
+                .expect("get_block_number"),
+            frozen_number + MAX_FREEZE_LIMIT,
+        );
+
+        let call = |number: BlockNumber| {
+            self.store()
+                .get_block_hash(number)
+                .and_then(|hash| self.store().get_archived_block(&hash))
+        };
+
+        freezer.freeze(threshold, call)?;
+        Ok(())
+    }
+
     pub fn tx_pool_controller(&self) -> &TxPoolController {
         &self.tx_pool_controller
     }
@@ -203,6 +283,7 @@ impl Shared {
 
 pub struct SharedBuilder {
     db: RocksDB,
+    freezer: Option<Freezer>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
@@ -215,6 +296,7 @@ impl Default for SharedBuilder {
     fn default() -> Self {
         SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
+            freezer: None,
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
@@ -235,8 +317,10 @@ impl SharedBuilder {
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
         migrations.add_migration(Box::new(migrations::FreezerMigration));
 
+        let freezer = Freezer::open(config.ancient.to_path_buf()).expect("freezer init");
         SharedBuilder {
             db,
+            freezer: Some(freezer),
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
@@ -279,7 +363,11 @@ impl SharedBuilder {
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
         let db = self.migrations.migrate(self.db)?;
-        let store = ChainDB::new(db, store_config);
+        let store = if let Some(freezer) = self.freezer {
+            ChainDB::new_with_freezer(db, freezer, store_config)
+        } else {
+            ChainDB::new(db, store_config)
+        };
 
         Shared::init(
             store,
