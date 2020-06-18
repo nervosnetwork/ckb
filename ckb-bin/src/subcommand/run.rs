@@ -2,7 +2,6 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
-use ckb_freezer::FreezerService;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_network::{
@@ -40,6 +39,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             eprintln!("Run error: {:?}", err);
             ExitCode::Failure
         })?;
+
+    let _freezer = shared.spawn_freeze();
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
@@ -170,8 +171,6 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let io_handler = builder.build();
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
-
-    let _freezer = FreezerService::new(args.config.ancient, shared.clone()).start();
 
     wait_for_exit(exit_condvar);
 

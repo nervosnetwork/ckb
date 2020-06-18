@@ -15,3 +15,6 @@ ckb-util = { path = "../util" }
 ckb-error = { path = "../error" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-logger = { path = "../util/logger" }
+ckb-db-migration = { path = "../db-migration" }
+ckb-freezer = { path = "../freezer" }
+tempfile = "3.0"

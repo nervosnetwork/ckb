@@ -127,7 +127,7 @@ mod tests {
         const VERSION: &str = "20191127101121";
 
         impl Migration for CustomizedMigration {
-            fn migrate(&self, db: RocksDB, _consensus: &Consensus) -> Result<RocksDB, Error> {
+            fn migrate(&self, db: RocksDB) -> Result<RocksDB, Error> {
                 let txn = db.transaction();
                 // append 1u8 to each value of column `0`
                 let migration = |key: &[u8], value: &[u8]| -> Result<(), Error> {
@@ -154,7 +154,6 @@ mod tests {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
-        let consensus = Consensus::default();
 
         {
             let mut migrations = Migrations::default();

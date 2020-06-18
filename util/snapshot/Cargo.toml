@@ -17,3 +17,4 @@ ckb-error = { path = "../../error" }
 ckb-proposal-table = { path = "../proposal-table" }
 arc-swap = "0.4"
 ckb-reward-calculator = { path = "../reward-calculator" }
+ckb-freezer = { path = "../../freezer" }

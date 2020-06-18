@@ -8,4 +8,6 @@ pub struct Config {
     pub path: PathBuf,
     #[serde(default)]
     pub options: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub ancient: PathBuf,
 }

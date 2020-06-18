@@ -10,4 +10,4 @@ fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Erro
     InternalErrorKind::Database.reason(reason).into()
 }
 
-pub use freezer::FreezerService;
+pub use freezer::Freezer;

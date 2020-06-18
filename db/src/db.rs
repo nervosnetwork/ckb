@@ -242,6 +242,7 @@ mod tests {
                 opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
                 opts
             }),
+            ..Default::default()
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -260,6 +261,7 @@ mod tests {
                 opts.insert("letsrock".to_owned(), "true".to_owned());
                 opts
             }),
+            ..Default::default()
         };
         RocksDB::open(&config, 2); // panic
     }
