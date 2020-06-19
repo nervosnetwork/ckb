@@ -1,8 +1,34 @@
+# [v0.33.0](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.32.2) (2020-06-19)
+
+### Bug Fixes
+
+* #2052: Return connected address in RPC `get_peers` (@keroro520)
+
+    The RPC `get_peers` miss the peer connected address. Hence it may be empty addresses returned for inbound peers.
+
+### Improvements
+
+* #2043: Upgrade tokio for tx-pool (@zhangsoledad)
+
+    * bump tokio 0.2
+    * refactor tx-pool with async/await
+
+* #2100: Move all `Config` structs to ckb-app-config (@quake)
+
+    To eliminate large dependences of `ckb-app-config`, this PR moved all config related structs to this crate and reversed dependencies of other crates
+
+* #2091: Logger filter parse crate name leniently (@yangby-cryptape)
+
+# [v0.32.2](https://github.com/nervosnetwork/ckb/compare/v0.32.1...v0.32.2) (2020-06-15)
+
+* [GHSA-pr39-8257-fxc2](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-pr39-8257-fxc2): Avoid crash when parsing network address (@driftluo)
+* #2109: Fix deadlock caused by conflicting lock order (@BurtonQin)
+
 # [v0.32.1](https://github.com/nervosnetwork/ckb/compare/v0.32.0...v0.32.1) (2020-05-29)
 
 ### Bug Fixes
 
-* [GHSA-84x2-2qv6-qg56](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-84x2-2qv6-qg56): Add rate limit to avoid p2p DoS attacks.
+* [GHSA-84x2-2qv6-qg56](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-84x2-2qv6-qg56): Add rate limit to avoid p2p DoS attacks (@quake)
 
 # [v0.32.0](https://github.com/nervosnetwork/ckb/compare/v0.31.1...v0.32.0) (2020-05-22)
 
