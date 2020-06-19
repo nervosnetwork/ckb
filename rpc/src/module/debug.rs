@@ -20,7 +20,7 @@ impl DebugRpc for DebugRpcImpl {
             .unwrap()
             .as_secs();
         let filename = format!("ckb-jeprof.{}.heap", timestamp);
-        match ckb_memory_tracker::jemalloc_profiling_dump(filename.clone()) {
+        match ckb_memory_tracker::jemalloc_profiling_dump(&filename) {
             Ok(()) => Ok(filename),
             Err(err) => Err(Error {
                 code: InternalError,

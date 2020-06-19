@@ -10,7 +10,7 @@ mod jemalloc;
     feature = "profiling"
 )))]
 mod jemalloc {
-    pub fn jemalloc_profiling_dump(_: String) -> Result<(), String> {
+    pub fn jemalloc_profiling_dump(_: &str) -> Result<(), String> {
         Err("jemalloc profiling dump: unsupported".to_string())
     }
 }
