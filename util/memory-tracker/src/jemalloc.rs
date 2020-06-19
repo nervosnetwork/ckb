@@ -1,5 +1,4 @@
 use ckb_logger::info;
-use ckb_logger::warn;
 use std::{ffi, mem, ptr};
 
 pub fn jemalloc_profiling_dump(filename: &str) -> Result<(), String> {
