@@ -3,8 +3,8 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{
-    FIRST_LEVEL_MAX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
-    MAX_HEADERS_LEN, MAX_TIP_AGE, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    FAST_INDEX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_HEADERS_LEN, MAX_TIP_AGE, NORMAL_INDEX, RETRY_ASK_TX_TIMEOUT_INCREASE, TIME_TRACE_SIZE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -280,11 +280,90 @@ impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
     }
 }
 
+enum TimeQuantile {
+    MinToFast,
+    FastToNormal,
+    NormalToUpper,
+    UpperToMax,
+}
+
+/// Using 512 blocks as a period, dynamically adjust the scheduler's time standard
+/// Divided into three time periods, including:
+///
+/// | fast | normal | penalty | double penalty |
+///
+/// The dividing line is, 1/3 position, 4/5 position, 1/10 position.
+///
+/// There is 14/30 normal area, 1/10 penalty area, 1/10 double penalty area, 1/3 accelerated reward area.
+///
+/// Most of the nodes that fall in the normal and accelerated reward area will be retained,
+/// while most of the nodes that fall in the normal and penalty zones will be slowly eliminated
+///
+/// The purpose of dynamic tuning is to reduce the consumption problem of sync networks
+/// by retaining the vast majority of nodes with stable communications and
+/// cleaning up nodes with significantly lower response times than a certain level
+#[derive(Clone)]
+struct TimeAnalyzer {
+    trace: [u64; TIME_TRACE_SIZE],
+    index: usize,
+    fast_time: u64,
+    normal_time: u64,
+    low_time: u64,
+}
+
+impl fmt::Debug for TimeAnalyzer {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("TimeAnalyzer")
+            .field("fast_time", &self.fast_time)
+            .field("normal_time", &self.normal_time)
+            .field("low_time", &self.low_time)
+            .finish()
+    }
+}
+
+impl Default for TimeAnalyzer {
+    fn default() -> Self {
+        // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
+        Self {
+            trace: [0; TIME_TRACE_SIZE],
+            index: 0,
+            fast_time: 1000,
+            normal_time: 1250,
+            low_time: 1500,
+        }
+    }
+}
+
+impl TimeAnalyzer {
+    fn push_time(&mut self, time: u64) -> TimeQuantile {
+        if self.index < TIME_TRACE_SIZE {
+            self.trace[self.index] = time;
+            self.index += 1;
+        } else {
+            self.trace.sort_unstable();
+            self.fast_time = (self.fast_time.saturating_add(self.trace[FAST_INDEX])) >> 1;
+            self.normal_time = (self.normal_time.saturating_add(self.trace[NORMAL_INDEX])) >> 1;
+            self.low_time = (self.low_time.saturating_add(self.trace[LOW_INDEX])) >> 1;
+            self.trace[0] = time;
+            self.index = 1;
+        }
+
+        if time <= self.fast_time {
+            TimeQuantile::MinToFast
+        } else if time <= self.normal_time {
+            TimeQuantile::FastToNormal
+        } else if time > self.low_time {
+            TimeQuantile::UpperToMax
+        } else {
+            TimeQuantile::NormalToUpper
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadScheduler {
     task_count: usize,
     timeout_count: usize,
-    breakthroughs_count: usize,
     hashes: HashSet<BlockNumberAndHash>,
 }
 
@@ -293,7 +372,6 @@ impl Default for DownloadScheduler {
         Self {
             hashes: HashSet::default(),
             task_count: INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-            breakthroughs_count: 0,
             timeout_count: 0,
         }
     }
@@ -308,65 +386,29 @@ impl DownloadScheduler {
         self.task_count.saturating_sub(self.hashes.len())
     }
 
-    pub(crate) fn task_count(&self) -> usize {
+    pub(crate) const fn task_count(&self) -> usize {
         self.task_count
     }
 
-    fn adjust(&mut self, time: u64, len: u64) {
-        let now = unix_time_as_millis();
-        // 8 means default max outbound
-        // All synchronization tests are based on the assumption of 8 nodes.
-        // If the number of nodes is increased, the number of requests and processing time will increase,
-        // and the corresponding adjustment criteria are needed, so the adjustment is based on 8.
-        //
-        // note: This is an interim scenario and the next step is to consider the median response time
-        // within a certain interval as the adjustment criterion
-        let (quotient, remainder) = if len > 8 { (len >> 3, len % 8) } else { (1, 0) };
-        // Dynamically adjust download tasks based on response time.
-        //
-        // Block max size about 700k, Under 10m/s bandwidth it may cost 1s to response
-        // But the mark is on the same time, so multiple tasks may be affected by one task,
-        // causing all responses to be in the range of reduced tasks.
-        // So the adjustment to reduce the number of tasks will be calculated by modulo 3 with the actual number of triggers.
-        // Adjust for each block received.
-        match ((now - time) / quotient).saturating_sub(remainder * 100) {
-            // Within 500ms of response, considered better to communicate with that node's network
-            0..=500 => {
-                if self.task_count < FIRST_LEVEL_MAX - 1 {
-                    self.task_count += 2
-                } else {
-                    self.breakthroughs_count += 1
-                }
-            }
-            // Within 1000ms of response time, the network is relatively good and communication should be maintained
-            501..=1000 => {
-                if self.task_count < FIRST_LEVEL_MAX {
-                    self.task_count += 1
-                } else {
-                    self.breakthroughs_count += 1
-                }
-            }
-            // Response time within 1500ms, acceptable range, but not relatively good for nodes and do not adjust
-            1001..=1500 => (),
-            // Above 1500ms, relatively poor network, reduced
-            _ => {
-                self.timeout_count += 1;
-                if self.timeout_count > 3 {
-                    self.task_count = self.task_count.saturating_sub(1);
-                    self.timeout_count = 0;
-                }
-            }
-        }
-        if self.breakthroughs_count > 4 {
-            if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
-                self.task_count += 1;
-            }
-            self.breakthroughs_count = 0;
+    fn increase(&mut self, num: usize) {
+        if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
+            self.task_count = ::std::cmp::min(
+                self.task_count.saturating_add(num),
+                MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+            )
         }
     }
 
-    fn punish(&mut self) {
-        self.task_count >>= 1
+    fn decrease(&mut self, num: usize) {
+        self.timeout_count = self.task_count.saturating_add(num);
+        if self.timeout_count > 2 {
+            self.task_count = self.task_count.saturating_sub(1);
+            self.timeout_count = 0;
+        }
+    }
+
+    fn punish(&mut self, exp: usize) {
+        self.task_count >>= exp
     }
 }
 
@@ -377,6 +419,7 @@ pub struct InflightBlocks {
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
     compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
+    time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
 }
 
@@ -388,6 +431,7 @@ impl Default for InflightBlocks {
             trace_number: HashMap::default(),
             compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
+            time_analyzer: TimeAnalyzer::default(),
             adjustment: true,
         }
     }
@@ -418,7 +462,8 @@ impl fmt::Debug for InflightBlocks {
                     .iter()
                     .map(|(k, v)| (format!("{}, {}", k.number, k.hash), v)),
             )
-            .finish()
+            .finish()?;
+        self.time_analyzer.fmt(fmt)
     }
 }
 
@@ -504,13 +549,13 @@ impl InflightBlocks {
                 break;
             }
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
-                download_schedulers
-                    .get_mut(&value.peer)
-                    .map(|set| set.hashes.remove(key));
+                if let Some(set) = download_schedulers.get_mut(&value.peer) {
+                    set.hashes.remove(key);
+                    set.punish(2);
+                };
                 if !trace.is_empty() {
                     trace.remove(&key);
                 }
-                disconnect_list.insert(value.peer);
                 remove_key.push(key.clone());
             }
         }
@@ -546,13 +591,13 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        d.punish();
+                        d.punish(1);
                         d.hashes.remove(key);
                     };
                 } else if let Some(v) = compact_inflight.remove(&key.hash) {
                     for peer in v {
                         if let Some(d) = download_schedulers.get_mut(&peer) {
-                            d.punish();
+                            d.punish(1);
                         }
                     }
                 }
@@ -636,27 +681,32 @@ impl InflightBlocks {
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
-        let len = download_schedulers.len() as u64;
+        let time_analyzer = &mut self.time_analyzer;
         let adjustment = self.adjustment;
         self.inflight_states
             .remove(&block)
             .map(|state| {
+                let elapsed = unix_time_as_millis().saturating_sub(state.timestamp);
                 if let Some(set) = download_schedulers.get_mut(&state.peer) {
                     set.hashes.remove(&block);
                     if !compact.is_empty() {
                         compact.remove(&block.hash);
                     }
                     if adjustment {
-                        set.adjust(state.timestamp, len);
+                        match time_analyzer.push_time(elapsed) {
+                            TimeQuantile::MinToFast => set.increase(2),
+                            TimeQuantile::FastToNormal => set.increase(1),
+                            TimeQuantile::NormalToUpper => set.decrease(1),
+                            TimeQuantile::UpperToMax => set.decrease(2),
+                        }
                     }
                     if !trace.is_empty() {
                         trace.remove(&block);
                     }
                 };
-                state.timestamp
+                elapsed
             })
-            .map(|timestamp| {
-                let elapsed = unix_time_as_millis().saturating_sub(timestamp);
+            .map(|elapsed| {
                 metric!({
                     "topic": "blocks_in_flight",
                     "fields": { "total": self.total_inflight_count(), "elapsed": elapsed }

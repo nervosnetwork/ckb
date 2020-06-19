@@ -31,9 +31,18 @@ pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 
 /* About Download Scheduler */
 pub const INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
-pub const FIRST_LEVEL_MAX: usize = 32;
 pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 128;
 pub const CHECK_POINT_WINDOW: u64 = (MAX_BLOCKS_IN_TRANSIT_PER_PEER * 4) as u64;
+
+// Time recording window size, ibd period scheduler dynamically adjusts frequency
+// for acquisition/analysis generating dynamic time range
+pub(crate) const TIME_TRACE_SIZE: usize = MAX_BLOCKS_IN_TRANSIT_PER_PEER * 4;
+// Fast Zone Boundaries for the Time Window
+pub(crate) const FAST_INDEX: usize = TIME_TRACE_SIZE / 3;
+// Normal Zone Boundaries for the Time Window
+pub(crate) const NORMAL_INDEX: usize = TIME_TRACE_SIZE * 4 / 5;
+// Low Zone Boundaries for the Time Window
+pub(crate) const LOW_INDEX: usize = TIME_TRACE_SIZE * 9 / 10;
 
 pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
 

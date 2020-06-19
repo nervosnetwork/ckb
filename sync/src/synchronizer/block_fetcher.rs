@@ -166,7 +166,7 @@ impl<'a> BlockFetcher<'a> {
             }
 
             // Move `start` forward
-            start += span as u64;
+            start += span;
         }
 
         // The headers in `fetch` may be unordered. Sort them by number.
