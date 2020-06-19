@@ -10,10 +10,8 @@ mod jemalloc;
     feature = "profiling"
 )))]
 mod jemalloc {
-    use ckb_logger::warn;
-
-    pub fn jemalloc_profiling_dump(_: String) {
-        warn!("jemalloc profiling dump: unsupported");
+    pub fn jemalloc_profiling_dump(_: &str) -> Result<(), String> {
+        Err("jemalloc profiling dump: unsupported".to_string())
     }
 }
 
