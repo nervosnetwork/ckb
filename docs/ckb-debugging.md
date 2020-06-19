@@ -56,6 +56,26 @@ interval = 600
   jeprof --show_bytes --pdf target/debug/ckb ckb-jeprof.$TIMESTAMP.heap > call-graph.pdf
   ```
 
+## Fail-point
+
+### Enable fail-points
+
+- Compile ckb with feature `failpoints`:
+
+  ```shell
+  cargo build --release --features failpoints
+  ```
+
+- Specify which fail-points and error partterns to enable in `ckb.toml`. You can find more detail from [fail-rs](https://github.com/tikv/fail-rs/blob/v0.4.0/src/lib.rs#L638-L667). Here is an example:
+
+  ```toml
+  [failpoints]
+  recv_relaytransactions      = "0.1%return"
+  recv_getblockproposal       = "0.2%panic"
+  send_inibd                  = "sleep(100)"
+  send_relaytransactions      = "0.1%print(message)"
+  ```
+
 ## References:
 
 - [JEMALLOC: Use Case: Leak Checking](https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Leak-Checking)
