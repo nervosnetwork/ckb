@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::errors::{Error, P2PError};
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
     types::{AddrInfo, BannedAddr, IpPort, MultiaddrExt},
@@ -34,9 +34,9 @@ use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
-    error::Error as P2pError,
+    error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{self, Multiaddr},
-    secio::{self, PeerId},
+    secio::{self, error::SecioError, PeerId},
     service::{
         BlockingFlag, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
         TargetProtocol, TargetSession,
@@ -48,7 +48,6 @@ use p2p::{
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    io,
     pin::Pin,
     sync::Arc,
     thread,
@@ -557,7 +556,11 @@ impl ServiceHandle for EventHandler {
                 ref error,
             } => {
                 debug!("DialerError({}) {}", address, error);
-                if error == &P2pError::ConnectSelf {
+
+                if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
+                    SecioError::ConnectSelf,
+                )) = error
+                {
                     debug!("dial observed address success: {:?}", address);
                     let addr = address
                         .iter()
@@ -579,18 +582,12 @@ impl ServiceHandle for EventHandler {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 let message = format!("ProtocolError id={}", proto_id);
                 // Ban because misbehave of remote peer
-                if let P2pError::IoError(_) = error {
-                    self.network_state.ban_session(
-                        &context.control(),
-                        id,
-                        Duration::from_secs(300),
-                        message,
-                    );
-                } else if let Err(err) =
-                    disconnect_with_message(context.control(), id, message.as_str())
-                {
-                    debug!("Disconnect failed {:?}, error {:?}", id, err);
-                }
+                self.network_state.ban_session(
+                    &context.control(),
+                    id,
+                    Duration::from_secs(300),
+                    message,
+                );
             }
             ServiceError::SessionTimeout { session_context } => {
                 warn!(
@@ -635,7 +632,7 @@ impl ServiceHandle for EventHandler {
                     },
                 );
 
-                if let P2pError::ProtoHandleAbnormallyClosed(opt_session_id) = error {
+                if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
                     if let Some(id) = opt_session_id {
                         self.network_state.ban_session(
                             &context.control(),
@@ -1114,7 +1111,9 @@ impl NetworkService {
                                     addr.clone(),
                                     err
                                 );
-                                start_sender.send(Err(Error::Io(err))).unwrap();
+                                start_sender
+                                    .send(Err(Error::P2P(P2PError::Transport(err))))
+                                    .expect("channel abnormal shutdown");
                                 return;
                             }
                         };
@@ -1268,7 +1267,7 @@ impl NetworkController {
         target: TargetSession,
         proto_id: ProtocolId,
         data: Bytes,
-    ) -> Result<(), P2pError> {
+    ) -> Result<(), SendErrorKind> {
         let now = Instant::now();
         loop {
             let result = if quick {
@@ -1282,10 +1281,10 @@ impl NetworkController {
                 Ok(()) => {
                     return Ok(());
                 }
-                Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
+                Err(SendErrorKind::WouldBlock) => {
                     if now.elapsed() > P2P_SEND_TIMEOUT {
                         warn!("broadcast message to {} timeout", proto_id);
-                        return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
+                        return Err(SendErrorKind::WouldBlock);
                     }
                     thread::sleep(P2P_TRY_SEND_INTERVAL);
                 }
@@ -1297,13 +1296,13 @@ impl NetworkController {
         }
     }
 
-    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
-    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
@@ -1314,7 +1313,7 @@ impl NetworkController {
         session_id: SessionId,
         proto_id: ProtocolId,
         data: Bytes,
-    ) -> Result<(), P2pError> {
+    ) -> Result<(), SendErrorKind> {
         let target = TargetSession::Single(session_id);
         self.try_broadcast(false, target, proto_id, data)
     }
@@ -1331,7 +1330,7 @@ pub(crate) fn disconnect_with_message(
     control: &ServiceControl,
     peer_index: SessionId,
     message: &str,
-) -> Result<(), P2pError> {
+) -> Result<(), SendErrorKind> {
     if !message.is_empty() {
         let data = Bytes::from(message.as_bytes().to_vec());
         // Must quick send, otherwise this message will be dropped.
