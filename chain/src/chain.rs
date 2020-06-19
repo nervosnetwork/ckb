@@ -176,11 +176,7 @@ impl ChainService {
 
     // process_block will do block verify
     // but invoker should guarantee block header be verified
-    pub(crate) fn process_block(
-        &mut self,
-        block: Arc<BlockView>,
-        switch: Switch,
-    ) -> Result<bool, Error> {
+    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
             warn!(

@@ -11,7 +11,7 @@ pub struct ChainIterator {
 }
 
 impl ChainIterator {
-    pub fn new(shared: Shared) -> Self {
+    pub fn new(shared: &Shared) -> Self {
         let snapshot = Arc::clone(&shared.snapshot());
         let current = snapshot
             .get_block_hash(0)
@@ -24,7 +24,7 @@ impl ChainIterator {
         }
     }
 
-    pub fn len(&self) -> u64 {
+    pub fn size(&self) -> u64 {
         self.tip + 1
     }
 }
@@ -51,7 +51,7 @@ impl Iterator for ChainIterator {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.current {
             Some(ref b) => (1, Some((self.tip - b.header().number() + 1) as usize)),
-            None => (0, Some(0)),
+            None => (0, None),
         }
     }
 }

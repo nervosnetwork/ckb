@@ -23,12 +23,14 @@ pub struct RunArgs {
     pub block_assembler_advanced: bool,
 }
 
-pub struct ProfArgs {
+pub type ProfileArgs = Option<(Option<u64>, Option<u64>)>;
+pub struct ReplayArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
     pub tmp_target: PathBuf,
-    pub from: u64,
-    pub to: u64,
+    pub profile: ProfileArgs,
+    pub sanity_check: bool,
+    pub full_verfication: bool,
 }
 
 pub struct MinerArgs {
