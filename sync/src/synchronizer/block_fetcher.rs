@@ -97,7 +97,7 @@ impl<'a> BlockFetcher<'a> {
 
         let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
         let mut start = last_common.number() + 1;
-        let end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             inflight.peer_can_fetch_count(self.peer),
@@ -124,6 +124,7 @@ impl<'a> BlockFetcher<'a> {
                     self.synchronizer
                         .peers()
                         .set_last_common_header(self.peer, header.clone());
+                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
