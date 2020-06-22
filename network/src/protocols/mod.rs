@@ -6,7 +6,7 @@ pub(crate) mod ping;
 #[cfg(test)]
 mod test;
 
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
 use p2p::{
     builder::MetaBuilder,
@@ -380,6 +380,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
+        debug!("disconnect peer: {}, message: {}", peer_index, message);
         disconnect_with_message(&self.p2p_control, peer_index, message)?;
         Ok(())
     }
