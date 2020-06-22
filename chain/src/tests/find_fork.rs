@@ -410,7 +410,7 @@ fn repeatedly_switch_fork() {
 // [ 1 <- 2 <- 3 ] <- 4 <- 5 <- 6 <- 7 <- 8 <- 9 <- 10 <- 11
 //              \
 //               \
-//                - 4' <- 5' <- 6'
+//                - 4' <- 5'
 
 #[test]
 fn test_fork_proposal_table() {
@@ -446,7 +446,7 @@ fn test_fork_proposal_table() {
         mock.rollback(&mock_store);
     }
 
-    for i in 4..7 {
+    for i in 4..6 {
         let ids = vec![packed::ProposalShortId::new([
             1u8, 0, 0, 0, 0, 0, 0, 0, 0, i,
         ])];
@@ -466,8 +466,8 @@ fn test_fork_proposal_table() {
     assert_eq!(
         &HashSet::from_iter(
             vec![
-                packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
-                packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 5])
+                packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+                packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4])
             ]
             .into_iter()
         ),
@@ -477,7 +477,7 @@ fn test_fork_proposal_table() {
     assert_eq!(
         &HashSet::from_iter(
             vec![packed::ProposalShortId::new([
-                1u8, 0, 0, 0, 0, 0, 0, 0, 0, 6
+                1u8, 0, 0, 0, 0, 0, 0, 0, 0, 5
             ])]
             .into_iter()
         ),

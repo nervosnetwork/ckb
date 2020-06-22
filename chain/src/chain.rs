@@ -465,6 +465,42 @@ impl ChainService {
             self.proposal_table
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
+
+        self.reload_proposal_table(&fork);
+    }
+
+    // if rollback happen, go back check whether need reload proposal_table from block
+    pub(crate) fn reload_proposal_table(&mut self, fork: &ForkChanges) {
+        if fork.has_detached() {
+            let proposal_window = self.shared.consensus().tx_proposal_window();
+            let detached_front = fork
+                .detached_blocks()
+                .front()
+                .map(|blk| blk.header().number())
+                .expect("detached_blocks is not empty");
+            if detached_front < 2 {
+                return;
+            }
+            let common = detached_front - 1;
+            let new_tip = fork
+                .attached_blocks()
+                .back()
+                .map(|blk| blk.header().number())
+                .unwrap_or(common);
+
+            let proposal_start =
+                cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
+            for bn in proposal_start..=common {
+                let blk = self
+                    .shared
+                    .store()
+                    .get_block_hash(bn)
+                    .and_then(|hash| self.shared.store().get_block(&hash))
+                    .expect("block stored");
+
+                self.proposal_table.insert(bn, blk.union_proposal_ids());
+            }
+        }
     }
 
     pub(crate) fn rollback(&self, fork: &ForkChanges, txn: &StoreTransaction) -> Result<(), Error> {
