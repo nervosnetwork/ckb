@@ -10,16 +10,13 @@ use crate::protocols::{
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
     ping::{PingHandler, PingService},
+    support_protocols::SupportProtocols,
 };
 use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{
-    Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
-    MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY, MAX_FRAME_LENGTH_FEELER,
-    MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
-};
+use crate::{Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl};
 use ckb_app_config::NetworkConfig;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -30,15 +27,15 @@ use futures::{
 };
 use ipnetwork::IpNetwork;
 use p2p::{
-    builder::{MetaBuilder, ServiceBuilder},
+    builder::ServiceBuilder,
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{self, Multiaddr},
     secio::{self, error::SecioError, PeerId},
     service::{
-        BlockingFlag, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
-        TargetProtocol, TargetSession,
+        ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol,
+        TargetSession,
     },
     traits::ServiceHandle,
     utils::extract_peer_id,
@@ -54,13 +51,6 @@ use std::{
     usize,
 };
 use tokio::runtime;
-use tokio_util::codec::length_delimited;
-
-pub(crate) const PING_PROTOCOL_ID: usize = 0;
-pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
-pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
-pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
-pub(crate) const DISCONNECT_MESSAGE_PROTOCOL_ID: usize = 4;
 
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
@@ -447,7 +437,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
             false,
         ) {
             debug!("dial_identify error: {}", err);
@@ -460,7 +450,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
             false,
         ) {
             debug!("dial_feeler error {}", err);
@@ -480,7 +470,7 @@ impl NetworkState {
                 p2p_control,
                 self.local_peer_id(),
                 addr,
-                TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+                TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 true,
             ) {
                 debug!("try_dial_observed_addrs error {}", err);
@@ -871,10 +861,6 @@ impl<T: ExitHandler> NetworkService<T> {
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
-
-        let mut no_blocking_flag = BlockingFlag::default();
-        no_blocking_flag.disable_all();
-
         // == Build special protocols
 
         // TODO: how to deny banned node to open those protocols?
@@ -883,98 +869,40 @@ impl<T: ExitHandler> NetworkService<T> {
         let ping_interval = Duration::from_secs(config.ping_interval_secs);
         let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
 
-        let ping_meta = MetaBuilder::default()
-            .id(PING_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/ping".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_PING)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(PingHandler::new(
-                    ping_interval,
-                    ping_timeout,
-                    ping_sender,
-                )))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(PingHandler::new(
+                ping_interval,
+                ping_timeout,
+                ping_sender,
+            )))
+        });
 
         // Discovery protocol
         let disc_network_state = Arc::clone(&network_state);
-        let disc_meta = MetaBuilder::default()
-            .id(DISCOVERY_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/discovery".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_DISCOVERY)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
-                    disc_network_state,
-                    config.discovery_local_address,
-                )))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
+                disc_network_state,
+                config.discovery_local_address,
+            )))
+        });
 
         // Identify protocol
         let identify_callback =
             IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
-        let identify_meta = MetaBuilder::default()
-            .id(IDENTIFY_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/identify".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_IDENTIFY)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+        });
 
         // Feeler protocol
-        // TODO: versions
-        let feeler_meta = MetaBuilder::default()
-            .id(FEELER_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/flr".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_FEELER)
-                        .new_codec(),
-                )
-            })
-            .service_handle({
-                let network_state = Arc::clone(&network_state);
-                move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
+            let network_state = Arc::clone(&network_state);
+            move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+        });
 
-        let disconnect_message_meta = MetaBuilder::default()
-            .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/disconnectmsg".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_DISCONNECTMSG)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
-            .flag(no_blocking_flag)
-            .build();
+        let disconnect_message_meta = SupportProtocols::DisconnectMessage
+            .build_meta_with_service_handle(move || {
+                ProtocolHandle::Both(Box::new(DisconnectMessageProtocol))
+            });
 
         // == Build p2p service struct
         let mut protocol_metas = protocols
@@ -1354,7 +1282,11 @@ pub(crate) fn disconnect_with_message(
     if !message.is_empty() {
         let data = Bytes::from(message.as_bytes().to_vec());
         // Must quick send, otherwise this message will be dropped.
-        control.quick_send_message_to(peer_index, DISCONNECT_MESSAGE_PROTOCOL_ID.into(), data)?;
+        control.quick_send_message_to(
+            peer_index,
+            SupportProtocols::DisconnectMessage.protocol_id(),
+            data,
+        )?;
     }
     control.disconnect(peer_index)
 }

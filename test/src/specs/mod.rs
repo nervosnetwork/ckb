@@ -24,8 +24,7 @@ use crate::Net;
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::ChainSpec;
 use ckb_fee_estimator::FeeRate;
-use ckb_network::{ProtocolId, ProtocolVersion};
-use ckb_sync::NetworkProtocol;
+use ckb_network::{ProtocolId, ProtocolVersion, SupportProtocols};
 
 #[macro_export]
 macro_rules! name {
@@ -127,7 +126,7 @@ pub struct TestProtocol {
 impl TestProtocol {
     pub fn sync() -> Self {
         Self {
-            id: NetworkProtocol::SYNC.into(),
+            id: SupportProtocols::Sync.protocol_id(),
             protocol_name: "syn".to_string(),
             supported_versions: vec!["1".to_string()],
         }
@@ -135,7 +134,7 @@ impl TestProtocol {
 
     pub fn relay() -> Self {
         Self {
-            id: NetworkProtocol::RELAY.into(),
+            id: SupportProtocols::Relay.protocol_id(),
             protocol_name: "rel".to_string(),
             supported_versions: vec!["1".to_string()],
         }

@@ -1,7 +1,6 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
-use ckb_network::bytes::Bytes;
-use ckb_sync::NetworkProtocol;
+use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
     packed::{GetHeaders, SyncMessage},
     prelude::*,
@@ -34,12 +33,12 @@ impl Spec for MalformedMessage {
 
         info!("Send malformed message to node0 twice");
         net.send(
-            NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             peer_id,
             vec![0, 0, 0, 0].into(),
         );
         net.send(
-            NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             peer_id,
             vec![0, 1, 2, 3].into(),
         );
@@ -104,12 +103,12 @@ impl Spec for MalformedMessageWithWhitelist {
 
         info!("Send malformed message to node0 twice");
         net.send(
-            NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             peer_id,
             vec![0, 0, 0, 0].into(),
         );
         net.send(
-            NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             peer_id,
             vec![0, 1, 2, 3].into(),
         );

@@ -3,6 +3,8 @@ pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
 pub(crate) mod ping;
+pub(crate) mod support_protocols;
+
 #[cfg(test)]
 mod test;
 
@@ -110,6 +112,23 @@ pub struct CKBProtocol {
 }
 
 impl CKBProtocol {
+    // a helper constructor to build `CKBProtocol` with `SupportProtocols` enum
+    pub fn new_with_support_protocol(
+        support_protocol: support_protocols::SupportProtocols,
+        handler: Box<dyn CKBProtocolHandler>,
+        network_state: Arc<NetworkState>,
+    ) -> Self {
+        CKBProtocol {
+            id: support_protocol.protocol_id(),
+            max_frame_length: support_protocol.max_frame_length(),
+            protocol_name: support_protocol.name(),
+            supported_versions: support_protocol.support_versions(),
+            flag: support_protocol.flag(),
+            network_state,
+            handler,
+        }
+    }
+
     pub fn new(
         protocol_name: String,
         id: ProtocolId,

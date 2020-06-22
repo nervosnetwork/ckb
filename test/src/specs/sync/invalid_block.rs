@@ -1,7 +1,7 @@
 use super::utils::wait_get_blocks;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
-use ckb_sync::NetworkProtocol;
+use ckb_network::SupportProtocols;
 use ckb_types::{
     core::{BlockView, TransactionBuilder},
     packed::{self, Byte32, SyncMessage},
@@ -119,7 +119,11 @@ impl Spec for ForkContainsInvalidBlock {
         net.connect(&good_node);
         let (pi, _, _) = net.receive();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header()).collect();
-        net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
+        net.send(
+            SupportProtocols::Sync.protocol_id(),
+            pi,
+            build_headers(&headers),
+        );
         assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks",);
 
         // Build good chain (good_chain.len < bad_chain.len)
@@ -129,9 +133,9 @@ impl Spec for ForkContainsInvalidBlock {
         // Sync first part of bad fork which contains an invalid block
         // Good_node cannot detect the invalid block since "block delay verification".
         let (bad_chain1, bad_chain2) = bad_chain.split_at(invalid_number + 1);
-        bad_chain1
-            .iter()
-            .for_each(|block| net.send(NetworkProtocol::SYNC.into(), pi, build_block(block)));
+        bad_chain1.iter().for_each(|block| {
+            net.send(SupportProtocols::Sync.protocol_id(), pi, build_block(block))
+        });
         let last_hash = bad_chain1.last().map(|b| b.hash()).unwrap();
         assert!(
             wait_until(10, || good_node
@@ -144,9 +148,9 @@ impl Spec for ForkContainsInvalidBlock {
 
         // Sync second part of bad fork.
         // Good_node detect the invalid block when fork.total_difficulty > tip.difficulty
-        bad_chain2
-            .iter()
-            .for_each(|block| net.send(NetworkProtocol::SYNC.into(), pi, build_block(block)));
+        bad_chain2.iter().for_each(|block| {
+            net.send(SupportProtocols::Sync.protocol_id(), pi, build_block(block))
+        });
         let last_hash = bad_chain2.last().map(|b| b.hash()).unwrap();
         assert!(
             !wait_until(10, || good_node
@@ -159,7 +163,7 @@ impl Spec for ForkContainsInvalidBlock {
 
         // Additional testing: request an invalid fork via `GetBlock` should be failed
         net.send(
-            NetworkProtocol::SYNC.into(),
+            SupportProtocols::Sync.protocol_id(),
             pi,
             build_get_blocks(&bad_hashes),
         );

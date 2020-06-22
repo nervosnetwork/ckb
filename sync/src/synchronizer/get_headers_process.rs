@@ -1,7 +1,7 @@
 use crate::synchronizer::Synchronizer;
-use crate::{NetworkProtocol, Status, StatusCode, MAX_LOCATOR_SIZE};
+use crate::{Status, StatusCode, MAX_LOCATOR_SIZE};
 use ckb_logger::{debug, info};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_types::{
     core,
     packed::{self, Byte32},
@@ -100,10 +100,11 @@ impl<'a> GetHeadersProcess<'a> {
         let content = packed::InIBD::new_builder().build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 
-        if let Err(err) =
-            self.nc
-                .send_message(NetworkProtocol::SYNC.into(), self.peer, message.as_bytes())
-        {
+        if let Err(err) = self.nc.send_message(
+            SupportProtocols::Sync.protocol_id(),
+            self.peer,
+            message.as_bytes(),
+        ) {
             debug!("synchronizer send in ibd error: {:?}", err);
         }
     }

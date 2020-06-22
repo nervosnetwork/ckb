@@ -2,10 +2,9 @@ use crate::error::RPCError;
 use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_jsonrpc_types::{Block, BlockView, Cycle, Transaction};
 use ckb_logger::error;
-use ckb_network::NetworkController;
+use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_sync::NetworkProtocol;
 use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -114,7 +113,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         if let Err(err) = self
             .network_controller
-            .broadcast(NetworkProtocol::RELAY.into(), message.as_bytes())
+            .broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
         {
             error!("Broadcast transaction failed: {:?}", err);
             Err(RPCError::custom(RPCError::Invalid, err.to_string()))

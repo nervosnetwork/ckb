@@ -1,9 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::Alert;
 use ckb_logger::error;
-use ckb_network::NetworkController;
+use ckb_network::{NetworkController, SupportProtocols};
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
-use ckb_sync::NetworkProtocol;
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
@@ -58,7 +57,7 @@ impl AlertRpc for AlertRpcImpl {
             Ok(()) => {
                 if let Err(err) = self
                     .network_controller
-                    .broadcast(NetworkProtocol::ALERT.into(), alert.as_bytes())
+                    .broadcast(SupportProtocols::Alert.protocol_id(), alert.as_bytes())
                 {
                     error!("Broadcast alert failed: {:?}", err);
                 }
