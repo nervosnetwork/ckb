@@ -339,7 +339,10 @@ pub fn test_capacity_invalid() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::OutputsSumOverflow,
+        TransactionError::OutputsSumOverflow {
+            inputs_sum: capacity_bytes!(149),
+            outputs_sum: capacity_bytes!(150),
+        },
     );
 }
 

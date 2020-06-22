@@ -360,11 +360,15 @@ impl<'a> CapacityVerifier<'a> {
         // cellbase's outputs are verified by RewardVerifier
         // DAO withdraw transaction is verified via the type script of DAO cells
         if !(self.resolved_transaction.is_cellbase() || self.valid_dao_withdraw_transaction()) {
-            let inputs_total = self.resolved_transaction.inputs_capacity()?;
-            let outputs_total = self.resolved_transaction.outputs_capacity()?;
+            let inputs_sum = self.resolved_transaction.inputs_capacity()?;
+            let outputs_sum = self.resolved_transaction.outputs_capacity()?;
 
-            if inputs_total < outputs_total {
-                return Err((TransactionError::OutputsSumOverflow).into());
+            if inputs_sum < outputs_sum {
+                return Err((TransactionError::OutputsSumOverflow {
+                    inputs_sum,
+                    outputs_sum,
+                })
+                .into());
             }
         }
 

@@ -28,8 +28,14 @@ pub enum TransactionError {
     },
 
     /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
-    #[fail(display = "OutputsSumOverflow")]
-    OutputsSumOverflow,
+    #[fail(
+        display = "OutputsSumOverflow: expected outputs capacity ({:#x}) <= inputs capacity ({:#x})",
+        outputs_sum, inputs_sum
+    )]
+    OutputsSumOverflow {
+        inputs_sum: Capacity,
+        outputs_sum: Capacity,
+    },
 
     /// inputs.is_empty() || outputs.is_empty()
     #[fail(display = "Empty({})", source)]
@@ -258,7 +264,7 @@ pub enum EpochError {
 impl TransactionError {
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            TransactionError::OutputsSumOverflow
+            TransactionError::OutputsSumOverflow { .. }
             | TransactionError::DuplicateDeps
             | TransactionError::Empty { .. }
             | TransactionError::InsufficientCellCapacity { .. }
