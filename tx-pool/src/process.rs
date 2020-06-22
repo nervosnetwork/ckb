@@ -30,7 +30,7 @@ use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
@@ -490,6 +490,14 @@ impl TxPoolService {
                 guard.insert(k, v);
             }
         });
+    }
+
+    pub(crate) async fn clear_pool(&self) {
+        let mut tx_pool = self.tx_pool.write().await;
+        let config = tx_pool.config;
+        let snapshot = Arc::clone(&tx_pool.snapshot);
+        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
+        *tx_pool = TxPool::new(config, snapshot, last_txs_updated_at);
     }
 }
 

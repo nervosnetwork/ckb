@@ -10,24 +10,26 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView,
+        BlockExt, BlockNumber, BlockView, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
     U256,
 };
 use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
-use crossbeam_channel::{self, select, Receiver, Sender};
+use crossbeam_channel::{self, select, Sender};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
+type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
+    truncate_sender: Sender<TruncateRequest>, // Used for testing only
     stop: StopHandler<()>,
 }
 
@@ -53,10 +55,16 @@ impl ChainController {
                 .into())
         })
     }
-}
 
-struct ChainReceivers {
-    process_block_receiver: Receiver<ProcessBlockRequest>,
+    /// Truncate the main chain
+    /// Use for testing only
+    pub fn truncate(&self, target_tip_hash: Byte32) -> Result<(), Error> {
+        Request::call(&self.truncate_sender, target_tip_hash).unwrap_or_else(|| {
+            Err(InternalErrorKind::System
+                .reason("Chain service has gone")
+                .into())
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -134,6 +142,7 @@ impl ChainService {
             crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (process_block_sender, process_block_receiver) =
             crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (truncate_sender, truncate_receiver) = crossbeam_channel::bounded(1);
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -141,21 +150,27 @@ impl ChainService {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let receivers = ChainReceivers {
-            process_block_receiver,
-        };
         let thread = thread_builder
             .spawn(move || loop {
                 select! {
                     recv(signal_receiver) -> _ => {
                         break;
                     },
-                    recv(receivers.process_block_receiver) -> msg => match msg {
+                    recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
                             let _ = responder.send(self.process_block(block, verify));
                         },
                         _ => {
                             error!("process_block_receiver closed");
+                            break;
+                        },
+                    },
+                    recv(truncate_receiver) -> msg => match msg {
+                        Ok(Request { responder, arguments: target_tip_hash }) => {
+                            let _ = responder.send(self.truncate(&target_tip_hash));
+                        },
+                        _ => {
+                            error!("truncate_receiver closed");
                             break;
                         },
                     }
@@ -166,12 +181,70 @@ impl ChainService {
 
         ChainController {
             process_block_sender,
+            truncate_sender,
             stop,
         }
     }
 
     pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
         self.process_block(block, Switch::NONE)
+    }
+
+    fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
+        let mut fork = ForkChanges::default();
+        let store = self.shared.store();
+        for bn in (target.number() + 1)..=current_tip.number() {
+            let hash = store.get_block_hash(bn).expect("index checked");
+            let old_block = store.get_block(&hash).expect("index checked");
+            fork.detached_blocks.push_front(old_block);
+        }
+        fork
+    }
+
+    // Truncate the main chain
+    // Use for testing only
+    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
+        let snapshot = Arc::clone(&self.shared.snapshot());
+        assert!(snapshot.is_main_chain(target_tip_hash));
+
+        let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
+        let target_block_ext = snapshot.get_block_ext(target_tip_hash).expect("checked");
+        let target_epoch_ext = snapshot
+            .get_block_epoch_index(target_tip_hash)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .expect("checked");
+        let origin_proposals = snapshot.proposals();
+        let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
+
+        let db_txn = self.shared.store().begin_transaction();
+        self.rollback(&fork, &db_txn)?;
+
+        db_txn.insert_tip_header(&target_tip_header)?;
+        db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
+
+        for blk in fork.attached_blocks() {
+            db_txn.delete_block(&blk.hash(), blk.transactions().len())?;
+        }
+        db_txn.commit()?;
+
+        self.update_proposal_table(&fork);
+        let (detached_proposal_id, new_proposals) = self
+            .proposal_table
+            .finalize(origin_proposals, target_tip_header.number());
+        fork.detached_proposal_id = detached_proposal_id;
+
+        let new_snapshot = self.shared.new_snapshot(
+            target_tip_header,
+            target_block_ext.total_difficulty,
+            target_epoch_ext,
+            new_proposals,
+        );
+
+        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+
+        // NOTE: Dont update tx-pool when truncate
+
+        Ok(())
     }
 
     // process_block will do block verify

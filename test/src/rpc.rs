@@ -227,6 +227,12 @@ impl RpcClient {
             .map(|x| x.pack())
     }
 
+    pub fn truncate(&self, target_tip_hash: Byte32) {
+        self.inner()
+            .truncate(target_tip_hash.unpack())
+            .expect("rpc call truncate")
+    }
+
     pub fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: Byte32,
@@ -364,6 +370,7 @@ jsonrpc!(pub struct Inner {
     pub fn add_node(&self, peer_id: String, address: String) -> ();
     pub fn remove_node(&self, peer_id: String) -> ();
     pub fn process_block_without_verify(&self, _data: Block) -> Option<H256>;
+    pub fn truncate(&self, target_tip_hash: H256) -> ();
 
     pub fn get_live_cells_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<LiveCell>;
     pub fn get_transactions_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<CellTransaction>;

@@ -5,6 +5,7 @@ mod indexer;
 mod mining;
 mod p2p;
 mod relay;
+mod rpc;
 mod sync;
 mod tx_pool;
 
@@ -15,6 +16,7 @@ pub use indexer::*;
 pub use mining::*;
 pub use p2p::*;
 pub use relay::*;
+pub use rpc::*;
 pub use sync::*;
 pub use tx_pool::*;
 
