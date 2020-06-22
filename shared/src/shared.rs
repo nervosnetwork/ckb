@@ -220,7 +220,7 @@ impl Shared {
         let call = |number: BlockNumber| {
             self.store()
                 .get_block_hash(number)
-                .and_then(|hash| self.store().get_archived_block(&hash))
+                .and_then(|hash| self.store().get_packed_block(&hash))
         };
 
         freezer.freeze(threshold, call)?;
