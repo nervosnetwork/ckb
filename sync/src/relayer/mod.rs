@@ -271,7 +271,7 @@ impl Relayer {
         let boxed = Arc::new(block);
         if self
             .shared()
-            .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
+            .insert_new_block(&self.chain, Arc::clone(&boxed))
             .unwrap_or(false)
         {
             debug_target!(

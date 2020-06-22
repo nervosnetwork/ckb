@@ -92,12 +92,11 @@ impl<'a> CompactBlockProcess<'a> {
                 .expect("parent block must exist");
             let header_view = {
                 let total_difficulty = parent.total_difficulty() + header.difficulty();
-                crate::types::HeaderView::new(header.clone(), total_difficulty)
+                crate::types::HeaderView::new(header, total_difficulty)
             };
 
             let state = shared.state().peers();
-            state.new_header_received(self.peer, &header_view);
-            state.set_last_common_header(self.peer, header);
+            state.may_set_best_known_header(self.peer, &header_view);
 
             return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {

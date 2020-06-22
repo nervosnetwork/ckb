@@ -89,7 +89,9 @@ pub struct PeerState {
     tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
     tx_ask_for_set: HashSet<Byte32>,
 
+    // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
+    // The last block we both stored
     pub last_common_header: Option<core::HeaderView>,
     // use on ibd concurrent block download
     // save `get_headers` locator hashes here
@@ -734,11 +736,16 @@ impl Peers {
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn set_best_known_header(&self, pi: PeerIndex, header_view: HeaderView) {
-        self.state
-            .write()
-            .entry(pi)
-            .and_modify(|peer_state| peer_state.best_known_header = Some(header_view));
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: &HeaderView) {
+        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+            if let Some(ref hv) = peer_state.best_known_header {
+                if header_view.is_better_than(&hv.total_difficulty()) {
+                    peer_state.best_known_header = Some(header_view.clone());
+                }
+            } else {
+                peer_state.best_known_header = Some(header_view.clone());
+            }
+        }
     }
 
     pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
@@ -753,18 +760,6 @@ impl Peers {
             .write()
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
-    }
-
-    pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
-        if let Some(peer_state) = self.state.write().get_mut(&peer) {
-            if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(&hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view.clone());
-                }
-            } else {
-                peer_state.best_known_header = Some(header_view.clone());
-            }
-        }
     }
 
     pub fn getheaders_received(&self, _peer: PeerIndex) {
@@ -1054,7 +1049,6 @@ impl SyncShared {
     pub fn insert_new_block(
         &self,
         chain: &ChainController,
-        pi: PeerIndex,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         // Insert the given block into orphan_block_pool if its parent is not found
@@ -1064,12 +1058,12 @@ impl SyncShared {
                 block.header().number(),
                 block.header().hash()
             );
-            self.state.insert_orphan_block(pi, (*block).clone());
+            self.state.insert_orphan_block((*block).clone());
             return Ok(false);
         }
 
         // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, pi, Arc::clone(&block));
+        let ret = self.accept_block(chain, Arc::clone(&block));
         if ret.is_err() {
             debug!("accept block {:?} {:?}", block, ret);
             return ret;
@@ -1083,7 +1077,7 @@ impl SyncShared {
 
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
-        for (peer, block) in descendants {
+        for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
             if !self.is_parent_stored(&block) {
@@ -1097,7 +1091,7 @@ impl SyncShared {
             }
 
             let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, peer, Arc::clone(&block)) {
+            if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
                 debug!(
                     "accept descendant orphan block {} error {:?}",
                     block.header().hash(),
@@ -1110,7 +1104,6 @@ impl SyncShared {
     fn accept_block(
         &self,
         chain: &ChainController,
-        peer: PeerIndex,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block));
@@ -1127,9 +1120,6 @@ impl SyncShared {
             // status via fetching block_ext from the database.
             self.state.remove_block_status(&block.as_ref().hash());
             self.state.remove_header_view(&block.as_ref().hash());
-            self.state
-                .peers()
-                .set_last_common_header(peer, block.header());
         }
 
         Ok(ret?)
@@ -1170,16 +1160,10 @@ impl SyncShared {
             .insert(header.hash(), header_view.clone());
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
-
-        // NOTE: Must update best headers(peers/global) after update header_map, otherwise will have
-        //   multiple threads inconsistent bug.
-
-        // Update shared_best_header if the arrived header has greater difficulty
-        let shared_best_header = self.state().shared_best_header();
-        if header_view.is_better_than(&shared_best_header.total_difficulty()) {
-            self.state.set_shared_best_header(header_view.clone());
-        }
-        self.state.peers().new_header_received(peer, &header_view);
+        self.state
+            .peers()
+            .may_set_best_known_header(peer, &header_view);
+        self.state.may_set_shared_best_header(header_view);
     }
 
     pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
@@ -1317,7 +1301,11 @@ impl SyncState {
         self.shared_best_header.read().to_owned()
     }
 
-    pub fn set_shared_best_header(&self, header: HeaderView) {
+    pub fn may_set_shared_best_header(&self, header: HeaderView) {
+        if !header.is_better_than(&self.shared_best_header.read().total_difficulty()) {
+            return;
+        }
+
         assert!(
             self.header_map.read().contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
@@ -1392,19 +1380,16 @@ impl SyncState {
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
-    pub fn insert_orphan_block(&self, peer: PeerIndex, block: core::BlockView) {
+    pub fn insert_orphan_block(&self, block: core::BlockView) {
         self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-        self.orphan_block_pool.insert(peer, block);
+        self.orphan_block_pool.insert(block);
     }
 
-    pub fn remove_orphan_by_parent(
-        &self,
-        parent_hash: &Byte32,
-    ) -> Vec<(PeerIndex, core::BlockView)> {
+    pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
         let mut block_status_map = self.block_status_map.lock();
-        blocks.iter().for_each(|(_, b)| {
-            block_status_map.remove(&b.hash());
+        blocks.iter().for_each(|block| {
+            block_status_map.remove(&block.hash());
         });
         blocks
     }
@@ -1451,7 +1436,7 @@ impl SyncState {
             // so here you discard and exit early
             for hash in header_list {
                 if let Some(header) = self.header_map.read().get(&hash) {
-                    self.peers.new_header_received(pi, header);
+                    self.peers.may_set_best_known_header(pi, header);
                     break;
                 } else {
                     self.peers.insert_unknown_header_hash(pi, hash)
@@ -1465,7 +1450,7 @@ impl SyncState {
         // when header hash unknown, break loop is ok
         while let Some(hash) = self.peers().take_unknown_last(pi) {
             if let Some(header) = self.header_map.read().get(&hash) {
-                self.peers.new_header_received(pi, header);
+                self.peers.may_set_best_known_header(pi, header);
             } else {
                 self.peers.insert_unknown_header_hash(pi, hash);
                 break;
@@ -1605,24 +1590,22 @@ impl ActiveChain {
         locator
     }
 
-    // If the peer reorganized, our previous last_common_header may not be an ancestor
-    // of its current best_known_header. Go back enough to fix that.
     pub fn last_common_ancestor(
         &self,
-        last_common_header: &core::HeaderView,
-        best_known_header: &core::HeaderView,
+        pa: &core::HeaderView,
+        pb: &core::HeaderView,
     ) -> Option<core::HeaderView> {
-        debug_assert!(best_known_header.number() >= last_common_header.number());
+        let (mut m_left, mut m_right) = if pa.number() > pb.number() {
+            (pb.clone(), pa.clone())
+        } else {
+            (pa.clone(), pb.clone())
+        };
 
-        let mut m_right =
-            self.get_ancestor(&best_known_header.hash(), last_common_header.number())?;
-
-        if &m_right == last_common_header {
-            return Some(m_right);
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
+        if m_left == m_right {
+            return Some(m_left);
         }
-
-        let mut m_left = self.shared.get_header(&last_common_header.hash())?;
-        debug_assert!(m_right.number() == m_left.number());
+        debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
             m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
@@ -1773,7 +1756,7 @@ impl ActiveChain {
     }
 
     pub fn unknown_block_status(&self, block_hash: &Byte32) -> bool {
-        self.get_block_status(block_hash) == BlockStatus::UNKNOWN
+        self.contains_block_status(block_hash, BlockStatus::UNKNOWN)
     }
 }
 

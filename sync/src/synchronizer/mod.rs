@@ -184,26 +184,16 @@ impl Synchronizer {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(
-        &self,
-        peer: PeerIndex,
-        block: core::BlockView,
-    ) -> Result<bool, FailureError> {
+    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
             debug!("block {} already stored", block_hash);
-            // update last common header
-            self.shared
-                .state()
-                .peers()
-                .set_last_common_header(peer, block.header());
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared
-                .insert_new_block(&self.chain, peer, Arc::new(block))
+            self.shared.insert_new_block(&self.chain, Arc::new(block))
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -1008,7 +998,6 @@ mod tests {
         let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
         let (chain_controller2, shared2) = start_chain(Some(consensus));
         let block_number = 2000;
-        let peer: PeerIndex = 0.into();
 
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared1
@@ -1034,7 +1023,7 @@ mod tests {
         blocks.into_iter().for_each(|block| {
             synchronizer
                 .shared()
-                .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
+                .insert_new_block(&synchronizer.chain, Arc::new(block))
                 .expect("Insert new block failed");
         });
         assert_eq!(&chain1_last_block.header(), shared2.snapshot().tip_header());
@@ -1291,13 +1280,33 @@ mod tests {
             );
         }
 
+        // After the above blocks stored, we should remove them from in-flight pool
+        synchronizer1
+            .shared()
+            .state()
+            .write_inflight_blocks()
+            .remove_by_peer(peer1);
+
+        // Construct a better tip, to trigger fixing last_common_header inside `get_blocks_to_fetch`
+        insert_block(&synchronizer2.chain, &shared2, 201u128, 201);
+        let headers = vec![synchronizer2.shared.active_chain().tip_header()];
+        let sendheaders = SendHeadersBuilder::default()
+            .headers(headers.iter().map(|h| h.data()).pack())
+            .build();
         assert_eq!(
-            &synchronizer1
-                .peers()
-                .get_last_common_header(peer1)
-                .unwrap()
-                .hash(),
-            blocks_to_fetch[0].last().unwrap()
+            HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
+            Status::ok(),
+        );
+
+        synchronizer1
+            .get_blocks_to_fetch(peer1, IBDState::Out)
+            .unwrap();
+
+        let last_common_header2 = synchronizer1.peers().get_last_common_header(peer1).unwrap();
+        assert_eq!(
+            &last_common_header2.hash(),
+            blocks_to_fetch[0].last().unwrap(),
+            "last_common_header change because it update during get_blocks_to_fetch",
         );
     }
 
@@ -1420,10 +1429,10 @@ mod tests {
             state.insert(5.into(), state_5);
             state.insert(6.into(), state_6);
         }
-        peers.new_header_received(0.into(), &mock_header_view(1));
-        peers.new_header_received(2.into(), &mock_header_view(3));
-        peers.new_header_received(3.into(), &mock_header_view(1));
-        peers.new_header_received(5.into(), &mock_header_view(3));
+        peers.may_set_best_known_header(0.into(), &mock_header_view(1));
+        peers.may_set_best_known_header(2.into(), &mock_header_view(3));
+        peers.may_set_best_known_header(3.into(), &mock_header_view(1));
+        peers.may_set_best_known_header(5.into(), &mock_header_view(3));
         {
             // Protected peer 0 start sync
             peers
@@ -1554,6 +1563,146 @@ mod tests {
                 disconnected.deref(),
                 &HashSet::from_iter(vec![3, 4].into_iter().map(Into::into))
             )
+        }
+    }
+
+    #[test]
+    // `peer.last_common_header` represents what's the fork point between the local main-chain
+    // and the peer's mani-chain. It may be unmatched with the current state. So we expect that
+    // the unmatched last_common_header be fixed during `update_last_common_header`
+    fn test_fix_last_common_header() {
+        //  M1 -> M2 -> M3 -> M4 -> M5 -> M6 (chain M)
+        //              \
+        //                \-> F4 -> F5 -> F6 -> F7 (chain F)
+        let m_ = |number| format!("M{}", number);
+        let f_ = |number| format!("F{}", number);
+        let mut graph = HashMap::new();
+        let mut graph_exts = HashMap::new();
+
+        let main_tip_number = 6u64;
+        let fork_tip_number = 7u64;
+        let fork_point = 3u64;
+
+        // Construct M chain
+        {
+            let (chain, shared) = start_chain(Some(Consensus::default()));
+            for number in 1..=main_tip_number {
+                insert_block(&chain, &shared, u128::from(number), number);
+            }
+            for number in 0..=main_tip_number {
+                let block_hash = shared.snapshot().get_block_hash(number).unwrap();
+                let block = shared.snapshot().get_block(&block_hash).unwrap();
+                let block_ext = shared.snapshot().get_block_ext(&block_hash).unwrap();
+                graph.insert(m_(number), block);
+                graph_exts.insert(m_(number), block_ext);
+            }
+        }
+        // Construct F chain
+        {
+            let (chain, shared) = start_chain(Some(Consensus::default()));
+            for number in 1..=fork_tip_number {
+                insert_block(
+                    &chain,
+                    &shared,
+                    u128::from(number % (fork_point + 1)),
+                    number,
+                );
+            }
+            for number in 0..=fork_tip_number {
+                let block_hash = shared.snapshot().get_block_hash(number).unwrap();
+                let block = shared.snapshot().get_block(&block_hash).unwrap();
+                let block_ext = shared.snapshot().get_block_ext(&block_hash).unwrap();
+                graph.insert(f_(number), block);
+                graph_exts.insert(f_(number), block_ext);
+            }
+        }
+
+        // Local has stored M as main-chain, and memoried the headers of F in `SyncState.header_map`
+        let (chain, shared) = start_chain(Some(Consensus::default()));
+        let synchronizer = gen_synchronizer(chain, shared);
+        for number in 1..=main_tip_number {
+            let key = m_(number);
+            let block = graph.get(&key).cloned().unwrap();
+            synchronizer.chain.process_block(Arc::new(block)).unwrap();
+        }
+        {
+            let nc = mock_network_context(1);
+            let peer: PeerIndex = 0.into();
+            let fork_headers = (1..=fork_tip_number)
+                .map(|number| graph.get(&f_(number)).cloned().unwrap())
+                .map(|block| block.header().data())
+                .collect::<Vec<_>>();
+            let sendheaders = SendHeadersBuilder::default()
+                .headers(fork_headers.pack())
+                .build();
+            synchronizer.on_connected(&nc, peer);
+            assert!(
+                HeadersProcess::new(sendheaders.as_reader(), &synchronizer, peer, &nc)
+                    .execute()
+                    .is_ok()
+            );
+        }
+
+        // vec![(last_common_header, best_known_header, fixed_last_common_header)]
+        let cases = vec![
+            (None, "M2", Some("M2")),
+            (None, "F5", Some("M3")),
+            (None, "M5", Some("M5")),
+            (Some("M1"), "M5", Some("M1")),
+            (Some("M1"), "F7", Some("M1")),
+            (Some("M4"), "F7", Some("M3")),
+            (Some("F4"), "M6", Some("M3")),
+            (Some("F4"), "F7", Some("F4")),
+            (Some("F7"), "M6", Some("M3")), // peer reorganize
+        ];
+
+        let nc = mock_network_context(cases.len());
+        for (case, (last_common, best_known, fix_last_common)) in cases.into_iter().enumerate() {
+            let peer: PeerIndex = case.into();
+            synchronizer.on_connected(&nc, peer);
+
+            let last_common_header =
+                last_common.map(|key| graph.get(key).cloned().unwrap().header());
+            let best_known_header = {
+                let header = graph.get(best_known).cloned().unwrap().header();
+                let total_difficulty = graph_exts
+                    .get(best_known)
+                    .cloned()
+                    .unwrap()
+                    .total_difficulty;
+                HeaderView::new(header, total_difficulty)
+            };
+            if let Some(state) = synchronizer
+                .shared
+                .state()
+                .peers()
+                .state
+                .write()
+                .get_mut(&peer)
+            {
+                state.last_common_header = last_common_header;
+                state.best_known_header = Some(best_known_header.clone());
+            }
+
+            let expected = fix_last_common.map(|mark| mark.to_string());
+            let actual = BlockFetcher::new(&synchronizer, peer, IBDState::In)
+                .update_last_common_header(&best_known_header)
+                .map(|header| {
+                    if graph
+                        .get(&m_(header.number()))
+                        .map(|b| b.hash() != header.hash())
+                        .unwrap_or(false)
+                    {
+                        f_(header.number())
+                    } else {
+                        m_(header.number())
+                    }
+                });
+            assert_eq!(
+                expected, actual,
+                "Case: {}, last_common: {:?}, best_known: {:?}, expected: {:?}, actual: {:?}",
+                case, last_common, best_known, expected, actual,
+            );
         }
     }
 }
