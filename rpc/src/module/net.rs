@@ -42,7 +42,7 @@ pub(crate) struct NetworkRpcImpl {
 impl NetworkRpc for NetworkRpcImpl {
     fn local_node_info(&self) -> Result<LocalNode> {
         Ok(LocalNode {
-            version: self.network_controller.node_version().to_string(),
+            version: self.network_controller.version().to_owned(),
             node_id: self.network_controller.node_id(),
             addresses: self
                 .network_controller

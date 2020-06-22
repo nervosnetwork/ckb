@@ -15,7 +15,7 @@ mod tests;
 pub use crate::{
     behaviour::Behaviour,
     errors::Error,
-    network::{NetworkController, NetworkService, NetworkState},
+    network::{DefaultExitHandler, ExitHandler, NetworkController, NetworkService, NetworkState},
     peer::{Peer, PeerIdentifyInfo},
     peer_registry::PeerRegistry,
     peer_store::{types::MultiaddrExt, Score},

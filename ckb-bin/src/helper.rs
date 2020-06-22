@@ -1,18 +1,4 @@
-use ckb_util::{Condvar, Mutex};
 use std::io::{stdin, stdout, Write};
-use std::sync::Arc;
-
-pub fn wait_for_exit(exit: Arc<(Mutex<()>, Condvar)>) {
-    // Handle possible exits
-    let e = Arc::<(Mutex<()>, Condvar)>::clone(&exit);
-    let _ = ctrlc::set_handler(move || {
-        e.1.notify_all();
-    });
-
-    // Wait for signal
-    let mut l = exit.0.lock();
-    exit.1.wait(&mut l);
-}
 
 #[cfg(not(feature = "deadlock_detection"))]
 pub fn deadlock_detection() {}

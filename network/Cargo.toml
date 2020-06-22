@@ -25,7 +25,6 @@ faster-hex = "0.4"
 ckb-hash = {path = "../util/hash"}
 secp256k1 = {version = "0.15.0", features = ["recovery"] }
 resolve = "0.2.0"
-ckb-build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
 ckb-types = { path = "../util/types" }

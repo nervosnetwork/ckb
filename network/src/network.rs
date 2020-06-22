@@ -21,7 +21,6 @@ use crate::{
     MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
 };
 use ckb_app_config::NetworkConfig;
-use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
@@ -508,12 +507,34 @@ impl NetworkState {
     }
 }
 
-pub struct EventHandler {
+pub struct EventHandler<T> {
     pub(crate) network_state: Arc<NetworkState>,
-    pub(crate) exit_condvar: Arc<(Mutex<()>, Condvar)>,
+    pub(crate) exit_handler: T,
 }
 
-impl EventHandler {
+pub trait ExitHandler: Send + Unpin + 'static {
+    fn notify_exit(&self);
+}
+
+#[derive(Clone, Default)]
+pub struct DefaultExitHandler {
+    lock: Arc<Mutex<()>>,
+    exit: Arc<Condvar>,
+}
+
+impl DefaultExitHandler {
+    pub fn wait_for_exit(&self) {
+        self.exit.wait(&mut self.lock.lock());
+    }
+}
+
+impl ExitHandler for DefaultExitHandler {
+    fn notify_exit(&self) {
+        self.exit.notify_all();
+    }
+}
+
+impl<T> EventHandler<T> {
     fn inbound_eviction(&self, context: &mut ServiceContext) {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
@@ -548,7 +569,7 @@ impl EventHandler {
     }
 }
 
-impl ServiceHandle for EventHandler {
+impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError {
@@ -641,7 +662,7 @@ impl ServiceHandle for EventHandler {
                             format!("protocol {} panic when process peer message", proto_id),
                         );
                     }
-                    self.exit_condvar.1.notify_all();
+                    self.exit_handler.notify_exit();
                 }
             }
         }
@@ -832,22 +853,23 @@ impl ServiceHandle for EventHandler {
     }
 }
 
-pub struct NetworkService {
-    p2p_service: Service<EventHandler>,
+pub struct NetworkService<T> {
+    p2p_service: Service<EventHandler<T>>,
     network_state: Arc<NetworkState>,
     // Background services
     bg_services: Vec<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
+    version: String,
 }
 
-impl NetworkService {
+impl<T: ExitHandler> NetworkService<T> {
     pub fn new(
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
         required_protocol_ids: Vec<ProtocolId>,
         name: String,
-        client_version: String,
-        exit_condvar: Arc<(Mutex<()>, Condvar)>,
-    ) -> NetworkService {
+        version: String,
+        exit_handler: T,
+    ) -> Self {
         let config = &network_state.config;
 
         let mut no_blocking_flag = BlockingFlag::default();
@@ -904,7 +926,7 @@ impl NetworkService {
 
         // Identify protocol
         let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
+            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .name(move |_| "/ckb/identify".to_string())
@@ -972,7 +994,7 @@ impl NetworkService {
         }
         let event_handler = EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_condvar,
+            exit_handler,
         };
         let p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
@@ -1023,14 +1045,11 @@ impl NetworkService {
             p2p_service,
             network_state,
             bg_services,
+            version,
         }
     }
 
-    pub fn start<S: ToString>(
-        self,
-        node_version: Version,
-        thread_name: Option<S>,
-    ) -> Result<NetworkController, Error> {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
@@ -1068,6 +1087,7 @@ impl NetworkService {
 
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
+        let version = self.version.clone();
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -1168,7 +1188,7 @@ impl NetworkService {
 
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
-            node_version,
+            version,
             network_state,
             p2p_control,
             stop,
@@ -1178,7 +1198,7 @@ impl NetworkService {
 
 #[derive(Clone)]
 pub struct NetworkController {
-    node_version: Version,
+    version: String,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     stop: StopHandler<()>,
@@ -1189,8 +1209,8 @@ impl NetworkController {
         self.network_state.public_urls(max_urls)
     }
 
-    pub fn node_version(&self) -> &Version {
-        &self.node_version
+    pub fn version(&self) -> &String {
+        &self.version
     }
 
     pub fn node_id(&self) -> String {

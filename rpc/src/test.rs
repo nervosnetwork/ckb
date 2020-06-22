@@ -11,7 +11,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeRate;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
-use ckb_network::{NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::{
@@ -31,7 +31,6 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_util::{Condvar, Mutex};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -176,9 +175,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
             Vec::new(),
             shared.consensus().identify_name(),
             "0.1.0".to_string(),
-            Arc::new((Mutex::new(()), Condvar::new())),
+            DefaultExitHandler::default(),
         )
-        .start::<&str>(Default::default(), None)
+        .start(Some("rpc-test-network"))
         .expect("Start network service failed")
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone()));
