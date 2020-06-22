@@ -98,12 +98,6 @@ table Block {
     proposals:              ProposalShortIdVec,
 }
 
-table ArchivedBlock {
-    uncles:                 UncleBlockVec,
-    transactions:           TransactionVec,
-    proposals:              ProposalShortIdVec,
-}
-
 table CellbaseWitness {
     lock:    Script,
     message: Bytes,

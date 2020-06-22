@@ -42,17 +42,10 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         self.get_block_header(h).map(|header| {
             if let Some(freezer) = self.freezer() {
                 if header.number() > 0 && header.number() < freezer.number() {
-                    let raw_archived_block =
-                        freezer.retrieve(header.number()).expect("block frozen");
-                    let reader =
-                        packed::ArchivedBlockReader::from_slice_should_be_ok(&raw_archived_block);
-                    return packed::Block::new_builder()
-                        .header(header.data())
-                        .uncles(reader.uncles().to_entity())
-                        .transactions(reader.transactions().to_entity())
-                        .proposals(reader.proposals().to_entity())
-                        .build()
-                        .into_view();
+                    let raw_block = freezer.retrieve(header.number()).expect("block frozen");
+                    let raw_block =
+                        packed::BlockReader::from_slice_should_be_ok(&raw_block).to_entity();
+                    return raw_block.into_view();
                 }
             }
             let body = self.get_block_body(h);
@@ -103,7 +96,14 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
-    fn get_archived_block(&'a self, hash: &packed::Byte32) -> Option<packed::ArchivedBlock> {
+    fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
+        let header = self
+            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
+            .map(|slice| {
+                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
+                reader.data().to_entity()
+            })?;
+
         let prefix = hash.as_slice();
         let transactions: packed::TransactionVec = self
             .get_iter(
@@ -125,7 +125,8 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         let proposals = self.get_block_proposal_txs_ids(hash)?;
         Some(
-            packed::ArchivedBlock::new_builder()
+            packed::Block::new_builder()
+                .header(header)
                 .uncles(uncles)
                 .transactions(transactions)
                 .proposals(proposals)
