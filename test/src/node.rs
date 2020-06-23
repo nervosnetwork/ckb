@@ -293,7 +293,17 @@ impl Node {
         // is less than the current time, and then generate
         // the new block in main fork which timestamp is greater than
         // or equal to the current time.
-        let timestamp = block.timestamp() - 1;
+        let timestamp = block.timestamp();
+        loop {
+            let timestamp_next: u64 = self
+                .rpc_client()
+                .get_block_template(None, None, None)
+                .current_time
+                .into();
+            if timestamp_next > timestamp {
+                break;
+            }
+        }
         block
             .as_advanced_builder()
             .timestamp(timestamp.pack())
