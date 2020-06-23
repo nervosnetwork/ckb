@@ -805,6 +805,13 @@
         }
     },
     {
+        "description": "Remove all transactions from the tx-pool",
+        "method": "clear_tx_pool",
+        "module": "pool",
+        "params": [],
+        "result": null
+    },
+    {
         "description": "Get block by number",
         "method": "get_block_by_number",
         "module": "chain",

@@ -382,7 +382,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         | "get_current_epoch"
         | "get_blockchain_info"
         | "tx_pool_info"
-        | "get_lock_hash_index_states" => vec![],
+        | "get_lock_hash_index_states"
+        | "clear_tx_pool" => vec![],
         "get_epoch_by_number" => vec![json!("0x0")],
         "get_block_hash" | "get_block_by_number" | "get_header_by_number" => {
             vec![json!(tip_number)]
