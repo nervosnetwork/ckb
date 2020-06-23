@@ -42,6 +42,7 @@
 
 ### Bug Fixes
 
+* nervosnetwork/tentacle#218: Fix FutureTask signals memory leak (@TheWaWaR)
 * #2039: Use wrong function to get a slice to decode ping messages (@yangby-cryptape)
 * #2035: Remove unsupport configurations in Cargo.toml (@yangby-cryptape)
 * #2054: Fix a typo of a thread name (@yangby-cryptape)
