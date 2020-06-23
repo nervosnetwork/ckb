@@ -1,4 +1,3 @@
-use crate::ProtocolId;
 use p2p::{
     error::{
         DialerErrorKind, ListenErrorKind, ProtocolHandleErrorKind, SendErrorKind,
@@ -16,13 +15,11 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     Peer(PeerError),
-    Protocol(ProtocolError),
     Io(IoError),
     P2P(P2PError),
     Addr(AddrError),
     Dial(String),
     PeerStore(PeerStoreError),
-    Shutdown,
 }
 
 #[derive(Debug)]
@@ -45,7 +42,6 @@ pub enum PeerStoreError {
 pub enum PeerError {
     SessionExists(SessionId),
     PeerIdExists(PeerId),
-    NotFound(PeerId),
     NonReserved,
     Banned,
     ReachMaxInboundLimit,
@@ -53,15 +49,7 @@ pub enum PeerError {
 }
 
 #[derive(Debug)]
-pub enum ProtocolError {
-    NotFound(ProtocolId),
-    DisallowRegisterTimer,
-    Duplicate(ProtocolId),
-}
-
-#[derive(Debug)]
 pub enum AddrError {
-    InvalidPeerId,
     MissingIP,
     MissingPort,
 }
@@ -81,12 +69,6 @@ impl From<PeerError> for Error {
 impl From<IoError> for Error {
     fn from(err: IoError) -> Error {
         Error::Io(err)
-    }
-}
-
-impl From<ProtocolError> for Error {
-    fn from(err: ProtocolError) -> Error {
-        Error::Protocol(err)
     }
 }
 
@@ -139,12 +121,6 @@ impl Display for Error {
 }
 
 impl Display for PeerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
