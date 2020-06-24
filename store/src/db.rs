@@ -101,29 +101,6 @@ impl ChainDB {
         };
 
         attach_block_cell(&db_txn, &genesis)?;
-
-        // for tx in genesis.transactions().iter() {
-        //     let outputs_len = tx.outputs().len();
-        //     let tx_meta = if tx.is_cellbase() {
-        //         TransactionMeta::new_cellbase(
-        //             block_number,
-        //             epoch_with_fraction.number(),
-        //             block_hash.clone(),
-        //             outputs_len,
-        //             false,
-        //         )
-        //     } else {
-        //         TransactionMeta::new(
-        //             block_number,
-        //             epoch_with_fraction.number(),
-        //             block_hash.clone(),
-        //             outputs_len,
-        //             false,
-        //         )
-        //     };
-        //     db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
-        // }
-
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
