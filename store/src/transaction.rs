@@ -1,5 +1,5 @@
 use crate::cache::StoreCache;
-use crate::store::ChainStore;
+use crate::store::{cell_key_from_out_point, ChainStore};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
@@ -231,25 +231,4 @@ impl StoreTransaction {
         }
         Ok(())
     }
-
-    // pub fn update_cell_set(
-    //     &self,
-    //     tx_hash: &packed::Byte32,
-    //     meta: &packed::TransactionMeta,
-    // ) -> Result<(), Error> {
-    //     self.insert_raw(COLUMN_TX_META, tx_hash.as_slice(), meta.as_slice())
-    // }
-
-    // pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
-    //     self.delete(COLUMN_TX_META, tx_hash.as_slice())
-    // }
-}
-
-#[inline]
-fn cell_key_from_out_point(out_point: &packed::OutPoint) -> Vec<u8> {
-    let mut key = Vec::with_capacity(36);
-    let index: u32 = out_point.index().unpack();
-    key.extend_from_slice(out_point.tx_hash().as_slice());
-    key.extend_from_slice(&index.to_be_bytes()[..]);
-    key
 }

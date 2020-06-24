@@ -482,7 +482,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 }
 
 #[inline]
-fn cell_key_from_out_point(out_point: &OutPoint) -> Vec<u8> {
+pub(crate) fn cell_key_from_out_point(out_point: &OutPoint) -> Vec<u8> {
     let mut key = Vec::with_capacity(36);
     let index: u32 = out_point.index().unpack();
     key.extend_from_slice(out_point.tx_hash().as_slice());
