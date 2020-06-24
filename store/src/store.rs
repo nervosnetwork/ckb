@@ -96,44 +96,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
-    fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
-                reader.data().to_entity()
-            })?;
-
-        let prefix = hash.as_slice();
-        let transactions: packed::TransactionVec = self
-            .get_iter(
-                COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
-            )
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .map(|(_key, value)| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                reader.data().to_entity()
-            })
-            .pack();
-
-        let uncles = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
-            let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
-            reader.data().to_entity()
-        })?;
-
-        let proposals = self.get_block_proposal_txs_ids(hash)?;
-        Some(
-            packed::Block::new_builder()
-                .header(header)
-                .uncles(uncles)
-                .transactions(transactions)
-                .proposals(proposals)
-                .build(),
-        )
-    }
-
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache() {
@@ -433,43 +395,37 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// TODO(doc): @quake
     fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
-        self.get_packed_block_header(hash).map(|header| {
-            let txs = {
-                let prefix = hash.as_slice();
-                self.get_iter(
-                    COLUMN_BLOCK_BODY,
-                    IteratorMode::From(prefix, Direction::Forward),
-                )
-                .take_while(|(key, _)| key.starts_with(prefix))
-                .map(|(_key, value)| {
-                    let reader =
-                        packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                    reader.data().to_entity()
-                })
-                .pack()
-            };
-            let uncles = self
-                .get(COLUMN_BLOCK_UNCLE, hash.as_slice())
-                .map(|slice| {
-                    let reader =
-                        packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    reader.data().to_entity()
-                })
-                .expect("block uncles must be stored");
-            let proposals = self
-                .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
-                .map(|slice| {
-                    packed::ProposalShortIdVecReader::from_slice_should_be_ok(&slice.as_ref())
-                        .to_entity()
-                })
-                .expect("block proposal_ids must be stored");
-            packed::BlockBuilder::default()
+        let header = self
+            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
+            .map(|slice| {
+                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
+                reader.data().to_entity()
+            })?;
+
+        let prefix = hash.as_slice();
+        let transactions: packed::TransactionVec = self
+            .get_iter(
+                COLUMN_BLOCK_BODY,
+                IteratorMode::From(prefix, Direction::Forward),
+            )
+            .take_while(|(key, _)| key.starts_with(prefix))
+            .map(|(_key, value)| {
+                let reader =
+                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
+                reader.data().to_entity()
+            })
+            .pack();
+
+        let uncles = self.get_block_uncles(hash)?;
+        let proposals = self.get_block_proposal_txs_ids(hash)?;
+        Some(
+            packed::Block::new_builder()
                 .header(header)
-                .transactions(txs)
-                .uncles(uncles)
+                .uncles(uncles.data())
+                .transactions(transactions)
                 .proposals(proposals)
-                .build()
-        })
+                .build(),
+        )
     }
 
     /// TODO(doc): @quake
