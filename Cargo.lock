@@ -237,10 +237,11 @@ dependencies = [
 
 [[package]]
 name = "bytes"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "130aac562c0dd69c56b3b1cc8ffd2e17be31d0b6c25b61c96b76231aa23e39e1"
+checksum = "118cf036fbb97d0816e3c34b2d7a1e8cfc60f68fcf63d550ddbe9bd5f59c213b"
 dependencies = [
+ "loom",
  "serde",
 ]
 
@@ -1048,7 +1049,7 @@ name = "ckb-types"
 version = "0.34.0-pre"
 dependencies = [
  "bit-vec",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
@@ -1109,7 +1110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a75c9a092719293a09da2e233fd7802fe909fa2b88a9256034f1e486a6bc7c"
 dependencies = [
  "byteorder",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "cc",
  "ckb-vm-definitions",
  "derive_more",
@@ -1746,6 +1747,19 @@ dependencies = [
  "proc-macro-hack",
  "proc-macro-nested",
  "slab",
+]
+
+[[package]]
+name = "generator"
+version = "0.6.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "add72f17bb81521258fcc8a7a3245b1e184e916bfbe34f0ea89558f440df5c68"
+dependencies = [
+ "cc",
+ "libc",
+ "log 0.4.8",
+ "rustc_version",
+ "winapi 0.3.8",
 ]
 
 [[package]]
@@ -2473,6 +2487,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ecc775857611e1df29abba5c41355cdf540e7e9d4acfdf0f355eefee82330b7"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+]
+
+[[package]]
 name = "lru-cache"
 version = "0.1.0"
 source = "git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8#a35fdb81a309dd494c8edc02c0ff44e0597a4be4"
@@ -2651,7 +2676,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "663f76cc52219e5957e2f5563cce9d89f98aa8503c9c898b5c412d97df663998"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "cfg-if",
  "faster-hex 0.4.1",
 ]
@@ -3661,6 +3686,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "332ffa32bf586782a3efaeb58f127980944bbc8c4d6913a86107ac2a5ab24b28"
+
+[[package]]
 name = "scopeguard"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4021,7 +4052,7 @@ version = "0.3.0-alpha.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d372fcc0a53b9ca6705cc8e46b0a68850280c1b48f78c8c177eb8dfe50232413"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "igd",
  "libc",
@@ -4043,7 +4074,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d216ab77a6719cbcdf9d10ae35d825d29c2920090c2cb5d6179d953f9e4dfc3"
 dependencies = [
  "bs58",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "serde",
  "sha2",
  "unsigned-varint",
@@ -4056,7 +4087,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58e14b0d86f0a9a2580cb4fb866ba15dcd1ddd6f055f342b806009dd401381a0"
 dependencies = [
  "bs58",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "log 0.4.8",
  "molecule",
@@ -4217,7 +4248,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d099fa27b9702bed751524694adbe393e18b36b204da91eb1cbbbbb4a5ee2d58"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "fnv",
  "futures-core",
  "iovec",
@@ -4425,7 +4456,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures-core",
  "futures-sink",
  "log 0.4.8",
@@ -4439,7 +4470,7 @@ version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24efa898a2c99b751966227ee5dedcb4a9dc549471eadde0df92bd16fc7f34d5"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "log 0.4.8",
  "tokio 0.2.21",
