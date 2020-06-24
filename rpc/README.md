@@ -50,6 +50,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
+    *   [`clear_tx_pool`](#clear_tx_pool)
 *   [`Stats`](#stats)
     *   [`get_blockchain_info`](#get_blockchain_info)
     *   [`get_peers_state`](#get_peers_state)
@@ -2106,6 +2107,33 @@ http://localhost:8114
         "total_tx_cycles": "0x219",
         "total_tx_size": "0x112"
     }
+}
+```
+
+### `clear_tx_pool`
+
+Remove all transactions from the tx-pool
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "clear_tx_pool",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
 }
 ```
 
