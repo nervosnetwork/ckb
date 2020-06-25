@@ -1,8 +1,10 @@
 use ckb_types::{core, packed};
+use ckb_util::shrink_to_fit;
 use ckb_util::RwLock;
 use std::collections::{HashMap, VecDeque};
 
 pub type ParentHash = packed::Byte32;
+const SHRINK_THREHOLD: usize = 100;
 
 // NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
@@ -36,22 +38,25 @@ impl OrphanBlockPool {
     }
 
     pub fn remove_blocks_by_parent(&self, hash: &packed::Byte32) -> Vec<core::BlockView> {
-        let mut guard = self.blocks.write();
+        let mut blocks_map = self.blocks.write();
+        let mut parents_map = self.parents.write();
         let mut queue: VecDeque<packed::Byte32> = VecDeque::new();
         queue.push_back(hash.to_owned());
 
         let mut removed: Vec<core::BlockView> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
-            if let Some(orphaned) = guard.remove(&parent_hash) {
+            if let Some(orphaned) = blocks_map.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
-                let mut parents = self.parents.write();
                 for hash in hashes.iter() {
-                    parents.remove(hash);
+                    parents_map.remove(hash);
                 }
                 queue.extend(hashes);
                 removed.extend(blocks);
             }
         }
+
+        shrink_to_fit!(blocks_map, SHRINK_THREHOLD);
+        shrink_to_fit!(parents_map, SHRINK_THREHOLD);
         removed
     }
 

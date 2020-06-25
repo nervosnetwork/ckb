@@ -17,6 +17,7 @@ use ckb_types::{
     prelude::*,
     U256,
 };
+use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -45,6 +46,7 @@ const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
+const SHRINK_THREHOLD: usize = 300;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for connections that are outbound, non-manual,
@@ -1317,7 +1319,10 @@ impl SyncState {
     }
 
     pub fn remove_header_view(&self, hash: &Byte32) {
-        self.header_map.write().remove(hash);
+        let mut guard = self.header_map.write();
+        guard.remove(hash);
+
+        shrink_to_fit!(guard, SHRINK_THREHOLD);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -1390,6 +1395,7 @@ impl SyncState {
         blocks.iter().for_each(|block| {
             block_status_map.remove(&block.hash());
         });
+        shrink_to_fit!(block_status_map, SHRINK_THREHOLD);
         blocks
     }
 
@@ -1398,7 +1404,9 @@ impl SyncState {
     }
 
     pub fn remove_block_status(&self, block_hash: &Byte32) {
-        self.block_status_map.lock().remove(block_hash);
+        let mut guard = self.block_status_map.lock();
+        guard.remove(block_hash);
+        shrink_to_fit!(guard, SHRINK_THREHOLD);
     }
 
     pub fn clear_get_block_proposals(
