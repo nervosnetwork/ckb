@@ -260,13 +260,24 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, packed::Byte32)> {
-        self.get_transaction_info_packed(hash).map(|info| {
+        self.get_transaction_info(hash).map(|info| {
+            if let Some(freezer) = self.freezer() {
+                if info.block_number < freezer.number() {
+                    let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
+                    let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                    let tx_reader = raw_block_reader
+                        .transactions()
+                        .get(info.index)
+                        .expect("since tx info is existed, so tx data should be existed");
+                    return (tx_reader.to_entity().into_view(), info.block_hash);
+                }
+            }
+
             self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
                 .map(|slice| {
                     let reader =
                         packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    let hash = info.as_reader().key().block_hash().to_entity();
-                    (reader.unpack(), hash)
+                    (reader.unpack(), info.block_hash)
                 })
                 .expect("since tx info is existed, so tx data should be existed")
         })
@@ -277,6 +288,17 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, TransactionInfo)> {
         self.get_transaction_info(hash).map(|info| {
+            if let Some(freezer) = self.freezer() {
+                if info.block_number < freezer.number() {
+                    let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
+                    let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                    let tx_reader = raw_block_reader
+                        .transactions()
+                        .get(info.index)
+                        .expect("since tx info is existed, so tx data should be existed");
+                    return (tx_reader.to_entity().into_view(), info);
+                }
+            }
             self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
                 .map(|slice| {
                     let reader =
@@ -325,18 +347,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         }
     }
 
-    fn get_transaction_info_packed(
-        &'a self,
-        hash: &packed::Byte32,
-    ) -> Option<packed::TransactionInfo> {
-        self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
-            .map(|slice| {
-                let reader =
-                    packed::TransactionInfoReader::from_slice_should_be_ok(&slice.as_ref());
-                reader.to_entity()
-            })
-    }
-
     fn get_transaction_info(&'a self, hash: &packed::Byte32) -> Option<TransactionInfo> {
         self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
             .map(|slice| {
@@ -345,51 +355,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
                 Unpack::<TransactionInfo>::unpack(&reader)
             })
     }
-
-    // fn get_tx_meta(&'a self, tx_hash: &packed::Byte32) -> Option<TransactionMeta> {
-    //     self.get(COLUMN_TX_META, tx_hash.as_slice()).map(|slice| {
-    //         packed::TransactionMetaReader::from_slice_should_be_ok(&slice.as_ref()).unpack()
-    //     })
-    // }
-
-    // fn get_cell_meta(&'a self, tx_hash: &packed::Byte32, index: u32) -> Option<CellMeta> {
-    //     self.get_transaction_info_packed(&tx_hash)
-    //         .and_then(|tx_info| {
-    //             self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-    //                 .and_then(|slice| {
-    //                     let reader =
-    //                         packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-    //                     reader
-    //                         .data()
-    //                         .raw()
-    //                         .outputs()
-    //                         .get(index as usize)
-    //                         .map(|cell_output| {
-    //                             let cell_output = cell_output.to_entity();
-    //                             let data_bytes = reader
-    //                                 .data()
-    //                                 .raw()
-    //                                 .outputs_data()
-    //                                 .get(index as usize)
-    //                                 .expect("inconsistent index")
-    //                                 .raw_data()
-    //                                 .len() as u64;
-    //                             let out_point = packed::OutPoint::new_builder()
-    //                                 .tx_hash(tx_hash.to_owned())
-    //                                 .index(index.pack())
-    //                                 .build();
-    //                             // notice mem_cell_data is set to None, the cell data should be load in need
-    //                             CellMeta {
-    //                                 cell_output,
-    //                                 out_point,
-    //                                 transaction_info: Some(tx_info.unpack()),
-    //                                 data_bytes,
-    //                                 mem_cell_data: None,
-    //                             }
-    //                         })
-    //                 })
-    //         })
-    // }
 
     // Get current epoch ext
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
@@ -517,22 +482,7 @@ where
                 }
                 CellStatus::live_cell(cell_meta)
             }
-            None => {
-                // TODO: it is necessary ?
-                // let tx_hash = out_point.tx_hash();
-                // let index: u32 = out_point.index().unpack();
-
-                // if Some(true)
-                //     == self
-                //         .0
-                //         .get_tx_meta(&tx_hash)
-                //         .and_then(|tx_meta| tx_meta.is_dead(index as usize))
-                // {
-                CellStatus::Unknown
-                // } else {
-                //     CellStatus::Unknown
-                // }
-            }
+            None => CellStatus::Unknown,
         }
     }
 }
