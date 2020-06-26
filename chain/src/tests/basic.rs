@@ -112,7 +112,6 @@ fn test_genesis_transaction_spend() {
             .is_ok());
     }
 
-    // FIXME: refactory CellStatus
     assert_eq!(
         shared
             .snapshot()
@@ -176,7 +175,6 @@ fn test_transaction_spend_in_same_block() {
         CellStatus::Unknown
     );
 
-    // FIXME: refactory CellStatus
     assert_eq!(
         shared.snapshot().cell(&OutPoint::new(tx1_hash, 0), false),
         CellStatus::Unknown
@@ -271,7 +269,6 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
 
-    // FIXME: refactory CellStatus
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 0)]),
         chain_controller

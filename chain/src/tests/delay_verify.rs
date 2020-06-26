@@ -112,7 +112,6 @@ fn test_dead_cell_in_different_block() {
             .expect("process block ok");
     }
 
-    // FIXME: refactory CellStatus
     assert_error_eq!(
         OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 0)]),
         chain_controller
