@@ -224,22 +224,27 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, packed::Byte32)> {
-        self.get_transaction_with_info(hash)
-            .map(|(tx, tx_info)| (tx, tx_info.block_hash))
-    }
+        self.get_transaction_info(hash).map(|info| {
+            if let Some(freezer) = self.freezer() {
+                if info.block_number < freezer.number() {
+                    let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
+                    let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                    let tx_reader = raw_block_reader
+                        .transactions()
+                        .get(info.index)
+                        .expect("since tx info is existed, so tx data should be existed");
+                    return (tx_reader.to_entity().into_view(), info.block_hash);
+                }
+            }
 
-    /// TODO(doc): @quake
-    fn get_transaction_with_info(
-        &'a self,
-        hash: &packed::Byte32,
-    ) -> Option<(TransactionView, TransactionInfo)> {
-        let tx_info = self.get_transaction_info(hash)?;
-        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-            .map(|slice| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                (reader.unpack(), tx_info)
-            })
+            self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
+                .map(|slice| {
+                    let reader =
+                        packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
+                    (reader.unpack(), info.block_hash)
+                })
+                .expect("since tx info is existed, so tx data should be existed")
+        })
     }
 
     /// TODO(doc): @quake
@@ -252,7 +257,30 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
-    /// TODO(doc): @quake
+    fn get_transaction_with_info(
+        &'a self,
+        hash: &packed::Byte32,
+    ) -> Option<(TransactionView, TransactionInfo)> {
+        let info = self.get_transaction_info(hash)?;
+
+        if let Some(freezer) = self.freezer() {
+            if info.block_number < freezer.number() {
+                let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
+                let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                return raw_block_reader
+                    .transactions()
+                    .get(info.index)
+                    .map(|tx_reader| (tx_reader.to_entity().into_view(), info));
+            }
+        }
+        self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
+            .map(|slice| {
+                let reader =
+                    packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
+                (reader.unpack(), info)
+            })
+    }
+
     fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
         let key = out_point.to_cell_key();
         self.get(COLUMN_CELL, &key).map(|slice| {
