@@ -39,12 +39,12 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
             ExitCode::Failure
         })?;
 
-    let _freezer = shared.spawn_freeze();
-
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
-
     check_spec(&shared, &args)?;
+
+    // spawn freezer background process
+    let _freezer = shared.spawn_freeze();
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),

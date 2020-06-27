@@ -96,6 +96,19 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
+    fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
+        self.get_block_header(h).map(|header| {
+            let body = self.get_block_body(h);
+            let uncles = self
+                .get_block_uncles(h)
+                .expect("block uncles must be stored");
+            let proposals = self
+                .get_block_proposal_txs_ids(h)
+                .expect("block proposal_ids must be stored");
+            BlockView::new_unchecked(header, uncles, body, proposals)
+        })
+    }
+
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache() {
