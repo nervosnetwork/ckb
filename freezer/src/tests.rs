@@ -17,14 +17,21 @@ fn basic() {
         .unwrap();
     freezer.preopen().unwrap();
 
-    for i in 1..255 {
+    for i in 1..100 {
         let data = make_bytes(15, i);
         freezer.append(i.into(), &data).unwrap();
     }
 
-    // for chunk in freezer.read_all_index().unwrap().chunks_exact(12) {
-    //     println!("index {:?}", chunk);
-    // }
+    for i in 1..50 {
+        let expect = make_bytes(15, i);
+        let actual = freezer.retrieve(i.into()).unwrap();
+        assert_eq!(expect, actual);
+    }
+
+    for i in 100..255 {
+        let data = make_bytes(15, i);
+        freezer.append(i.into(), &data).unwrap();
+    }
 
     for i in 1..255 {
         let expect = make_bytes(15, i);
