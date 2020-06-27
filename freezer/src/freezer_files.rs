@@ -149,8 +149,7 @@ impl FreezerFiles {
             .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
 
         let size = (end_offset - start_offset) as usize;
-        let mut ret = Vec::with_capacity(size);
-        ret.resize_with(size, Default::default);
+        let mut ret = vec![0u8; size];
         file.seek(SeekFrom::Start(start_offset))
             .map_err(internal_error)?;
         file.read_exact(&mut ret).map_err(internal_error)?;
@@ -197,6 +196,7 @@ impl FreezerFiles {
 
     fn write_index(&mut self, file_id: FileId, offset: u64) -> Result<(), Error> {
         let index = IndexEntry { file_id, offset };
+        self.index.seek(SeekFrom::End(0)).map_err(internal_error)?;
         self.index
             .write_all(&index.encode())
             .map_err(internal_error)?;
@@ -256,10 +256,7 @@ impl FreezerFilesBuilder {
 
     pub fn build(self) -> Result<FreezerFiles, Error> {
         fs::create_dir_all(&self.file_path).map_err(internal_error)?;
-        let mut index = self.open_index()?;
-
-        let index_meta = index.metadata().map_err(internal_error)?;
-        let mut index_size = index_meta.len();
+        let (mut index, mut index_size) = self.open_index()?;
 
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
         index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
@@ -276,10 +273,7 @@ impl FreezerFilesBuilder {
 
         let mut head_index = IndexEntry::decode(&buffer)?;
         let head_file_name = helper::file_name(head_index.file_id);
-        let mut head = self.open_append(self.file_path.join(head_file_name))?;
-
-        let head_meta = head.metadata().map_err(internal_error)?;
-        let mut head_size = head_meta.len();
+        let (mut head, mut head_size) = self.open_append(self.file_path.join(head_file_name))?;
         let mut expect_head_size = head_index.offset;
 
         // try repair cross checks the head and the index file and truncates them to
@@ -315,10 +309,9 @@ impl FreezerFilesBuilder {
                 // slipped back into an earlier head-file
                 if new_index.file_id != head_index.file_id {
                     let head_file_name = helper::file_name(head_index.file_id);
-                    let new_head = self.open_append(self.file_path.join(head_file_name))?;
-                    let new_head_meta = new_head.metadata().map_err(internal_error)?;
+                    let (new_head, size) = self.open_append(self.file_path.join(head_file_name))?;
                     head = new_head;
-                    head_size = new_head_meta.len();
+                    head_size = size;
                 }
                 expect_head_size = new_index.offset;
                 head_index = new_index;
@@ -345,35 +338,37 @@ impl FreezerFilesBuilder {
 
     // Open the file without append mode
     // If a file is opened with both read and append access,
-    // after opening, and after every write, the position for reading may be set at the end of the file.
-    // it has differing behaviour during Truncate operations on different OS's
-    fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<File, Error> {
+    // after opening, and after every write,
+    // the position for reading may be set at the end of the file.
+    // it has differing behaviour on different OS
+    fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<(File, u64), Error> {
         let mut file = fs::OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .open(path)
             .map_err(internal_error)?;
-        file.seek(SeekFrom::End(0)).map_err(internal_error)?;
-        Ok(file)
+        let offset = file.seek(SeekFrom::End(0)).map_err(internal_error)?;
+        Ok((file, offset))
     }
 
-    fn open_index(&self) -> Result<File, Error> {
-        let mut index = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
-        let metadata = index.metadata().map_err(internal_error)?;
+    fn open_index(&self) -> Result<(File, u64), Error> {
+        let (mut index, mut size) = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
         // fill a default entry within empty index
-        if metadata.len() == 0 {
+        if size == 0 {
             index
                 .write_all(&IndexEntry::default().encode())
                 .map_err(internal_error)?;
+            size += INDEX_ENTRY_SIZE;
         }
 
         // ensure the index is a multiple of INDEX_ENTRY_SIZE bytes
-        let tail = metadata.len() % INDEX_ENTRY_SIZE;
-        if (tail != 0) && (metadata.len() != 0) {
-            helper::truncate_file(&mut index, metadata.len() - tail)?;
+        let tail = size % INDEX_ENTRY_SIZE;
+        if (tail != 0) && (size != 0) {
+            size -= tail;
+            helper::truncate_file(&mut index, size)?;
         }
-        Ok(index)
+        Ok((index, size))
     }
 }
 
