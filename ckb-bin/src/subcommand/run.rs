@@ -38,10 +38,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             ExitCode::Failure
         })?;
 
-    let _freezer = shared.spawn_freeze();
-
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
+
+    let _freezer = shared.spawn_freeze();
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),

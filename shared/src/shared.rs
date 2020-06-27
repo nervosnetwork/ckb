@@ -175,6 +175,7 @@ impl Shared {
                     Err(_) => {
                         if let Err(e) = shared.freeze() {
                             ckb_logger::error!("Freezer error {}", e);
+                            break;
                         }
                     }
                     Ok(_) => {
@@ -216,13 +217,13 @@ impl Shared {
             frozen_number + MAX_FREEZE_LIMIT,
         );
 
-        let call = |number: BlockNumber| {
+        let get_unfrozen_block = |number: BlockNumber| {
             self.store()
                 .get_block_hash(number)
-                .and_then(|hash| self.store().get_packed_block(&hash))
+                .and_then(|hash| self.store().get_unfrozen_block(&hash))
         };
 
-        freezer.freeze(threshold, call)?;
+        freezer.freeze(threshold, get_unfrozen_block)?;
         Ok(())
     }
 

@@ -93,42 +93,17 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
-    fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
-                reader.data().to_entity()
-            })?;
-
-        let prefix = hash.as_slice();
-        let transactions: packed::TransactionVec = self
-            .get_iter(
-                COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
-            )
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .map(|(_key, value)| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                reader.data().to_entity()
-            })
-            .pack();
-
-        let uncles = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
-            let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
-            reader.data().to_entity()
-        })?;
-
-        let proposals = self.get_block_proposal_txs_ids(hash)?;
-        Some(
-            packed::Block::new_builder()
-                .header(header)
-                .uncles(uncles)
-                .transactions(transactions)
-                .proposals(proposals)
-                .build(),
-        )
+    fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
+        self.get_block_header(h).map(|header| {
+            let body = self.get_block_body(h);
+            let uncles = self
+                .get_block_uncles(h)
+                .expect("block uncles must be stored");
+            let proposals = self
+                .get_block_proposal_txs_ids(h)
+                .expect("block proposal_ids must be stored");
+            BlockView::new_unchecked(header, uncles, body, proposals)
+        })
     }
 
     /// Get all transaction-hashes in block body by block header hash
