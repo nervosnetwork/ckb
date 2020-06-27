@@ -11,12 +11,13 @@ use std::sync::Arc;
 
 const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000;
 const INDEX_FILE_NAME: &str = "INDEX";
-const INDEX_ENTRY_SIZE: u64 = 12;
+pub(crate) const INDEX_ENTRY_SIZE: u64 = 12;
 
 pub type FileId = u32;
 
 pub(crate) struct Head {
     pub(crate) file: File,
+    // number of bytes written to the head file
     pub(crate) bytes: u64,
 }
 
@@ -32,15 +33,25 @@ impl Head {
     }
 }
 
+// FreezerFiles represents a single chained block data,
+// it consists of a data file and an index file
 pub struct FreezerFiles {
-    pub files: BTreeMap<FileId, File>,
-    pub(crate) tail_id: FileId,
+    // opened files
+    pub(crate) files: BTreeMap<FileId, File>,
+    // head file
     pub(crate) head: Head,
-    pub number: Arc<AtomicU64>,
-    pub max_size: u64,
-    pub head_id: FileId,
-    pub file_path: PathBuf,
-    pub index: File,
+    // number of frozen
+    pub(crate) number: Arc<AtomicU64>,
+    // max size for data-files
+    max_size: u64,
+    // number of the earliest file
+    pub(crate) tail_id: FileId,
+    // number of the currently active head file
+    pub(crate) head_id: FileId,
+    // data file path
+    file_path: PathBuf,
+    // index for freezer files
+    pub(crate) index: File,
 }
 
 pub struct IndexEntry {
@@ -60,16 +71,16 @@ impl Default for IndexEntry {
 impl IndexEntry {
     pub fn encode(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(INDEX_ENTRY_SIZE as usize);
-        bytes.extend_from_slice(&self.file_id.to_be_bytes());
-        bytes.extend_from_slice(&self.offset.to_be_bytes());
+        bytes.extend_from_slice(&self.file_id.to_le_bytes());
+        bytes.extend_from_slice(&self.offset.to_le_bytes());
         bytes
     }
 
     pub fn decode(raw: &[u8]) -> Result<Self, Error> {
         debug_assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
         let (raw_file_id, raw_offset) = raw.split_at(::std::mem::size_of::<u32>());
-        let file_id = u32::from_be_bytes(raw_file_id.try_into().map_err(internal_error)?);
-        let offset = u64::from_be_bytes(raw_offset.try_into().map_err(internal_error)?);
+        let file_id = u32::from_le_bytes(raw_file_id.try_into().map_err(internal_error)?);
+        let offset = u64::from_le_bytes(raw_offset.try_into().map_err(internal_error)?);
         Ok(IndexEntry { offset, file_id })
     }
 }
@@ -81,9 +92,17 @@ impl FreezerFiles {
         Ok(files)
     }
 
+    pub fn number(&self) -> u64 {
+        self.number.load(Ordering::SeqCst)
+    }
+
     pub fn append(&mut self, number: u64, data: &[u8]) -> Result<(), Error> {
-        if self.number.load(Ordering::SeqCst) != number {
-            return Err(internal_error(""));
+        let expected = self.number.load(Ordering::SeqCst);
+        if expected != number {
+            return Err(internal_error(format!(
+                "appending unexpected block expected {} have {}",
+                expected, number
+            )));
         }
 
         let data_size = data.len();
@@ -107,17 +126,9 @@ impl FreezerFiles {
         Ok(())
     }
 
-    pub(crate) fn read_all_index(&self) -> Result<Vec<u8>, Error> {
-        let mut index = &self.index;
-        let mut ret = Vec::new();
-        index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
-        index.read_to_end(&mut ret).map_err(internal_error)?;
-        Ok(ret)
-    }
-
     pub fn sync_all(&self) -> Result<(), Error> {
-        self.index.sync_all().map_err(internal_error)?;
         self.head.file.sync_all().map_err(internal_error)?;
+        self.index.sync_all().map_err(internal_error)?;
         Ok(())
     }
 
@@ -171,7 +182,7 @@ impl FreezerFiles {
         Ok((start_index.offset, end_index.offset, end_index.file_id))
     }
 
-    fn preopen(&mut self) -> Result<(), Error> {
+    pub(crate) fn preopen(&mut self) -> Result<(), Error> {
         self.release_after(0);
 
         for id in self.tail_id..self.head_id {
@@ -197,7 +208,7 @@ impl FreezerFiles {
     }
 
     fn release_after(&mut self, id: FileId) {
-        self.files.split_off(&id);
+        self.files.split_off(&(id + 1));
     }
 
     fn open_read_only(&mut self, id: FileId) -> Result<File, Error> {
@@ -236,6 +247,8 @@ impl FreezerFilesBuilder {
         }
     }
 
+    // for test
+    #[allow(dead_code)]
     pub(crate) fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
         self
@@ -267,9 +280,12 @@ impl FreezerFilesBuilder {
 
         let head_meta = head.metadata().map_err(internal_error)?;
         let mut head_size = head_meta.len();
-        let expect_head_size = head_index.offset;
+        let mut expect_head_size = head_index.offset;
 
+        // try repair cross checks the head and the index file and truncates them to
+        // be in sync with each other after a potential crash/data loss.
         while expect_head_size != head_size {
+            // truncate the head file to the last offset
             if expect_head_size < head_size {
                 ckb_logger::warn!(
                     "Truncating dangling head {} {}",
@@ -277,8 +293,10 @@ impl FreezerFilesBuilder {
                     expect_head_size,
                 );
                 helper::truncate_file(&mut head, expect_head_size)?;
+                head_size = expect_head_size;
             }
 
+            // truncate the index to matching the head file
             if expect_head_size > head_size {
                 ckb_logger::warn!(
                     "Truncating dangling indexes {} {}",
@@ -293,20 +311,23 @@ impl FreezerFilesBuilder {
                     .map_err(internal_error)?;
                 index.read_exact(&mut buffer).map_err(internal_error)?;
                 let new_index = IndexEntry::decode(&buffer)?;
+
+                // slipped back into an earlier head-file
                 if new_index.file_id != head_index.file_id {
                     let head_file_name = helper::file_name(head_index.file_id);
                     let new_head = self.open_append(self.file_path.join(head_file_name))?;
                     let new_head_meta = new_head.metadata().map_err(internal_error)?;
-
-                    head_size = new_head_meta.len();
                     head = new_head;
-                    head_index = new_index;
+                    head_size = new_head_meta.len();
                 }
+                expect_head_size = new_index.offset;
+                head_index = new_index;
             }
         }
 
-        index.sync_all().map_err(internal_error)?;
+        // ensure flush to disk
         head.sync_all().map_err(internal_error)?;
+        index.sync_all().map_err(internal_error)?;
 
         let number = index_size / INDEX_ENTRY_SIZE;
 
@@ -322,6 +343,10 @@ impl FreezerFilesBuilder {
         })
     }
 
+    // Open the file without append mode
+    // If a file is opened with both read and append access,
+    // after opening, and after every write, the position for reading may be set at the end of the file.
+    // it has differing behaviour during Truncate operations on different OS's
     fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<File, Error> {
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -336,13 +361,14 @@ impl FreezerFilesBuilder {
     fn open_index(&self) -> Result<File, Error> {
         let mut index = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
         let metadata = index.metadata().map_err(internal_error)?;
-        println!("open_index {}", metadata.len());
+        // fill a default entry within empty index
         if metadata.len() == 0 {
             index
                 .write_all(&IndexEntry::default().encode())
                 .map_err(internal_error)?;
         }
 
+        // ensure the index is a multiple of INDEX_ENTRY_SIZE bytes
         let tail = metadata.len() % INDEX_ENTRY_SIZE;
         if (tail != 0) && (metadata.len() != 0) {
             helper::truncate_file(&mut index, metadata.len() - tail)?;
@@ -351,7 +377,7 @@ impl FreezerFilesBuilder {
     }
 }
 
-mod helper {
+pub(crate) mod helper {
     use super::*;
 
     pub(crate) fn truncate_file(file: &mut File, size: u64) -> Result<(), Error> {
