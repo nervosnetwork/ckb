@@ -45,7 +45,10 @@ use std::{
     cmp::max,
     collections::{HashMap, HashSet},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant},
     usize,
@@ -81,6 +84,7 @@ pub struct NetworkState {
     local_peer_id: PeerId,
     bootnodes: Vec<(PeerId, Multiaddr)>,
     pub(crate) config: NetworkConfig,
+    pub(crate) active: AtomicBool,
 }
 
 impl NetworkState {
@@ -124,6 +128,7 @@ impl NetworkState {
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.public_key().peer_id(),
             protocol_ids: RwLock::new(HashSet::default()),
+            active: AtomicBool::new(true),
         })
     }
 
@@ -494,6 +499,10 @@ impl NetworkState {
                 pending_observed_addrs.insert(addr);
             }
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
 }
 
@@ -1264,6 +1273,14 @@ impl NetworkController {
     ) -> Result<(), SendErrorKind> {
         let target = TargetSession::Single(session_id);
         self.try_broadcast(false, target, proto_id, data)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.network_state.is_active()
+    }
+
+    pub fn set_active(&self, active: bool) {
+        self.network_state.active.store(active, Ordering::Relaxed);
     }
 }
 

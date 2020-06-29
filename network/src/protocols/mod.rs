@@ -226,6 +226,10 @@ impl ServiceProtocol for CKBHandler {
             }
         });
 
+        if !self.network_state.is_active() {
+            return;
+        }
+
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
@@ -244,6 +248,10 @@ impl ServiceProtocol for CKBHandler {
                 peer.protocols.remove(&self.proto_id);
             }
         });
+
+        if !self.network_state.is_active() {
+            return;
+        }
 
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
@@ -264,6 +272,10 @@ impl ServiceProtocol for CKBHandler {
             }
         });
 
+        if !self.network_state.is_active() {
+            return;
+        }
+
         trace!(
             "[received message]: {}, {}, length={}",
             self.proto_id,
@@ -283,6 +295,10 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
+        if !self.network_state.is_active() {
+            return;
+        }
+
         if token == std::u64::MAX {
             trace!("protocol handler heart beat {}", self.proto_id);
         } else {

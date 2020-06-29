@@ -48,6 +48,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_banned_addresses`](#get_banned_addresses)
     *   [`set_ban`](#set_ban)
     *   [`sync_state`](#sync_state)
+    *   [`set_network_active`](#set_network_active)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -1868,6 +1869,7 @@ http://localhost:8114
                 "score": "0x1"
             }
         ],
+        "is_active": true,
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
         "version": "0.0.0"
     }
@@ -2016,6 +2018,13 @@ Returns sync state of this client
     fast_time - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
     normal_time - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
     low_time - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+### `set_network_active`
+
+Disable/enable all p2p network activity
+
+#### Parameters
+
+    state - true to enable networking, false to disable
 
 #### Examples
 
@@ -2025,6 +2034,10 @@ echo '{
     "jsonrpc": "2.0",
     "method": "sync_state",
     "params": []
+    "method": "set_network_active",
+    "params": [
+        false
+    ]
 }' \
 | tr -d '\n' \
 | curl -H 'content-type: application/json' -d @- \
@@ -2045,6 +2058,7 @@ http://localhost:8114
         "normal_time": "0x4e2",
         "orphan_blocks_count": "0x0"
     }
+    "result": null
 }
 ```
 
