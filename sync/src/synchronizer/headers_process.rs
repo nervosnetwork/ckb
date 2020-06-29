@@ -127,6 +127,37 @@ impl<'a> HeadersProcess<'a> {
         acceptor.accept()
     }
 
+    fn debug(&self) {
+        if log_enabled!(Level::Debug) {
+            // Regain the updated best known
+            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
+            debug!(
+                "chain: num={}, diff={:#x};",
+                self.active_chain.tip_number(),
+                self.active_chain.total_difficulty()
+            );
+            debug!(
+                "shared best_known_header: num={}, diff={:#x}, hash={};",
+                shared_best_known.number(),
+                shared_best_known.total_difficulty(),
+                shared_best_known.hash(),
+            );
+            if let Some(header) = peer_best_known {
+                debug!(
+                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
+                    self.peer,
+                    header.number(),
+                    header.total_difficulty(),
+                    header.hash()
+                );
+            } else {
+                debug!("state: null;");
+            }
+            debug!("peer: {}", self.peer);
+        }
+    }
+
     pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
         let shared = self.synchronizer.shared();
@@ -198,34 +229,7 @@ impl<'a> HeadersProcess<'a> {
             }
         }
 
-        if log_enabled!(Level::Debug) {
-            // Regain the updated best known
-            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
-            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
-            debug!(
-                "chain: num={}, diff={:#x};",
-                self.active_chain.tip_number(),
-                self.active_chain.total_difficulty()
-            );
-            debug!(
-                "shared best_known_header: num={}, diff={:#x}, hash={};",
-                shared_best_known.number(),
-                shared_best_known.total_difficulty(),
-                shared_best_known.hash(),
-            );
-            if let Some(header) = peer_best_known {
-                debug!(
-                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
-                    self.peer,
-                    header.number(),
-                    header.total_difficulty(),
-                    header.hash()
-                );
-            } else {
-                debug!("state: null;");
-            }
-            debug!("peer: {}", self.peer);
-        }
+        self.debug();
 
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
