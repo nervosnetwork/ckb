@@ -122,6 +122,13 @@ impl RPCError {
         }
     }
 
+    pub fn from_failure_error(err: failure::Error) -> Error {
+        match err.downcast::<CKBError>() {
+            Ok(ckb_error) => Self::from_ckb_error(ckb_error),
+            Err(err) => Self::ckb_internal_error(err),
+        }
+    }
+
     pub fn ckb_internal_error<T: Display + Debug>(err: T) -> Error {
         Self::custom_with_error(RPCError::CKBInternalError, err)
     }

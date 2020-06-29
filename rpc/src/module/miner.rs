@@ -62,7 +62,7 @@ impl MinerRpc for MinerRpcImpl {
             })?
             .map_err(|err| {
                 error!("get_block_template result error {}", err);
-                RPCError::ckb_internal_error(err)
+                RPCError::from_failure_error(err)
             })
     }
 
@@ -113,10 +113,10 @@ impl MinerRpc for MinerRpcImpl {
     }
 }
 
-fn handle_submit_error<E: Debug + ToString>(work_id: &str, err: &E) -> Error {
+fn handle_submit_error<E: std::fmt::Display + Debug>(work_id: &str, err: &E) -> Error {
     error!("[{}] submit_block error: {:?}", work_id, err);
     capture_submit_error(err);
-    RPCError::custom(RPCError::Invalid, err.to_string())
+    RPCError::custom_with_error(RPCError::Invalid, err)
 }
 
 fn capture_submit_error<D: Debug>(err: &D) {

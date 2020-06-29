@@ -43,6 +43,7 @@ ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-tx-pool = { path = "../tx-pool" }
 ckb-script = { path = "../script" }
 ckb-memory-tracker = { path = "../util/memory-tracker" }
+failure = "0.1.5"
 
 [dev-dependencies]
 reqwest = "0.9.16"

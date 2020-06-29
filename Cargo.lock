@@ -843,6 +843,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "crossbeam-channel",
+ "failure",
  "faketime",
  "futures 0.1.29",
  "jsonrpc-core",

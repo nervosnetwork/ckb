@@ -116,7 +116,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
         {
             error!("Broadcast transaction failed: {:?}", err);
-            Err(RPCError::ckb_internal_error(err))
+            Err(RPCError::custom_with_error(
+                RPCError::P2PFailedToBroadcast,
+                err,
+            ))
         } else {
             Ok(hash.unpack())
         }
