@@ -22,6 +22,12 @@ impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
     pub fn len(&self) -> u64 {
         self.tip + 1
     }
+
+    // we always have genesis, this function may be meaningless
+    // but for convention, mute len-without-is-empty lint
+    pub fn is_empty(&self) -> bool {
+        false
+    }
 }
 
 impl<'a, S: ChainStore<'a>> Iterator for ChainIterator<'a, S> {
@@ -46,6 +52,7 @@ impl<'a, S: ChainStore<'a>> Iterator for ChainIterator<'a, S> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.current {
             Some(ref b) => (1, Some((self.tip - b.header().number() + 1) as usize)),
+            //The default implementation returns (0, None) which is correct for any iterator.
             None => (0, None),
         }
     }

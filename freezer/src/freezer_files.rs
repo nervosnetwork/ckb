@@ -1,5 +1,6 @@
 use crate::internal_error;
 use ckb_error::Error;
+use fail::fail_point;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::{self, File};
@@ -27,8 +28,9 @@ impl Head {
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        fail_point!("write-head");
         self.file.write_all(data).map_err(internal_error)?;
-        self.bytes = self.bytes + data.len() as u64;
+        self.bytes += data.len() as u64;
         Ok(())
     }
 }
@@ -70,6 +72,7 @@ impl Default for IndexEntry {
 
 impl IndexEntry {
     pub fn encode(&self) -> Vec<u8> {
+        fail_point!("IndexEntry encode");
         let mut bytes = Vec::with_capacity(INDEX_ENTRY_SIZE as usize);
         bytes.extend_from_slice(&self.file_id.to_le_bytes());
         bytes.extend_from_slice(&self.offset.to_le_bytes());
@@ -77,6 +80,7 @@ impl IndexEntry {
     }
 
     pub fn decode(raw: &[u8]) -> Result<Self, Error> {
+        fail_point!("IndexEntry decode");
         debug_assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
         let (raw_file_id, raw_offset) = raw.split_at(::std::mem::size_of::<u32>());
         let file_id = u32::from_le_bytes(raw_file_id.try_into().map_err(internal_error)?);
@@ -98,6 +102,7 @@ impl FreezerFiles {
 
     pub fn append(&mut self, number: u64, data: &[u8]) -> Result<(), Error> {
         let expected = self.number.load(Ordering::SeqCst);
+        fail_point!("append-unexpected-number");
         if expected != number {
             return Err(internal_error(format!(
                 "appending unexpected block expected {} have {}",
@@ -181,7 +186,7 @@ impl FreezerFiles {
         Ok((start_index.offset, end_index.offset, end_index.file_id))
     }
 
-    pub(crate) fn preopen(&mut self) -> Result<(), Error> {
+    pub fn preopen(&mut self) -> Result<(), Error> {
         self.release_after(0);
 
         for id in self.tail_id..self.head_id {
@@ -195,6 +200,7 @@ impl FreezerFiles {
     }
 
     fn write_index(&mut self, file_id: FileId, offset: u64) -> Result<(), Error> {
+        fail_point!("write-index");
         let index = IndexEntry { file_id, offset };
         self.index.seek(SeekFrom::End(0)).map_err(internal_error)?;
         self.index
@@ -212,12 +218,14 @@ impl FreezerFiles {
     }
 
     fn open_read_only(&mut self, id: FileId) -> Result<File, Error> {
+        fail_point!("open_read_only");
         let mut opt = fs::OpenOptions::new();
         opt.read(true);
         self.open_file(id, opt)
     }
 
     fn open_truncated(&mut self, id: FileId) -> Result<File, Error> {
+        fail_point!("open_truncated");
         let mut opt = fs::OpenOptions::new();
         opt.create(true).read(true).write(true).truncate(true);
         self.open_file(id, opt)
@@ -249,7 +257,7 @@ impl FreezerFilesBuilder {
 
     // for test
     #[allow(dead_code)]
-    pub(crate) fn max_file_size(mut self, size: u64) -> Self {
+    pub fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
         self
     }
