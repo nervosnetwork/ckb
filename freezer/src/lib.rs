@@ -11,3 +11,4 @@ fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Erro
 }
 
 pub use freezer::Freezer;
+pub use freezer_files::FreezerFilesBuilder;

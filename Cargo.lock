@@ -557,6 +557,7 @@ dependencies = [
  "ckb-logger",
  "ckb-types",
  "ckb-util",
+ "fail",
  "fs2",
  "tempfile",
 ]
@@ -1567,6 +1568,17 @@ checksum = "6fdb60074c9b82c91f8702fa5351b85d22b668dae7f73bf06b44a09bc372380f"
 dependencies = [
  "hashbrown",
  "smallvec 0.6.10",
+]
+
+[[package]]
+name = "fail"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3be3c61c59fdc91f5dbc3ea31ee8623122ce80057058be560654c5d410d181a6"
+dependencies = [
+ "lazy_static",
+ "log 0.4.8",
+ "rand 0.7.0",
 ]
 
 [[package]]
