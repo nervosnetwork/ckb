@@ -20,7 +20,6 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_block`](#get_block)
     *   [`get_header`](#get_header)
     *   [`get_header_by_number`](#get_header_by_number)
-    *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
     *   [`get_live_cell`](#get_live_cell)
     *   [`get_transaction`](#get_transaction)
     *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
@@ -396,100 +395,6 @@ http://localhost:8114
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0"
     }
-}
-```
-
-### `get_cells_by_lock_hash`
-
-Returns the information about live cells collection by the hash of lock script.
-
-#### Parameters
-
-    lock_hash - Cell lock script hash
-    from - Start block number
-    to - End block number
-#### Returns
-
-    block_hash - Refer to block
-    capacity - Cell capacity
-    cellbase - Cellbase or not
-    lock - Cell lock script
-    out_point - Refer to this output
-    output_data_len - Corresponding output data length
-    type - Cell type script
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_cells_by_lock_hash",
-    "params": [
-        "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-        "0xa",
-        "0xe"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": [
-        {
-            "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
-            "capacity": "0x2ca86f2642",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        },
-        {
-            "block_hash": "0x63b872c02b1c2bd0c1af4f73f68ac04e2a3763a71f9656a823848d346619ffde",
-            "capacity": "0x2ca86e3dd4",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0x0b0fb337a9168132d3771f07e0ba055419c7e8f7bc2681a9eb445e61f44e1eb9"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        },
-        {
-            "block_hash": "0x6bbdd9dc71784d500daadf391ca9035900b3ff18ed868d7d4fe4b17fdea88853",
-            "capacity": "0x2ca86d5691",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0xc336a23a785f3fec8b6e29e2c00d23483f1c6ad410b6b9fc0f62baf65d5efcc7"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        }
-    ]
 }
 ```
 

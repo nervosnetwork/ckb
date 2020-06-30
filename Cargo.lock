@@ -1022,7 +1022,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "crossbeam-channel 0.3.9",
- "tempfile",
 ]
 
 [[package]]
@@ -1059,7 +1058,6 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
- "ckb-db-migration",
  "ckb-error",
  "ckb-freezer",
  "ckb-logger",
@@ -1067,7 +1065,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "lru-cache",
- "tempfile",
 ]
 
 [[package]]
@@ -1717,7 +1714,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3be3c61c59fdc91f5dbc3ea31ee8623122ce80057058be560654c5d410d181a6"
 dependencies = [
  "lazy_static",
- "log 0.4.8",
+ "log 0.4.11",
  "rand 0.7.0",
 ]
 
