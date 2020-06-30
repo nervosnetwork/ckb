@@ -24,4 +24,3 @@ ckb-logger = { path = "../util/logger" }
 ckb-freezer = { path = "../freezer" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 crossbeam-channel = "0.3"
-tempfile = "3.0"

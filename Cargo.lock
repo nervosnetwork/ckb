@@ -494,7 +494,6 @@ name = "ckb-db-migration"
 version = "0.33.0-pre"
 dependencies = [
  "ckb-app-config",
- "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
  "ckb-logger",
@@ -947,7 +946,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "crossbeam-channel",
- "tempfile",
 ]
 
 [[package]]
@@ -984,7 +982,6 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
- "ckb-db-migration",
  "ckb-error",
  "ckb-freezer",
  "ckb-logger",
@@ -992,7 +989,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "lru-cache",
- "tempfile",
 ]
 
 [[package]]
