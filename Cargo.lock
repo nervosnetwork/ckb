@@ -1130,7 +1130,6 @@ dependencies = [
  "ckb-verification",
  "num_cpus",
  "once_cell",
- "tempfile",
 ]
 
 [[package]]
@@ -1181,7 +1180,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "lru",
- "tempfile",
 ]
 
 [[package]]

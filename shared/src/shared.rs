@@ -5,7 +5,6 @@ use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, 
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_channel::{self as channel};
 use ckb_db::RocksDB;
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::COLUMNS;

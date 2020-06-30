@@ -19,6 +19,5 @@ ckb-error = { path = "../error", version = "= 0.39.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.39.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.39.0-pre" }
 ckb-db-migration = { path = "../db-migration", version = "= 0.39.0-pre" }
-ckb-freezer = { path = "../freezer", version = "= 0.39.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.39.0-pre" }
-tempfile = "3.0"
+ckb-freezer = { path = "../freezer", version = "= 0.39.0-pre" }

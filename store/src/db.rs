@@ -8,14 +8,13 @@ use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
-    DBPinnableSlice, Direction, ReadOptions, RocksDB, WriteBatch,
+    DBPinnableSlice, RocksDB,
 };
 use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY};
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
 use std::sync::Arc;
-use std::time;
 
 /// TODO(doc): @quake
 #[derive(Clone)]

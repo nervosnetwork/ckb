@@ -296,15 +296,6 @@ fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
     }
 }
 
-fn path_exists_or_else<P: AsRef<Path>, F: FnOnce() -> PathBuf>(path: P, f: F) -> PathBuf {
-    let path_ref = path.as_ref();
-    if path_ref.to_str().is_none() || path_ref.to_str() == Some("") {
-        f()
-    } else {
-        path_ref.to_path_buf()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
