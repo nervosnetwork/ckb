@@ -691,6 +691,7 @@ dependencies = [
  "ckb-logger",
  "ckb-types",
  "ckb-util",
+ "fail",
  "fs2",
  "tempfile",
 ]
@@ -1873,6 +1874,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07e791d3be96241c77c43846b665ef1384606da2cd2a48730abe606a12906e02"
 dependencies = [
  "backtrace",
+]
+
+[[package]]
+name = "fail"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3be3c61c59fdc91f5dbc3ea31ee8623122ce80057058be560654c5d410d181a6"
+dependencies = [
+ "lazy_static",
+ "log",
+ "rand 0.7.3",
 ]
 
 [[package]]
