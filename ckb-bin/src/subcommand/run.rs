@@ -60,7 +60,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         shared.genesis_hash()
     );
 
-    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::with_tmpdir(
+        shared.clone(),
+        args.config.tmp_dir.as_ref(),
+    ));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );

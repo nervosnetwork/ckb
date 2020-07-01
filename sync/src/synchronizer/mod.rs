@@ -1428,10 +1428,10 @@ mod tests {
             state.insert(5.into(), state_5);
             state.insert(6.into(), state_6);
         }
-        peers.may_set_best_known_header(0.into(), &mock_header_view(1));
-        peers.may_set_best_known_header(2.into(), &mock_header_view(3));
-        peers.may_set_best_known_header(3.into(), &mock_header_view(1));
-        peers.may_set_best_known_header(5.into(), &mock_header_view(3));
+        peers.may_set_best_known_header(0.into(), mock_header_view(1));
+        peers.may_set_best_known_header(2.into(), mock_header_view(3));
+        peers.may_set_best_known_header(3.into(), mock_header_view(1));
+        peers.may_set_best_known_header(5.into(), mock_header_view(3));
         {
             // Protected peer 0 start sync
             peers
