@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, MAX_HEADERS_LEN};
-use ckb_error::{Error, ErrorKind};
+use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::BlockMedianTimeContext;
@@ -11,7 +11,7 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier, Verifier};
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
@@ -300,24 +300,24 @@ where
         Ok(())
     }
 
-    pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
+    pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), bool> {
         self.verifier.verify(&self.resolver).map_err(|error| {
             debug!(
                 "HeadersProcess accept {:?} error {:?}",
                 self.header.number(),
                 error
             );
-            if error.kind() == &ErrorKind::Header {
-                let header_error = error
-                    .downcast_ref::<HeaderError>()
-                    .expect("error kind checked");
-                match header_error.kind() {
-                    HeaderErrorKind::Pow => state.dos(Some(ValidationError::Verify(error)), 100),
-                    HeaderErrorKind::Epoch => state.dos(Some(ValidationError::Verify(error)), 50),
-                    _ => state.invalid(Some(ValidationError::Verify(error))),
+            // HeaderVerifier return HeaderError or UnknownParentError
+            if let Some(header_error) = error.downcast_ref::<HeaderError>() {
+                if header_error.is_too_new() {
+                    false
+                } else {
+                    state.dos(Some(ValidationError::Verify(error)), 100);
+                    true
                 }
             } else {
-                state.invalid(Some(ValidationError::Verify(error)));
+                state.dos(Some(ValidationError::Verify(error)), 100);
+                true
             }
         })
     }
@@ -359,13 +359,15 @@ where
             return result;
         }
 
-        if self.non_contextual_check(&mut result).is_err() {
+        if let Some(is_invalid) = self.non_contextual_check(&mut result).err() {
             debug!(
                 "HeadersProcess reject non-contextual header: {} {}",
                 self.header.number(),
                 self.header.hash(),
             );
-            state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            if is_invalid {
+                state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            }
             return result;
         }
 
