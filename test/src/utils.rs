@@ -16,7 +16,7 @@ use std::env;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile;
 
 pub const FLAG_SINCE_RELATIVE: u64 =
@@ -319,4 +319,12 @@ pub fn node_log(node_dir: &str) -> PathBuf {
         .join("data")
         .join("logs")
         .join("run.log")
+}
+
+pub fn now_ms() -> u64 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_millis() as u64
 }

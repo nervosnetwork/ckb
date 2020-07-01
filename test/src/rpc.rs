@@ -220,9 +220,9 @@ impl RpcClient {
             .expect("rpc call remove_node")
     }
 
-    pub fn process_block_without_verify(&self, block: Block) -> Option<Byte32> {
+    pub fn process_block_without_verify(&self, block: Block, broadcast: bool) -> Option<Byte32> {
         self.inner
-            .process_block_without_verify(block)
+            .process_block_without_verify(block, broadcast)
             .expect("rpc call process_block_without verify")
             .map(|x| x.pack())
     }
@@ -369,7 +369,7 @@ jsonrpc!(pub struct Inner {
 
     pub fn add_node(&self, peer_id: String, address: String) -> ();
     pub fn remove_node(&self, peer_id: String) -> ();
-    pub fn process_block_without_verify(&self, _data: Block) -> Option<H256>;
+    pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
     pub fn truncate(&self, target_tip_hash: H256) -> ();
 
     pub fn get_live_cells_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<LiveCell>;

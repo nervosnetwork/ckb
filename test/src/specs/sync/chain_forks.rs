@@ -158,7 +158,7 @@ impl Spec for ChainFork3 {
                 .set_outputs(vec![new_output])
                 .build()
         });
-        node1.process_block_without_verify(&invalid_block);
+        node1.process_block_without_verify(&invalid_block, false);
         assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
@@ -227,7 +227,7 @@ impl Spec for ChainFork4 {
                 .set_outputs(vec![output])
                 .build()
         });
-        node1.process_block_without_verify(&invalid_block);
+        node1.process_block_without_verify(&invalid_block, false);
         assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
@@ -300,7 +300,7 @@ impl Spec for ChainFork5 {
         info!("Generate 1 blocks (F) with spent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = block.as_advanced_builder().transaction(transaction).build();
-        node1.process_block_without_verify(&invalid_block);
+        node1.process_block_without_verify(&invalid_block, false);
         assert_eq!(16, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
@@ -359,7 +359,7 @@ impl Spec for ChainFork6 {
             .as_advanced_builder()
             .transaction(invalid_transaction)
             .build();
-        node1.process_block_without_verify(&invalid_block);
+        node1.process_block_without_verify(&invalid_block, false);
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
@@ -429,7 +429,7 @@ impl Spec for ChainFork7 {
             .as_advanced_builder()
             .transaction(invalid_transaction)
             .build();
-        node1.process_block_without_verify(&invalid_block);
+        node1.process_block_without_verify(&invalid_block, false);
         assert_eq!(15, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");

@@ -269,9 +269,9 @@ impl Node {
             .expect("submit_block failed")
     }
 
-    pub fn process_block_without_verify(&self, block: &BlockView) -> Byte32 {
+    pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
         self.rpc_client()
-            .process_block_without_verify(block.data().into())
+            .process_block_without_verify(block.data().into(), broadcast)
             .expect("process_block_without_verify result none")
     }
 

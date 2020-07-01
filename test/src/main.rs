@@ -391,6 +391,8 @@ fn all_specs() -> SpecMap {
         Box::new(TemplateTxSelect),
         Box::new(BlockSyncRelayerCollaboration),
         Box::new(RpcTruncate),
+        Box::new(SyncTooNewBlock),
+        Box::new(RelayTooNewBlock),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

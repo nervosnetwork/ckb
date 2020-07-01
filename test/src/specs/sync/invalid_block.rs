@@ -40,7 +40,7 @@ impl Spec for ChainContainsInvalidBlock {
             .transaction(TransactionBuilder::default().build())
             .build();
         let invalid_number = invalid_block.header().number();
-        let invalid_hash = bad_node.process_block_without_verify(&invalid_block);
+        let invalid_hash = bad_node.process_block_without_verify(&invalid_block, false);
         bad_node.generate_blocks(3);
 
         // Start good_node and let it synchronize from bad_node
@@ -101,7 +101,7 @@ impl Spec for ForkContainsInvalidBlock {
                 .new_block_builder(None, None, None)
                 .transaction(TransactionBuilder::default().build())
                 .build();
-            bad_node.process_block_without_verify(&invalid_block);
+            bad_node.process_block_without_verify(&invalid_block, false);
             bad_node.generate_blocks(tip_number - invalid_number);
             (1..=bad_node.get_tip_block_number())
                 .map(|i| bad_node.get_block_by_number(i))
