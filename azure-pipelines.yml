@@ -28,7 +28,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - script: make test
+      - powershell: devtools/windows/make test
         displayName: Run unit tests
         env:
           CI: true
@@ -50,7 +50,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration-windows
+      - powershell: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
         displayName: Run integration tests
         env:
           CI: true
@@ -64,7 +64,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - script: make prod
+      - powershell: devtools/windows/make prod
         displayName: Build
       - script: |
           curl -LO https://github.com/nervosnetwork/ckb-cli/releases/download/$(CKBClientVersion)/ckb-cli_$(CKBClientVersion)_x86_64-pc-windows-msvc.zip
