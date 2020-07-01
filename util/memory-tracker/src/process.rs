@@ -1,147 +1,89 @@
-use std::{sync, thread, time};
+use std::fmt;
 
-use ckb_logger::{debug, error, info};
+use ckb_logger::error;
 use futures::executor::block_on;
+use heim::process::{Pid, Process};
 use heim::units::information::byte;
-use jemalloc_ctl::{epoch, stats};
 
-use crate::{rocksdb::TrackRocksDBMemory, utils::HumanReadableSize};
+use crate::utils::{PropertyValue, Size};
 
-macro_rules! je_mib {
-    ($key:ty) => {
-        if let Ok(value) = <$key>::mib() {
-            value
-        } else {
-            error!("failed to lookup jemalloc mib for {}", stringify!($key));
-            return;
-        }
-    };
+pub struct ProcessTracker {
+    process: Option<Process>,
 }
 
-macro_rules! mib_read {
-    ($mib:ident) => {
-        if let Ok(value) = $mib.read() {
-            HumanReadableSize::from(value as u64)
-        } else {
-            error!("failed to read jemalloc stats for {}", stringify!($mib));
-            return;
-        }
-    };
+struct ProcessStatistics {
+    pid: Pid,
+    // Resident set size, amount of non-swapped physical memory.
+    rss: PropertyValue<Size>,
+    // Virtual memory size, total amount of memory.
+    virt: PropertyValue<Size>,
 }
 
-pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send>(
-    interval: u64,
-    tracker_opt: Option<sync::Arc<Tracker>>,
-) {
-    if interval == 0 {
-        info!("track current process: disable");
-    } else {
-        info!("track current process: enable");
-        let wait_secs = time::Duration::from_secs(interval);
+pub struct ProcessReport {
+    stats: Option<ProcessStatistics>,
+}
 
-        let je_epoch = je_mib!(epoch);
-        // Bytes allocated by the application.
-        let allocated = je_mib!(stats::allocated);
-        // Bytes in physically resident data pages mapped by the allocator.
-        let resident = je_mib!(stats::resident);
-        // Bytes in active pages allocated by the application.
-        let active = je_mib!(stats::active);
-        // Bytes in active extents mapped by the allocator.
-        let mapped = je_mib!(stats::mapped);
-        // Bytes in virtual memory mappings that were retained
-        // rather than being returned to the operating system
-        let retained = je_mib!(stats::retained);
-        // Bytes dedicated to jemalloc metadata.
-        let metadata = je_mib!(stats::metadata);
+impl fmt::Display for ProcessStatistics {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Process")
+            .field("pid", &self.pid)
+            .field("rss", &self.rss)
+            .field("virt", &self.virt)
+            .finish()
+    }
+}
 
-        if let Err(err) = thread::Builder::new()
-            .name("MemoryTracker".to_string())
-            .spawn(move || {
-                if let Ok(process) = block_on(heim::process::current()) {
-                    let pid = process.pid();
-                    loop {
-                        if je_epoch.advance().is_err() {
-                            error!("failed to refresh the jemalloc stats");
-                            return;
-                        }
-                        if let Ok(memory) = block_on(process.memory()) {
-                            // Resident set size, amount of non-swapped physical memory.
-                            let rss: HumanReadableSize = memory.rss().get::<byte>().into();
-                            // Virtual memory size, total amount of memory.
-                            let virt: HumanReadableSize = memory.vms().get::<byte>().into();
+impl fmt::Display for ProcessReport {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref stats) = self.stats {
+            write!(f, "{}", stats)
+        } else {
+            write!(f, "Process {{ null }}")
+        }
+    }
+}
 
-                            let allocated = mib_read!(allocated);
-                            let resident = mib_read!(resident);
-                            let active = mib_read!(active);
-                            let mapped = mib_read!(mapped);
-                            let retained = mib_read!(retained);
-                            let metadata = mib_read!(metadata);
-
-                            if let Some(tracker) = tracker_opt.clone() {
-                                let stats = tracker.gather_memory_stats();
-                                debug!(
-                                    "CurrentProcess {{ \
-                                        pid: {}, rss: {}, virt: {}, \
-                                        Jemalloc: {{ \
-                                            allocated: {}, resident: {}, \
-                                            active: {}, mapped: {}, retained: {}, \
-                                            metadata: {} }}, \
-                                        RocksDB: {{ \
-                                            total: {}, cache: {}, readers: {}, \
-                                            memtables: {}, pinned: {}, \
-                                            cache-capacity: {} \
-                                        }} \
-                                    }}",
-                                    pid,
-                                    rss,
-                                    virt,
-                                    allocated,
-                                    resident,
-                                    active,
-                                    mapped,
-                                    retained,
-                                    metadata,
-                                    stats.total_memory,
-                                    stats.block_cache_usage,
-                                    stats.estimate_table_readers_mem,
-                                    stats.cur_size_all_mem_tables,
-                                    stats.block_cache_pinned_usage,
-                                    stats.block_cache_capacity,
-                                );
-                            } else {
-                                debug!(
-                                    "CurrentProcess {{ \
-                                        pid: {}, rss: {}, virt: {}, \
-                                        Jemalloc: {{ \
-                                            allocated: {}, resident: {}, \
-                                            active: {}, mapped: {}, retained: {}, \
-                                            metadata: {} }} \
-                                    }}",
-                                    pid,
-                                    rss,
-                                    virt,
-                                    allocated,
-                                    resident,
-                                    active,
-                                    mapped,
-                                    retained,
-                                    metadata,
-                                );
-                            }
-                        } else {
-                            error!("failed to fetch the memory information about current process");
-                        }
-                        thread::sleep(wait_secs);
-                    }
-                } else {
-                    error!("failed to track the currently running program");
-                }
+impl ProcessTracker {
+    pub(super) fn initialize() -> Self {
+        let process = block_on(heim::process::current())
+            .map_err(|err| {
+                error!("failed to track the currently running program: {}", err);
             })
-        {
-            error!(
-                "failed to spawn the thread to track current process: {}",
-                err
-            );
-        }
+            .ok();
+        Self { process }
+    }
+
+    pub(super) fn report(&self) -> ProcessReport {
+        self.process
+            .as_ref()
+            .map(|ref process| {
+                let pid = process.pid();
+                let (rss, virt) = block_on(process.memory())
+                    .map(|memory| {
+                        let rss: Size = memory.rss().get::<byte>().into();
+                        let virt: Size = memory.vms().get::<byte>().into();
+                        (PropertyValue::new(rss), PropertyValue::new(virt))
+                    })
+                    .unwrap_or_else(|err| {
+                        error!(
+                            "failed to fetch the memory information about current process: {}",
+                            err
+                        );
+                        Default::default()
+                    });
+                ProcessStatistics { pid, rss, virt }
+            })
+            .map(ProcessReport::new)
+            .unwrap_or_else(ProcessReport::null)
+    }
+}
+
+impl ProcessReport {
+    fn new(stats: ProcessStatistics) -> Self {
+        Self { stats: Some(stats) }
+    }
+
+    fn null() -> Self {
+        Self { stats: None }
     }
 }

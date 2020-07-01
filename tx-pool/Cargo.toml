@@ -28,3 +28,4 @@ ckb-async-runtime = { path = "../util/runtime" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 ckb-app-config = { path = "../util/app-config" }
+ckb-memory-tracker = { path = "../util/memory-tracker" }

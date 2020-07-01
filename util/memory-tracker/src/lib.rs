@@ -1,41 +1,28 @@
-#[cfg(all(
-    not(target_env = "msvc"),
-    not(target_os = "macos"),
-    feature = "profiling"
-))]
-mod jemalloc;
-#[cfg(not(all(
-    not(target_env = "msvc"),
-    not(target_os = "macos"),
-    feature = "profiling"
-)))]
-mod jemalloc {
-    pub fn jemalloc_profiling_dump(_: &str) -> Result<(), String> {
-        Err("jemalloc profiling dump: unsupported".to_string())
-    }
+use ckb_util::RwLock;
+use std::sync::Arc;
+
+lazy_static::lazy_static! {
+    static ref INTERVAL: Arc<RwLock<u64>> = Arc::new(RwLock::new(0));
 }
 
-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
-mod process;
-#[cfg(not(all(not(target_env = "msvc"), not(target_os = "macos"))))]
-mod process {
-    use std::sync;
-
-    use crate::rocksdb::TrackRocksDBMemory;
-    use ckb_logger::info;
-
-    pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send>(
-        _: u64,
-        _: Option<sync::Arc<Tracker>>,
-    ) {
-        info!("track current process: unsupported");
-    }
-}
+pub mod collections;
+pub(crate) mod jemalloc;
+pub(crate) mod process;
 pub mod rocksdb;
 pub mod utils;
 
+mod service;
+
 pub use jemalloc::jemalloc_profiling_dump;
-pub use process::track_current_process;
+pub use service::track_current_process;
+
+pub fn interval() -> u64 {
+    *INTERVAL.read()
+}
+
+pub(crate) fn set_interval(interval: u64) {
+    *crate::INTERVAL.write() = interval;
+}
 
 pub fn track_current_process_simple(interval: u64) {
     track_current_process::<rocksdb::DummyRocksDB>(interval, None);

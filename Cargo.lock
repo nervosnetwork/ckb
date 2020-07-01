@@ -617,10 +617,13 @@ version = "0.34.0-pre"
 dependencies = [
  "ckb-db",
  "ckb-logger",
+ "ckb-util",
+ "crossbeam-channel",
  "futures 0.3.4",
  "heim",
  "jemalloc-ctl",
  "jemalloc-sys",
+ "lazy_static",
 ]
 
 [[package]]
@@ -963,6 +966,7 @@ dependencies = [
  "ckb-error",
  "ckb-fee-estimator",
  "ckb-logger",
+ "ckb-memory-tracker",
  "ckb-network",
  "ckb-shared",
  "ckb-store",
@@ -1030,6 +1034,7 @@ dependencies = [
  "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-memory-tracker",
  "ckb-reward-calculator",
  "ckb-snapshot",
  "ckb-stop-handler",

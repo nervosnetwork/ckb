@@ -2,6 +2,7 @@ use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
 use crate::error::SubmitTxError;
 use ckb_fee_estimator::FeeRate;
+use ckb_memory_tracker::collections::TracedTag;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus},
@@ -19,9 +20,10 @@ pub(crate) struct PendingQueue {
 
 impl PendingQueue {
     pub(crate) fn new(max_ancestors_count: usize) -> Self {
-        PendingQueue {
-            inner: SortedTxMap::new(max_ancestors_count),
-        }
+        TracedTag::push("inner");
+        let inner = SortedTxMap::new(max_ancestors_count);
+        TracedTag::pop();
+        Self { inner }
     }
 
     pub(crate) fn size(&self) -> usize {

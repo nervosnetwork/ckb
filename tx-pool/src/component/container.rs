@@ -2,9 +2,10 @@
 //! and its top-level members.
 
 use crate::{component::entry::TxEntry, error::SubmitTxError};
+use ckb_memory_tracker::collections::{TracedHashMap, TracedTag};
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 /// A struct to use as a sorted key
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -79,7 +80,7 @@ impl TxLink {
     }
 
     fn get_relative_ids(
-        links: &HashMap<ProposalShortId, TxLink>,
+        links: &TracedHashMap<ProposalShortId, TxLink>,
         tx_short_id: &ProposalShortId,
         relation: Relation,
     ) -> HashSet<ProposalShortId> {
@@ -112,14 +113,14 @@ impl TxLink {
     }
 
     pub fn get_ancestors(
-        links: &HashMap<ProposalShortId, TxLink>,
+        links: &TracedHashMap<ProposalShortId, TxLink>,
         tx_short_id: &ProposalShortId,
     ) -> HashSet<ProposalShortId> {
         TxLink::get_relative_ids(links, tx_short_id, Relation::Parents)
     }
 
     pub fn get_descendants(
-        links: &HashMap<ProposalShortId, TxLink>,
+        links: &TracedHashMap<ProposalShortId, TxLink>,
         tx_short_id: &ProposalShortId,
     ) -> HashSet<ProposalShortId> {
         TxLink::get_relative_ids(links, tx_short_id, Relation::Children)
@@ -128,19 +129,24 @@ impl TxLink {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
-    entries: HashMap<ProposalShortId, TxEntry>,
+    entries: TracedHashMap<ProposalShortId, TxEntry>,
     sorted_index: BTreeSet<AncestorsScoreSortKey>,
     /// A map track transaction ancestors and descendants
-    links: HashMap<ProposalShortId, TxLink>,
+    links: TracedHashMap<ProposalShortId, TxLink>,
     max_ancestors_count: usize,
 }
 
 impl SortedTxMap {
     pub fn new(max_ancestors_count: usize) -> Self {
-        SortedTxMap {
-            entries: Default::default(),
+        TracedTag::push("entries");
+        let entries = Default::default();
+        TracedTag::replace_last("links");
+        let links = Default::default();
+        TracedTag::pop();
+        Self {
+            entries,
             sorted_index: Default::default(),
-            links: Default::default(),
+            links,
             max_ancestors_count,
         }
     }

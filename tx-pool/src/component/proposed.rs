@@ -1,6 +1,7 @@
 use crate::component::container::SortedTxMap;
 use crate::component::entry::TxEntry;
 use crate::error::SubmitTxError;
+use ckb_memory_tracker::collections::{TracedHashMap, TracedTag};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -10,14 +11,27 @@ use ckb_types::{
     packed::{CellOutput, OutPoint, ProposalShortId},
     prelude::*,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::Hash;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct Edges<K: Hash + Eq, V: Eq + Hash> {
-    pub(crate) inner: HashMap<K, Option<V>>,
-    pub(crate) outer: HashMap<K, Option<V>>,
-    pub(crate) deps: HashMap<K, HashSet<V>>,
+    pub(crate) inner: TracedHashMap<K, Option<V>>,
+    pub(crate) outer: TracedHashMap<K, Option<V>>,
+    pub(crate) deps: TracedHashMap<K, HashSet<V>>,
+}
+
+impl<K: Hash + Eq, V: Eq + Hash> Default for Edges<K, V> {
+    fn default() -> Self {
+        TracedTag::push("inner");
+        let inner = Default::default();
+        TracedTag::replace_last("outer");
+        let outer = Default::default();
+        TracedTag::replace_last("deps");
+        let deps = Default::default();
+        TracedTag::pop();
+        Self { inner, outer, deps }
+    }
 }
 
 impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
@@ -110,10 +124,12 @@ impl CellProvider for ProposedPool {
 
 impl ProposedPool {
     pub(crate) fn new(max_ancestors_count: usize) -> Self {
-        ProposedPool {
-            edges: Default::default(),
-            inner: SortedTxMap::new(max_ancestors_count),
-        }
+        TracedTag::push("edges");
+        let edges = Default::default();
+        TracedTag::replace_last("inner");
+        let inner = SortedTxMap::new(max_ancestors_count);
+        TracedTag::pop();
+        Self { edges, inner }
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {

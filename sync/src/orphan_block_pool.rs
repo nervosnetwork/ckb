@@ -1,3 +1,4 @@
+use ckb_memory_tracker::collections::{TracedHashMap, TracedTag};
 use ckb_types::{core, packed};
 use ckb_util::shrink_to_fit;
 use ckb_util::RwLock;
@@ -8,21 +9,22 @@ const SHRINK_THREHOLD: usize = 100;
 
 // NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
-#[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>>,
-    parents: RwLock<HashMap<packed::Byte32, ParentHash>>,
+    blocks: RwLock<TracedHashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>>,
+    parents: RwLock<TracedHashMap<packed::Byte32, ParentHash>>,
 }
 
 impl OrphanBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
-        OrphanBlockPool {
-            blocks: RwLock::new(HashMap::with_capacity_and_hasher(
-                capacity,
-                Default::default(),
-            )),
-            parents: RwLock::new(Default::default()),
-        }
+        TracedTag::push("blocks");
+        let blocks = RwLock::new(TracedHashMap::with_capacity_and_hasher(
+            capacity,
+            Default::default(),
+        ));
+        TracedTag::replace_last("parents");
+        let parents = RwLock::new(Default::default());
+        TracedTag::pop();
+        OrphanBlockPool { blocks, parents }
     }
 
     /// Insert orphaned block, for which we have already requested its parent block
