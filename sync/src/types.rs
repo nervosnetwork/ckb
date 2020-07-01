@@ -1737,8 +1737,7 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        let mut locked = self.state.block_status_map.lock();
-        match locked.get(block_hash).cloned() {
+        match self.state.block_status_map.lock().get(block_hash).cloned() {
             Some(status) => status,
             None => {
                 let verified = self
@@ -1747,16 +1746,9 @@ impl ActiveChain {
                     .map(|block_ext| block_ext.verified);
                 match verified {
                     None => BlockStatus::UNKNOWN,
-                    // NOTE: Don't insert `BLOCK_STORED` inside `block_status_map`.
                     Some(None) => BlockStatus::BLOCK_STORED,
-                    Some(Some(true)) => {
-                        locked.insert(block_hash.clone(), BlockStatus::BLOCK_VALID);
-                        BlockStatus::BLOCK_VALID
-                    }
-                    Some(Some(false)) => {
-                        locked.insert(block_hash.clone(), BlockStatus::BLOCK_INVALID);
-                        BlockStatus::BLOCK_INVALID
-                    }
+                    Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                    Some(Some(false)) => BlockStatus::BLOCK_INVALID,
                 }
             }
         }
@@ -1764,10 +1756,6 @@ impl ActiveChain {
 
     pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
         self.get_block_status(block_hash).contains(status)
-    }
-
-    pub fn unknown_block_status(&self, block_hash: &Byte32) -> bool {
-        self.contains_block_status(block_hash, BlockStatus::UNKNOWN)
     }
 }
 
