@@ -3,6 +3,8 @@ use crate::switch::Switch;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
 use ckb_proposal_table::ProposalTable;
+#[cfg(debug_assertions)]
+use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
@@ -98,6 +100,15 @@ impl ForkChanges {
 
     pub fn verified_len(&self) -> usize {
         self.attached_blocks.len() - self.dirty_exts.len()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn is_sorted(&self) -> bool {
+        IsSorted::is_sorted_by_key(&mut self.attached_blocks().iter(), |blk| {
+            blk.header().number()
+        }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
+            blk.header().number()
+        })
     }
 }
 
@@ -196,8 +207,9 @@ impl ChainService {
         for bn in (target.number() + 1)..=current_tip.number() {
             let hash = store.get_block_hash(bn).expect("index checked");
             let old_block = store.get_block(&hash).expect("index checked");
-            fork.detached_blocks.push_front(old_block);
+            fork.detached_blocks.push_back(old_block);
         }
+        is_sorted_assert(&fork);
         fork
     }
 
@@ -490,6 +502,8 @@ impl ChainService {
 
             let proposal_start =
                 cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
+
+            debug!("reload_proposal_table [{}, {}]", proposal_start, common);
             for bn in proposal_start..=common {
                 let blk = self
                     .shared
@@ -530,7 +544,7 @@ impl ChainService {
                     .store()
                     .get_block(&hash)
                     .expect("block data stored before alignment_fork");
-                fork.detached_blocks.push_front(old_block);
+                fork.detached_blocks.push_back(old_block);
             }
         } else {
             while index.number > current_tip_number {
@@ -628,6 +642,8 @@ impl ChainService {
 
         // find latest common ancestor
         self.find_fork_until_latest_common(fork, &mut index);
+
+        is_sorted_assert(fork);
     }
 
     // we found new best_block
@@ -781,3 +797,11 @@ impl ChainService {
         debug!("}}");
     }
 }
+
+#[cfg(debug_assertions)]
+fn is_sorted_assert(fork: &ForkChanges) {
+    assert!(fork.is_sorted())
+}
+
+#[cfg(not(debug_assertions))]
+fn is_sorted_assert(_fork: &ForkChanges) {}

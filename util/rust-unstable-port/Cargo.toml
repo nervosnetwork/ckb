@@ -1,0 +1,11 @@
+[package]
+name = "ckb-rust-unstable-port"
+version = "0.35.0-pre"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+is_sorted = "0.1.1"

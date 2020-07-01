@@ -34,6 +34,7 @@ members = [
     "util/runtime",
     "util/jsonrpc-types",
     "util/fee-estimator",
+    "util/rust-unstable-port",
     "db",
     "db-migration",
     "resource",
