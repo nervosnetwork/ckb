@@ -17,7 +17,7 @@ const LOCKNAME: &str = "FLOCK";
 
 struct Inner {
     pub(crate) files: FreezerFiles,
-    pub(crate) frozen_tip: Option<HeaderView>,
+    pub(crate) tip: Option<HeaderView>,
 }
 
 #[derive(Clone)]
@@ -37,20 +37,20 @@ impl Freezer {
             .map_err(internal_error)?;
         lock.try_lock_exclusive().map_err(internal_error)?;
         let files = FreezerFiles::open(path)?;
-        let frozen = files.number();
+        let freezer_number = files.number();
 
-        let mut frozen_tip = None;
-        if frozen > 1 {
+        let mut tip = None;
+        if freezer_number > 1 {
             let raw_block = files
-                .retrieve(frozen - 1)?
-                .expect("frozen number sync with files");
+                .retrieve(freezer_number - 1)?
+                .expect("freezer number sync with files");
             let block = packed::BlockReader::from_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
-            frozen_tip = Some(block.header().into_view());
+            tip = Some(block.header().into_view());
         }
 
-        let inner = Inner { files, frozen_tip };
+        let inner = Inner { files, tip };
         Ok(Freezer {
             number: Arc::clone(&inner.files.number),
             inner: Arc::new(Mutex::new(inner)),
@@ -66,7 +66,7 @@ impl Freezer {
         let mut guard = self.inner.lock();
         for number in number..threshold {
             if let Some(block) = get_block_by_number(number) {
-                if let Some(ref header) = guard.frozen_tip {
+                if let Some(ref header) = guard.tip {
                     if header.hash() != block.header().parent_hash() {
                         return Err(internal_error(format!(
                             "appending unexpected block expected parent_hash {} have {}",
@@ -77,7 +77,7 @@ impl Freezer {
                 }
                 let raw_block = block.data();
                 guard.files.append(number, raw_block.as_slice())?;
-                guard.frozen_tip = Some(block.header());
+                guard.tip = Some(block.header());
                 ckb_logger::debug!("freezer block append {}", number);
             } else {
                 ckb_logger::error!("freezer block missing {}", number);
@@ -93,5 +93,22 @@ impl Freezer {
 
     pub fn number(&self) -> BlockNumber {
         self.number.load(Ordering::SeqCst)
+    }
+
+    pub fn truncate(&self, item: u64) -> Result<(), Error> {
+        if item > 0 && ((item + 1) < self.number()) {
+            let mut inner = self.inner.lock();
+            inner.files.truncate(item)?;
+
+            let raw_block = inner
+                .files
+                .retrieve(item)?
+                .expect("frozen number sync with files");
+            let block = packed::BlockReader::from_slice(&raw_block)
+                .map_err(internal_error)?
+                .to_entity();
+            inner.tip = Some(block.header().into_view());
+        }
+        Ok(())
     }
 }
