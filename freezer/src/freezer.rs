@@ -41,7 +41,9 @@ impl Freezer {
 
         let mut frozen_tip = None;
         if frozen > 1 {
-            let raw_block = files.retrieve(frozen - 1)?;
+            let raw_block = files
+                .retrieve(frozen - 1)?
+                .expect("frozen number sync with files");
             let block = packed::BlockReader::from_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
@@ -75,6 +77,7 @@ impl Freezer {
                 }
                 let raw_block = block.data();
                 guard.files.append(number, raw_block.as_slice())?;
+                guard.frozen_tip = Some(block.header());
                 ckb_logger::debug!("freezer block append {}", number);
             } else {
                 ckb_logger::error!("freezer block missing {}", number);
@@ -84,7 +87,7 @@ impl Freezer {
         guard.files.sync_all()
     }
 
-    pub fn retrieve(&self, number: BlockNumber) -> Result<Vec<u8>, Error> {
+    pub fn retrieve(&self, number: BlockNumber) -> Result<Option<Vec<u8>>, Error> {
         self.inner.lock().files.retrieve(number)
     }
 

@@ -25,7 +25,7 @@ fn basic() {
     for i in 1..50 {
         let expect = make_bytes(15, i);
         let actual = freezer.retrieve(i.into()).unwrap();
-        assert_eq!(expect, actual);
+        assert_eq!(Some(expect), actual);
     }
 
     for i in 100..255 {
@@ -36,7 +36,7 @@ fn basic() {
     for i in 1..255 {
         let expect = make_bytes(15, i);
         let actual = freezer.retrieve(i.into()).unwrap();
-        assert_eq!(expect, actual);
+        assert_eq!(Some(expect), actual);
     }
 }
 
@@ -66,7 +66,7 @@ fn reopen() {
     for i in 1..255 {
         let expect = make_bytes(15, i);
         let actual = freezer.retrieve(i.into()).unwrap();
-        assert_eq!(expect, actual);
+        assert_eq!(Some(expect), actual);
     }
 }
 
@@ -96,8 +96,8 @@ fn try_repair_dangling_head1() {
         .unwrap();
     freezer.preopen().unwrap();
 
-    assert_eq!(freezer.retrieve(0xfd).unwrap(), make_bytes(15, 0xfd));
-    assert!(freezer.retrieve(0xff).is_err());
+    assert_eq!(freezer.retrieve(0xfd).unwrap(), Some(make_bytes(15, 0xfd)));
+    assert_eq!(freezer.retrieve(0xff).unwrap(), None);
 }
 
 #[test]
@@ -128,8 +128,8 @@ fn try_repair_dangling_head2() {
             .build()
             .unwrap();
         freezer.preopen().unwrap();
-        assert_eq!(freezer.retrieve(1).unwrap(), make_bytes(15, 1));
-        assert!(freezer.retrieve(2).is_err());
+        assert_eq!(freezer.retrieve(1).unwrap(), Some(make_bytes(15, 1)));
+        assert_eq!(freezer.retrieve(2).unwrap(), None);
 
         // should be able to append from 2
         for i in 2..255 {
@@ -147,7 +147,7 @@ fn try_repair_dangling_head2() {
     for i in 1..255 {
         let expect = make_bytes(15, i);
         let actual = freezer.retrieve(i.into()).unwrap();
-        assert_eq!(expect, actual);
+        assert_eq!(Some(expect), actual);
     }
 }
 
@@ -170,7 +170,7 @@ fn try_repair_dangling_index() {
         for i in 1..10 {
             let expect = make_bytes(15, i);
             let actual = freezer.retrieve(i.into()).unwrap();
-            assert_eq!(expect, actual);
+            assert_eq!(Some(expect), actual);
         }
 
         truncate_file(&mut freezer.head.file, 20).unwrap();
@@ -187,6 +187,6 @@ fn try_repair_dangling_index() {
     for i in 1..8 {
         let expect = make_bytes(15, i);
         let actual = freezer.retrieve(i.into()).unwrap();
-        assert_eq!(expect, actual);
+        assert_eq!(Some(expect), actual);
     }
 }
