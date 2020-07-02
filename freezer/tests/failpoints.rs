@@ -57,7 +57,7 @@ macro_rules! fail {
             for i in 1..20 {
                 let expect = make_bytes(15, i);
                 let actual = freezer.retrieve(i.into()).unwrap();
-                assert_eq!(expect, actual);
+                assert_eq!(Some(expect), actual);
             }
         }
     };

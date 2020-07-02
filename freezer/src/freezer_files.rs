@@ -137,53 +137,72 @@ impl FreezerFiles {
         Ok(())
     }
 
-    pub fn retrieve(&self, item: u64) -> Result<Vec<u8>, Error> {
+    pub fn retrieve(&self, item: u64) -> Result<Option<Vec<u8>>, Error> {
         if item < 1 {
-            return Err(internal_error("retrieve out of bounds"));
+            return Ok(None);
         }
-
         if self.number.load(Ordering::SeqCst) <= item {
-            return Err(internal_error("retrieve out of bounds"));
+            return Ok(None);
         }
 
-        let (start_offset, end_offset, file_id) = self.get_bounds(item)?;
+        let bounds = self.get_bounds(item)?;
+        if let Some((start_offset, end_offset, file_id)) = bounds {
+            let mut file = self
+                .files
+                .get(&file_id)
+                .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
 
-        let mut file = self
-            .files
-            .get(&file_id)
-            .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
+            let size = (end_offset - start_offset) as usize;
+            let mut ret = vec![0u8; size];
+            file.seek(SeekFrom::Start(start_offset))
+                .map_err(internal_error)?;
+            file.read_exact(&mut ret).map_err(internal_error)?;
 
-        let size = (end_offset - start_offset) as usize;
-        let mut ret = vec![0u8; size];
-        file.seek(SeekFrom::Start(start_offset))
-            .map_err(internal_error)?;
-        file.read_exact(&mut ret).map_err(internal_error)?;
-        Ok(ret)
+            Ok(Some(ret))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn get_bounds(&self, item: u64) -> Result<(u64, u64, FileId), Error> {
+    fn get_bounds(&self, item: u64) -> Result<Option<(u64, u64, FileId)>, Error> {
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
         let mut index = &self.index;
-        index
-            .seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE))
-            .map_err(internal_error)?;
-        index.read_exact(&mut buffer).map_err(internal_error)?;
+        if let Err(e) = index.seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE)) {
+            ckb_logger::trace!("Freezer get_bounds seek {} {}", item * INDEX_ENTRY_SIZE, e);
+            return Ok(None);
+        }
+
+        if let Err(e) = index.read_exact(&mut buffer) {
+            ckb_logger::trace!("Freezer get_bounds read_exact {}", e);
+            return Ok(None);
+        }
         let end_index = IndexEntry::decode(&buffer)?;
         if item == 1 {
-            return Ok((0, end_index.offset, end_index.file_id));
+            return Ok(Some((0, end_index.offset, end_index.file_id)));
         }
 
-        index
-            .seek(SeekFrom::Start((item - 1) * INDEX_ENTRY_SIZE))
-            .map_err(internal_error)?;
-        index.read_exact(&mut buffer).map_err(internal_error)?;
+        if let Err(e) = index.seek(SeekFrom::Start((item - 1) * INDEX_ENTRY_SIZE)) {
+            ckb_logger::trace!(
+                "Freezer get_bounds seek {} {}",
+                (item - 1) * INDEX_ENTRY_SIZE,
+                e
+            );
+            return Ok(None);
+        }
+        if let Err(e) = index.read_exact(&mut buffer) {
+            ckb_logger::trace!("Freezer get_bounds read_exact {}", e);
+            return Ok(None);
+        }
         let start_index = IndexEntry::decode(&buffer)?;
-
         if start_index.file_id != end_index.file_id {
-            return Ok((0, end_index.offset, end_index.file_id));
+            return Ok(Some((0, end_index.offset, end_index.file_id)));
         }
 
-        Ok((start_index.offset, end_index.offset, end_index.file_id))
+        Ok(Some((
+            start_index.offset,
+            end_index.offset,
+            end_index.file_id,
+        )))
     }
 
     pub fn preopen(&mut self) -> Result<(), Error> {
