@@ -9,6 +9,7 @@ use ckb_sync::NetworkProtocol;
 use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[rpc(server)]
@@ -22,7 +23,7 @@ pub trait IntegrationTestRpc {
     fn remove_node(&self, peer_id: String) -> Result<()>;
 
     #[rpc(name = "process_block_without_verify")]
-    fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
+    fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>>;
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
@@ -52,12 +53,23 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(())
     }
 
-    fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>> {
+    fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let ret = self
             .chain
             .internal_process_block(Arc::clone(&block), Switch::DISABLE_ALL);
+
+        if broadcast {
+            let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            if let Err(err) = self
+                .network_controller
+                .quick_broadcast(NetworkProtocol::RELAY.into(), message.as_bytes())
+            {
+                error!("Broadcast new block failed: {:?}", err);
+            }
+        }
         if ret.is_ok() {
             Ok(Some(block.hash().unpack()))
         } else {

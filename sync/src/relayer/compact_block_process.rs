@@ -12,7 +12,7 @@ use ckb_types::{
     packed,
     prelude::*,
 };
-use ckb_verification::{HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderVerifier, Verifier};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -172,11 +172,19 @@ impl<'a> CompactBlockProcess<'a> {
                 let header_verifier =
                     HeaderVerifier::new(&median_time_context, &shared.consensus());
                 if let Err(err) = header_verifier.verify(&resolver) {
-                    shared
-                        .state()
-                        .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
-                    return StatusCode::CompactBlockHasInvalidHeader
-                        .with_context(format!("{} {}", block_hash, err));
+                    if err
+                        .downcast_ref::<HeaderError>()
+                        .map(|e| e.is_too_new())
+                        .unwrap_or(false)
+                    {
+                        return Status::ignored();
+                    } else {
+                        shared
+                            .state()
+                            .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                        return StatusCode::CompactBlockHasInvalidHeader
+                            .with_context(format!("{} {}", block_hash, err));
+                    }
                 }
                 attempt!(CompactBlockVerifier::verify(&compact_block));
 

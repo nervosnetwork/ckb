@@ -46,6 +46,7 @@ pub enum HeaderErrorKind {
     Timestamp,
     Number,
     Epoch,
+    Version,
 }
 
 #[derive(Debug)]
@@ -94,8 +95,6 @@ pub enum BlockErrorKind {
     ExceededMaximumCycles,
 
     ExceededMaximumBlockBytes,
-
-    Version,
 }
 
 #[derive(Fail, Debug)]
@@ -196,6 +195,15 @@ pub enum TimestampError {
     BlockTimeTooNew { max: u64, actual: u64 },
 }
 
+impl TimestampError {
+    pub fn is_too_new(&self) -> bool {
+        match self {
+            Self::BlockTimeTooOld { .. } => false,
+            Self::BlockTimeTooNew { .. } => true,
+        }
+    }
+}
+
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 #[fail(display = "NumberError(expected: {}, actual: {})", expected, actual)]
 pub struct NumberError {
@@ -282,6 +290,18 @@ impl HeaderError {
     pub fn inner(&self) -> &Context<HeaderErrorKind> {
         &self.kind
     }
+
+    // Note: if the header is invalid, that may also be grounds for disconnecting the peer,
+    // However, there is a circumstance where that does not hold:
+    // if the header's timestamp is more than ALLOWED_FUTURE_BLOCKTIME ahead of our current time.
+    // In that case, the header may become valid in the future,
+    // and we don't want to disconnect a peer merely for serving us one too-far-ahead block header,
+    // to prevent an attacker from splitting the network by mining a block right at the ALLOWED_FUTURE_BLOCKTIME boundary.
+    pub fn is_too_new(&self) -> bool {
+        self.downcast_ref::<TimestampError>()
+            .map(|e| e.is_too_new())
+            .unwrap_or(false)
+    }
 }
 
 impl From<Context<BlockErrorKind>> for BlockError {
@@ -311,5 +331,33 @@ impl BlockError {
 
     pub fn inner(&self) -> &Context<BlockErrorKind> {
         &self.kind
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_too_new() {
+        let too_old = TimestampError::BlockTimeTooOld { min: 0, actual: 0 };
+        let too_new = TimestampError::BlockTimeTooNew { max: 0, actual: 0 };
+
+        let errors: Vec<HeaderError> = vec![
+            HeaderErrorKind::InvalidParent.into(),
+            HeaderErrorKind::Pow.into(),
+            HeaderErrorKind::Version.into(),
+            HeaderErrorKind::Epoch.into(),
+            HeaderErrorKind::Version.into(),
+            HeaderErrorKind::Timestamp.into(),
+            too_old.into(),
+            too_new.into(),
+        ];
+
+        let is_too_new: Vec<bool> = errors.iter().map(|e| e.is_too_new()).collect();
+        assert_eq!(
+            is_too_new,
+            vec![false, false, false, false, false, false, false, true]
+        );
     }
 }

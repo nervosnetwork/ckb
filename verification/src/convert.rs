@@ -8,6 +8,12 @@ use ckb_error::{
 };
 use failure::{Context, Fail};
 
+impl From<HeaderErrorKind> for HeaderError {
+    fn from(kind: HeaderErrorKind) -> Self {
+        Context::new(kind).into()
+    }
+}
+
 impl From<BlockErrorKind> for BlockError {
     fn from(kind: BlockErrorKind) -> Self {
         Context::new(kind).into()
@@ -49,6 +55,7 @@ impl_error_conversion_with_adaptor!(NumberError, HeaderError, Error);
 impl_error_conversion_with_adaptor!(EpochError, HeaderError, Error);
 
 impl_error_conversion_with_adaptor!(BlockErrorKind, BlockError, Error);
+impl_error_conversion_with_adaptor!(HeaderErrorKind, HeaderError, Error);
 impl_error_conversion_with_adaptor!(BlockTransactionsError, BlockError, Error);
 impl_error_conversion_with_adaptor!(UnknownParentError, BlockError, Error);
 impl_error_conversion_with_adaptor!(CommitError, BlockError, Error);

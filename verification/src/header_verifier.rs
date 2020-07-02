@@ -1,6 +1,6 @@
 use super::Verifier;
 use crate::{
-    BlockErrorKind, NumberError, PowError, TimestampError, UnknownParentError,
+    HeaderErrorKind, NumberError, PowError, TimestampError, UnknownParentError,
     ALLOWED_FUTURE_BLOCKTIME,
 };
 use ckb_chain_spec::consensus::Consensus;
@@ -64,7 +64,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.version() != self.block_version {
-            return Err(BlockErrorKind::Version.into());
+            return Err(HeaderErrorKind::Version.into());
         }
         Ok(())
     }
