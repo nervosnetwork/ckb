@@ -39,24 +39,23 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
-        self.get_block_header(h).map(|header| {
-            if let Some(freezer) = self.freezer() {
-                if header.number() > 0 && header.number() < freezer.number() {
-                    let raw_block = freezer.retrieve(header.number()).expect("block frozen");
-                    let raw_block =
-                        packed::BlockReader::from_slice_should_be_ok(&raw_block).to_entity();
-                    return raw_block.into_view();
-                }
+        let header = self.get_block_header(h)?;
+        if let Some(freezer) = self.freezer() {
+            if header.number() > 0 && header.number() < freezer.number() {
+                let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
+                let raw_block =
+                    packed::BlockReader::from_slice_should_be_ok(&raw_block).to_entity();
+                return Some(raw_block.into_view());
             }
-            let body = self.get_block_body(h);
-            let uncles = self
-                .get_block_uncles(h)
-                .expect("block uncles must be stored");
-            let proposals = self
-                .get_block_proposal_txs_ids(h)
-                .expect("block proposal_ids must be stored");
-            BlockView::new_unchecked(header, uncles, body, proposals)
-        })
+        }
+        let body = self.get_block_body(h);
+        let uncles = self
+            .get_block_uncles(h)
+            .expect("block uncles must be stored");
+        let proposals = self
+            .get_block_proposal_txs_ids(h)
+            .expect("block proposal_ids must be stored");
+        Some(BlockView::new_unchecked(header, uncles, body, proposals))
     }
 
     /// Get header by block header hash
@@ -97,16 +96,15 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 
     fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
-        self.get_block_header(h).map(|header| {
-            let body = self.get_block_body(h);
-            let uncles = self
-                .get_block_uncles(h)
-                .expect("block uncles must be stored");
-            let proposals = self
-                .get_block_proposal_txs_ids(h)
-                .expect("block proposal_ids must be stored");
-            BlockView::new_unchecked(header, uncles, body, proposals)
-        })
+        let header = self.get_block_header(h)?;
+        let body = self.get_block_body(h);
+        let uncles = self
+            .get_block_uncles(h)
+            .expect("block uncles must be stored");
+        let proposals = self
+            .get_block_proposal_txs_ids(h)
+            .expect("block proposal_ids must be stored");
+        Some(BlockView::new_unchecked(header, uncles, body, proposals))
     }
 
     /// Get all transaction-hashes in block body by block header hash
@@ -237,27 +235,8 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, packed::Byte32)> {
-        self.get_transaction_info(hash).map(|info| {
-            if let Some(freezer) = self.freezer() {
-                if info.block_number < freezer.number() {
-                    let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
-                    let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
-                    let tx_reader = raw_block_reader
-                        .transactions()
-                        .get(info.index)
-                        .expect("since tx info is existed, so tx data should be existed");
-                    return (tx_reader.to_entity().into_view(), info.block_hash);
-                }
-            }
-
-            self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
-                .map(|slice| {
-                    let reader =
-                        packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    (reader.unpack(), info.block_hash)
-                })
-                .expect("since tx info is existed, so tx data should be existed")
-        })
+        self.get_transaction_with_info(hash)
+            .map(|(tx, tx_info)| (tx, tx_info.block_hash))
     }
 
     /// TODO(doc): @quake
@@ -274,23 +253,22 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, TransactionInfo)> {
-        let info = self.get_transaction_info(hash)?;
-
+        let tx_info = self.get_transaction_info(hash)?;
         if let Some(freezer) = self.freezer() {
-            if info.block_number < freezer.number() {
-                let raw_block = freezer.retrieve(info.block_number).expect("block frozen");
+            if tx_info.block_number > 0 && tx_info.block_number < freezer.number() {
+                let raw_block = freezer
+                    .retrieve(tx_info.block_number)
+                    .expect("block frozen")?;
                 let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
-                return raw_block_reader
-                    .transactions()
-                    .get(info.index)
-                    .map(|tx_reader| (tx_reader.to_entity().into_view(), info));
+                let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
+                return Some((tx_reader.to_entity().into_view(), tx_info));
             }
         }
-        self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
+        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
             .map(|slice| {
                 let reader =
                     packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                (reader.unpack(), info)
+                (reader.unpack(), tx_info)
             })
     }
 
