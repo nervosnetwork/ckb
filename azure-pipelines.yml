@@ -28,7 +28,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - powershell: devtools/windows/make test
+      - pwsh: devtools/windows/make test
         displayName: Run unit tests
         env:
           CI: true
@@ -41,7 +41,7 @@ jobs:
         ne(variables['Build.Reason'], 'PullRequest'),
         or(
           startsWith(variables['Build.SourceBranch'], 'refs/heads/rc/'),
-          in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop')
+          in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop', 'refs/heads/staging2', 'refs/heads/trying')
         )
       )
     pool:
@@ -50,7 +50,7 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - powershell: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
+      - pwsh: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
         displayName: Run integration tests
         env:
           CI: true
@@ -64,12 +64,12 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.41.0-x86_64-pc-windows-msvc'
-      - powershell: devtools/windows/make prod
+      - pwsh: devtools/windows/make prod
         displayName: Build
       - script: |
           curl -LO https://github.com/nervosnetwork/ckb-cli/releases/download/$(CKBClientVersion)/ckb-cli_$(CKBClientVersion)_x86_64-pc-windows-msvc.zip
         displayName: Download ckb-cli
-      - powershell: |
+      - pwsh: |
           mkdir ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp devtools/windows/ckb-init-mainnet.bat,devtools/windows/ckb-reinit-mainnet.bat,devtools/windows/ckb-run.bat ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc

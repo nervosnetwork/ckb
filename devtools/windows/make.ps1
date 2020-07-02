@@ -22,7 +22,7 @@ function Restore-Env {
   foreach ($item in $RememberEnv.GetEnumerator()) {
     if ($item.Value -eq $null) {
       echo "unset $($item.Key)"
-      Remove-Item -Path "env:$($item.Key)"
+      Remove-Item -Path "env:$($item.Key)" -ErrorAction SilentlyContinue
     } else {
       echo "set $($item.Key)=$($item.Value)"
       Set-Item -Path "env:$($item.Key)" -Value $item.Value
@@ -69,9 +69,9 @@ function run-integration {
   git submodule update --init
   cp -Fo Cargo.lock test/Cargo.lock
   rm -Re -Fo -ErrorAction SilentlyContinue test/target
-  New-Item -ItemType Junction -Path test/target -Value "$(pwd)/target"
 
   cargo build --features deadlock_detection
+  New-Item -ItemType Junction -Path test/target -Value "$(pwd)/target"
 
   pushd test
   Set-Env RUST_BACKTRACE 1
@@ -81,6 +81,13 @@ function run-integration {
 }
 
 try {
+  if ($env:CKB_TEST_ARGS -eq $null) {
+    Set-Env CKB_TEST_ARGS "-c 4"
+  }
+  if ($env:INTEGRATION_RUST_LOG -eq $null) {
+    Set-Env INTEGRATION_RUST_LOG "ckb-network=error"
+  }
+
   foreach ($arg in $args) {
     $parts = $arg -Split '=', 2
       if ($parts.Count -eq 2) {
