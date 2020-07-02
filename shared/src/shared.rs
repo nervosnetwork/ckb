@@ -24,6 +24,7 @@ use ckb_verification::cache::TxVerifyCache;
 use once_cell::sync::OnceCell;
 use std::cmp;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -310,7 +311,7 @@ impl Shared {
 /// TODO(doc): @quake
 pub struct SharedBuilder {
     db: RocksDB,
-    freezer: Option<Freezer>,
+    ancient_path: Option<PathBuf>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
@@ -331,7 +332,7 @@ impl Default for SharedBuilder {
     fn default() -> Self {
         SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
-            freezer: None,
+            ancient_path: None,
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
@@ -354,10 +355,9 @@ impl SharedBuilder {
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
         migrations.add_migration(Box::new(migrations::CellMigration));
 
-        let freezer = Freezer::open(config.ancient.to_path_buf()).expect("freezer init");
         SharedBuilder {
             db,
-            freezer: Some(freezer),
+            ancient_path: Some(config.ancient.to_path_buf()),
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
@@ -420,7 +420,8 @@ impl SharedBuilder {
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
         let db = self.migrations.migrate(self.db)?;
-        let store = if let Some(freezer) = self.freezer {
+        let store = if let Some(path) = self.ancient_path {
+            let freezer = Freezer::open(path)?;
             ChainDB::new_with_freezer(db, freezer, store_config)
         } else {
             ChainDB::new(db, store_config)

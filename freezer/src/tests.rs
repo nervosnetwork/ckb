@@ -190,3 +190,63 @@ fn try_repair_dangling_index() {
         assert_eq!(Some(expect), actual);
     }
 }
+
+#[test]
+fn truncate() {
+    let tempdir = tempfile::Builder::new().tempdir().unwrap();
+    {
+        let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+            .max_file_size(50)
+            .build()
+            .unwrap();
+
+        freezer.preopen().unwrap();
+        for i in 1..30 {
+            let data = make_bytes(15, i);
+            freezer.append(i.into(), &data).unwrap();
+        }
+
+        for i in 1..30 {
+            let expect = make_bytes(15, i);
+            let actual = freezer.retrieve(i.into()).unwrap();
+            assert_eq!(Some(expect), actual);
+        }
+
+        let retrieve_out_of_bound = freezer.retrieve(30).unwrap();
+        assert_eq!(None, retrieve_out_of_bound);
+    }
+
+    {
+        let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+            .max_file_size(50)
+            .build()
+            .unwrap();
+        freezer.preopen().unwrap();
+        freezer.truncate(10).unwrap();
+
+        for i in 1..11 {
+            let expect = make_bytes(15, i);
+            let actual = freezer.retrieve(i.into()).unwrap();
+            assert_eq!(Some(expect), actual);
+        }
+
+        let retrieve_out_of_bound = freezer.retrieve(11).unwrap();
+        assert_eq!(None, retrieve_out_of_bound);
+        assert_eq!(freezer.number(), 11);
+        assert_eq!(freezer.head.bytes, 15);
+    }
+
+    let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+        .max_file_size(50)
+        .build()
+        .unwrap();
+    freezer.preopen().unwrap();
+    freezer.truncate(1).unwrap();
+
+    let expect = make_bytes(15, 1);
+    let actual = freezer.retrieve(1).unwrap();
+    assert_eq!(Some(expect), actual);
+
+    let retrieve_out_of_bound = freezer.retrieve(2).unwrap();
+    assert_eq!(None, retrieve_out_of_bound);
+}
