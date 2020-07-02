@@ -1,6 +1,6 @@
 [package]
 name = "ckb-pow"
-version = "0.33.0"
+version = "0.33.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"

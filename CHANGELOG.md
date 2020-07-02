@@ -1,3 +1,9 @@
+# [v0.33.1](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.33.1) (2020-07-02)
+
+### Bug Fixes
+
+* [GHSA-r9rv-9mh8-pxf4](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-r9rv-9mh8-pxf4): BlockTimeTooNew should not be considered as invalid block (@zhangsoledad)
+
 # [v0.33.0](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.32.2) (2020-06-19)
 
 ### Bug Fixes
