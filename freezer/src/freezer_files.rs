@@ -96,6 +96,7 @@ impl FreezerFiles {
         Ok(files)
     }
 
+    #[inline]
     pub fn number(&self) -> u64 {
         self.number.load(Ordering::SeqCst)
     }
@@ -205,6 +206,39 @@ impl FreezerFiles {
         )))
     }
 
+    // keeping the the provided threshold number item and dropping the rest.
+    pub fn truncate(&mut self, item: u64) -> Result<(), Error> {
+        // out of bound, this has no effect.
+        if item < 1 || ((item + 1) >= self.number()) {
+            return Ok(());
+        }
+        ckb_logger::trace!("Freezer truncate items {}", item);
+
+        let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
+        // truncate the index
+        helper::truncate_file(&mut self.index, (item + 1) * INDEX_ENTRY_SIZE)?;
+        self.index
+            .seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE))
+            .map_err(internal_error)?;
+        self.index.read_exact(&mut buffer).map_err(internal_error)?;
+        let new_index = IndexEntry::decode(&buffer)?;
+
+        // truncate files
+        if new_index.file_id != self.head_id {
+            self.release(new_index.file_id);
+            let (new_head_file, offset) = self.open_append(new_index.file_id)?;
+
+            self.delete_after(new_index.file_id)?;
+
+            self.head_id = new_index.file_id;
+            self.head = Head::new(new_head_file, offset);
+        }
+        helper::truncate_file(&mut self.head.file, new_index.offset)?;
+        self.head.bytes = new_index.offset;
+        self.number.store(item + 1, Ordering::SeqCst);
+        Ok(())
+    }
+
     pub fn preopen(&mut self) -> Result<(), Error> {
         self.release_after(0);
 
@@ -236,6 +270,19 @@ impl FreezerFiles {
         self.files.split_off(&(id + 1));
     }
 
+    fn delete_after(&mut self, id: FileId) -> Result<(), Error> {
+        let released = self.files.split_off(&(id + 1));
+        self.delete_files_by_id(released.keys().cloned())
+    }
+
+    fn delete_files_by_id(&self, file_ids: impl Iterator<Item = FileId>) -> Result<(), Error> {
+        for file_id in file_ids {
+            let path = self.file_path.join(helper::file_name(file_id));
+            fs::remove_file(path).map_err(internal_error)?;
+        }
+        Ok(())
+    }
+
     fn open_read_only(&mut self, id: FileId) -> Result<File, Error> {
         fail_point!("open_read_only");
         let mut opt = fs::OpenOptions::new();
@@ -248,6 +295,15 @@ impl FreezerFiles {
         let mut opt = fs::OpenOptions::new();
         opt.create(true).read(true).write(true).truncate(true);
         self.open_file(id, opt)
+    }
+
+    fn open_append(&mut self, id: FileId) -> Result<(File, u64), Error> {
+        fail_point!("open_append");
+        let mut opt = fs::OpenOptions::new();
+        opt.create(true).read(true).write(true);
+        let mut file = self.open_file(id, opt)?;
+        let offset = file.seek(SeekFrom::End(0)).map_err(internal_error)?;
+        Ok((file, offset))
     }
 
     fn open_file(&mut self, id: FileId, opt: fs::OpenOptions) -> Result<File, Error> {
@@ -408,6 +464,7 @@ pub(crate) mod helper {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn file_name(file_id: FileId) -> String {
         format!("blk{:06}", file_id)
     }
