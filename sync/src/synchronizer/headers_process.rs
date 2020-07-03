@@ -338,12 +338,13 @@ where
 
         // FIXME If status == BLOCK_INVALID then return early. But which error
         // type should we return?
-        if self
-            .active_chain
-            .contains_block_status(&self.header.hash(), BlockStatus::HEADER_VALID)
-        {
+        let status = self.active_chain.get_block_status(&self.header.hash());
+        if status.contains(BlockStatus::HEADER_VALID) {
             let header_view = shared
-                .get_header_view(&self.header.hash())
+                .get_header_view(
+                    &self.header.hash(),
+                    Some(status.contains(BlockStatus::BLOCK_STORED)),
+                )
                 .expect("header with HEADER_VALID should exist");
             state
                 .peers()
