@@ -5,7 +5,6 @@ use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
     core::{self, BlockNumber},
@@ -166,7 +165,6 @@ impl<'a> CompactBlockProcess<'a> {
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
                     consensus: shared.consensus(),
-                    store: shared.store(),
                 };
                 let header_verifier =
                     HeaderVerifier::new(&median_time_context, &shared.consensus());
@@ -297,13 +295,13 @@ impl<'a> CompactBlockProcess<'a> {
 
 struct CompactBlockMedianTimeView<'a> {
     fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
-    store: &'a ChainDB,
     consensus: &'a Consensus,
 }
 
 impl<'a> CompactBlockMedianTimeView<'a> {
     fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
-        (self.fn_get_pending_header)(hash.to_owned()).or_else(|| self.store.get_block_header(hash))
+        // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
+        (self.fn_get_pending_header)(hash.to_owned())
     }
 }
 
