@@ -27,5 +27,5 @@ pub const COLUMN_EPOCH: Col = "9";
 pub const COLUMN_CELL_SET: Col = "10";
 pub const COLUMN_UNCLES: Col = "11";
 
-const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
-const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
+pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
+pub const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
