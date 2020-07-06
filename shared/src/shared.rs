@@ -1,4 +1,4 @@
-use crate::{Snapshot, SnapshotMgr};
+use crate::{migrations, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::Consensus;
@@ -229,6 +229,7 @@ impl SharedBuilder {
     pub fn with_db_config(config: &DBConfig) -> Self {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
+        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
 
         let db = RocksDB::open(config, COLUMNS, migrations);
         SharedBuilder {

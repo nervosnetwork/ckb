@@ -2201,17 +2201,12 @@ impl ::core::fmt::Display for HeaderView {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "hash", self.hash())?;
         write!(f, ", {}: {}", "data", self.data())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl ::core::default::Default for HeaderView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            252, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2219,44 +2214,21 @@ impl ::core::default::Default for HeaderView {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
         ];
         HeaderView::new_unchecked(v.into())
     }
 }
 impl HeaderView {
+    pub const TOTAL_SIZE: usize = 240;
+    pub const FIELD_SIZES: [usize; 2] = [32, 208];
     pub const FIELD_COUNT: usize = 2;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn hash(&self) -> Byte32 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Byte32::new_unchecked(self.0.slice(start..end))
+        Byte32::new_unchecked(self.0.slice(0..32))
     }
     pub fn data(&self) -> Header {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[12..]) as usize;
-            Header::new_unchecked(self.0.slice(start..end))
-        } else {
-            Header::new_unchecked(self.0.slice(start..))
-        }
+        Header::new_unchecked(self.0.slice(32..240))
     }
     pub fn as_reader<'r>(&'r self) -> HeaderViewReader<'r> {
         HeaderViewReader::new_unchecked(self.as_slice())
@@ -2308,46 +2280,18 @@ impl<'r> ::core::fmt::Display for HeaderViewReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "hash", self.hash())?;
         write!(f, ", {}: {}", "data", self.data())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl<'r> HeaderViewReader<'r> {
+    pub const TOTAL_SIZE: usize = 240;
+    pub const FIELD_SIZES: [usize; 2] = [32, 208];
     pub const FIELD_COUNT: usize = 2;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn hash(&self) -> Byte32Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[0..32])
     }
     pub fn data(&self) -> HeaderReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[12..]) as usize;
-            HeaderReader::new_unchecked(&self.as_slice()[start..end])
-        } else {
-            HeaderReader::new_unchecked(&self.as_slice()[start..])
-        }
+        HeaderReader::new_unchecked(&self.as_slice()[32..240])
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for HeaderViewReader<'r> {
@@ -2362,47 +2306,12 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderViewReader<'r> {
     fn as_slice(&self) -> &'r [u8] {
         self.0
     }
-    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
         use molecule::verification_error as ve;
         let slice_len = slice.len();
-        if slice_len < molecule::NUMBER_SIZE {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        if slice_len != Self::TOTAL_SIZE {
+            return ve!(Self, TotalSizeNotMatch, Self::TOTAL_SIZE, slice_len);
         }
-        let total_size = molecule::unpack_number(slice) as usize;
-        if slice_len != total_size {
-            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
-        }
-        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
-            return Ok(());
-        }
-        if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
-        }
-        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        let field_count = offset_first / 4 - 1;
-        if field_count < Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        } else if !compatible && field_count > Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        };
-        let header_size = molecule::NUMBER_SIZE * (field_count + 1);
-        if slice_len < header_size {
-            return ve!(Self, HeaderIsBroken, header_size, slice_len);
-        }
-        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..]
-            .chunks(molecule::NUMBER_SIZE)
-            .take(field_count)
-            .map(|x| molecule::unpack_number(x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        HeaderReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         Ok(())
     }
 }
@@ -2412,6 +2321,8 @@ pub struct HeaderViewBuilder {
     pub(crate) data: Header,
 }
 impl HeaderViewBuilder {
+    pub const TOTAL_SIZE: usize = 240;
+    pub const FIELD_SIZES: [usize; 2] = [32, 208];
     pub const FIELD_COUNT: usize = 2;
     pub fn hash(mut self, v: Byte32) -> Self {
         self.hash = v;
@@ -2426,21 +2337,9 @@ impl molecule::prelude::Builder for HeaderViewBuilder {
     type Entity = HeaderView;
     const NAME: &'static str = "HeaderViewBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.hash.as_slice().len()
-            + self.data.as_slice().len()
+        Self::TOTAL_SIZE
     }
     fn write<W: ::molecule::io::Write>(&self, writer: &mut W) -> ::molecule::io::Result<()> {
-        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
-        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
-        offsets.push(total_size);
-        total_size += self.hash.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.data.as_slice().len();
-        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
-        for offset in offsets.into_iter() {
-            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
-        }
         writer.write_all(self.hash.as_slice())?;
         writer.write_all(self.data.as_slice())?;
         Ok(())
@@ -3402,95 +3301,47 @@ impl ::core::fmt::Display for EpochExt {
         write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl ::core::default::Default for EpochExt {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            144, 0, 0, 0, 36, 0, 0, 0, 68, 0, 0, 0, 100, 0, 0, 0, 104, 0, 0, 0, 112, 0, 0, 0, 120,
-            0, 0, 0, 128, 0, 0, 0, 136, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         EpochExt::new_unchecked(v.into())
     }
 }
 impl EpochExt {
+    pub const TOTAL_SIZE: usize = 108;
+    pub const FIELD_SIZES: [usize; 8] = [32, 32, 4, 8, 8, 8, 8, 8];
     pub const FIELD_COUNT: usize = 8;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn previous_epoch_hash_rate(&self) -> Uint256 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint256::new_unchecked(self.0.slice(start..end))
+        Uint256::new_unchecked(self.0.slice(0..32))
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Byte32::new_unchecked(self.0.slice(start..end))
+        Byte32::new_unchecked(self.0.slice(32..64))
     }
     pub fn compact_target(&self) -> Uint32 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        Uint32::new_unchecked(self.0.slice(start..end))
+        Uint32::new_unchecked(self.0.slice(64..68))
     }
     pub fn number(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
-        let end = molecule::unpack_number(&slice[20..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(68..76))
     }
     pub fn base_block_reward(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
-        let end = molecule::unpack_number(&slice[24..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(76..84))
     }
     pub fn remainder_reward(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[24..]) as usize;
-        let end = molecule::unpack_number(&slice[28..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(84..92))
     }
     pub fn start_number(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[28..]) as usize;
-        let end = molecule::unpack_number(&slice[32..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(92..100))
     }
     pub fn length(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[32..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[36..]) as usize;
-            Uint64::new_unchecked(self.0.slice(start..end))
-        } else {
-            Uint64::new_unchecked(self.0.slice(start..))
-        }
+        Uint64::new_unchecked(self.0.slice(100..108))
     }
     pub fn as_reader<'r>(&'r self) -> EpochExtReader<'r> {
         EpochExtReader::new_unchecked(self.as_slice())
@@ -3566,82 +3417,36 @@ impl<'r> ::core::fmt::Display for EpochExtReader<'r> {
         write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl<'r> EpochExtReader<'r> {
+    pub const TOTAL_SIZE: usize = 108;
+    pub const FIELD_SIZES: [usize; 8] = [32, 32, 4, 8, 8, 8, 8, 8];
     pub const FIELD_COUNT: usize = 8;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn previous_epoch_hash_rate(&self) -> Uint256Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint256Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint256Reader::new_unchecked(&self.as_slice()[0..32])
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[32..64])
     }
     pub fn compact_target(&self) -> Uint32Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint32Reader::new_unchecked(&self.as_slice()[64..68])
     }
     pub fn number(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
-        let end = molecule::unpack_number(&slice[20..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[68..76])
     }
     pub fn base_block_reward(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
-        let end = molecule::unpack_number(&slice[24..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[76..84])
     }
     pub fn remainder_reward(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[24..]) as usize;
-        let end = molecule::unpack_number(&slice[28..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[84..92])
     }
     pub fn start_number(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[28..]) as usize;
-        let end = molecule::unpack_number(&slice[32..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[92..100])
     }
     pub fn length(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[32..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[36..]) as usize;
-            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-        } else {
-            Uint64Reader::new_unchecked(&self.as_slice()[start..])
-        }
+        Uint64Reader::new_unchecked(&self.as_slice()[100..108])
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for EpochExtReader<'r> {
@@ -3656,53 +3461,12 @@ impl<'r> molecule::prelude::Reader<'r> for EpochExtReader<'r> {
     fn as_slice(&self) -> &'r [u8] {
         self.0
     }
-    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
         use molecule::verification_error as ve;
         let slice_len = slice.len();
-        if slice_len < molecule::NUMBER_SIZE {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        if slice_len != Self::TOTAL_SIZE {
+            return ve!(Self, TotalSizeNotMatch, Self::TOTAL_SIZE, slice_len);
         }
-        let total_size = molecule::unpack_number(slice) as usize;
-        if slice_len != total_size {
-            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
-        }
-        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
-            return Ok(());
-        }
-        if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
-        }
-        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        let field_count = offset_first / 4 - 1;
-        if field_count < Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        } else if !compatible && field_count > Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        };
-        let header_size = molecule::NUMBER_SIZE * (field_count + 1);
-        if slice_len < header_size {
-            return ve!(Self, HeaderIsBroken, header_size, slice_len);
-        }
-        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..]
-            .chunks(molecule::NUMBER_SIZE)
-            .take(field_count)
-            .map(|x| molecule::unpack_number(x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        Uint256Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        Uint32Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[6]..offsets[7]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[7]..offsets[8]], compatible)?;
         Ok(())
     }
 }
@@ -3718,6 +3482,8 @@ pub struct EpochExtBuilder {
     pub(crate) length: Uint64,
 }
 impl EpochExtBuilder {
+    pub const TOTAL_SIZE: usize = 108;
+    pub const FIELD_SIZES: [usize; 8] = [32, 32, 4, 8, 8, 8, 8, 8];
     pub const FIELD_COUNT: usize = 8;
     pub fn previous_epoch_hash_rate(mut self, v: Uint256) -> Self {
         self.previous_epoch_hash_rate = v;
@@ -3756,39 +3522,9 @@ impl molecule::prelude::Builder for EpochExtBuilder {
     type Entity = EpochExt;
     const NAME: &'static str = "EpochExtBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.previous_epoch_hash_rate.as_slice().len()
-            + self.last_block_hash_in_previous_epoch.as_slice().len()
-            + self.compact_target.as_slice().len()
-            + self.number.as_slice().len()
-            + self.base_block_reward.as_slice().len()
-            + self.remainder_reward.as_slice().len()
-            + self.start_number.as_slice().len()
-            + self.length.as_slice().len()
+        Self::TOTAL_SIZE
     }
     fn write<W: ::molecule::io::Write>(&self, writer: &mut W) -> ::molecule::io::Result<()> {
-        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
-        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
-        offsets.push(total_size);
-        total_size += self.previous_epoch_hash_rate.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.last_block_hash_in_previous_epoch.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.compact_target.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.number.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.base_block_reward.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.remainder_reward.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.start_number.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.length.as_slice().len();
-        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
-        for offset in offsets.into_iter() {
-            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
-        }
         writer.write_all(self.previous_epoch_hash_rate.as_slice())?;
         writer.write_all(self.last_block_hash_in_previous_epoch.as_slice())?;
         writer.write_all(self.compact_target.as_slice())?;
@@ -3994,62 +3730,30 @@ impl ::core::fmt::Display for TransactionInfo {
         write!(f, "{}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "block_epoch", self.block_epoch())?;
         write!(f, ", {}: {}", "key", self.key())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl ::core::default::Default for TransactionInfo {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            68, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         TransactionInfo::new_unchecked(v.into())
     }
 }
 impl TransactionInfo {
+    pub const TOTAL_SIZE: usize = 52;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
     pub const FIELD_COUNT: usize = 3;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn block_number(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(0..8))
     }
     pub fn block_epoch(&self) -> Uint64 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Uint64::new_unchecked(self.0.slice(8..16))
     }
     pub fn key(&self) -> TransactionKey {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            TransactionKey::new_unchecked(self.0.slice(start..end))
-        } else {
-            TransactionKey::new_unchecked(self.0.slice(start..))
-        }
+        TransactionKey::new_unchecked(self.0.slice(16..52))
     }
     pub fn as_reader<'r>(&'r self) -> TransactionInfoReader<'r> {
         TransactionInfoReader::new_unchecked(self.as_slice())
@@ -4105,52 +3809,21 @@ impl<'r> ::core::fmt::Display for TransactionInfoReader<'r> {
         write!(f, "{}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "block_epoch", self.block_epoch())?;
         write!(f, ", {}: {}", "key", self.key())?;
-        let extra_count = self.count_extra_fields();
-        if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
-        }
         write!(f, " }}")
     }
 }
 impl<'r> TransactionInfoReader<'r> {
+    pub const TOTAL_SIZE: usize = 52;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
     pub const FIELD_COUNT: usize = 3;
-    pub fn total_size(&self) -> usize {
-        molecule::unpack_number(self.as_slice()) as usize
-    }
-    pub fn field_count(&self) -> usize {
-        if self.total_size() == molecule::NUMBER_SIZE {
-            0
-        } else {
-            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
-        }
-    }
-    pub fn count_extra_fields(&self) -> usize {
-        self.field_count() - Self::FIELD_COUNT
-    }
-    pub fn has_extra_fields(&self) -> bool {
-        Self::FIELD_COUNT != self.field_count()
-    }
     pub fn block_number(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[0..8])
     }
     pub fn block_epoch(&self) -> Uint64Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[8..16])
     }
     pub fn key(&self) -> TransactionKeyReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            TransactionKeyReader::new_unchecked(&self.as_slice()[start..end])
-        } else {
-            TransactionKeyReader::new_unchecked(&self.as_slice()[start..])
-        }
+        TransactionKeyReader::new_unchecked(&self.as_slice()[16..52])
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for TransactionInfoReader<'r> {
@@ -4165,48 +3838,12 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionInfoReader<'r> {
     fn as_slice(&self) -> &'r [u8] {
         self.0
     }
-    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
         use molecule::verification_error as ve;
         let slice_len = slice.len();
-        if slice_len < molecule::NUMBER_SIZE {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        if slice_len != Self::TOTAL_SIZE {
+            return ve!(Self, TotalSizeNotMatch, Self::TOTAL_SIZE, slice_len);
         }
-        let total_size = molecule::unpack_number(slice) as usize;
-        if slice_len != total_size {
-            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
-        }
-        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
-            return Ok(());
-        }
-        if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
-        }
-        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % 4 != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        let field_count = offset_first / 4 - 1;
-        if field_count < Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        } else if !compatible && field_count > Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        };
-        let header_size = molecule::NUMBER_SIZE * (field_count + 1);
-        if slice_len < header_size {
-            return ve!(Self, HeaderIsBroken, header_size, slice_len);
-        }
-        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..]
-            .chunks(molecule::NUMBER_SIZE)
-            .take(field_count)
-            .map(|x| molecule::unpack_number(x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        TransactionKeyReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
 }
@@ -4217,6 +3854,8 @@ pub struct TransactionInfoBuilder {
     pub(crate) key: TransactionKey,
 }
 impl TransactionInfoBuilder {
+    pub const TOTAL_SIZE: usize = 52;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
     pub const FIELD_COUNT: usize = 3;
     pub fn block_number(mut self, v: Uint64) -> Self {
         self.block_number = v;
@@ -4235,24 +3874,9 @@ impl molecule::prelude::Builder for TransactionInfoBuilder {
     type Entity = TransactionInfo;
     const NAME: &'static str = "TransactionInfoBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.block_number.as_slice().len()
-            + self.block_epoch.as_slice().len()
-            + self.key.as_slice().len()
+        Self::TOTAL_SIZE
     }
     fn write<W: ::molecule::io::Write>(&self, writer: &mut W) -> ::molecule::io::Result<()> {
-        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
-        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
-        offsets.push(total_size);
-        total_size += self.block_number.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.block_epoch.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.key.as_slice().len();
-        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
-        for offset in offsets.into_iter() {
-            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
-        }
         writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.block_epoch.as_slice())?;
         writer.write_all(self.key.as_slice())?;
