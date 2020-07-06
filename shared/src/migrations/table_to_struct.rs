@@ -1,4 +1,5 @@
-use ckb_db::{Migration, Result, RocksDB};
+use ckb_db::{Result, RocksDB};
+use ckb_db_migration::Migration;
 use ckb_store::{
     COLUMN_BLOCK_HEADER, COLUMN_EPOCH, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
     META_CURRENT_EPOCH_KEY,
@@ -6,8 +7,10 @@ use ckb_store::{
 
 pub struct ChangeMoleculeTableToStruct;
 
+const VERSION: &str = "20200703124523";
+
 impl Migration for ChangeMoleculeTableToStruct {
-    fn migrate(&self, db: &RocksDB) -> Result<()> {
+    fn migrate(&self, db: RocksDB) -> Result<RocksDB> {
         let txn = db.transaction();
 
         let header_view_migration = |key: &[u8], value: &[u8]| -> Result<()> {
@@ -45,10 +48,11 @@ impl Migration for ChangeMoleculeTableToStruct {
             txn.put(COLUMN_META, META_CURRENT_EPOCH_KEY, &current_epoch[36..])?;
         }
 
-        txn.commit()
+        txn.commit()?;
+        Ok(db)
     }
 
     fn version(&self) -> &str {
-        "20200703124523"
+        VERSION
     }
 }

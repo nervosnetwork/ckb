@@ -3,7 +3,8 @@ use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::{DefaultMigration, Migrations, RocksDB};
+use ckb_db::RocksDB;
+use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
@@ -208,6 +209,7 @@ pub struct SharedBuilder {
     store_config: Option<StoreConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
+    migrations: Migrations,
 }
 
 impl Default for SharedBuilder {
@@ -219,6 +221,7 @@ impl Default for SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
+            migrations: Migrations::default(),
         }
     }
 }
@@ -227,11 +230,11 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     pub fn with_db_config(config: &DBConfig) -> Self {
+        let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
 
-        let db = RocksDB::open(config, COLUMNS, migrations);
         SharedBuilder {
             db,
             consensus: None,
@@ -239,6 +242,7 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
+            migrations,
         }
     }
 }
@@ -274,7 +278,9 @@ impl SharedBuilder {
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
-        let store = ChainDB::new(self.db, store_config);
+        let db = self.migrations.migrate(self.db)?;
+        let store = ChainDB::new(db, store_config);
+
         Shared::init(
             store,
             consensus,
