@@ -1,6 +1,7 @@
 use ckb_app_config::{ExitCode, ReplayArgs};
 use ckb_chain::{chain::ChainService, switch::Switch};
-use ckb_instrument::{ChainIterator, ProgressBar, ProgressStyle};
+use ckb_chain_iter::ChainIterator;
+use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use std::sync::Arc;
@@ -95,8 +96,8 @@ fn process_range_block(
 
 fn sanity_check(shared: Shared, mut chain: ChainService, full_verfication: bool) {
     let tip_header = shared.snapshot().tip_header().clone();
-    let chain_iter = ChainIterator::new(&shared);
-    let pb = ProgressBar::new(chain_iter.size());
+    let chain_iter = ChainIterator::new(shared.store());
+    let pb = ProgressBar::new(chain_iter.len());
     pb.set_style(
         ProgressStyle::default_bar()
             .template(

@@ -361,6 +361,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-build-info",
  "ckb-chain",
+ "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-instrument",
  "ckb-jsonrpc-types",
@@ -413,6 +414,14 @@ dependencies = [
  "crossbeam-channel",
  "faketime",
  "lazy_static",
+]
+
+[[package]]
+name = "ckb-chain-iter"
+version = "0.34.0-pre"
+dependencies = [
+ "ckb-store",
+ "ckb-types",
 ]
 
 [[package]]
@@ -560,9 +569,9 @@ name = "ckb-instrument"
 version = "0.34.0-pre"
 dependencies = [
  "ckb-chain",
+ "ckb-chain-iter",
  "ckb-jsonrpc-types",
  "ckb-shared",
- "ckb-store",
  "ckb-types",
  "indicatif",
  "serde_json",

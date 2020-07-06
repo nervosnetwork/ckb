@@ -9,9 +9,7 @@
 
 mod export;
 mod import;
-mod iter;
 
 pub use crate::export::Export;
 pub use crate::import::Import;
-pub use crate::iter::ChainIterator;
 pub use indicatif::{ProgressBar, ProgressStyle};
