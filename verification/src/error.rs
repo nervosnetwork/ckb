@@ -1,5 +1,8 @@
 use ckb_error::Error;
-use ckb_types::{core::Capacity, packed::Byte32};
+use ckb_types::{
+    core::Capacity,
+    packed::{Byte32, OutPoint},
+};
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -41,9 +44,13 @@ pub enum TransactionError {
     #[fail(display = "Empty({})", source)]
     Empty { source: TransactionErrorSource },
 
-    /// Duplicated dep-out-points within the same one transaction
-    #[fail(display = "DuplicateDeps")]
-    DuplicateDeps,
+    /// Duplicated dep-out-points within the same transaction
+    #[fail(display = "DuplicateCellDeps({})", out_point)]
+    DuplicateCellDeps { out_point: OutPoint },
+
+    /// Duplicated headers deps without within the same transaction
+    #[fail(display = "DuplicateHeaderDeps({})", hash)]
+    DuplicateHeaderDeps { hash: Byte32 },
 
     /// outputs.len() != outputs_data.len()
     #[fail(display = "OutputsDataLengthMismatch")]
@@ -265,7 +272,8 @@ impl TransactionError {
     pub fn is_malformed_tx(&self) -> bool {
         match self {
             TransactionError::OutputsSumOverflow { .. }
-            | TransactionError::DuplicateDeps
+            | TransactionError::DuplicateCellDeps { .. }
+            | TransactionError::DuplicateHeaderDeps { .. }
             | TransactionError::Empty { .. }
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince

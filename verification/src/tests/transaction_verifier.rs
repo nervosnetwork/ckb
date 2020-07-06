@@ -347,18 +347,36 @@ pub fn test_capacity_invalid() {
 }
 
 #[test]
-pub fn test_duplicate_deps() {
+pub fn test_duplicate_cell_deps() {
     let out_point = OutPoint::new(h256!("0x1").pack(), 0);
     let cell_dep = CellDep::new_builder().out_point(out_point).build();
     let transaction = TransactionBuilder::default()
-        .cell_deps(vec![cell_dep.clone(), cell_dep])
+        .cell_deps(vec![cell_dep.clone(), cell_dep.clone()])
         .build();
 
     let verifier = DuplicateDepsVerifier::new(&transaction);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::DuplicateDeps,
+        TransactionError::DuplicateCellDeps {
+            out_point: cell_dep.out_point()
+        },
+    );
+}
+
+#[test]
+pub fn test_duplicate_header_deps() {
+    let transaction = TransactionBuilder::default()
+        .header_deps(vec![h256!("0x1").pack(), h256!("0x1").pack()])
+        .build();
+
+    let verifier = DuplicateDepsVerifier::new(&transaction);
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::DuplicateHeaderDeps {
+            hash: h256!("0x1").pack()
+        },
     );
 }
 

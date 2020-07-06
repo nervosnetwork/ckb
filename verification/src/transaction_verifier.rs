@@ -323,17 +323,22 @@ impl<'a> DuplicateDepsVerifier<'a> {
         let mut seen_cells = HashSet::with_capacity(self.transaction.cell_deps().len());
         let mut seen_headers = HashSet::with_capacity(self.transaction.header_deps().len());
 
-        if transaction
+        if let Some(dep) = transaction
             .cell_deps_iter()
-            .all(|dep| seen_cells.insert(dep))
-            && transaction
-                .header_deps_iter()
-                .all(|hash| seen_headers.insert(hash))
+            .find_map(|dep| seen_cells.replace(dep))
         {
-            Ok(())
-        } else {
-            Err(TransactionError::DuplicateDeps.into())
+            return Err(TransactionError::DuplicateCellDeps {
+                out_point: dep.out_point(),
+            }
+            .into());
         }
+        if let Some(hash) = transaction
+            .header_deps_iter()
+            .find_map(|hash| seen_headers.replace(hash))
+        {
+            return Err(TransactionError::DuplicateHeaderDeps { hash }.into());
+        }
+        Ok(())
     }
 }
 
