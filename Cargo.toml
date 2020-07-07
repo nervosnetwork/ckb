@@ -36,6 +36,7 @@ members = [
     "util/fee-estimator",
     "script/data-loader",
     "db",
+    "db-migration",
     "resource",
     "pow",
     "network",

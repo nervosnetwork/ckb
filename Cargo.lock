@@ -492,6 +492,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-db-migration"
+version = "0.34.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-db",
+ "ckb-error",
+ "ckb-logger",
+ "tempfile",
+]
+
+[[package]]
 name = "ckb-error"
 version = "0.34.0-pre"
 dependencies = [
@@ -554,6 +565,7 @@ dependencies = [
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-migration",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-resource",
@@ -910,6 +922,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-migration",
  "ckb-error",
  "ckb-notify",
  "ckb-proposal-table",
