@@ -5,7 +5,7 @@ use ckb_db_migration::Migration;
 use ckb_error::Error;
 use ckb_store::{attach_block_cell, ChainDB, COLUMN_CELL};
 
-const FREEZER_VERSION: &str = "20200603184756";
+const FREEZER_VERSION: &str = "20200707214700";
 const BATCH: u64 = 1000;
 
 pub struct FreezerMigration;
