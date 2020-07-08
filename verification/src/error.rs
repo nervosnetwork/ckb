@@ -56,10 +56,6 @@ pub enum TransactionError {
     #[fail(display = "OutputsDataLengthMismatch")]
     OutputsDataLengthMismatch,
 
-    /// ANY([o.data_hash != d.data_hash() for (o, d) in ZIP(outputs, outputs_data)])
-    #[fail(display = "OutputDataHashMismatch")]
-    OutputDataHashMismatch,
-
     /// The format of `transaction.since` is invalid
     #[fail(display = "InvalidSince")]
     InvalidSince,
@@ -278,8 +274,7 @@ impl TransactionError {
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince
             | TransactionError::ExceededMaximumBlockBytes
-            | TransactionError::OutputsDataLengthMismatch
-            | TransactionError::OutputDataHashMismatch => true,
+            | TransactionError::OutputsDataLengthMismatch => true,
 
             TransactionError::Immature
             | TransactionError::CellbaseImmaturity { .. }
