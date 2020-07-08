@@ -468,7 +468,7 @@ fn test_invalid_since_verify() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::InvalidSince,
+        TransactionError::InvalidSince { index: 0 },
     );
 }
 

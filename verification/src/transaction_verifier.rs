@@ -514,7 +514,7 @@ where
         median_time
     }
 
-    fn verify_absolute_lock(&self, since: Since) -> Result<(), Error> {
+    fn verify_absolute_lock(&self, index: usize, since: Since) -> Result<(), Error> {
         if since.is_absolute() {
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
@@ -534,14 +534,19 @@ where
                     }
                 }
                 None => {
-                    return Err((TransactionError::InvalidSince).into());
+                    return Err((TransactionError::InvalidSince { index }).into());
                 }
             }
         }
         Ok(())
     }
 
-    fn verify_relative_lock(&self, since: Since, cell_meta: &CellMeta) -> Result<(), Error> {
+    fn verify_relative_lock(
+        &self,
+        index: usize,
+        since: Since,
+        cell_meta: &CellMeta,
+    ) -> Result<(), Error> {
         if since.is_relative() {
             let info = match cell_meta.transaction_info {
                 Some(ref transaction_info) => Ok(transaction_info),
@@ -573,7 +578,7 @@ where
                     }
                 }
                 None => {
-                    return Err((TransactionError::InvalidSince).into());
+                    return Err((TransactionError::InvalidSince { index }).into());
                 }
             }
         }
@@ -581,11 +586,12 @@ where
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        for (cell_meta, input) in self
+        for (index, (cell_meta, input)) in self
             .rtx
             .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
+            .enumerate()
         {
             // ignore empty since
             let since: u64 = input.since().unpack();
@@ -595,12 +601,12 @@ where
             let since = Since(since);
             // check remain flags
             if !since.flags_is_valid() {
-                return Err((TransactionError::InvalidSince).into());
+                return Err((TransactionError::InvalidSince { index }).into());
             }
 
             // verify time lock
-            self.verify_absolute_lock(since)?;
-            self.verify_relative_lock(since, cell_meta)?;
+            self.verify_absolute_lock(index, since)?;
+            self.verify_relative_lock(index, since, cell_meta)?;
         }
         Ok(())
     }

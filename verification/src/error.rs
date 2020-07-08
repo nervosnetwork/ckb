@@ -63,8 +63,11 @@ pub enum TransactionError {
     },
 
     /// The format of `transaction.since` is invalid
-    #[fail(display = "InvalidSince")]
-    InvalidSince,
+    #[fail(
+        display = "InvalidSince: the field since in input {} is invalid",
+        index
+    )]
+    InvalidSince { index: usize },
 
     /// The transaction is not mature which is required by `transaction.since`
     #[fail(display = "Immature")]
@@ -278,7 +281,7 @@ impl TransactionError {
             | TransactionError::DuplicateHeaderDeps { .. }
             | TransactionError::Empty { .. }
             | TransactionError::InsufficientCellCapacity { .. }
-            | TransactionError::InvalidSince
+            | TransactionError::InvalidSince { .. }
             | TransactionError::ExceededMaximumBlockBytes
             | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
