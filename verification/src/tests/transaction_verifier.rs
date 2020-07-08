@@ -661,7 +661,10 @@ pub fn test_outputs_data_length_mismatch() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::OutputsDataLengthMismatch,
+        TransactionError::OutputsDataLengthMismatch {
+            outputs_len: 1,
+            outputs_data_len: 0
+        },
     );
 
     let transaction = TransactionBuilder::default()

@@ -53,8 +53,14 @@ pub enum TransactionError {
     DuplicateHeaderDeps { hash: Byte32 },
 
     /// outputs.len() != outputs_data.len()
-    #[fail(display = "OutputsDataLengthMismatch")]
-    OutputsDataLengthMismatch,
+    #[fail(
+        display = "OutputsDataLengthMismatch: expected outputs data length ({}) = outputs length ({})",
+        outputs_data_len, outputs_len
+    )]
+    OutputsDataLengthMismatch {
+        outputs_len: usize,
+        outputs_data_len: usize,
+    },
 
     /// The format of `transaction.since` is invalid
     #[fail(display = "InvalidSince")]
@@ -274,7 +280,7 @@ impl TransactionError {
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince
             | TransactionError::ExceededMaximumBlockBytes
-            | TransactionError::OutputsDataLengthMismatch => true,
+            | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
             TransactionError::Immature
             | TransactionError::CellbaseImmaturity { .. }

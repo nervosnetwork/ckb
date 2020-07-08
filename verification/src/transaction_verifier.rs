@@ -616,8 +616,14 @@ impl<'a> OutputsDataVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
-            return Err(TransactionError::OutputsDataLengthMismatch);
+        let outputs_len = self.transaction.outputs().len();
+        let outputs_data_len = self.transaction.outputs_data().len();
+
+        if outputs_len != outputs_data_len {
+            return Err(TransactionError::OutputsDataLengthMismatch {
+                outputs_len,
+                outputs_data_len,
+            });
         }
         Ok(())
     }
