@@ -237,7 +237,7 @@ impl ChainService {
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
 
         for blk in fork.attached_blocks() {
-            db_txn.delete_block(&blk.hash(), blk.transactions().len())?;
+            db_txn.delete_block(&blk)?;
         }
         db_txn.commit()?;
 

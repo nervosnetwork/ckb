@@ -26,7 +26,7 @@ use lazy_static::lazy_static;
 use std::sync::Arc;
 
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
-    let mut builder = SharedBuilder::default();
+    let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }

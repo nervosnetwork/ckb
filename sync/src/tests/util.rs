@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
-    let (shared, table) = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();

@@ -2,18 +2,18 @@ use crate::cache::StoreCache;
 use crate::cell::attach_block_cell;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
+use crate::write_batch::StoreWriteBatch;
 use crate::StoreSnapshot;
 use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
-    Col, DBPinnableSlice, Direction, ReadOptions, RocksDB, WriteBatch,
+    Col, DBPinnableSlice, RocksDB,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
-use ckb_types::{core::BlockExt, prelude::*};
+use ckb_types::core::BlockExt;
 use std::sync::Arc;
-use std::time;
 
 #[derive(Clone)]
 pub struct ChainDB {
@@ -79,6 +79,12 @@ impl ChainDB {
         }
     }
 
+    pub fn new_write_batch(&self) -> StoreWriteBatch {
+        StoreWriteBatch {
+            inner: self.db.new_write_batch(),
+        }
+    }
+
     pub fn get_snapshot(&self) -> StoreSnapshot {
         StoreSnapshot {
             inner: self.db.get_snapshot(),
@@ -113,60 +119,6 @@ impl ChainDB {
         db_txn.commit()?;
         Ok(())
     }
-
-    fn seek_delete_range(&self, col: Col, start_key: &[u8], end_key: &[u8]) -> Result<(), Error> {
-        let mut wb = WriteBatch::default();
-        let mut iter_opt = ReadOptions::default();
-        iter_opt.set_iterate_upper_bound(end_key);
-        let iter = self.db.iter_opt(
-            col,
-            IteratorMode::From(start_key, Direction::Forward),
-            &iter_opt,
-        )?;
-
-        self.db
-            .batch_delete(col, &mut wb, iter.map(|(key, _)| key))?;
-        Ok(())
-    }
-
-    pub fn unsafe_delete_range(
-        &self,
-        col: Col,
-        start_key: &[u8],
-        end_key: &[u8],
-    ) -> Result<(), Error> {
-        // delete_range is dangerous operation.
-        // passing empty key as start or end will be set MIN_KEY or MAX_KEY
-        assert!(!start_key.is_empty());
-        assert!(!end_key.is_empty());
-
-        // call delete_file_in_range try to free disk space
-        let start_time = time::Instant::now();
-        self.db.delete_file_in_range(col, start_key, end_key)?;
-
-        let encoded_start_key = hex_string(start_key);
-        let encoded_end_key = hex_string(end_key);
-
-        ckb_logger::info!(
-            "unsafe_delete_range finished call delete_file_in_range {}, {}, {}",
-            encoded_start_key,
-            encoded_end_key,
-            start_time.elapsed().as_micros()
-        );
-
-        // delete remain keys in the range.
-        let start_time = time::Instant::now();
-        self.seek_delete_range(col, start_key, end_key)?;
-
-        ckb_logger::info!(
-            "unsafe_delete_range finished call seek_delete_range {}, {}, {}",
-            encoded_start_key,
-            encoded_end_key,
-            start_time.elapsed().as_micros()
-        );
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -175,7 +127,7 @@ mod tests {
     use super::*;
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_db::RocksDB;
-    use ckb_types::packed;
+    use ckb_types::{packed, prelude::*};
 
     fn setup_db(columns: u32) -> RocksDB {
         RocksDB::open_tmp(columns)

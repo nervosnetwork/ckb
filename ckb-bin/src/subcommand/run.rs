@@ -26,7 +26,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, table) = SharedBuilder::new(&args.config.db, Some(args.config.ancient))
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
         .notify_config(args.config.notify)

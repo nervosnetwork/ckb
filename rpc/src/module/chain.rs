@@ -221,8 +221,7 @@ impl ChainRpc for ChainRpcImpl {
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         Err(RPCError::custom(
             RPCError::Invalid,
-            "get_cells_by_lock_hash have been deprecated, use [indexer] get_live_cells_by_lock_hash instead"
-                .into(),
+            "get_cells_by_lock_hash have been deprecated, use [indexer] get_live_cells_by_lock_hash instead",
         ))
     }
 

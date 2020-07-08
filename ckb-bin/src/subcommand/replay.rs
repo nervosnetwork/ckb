@@ -7,7 +7,7 @@ use ckb_store::ChainStore;
 use std::sync::Arc;
 
 pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
-    let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, _table) = SharedBuilder::new(&args.config.db, None)
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
         .build()
@@ -31,7 +31,7 @@ pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
         let mut tmp_db_config = args.config.db.clone();
         tmp_db_config.path = tmp_db_dir.path().to_path_buf();
 
-        let (tmp_shared, table) = SharedBuilder::with_db_config(&tmp_db_config)
+        let (tmp_shared, table) = SharedBuilder::new(&tmp_db_config, None)
             .consensus(args.consensus)
             .tx_pool_config(args.config.tx_pool)
             .build()

@@ -727,7 +727,7 @@ mod tests {
     use std::sync::Arc;
 
     fn setup(prefix: &str) -> (DefaultIndexerStore, ChainController, Shared) {
-        let builder = SharedBuilder::default();
+        let builder = SharedBuilder::with_temp_db();
         let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
 
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();

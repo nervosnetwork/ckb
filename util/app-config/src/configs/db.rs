@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -9,8 +9,6 @@ pub struct Config {
     #[serde(default)]
     pub options: HashMap<String, String>,
     pub options_file: Option<PathBuf>,
-    #[serde(default)]
-    pub ancient: PathBuf,
 }
 
 impl Config {

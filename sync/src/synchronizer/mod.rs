@@ -698,7 +698,7 @@ mod tests {
     };
 
     fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
-        let mut builder = SharedBuilder::default();
+        let mut builder = SharedBuilder::with_temp_db();
 
         let consensus = consensus.unwrap_or_else(Default::default);
         builder = builder.consensus(consensus);

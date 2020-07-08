@@ -4,7 +4,7 @@ use ckb_instrument::Import;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
-    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, table) = SharedBuilder::new(&args.config.db, None)
         .consensus(args.consensus)
         .build()
         .map_err(|err| {

@@ -56,7 +56,7 @@ fn test_insert_invalid_block() {
 fn test_insert_parent_unknown_block() {
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let (shared, table) = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::with_temp_db()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();

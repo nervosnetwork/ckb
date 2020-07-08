@@ -56,7 +56,7 @@ pub(crate) fn create_always_success_out_point() -> OutPoint {
 }
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();

@@ -139,7 +139,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
 
 // Setup the running environment
 fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
-    let (shared, table) = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
