@@ -46,7 +46,10 @@ pub fn test_version() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::MismatchedVersion,
+        TransactionError::MismatchedVersion {
+            expected: 0,
+            actual: 1
+        },
     );
 }
 

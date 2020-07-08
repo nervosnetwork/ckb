@@ -171,7 +171,11 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.version() != self.tx_version {
-            return Err((TransactionError::MismatchedVersion).into());
+            return Err((TransactionError::MismatchedVersion {
+                expected: self.tx_version,
+                actual: self.transaction.version(),
+            })
+            .into());
         }
         Ok(())
     }

@@ -1,6 +1,6 @@
 use ckb_error::Error;
 use ckb_types::{
-    core::Capacity,
+    core::{Capacity, Version},
     packed::{Byte32, OutPoint},
 };
 use failure::{Backtrace, Context, Fail};
@@ -84,8 +84,8 @@ pub enum TransactionError {
     },
 
     /// The transaction version is mismatched with the system can hold
-    #[fail(display = "MismatchedVersion")]
-    MismatchedVersion,
+    #[fail(display = "MismatchedVersion: expected {}, got {}", expected, actual)]
+    MismatchedVersion { expected: Version, actual: Version },
 
     /// The transaction size is too large
     #[fail(display = "ExceededMaximumBlockBytes")]
@@ -290,7 +290,7 @@ impl TransactionError {
 
             TransactionError::Immature { .. }
             | TransactionError::CellbaseImmaturity { .. }
-            | TransactionError::MismatchedVersion => false,
+            | TransactionError::MismatchedVersion { .. } => false,
         }
     }
 }
