@@ -64,14 +64,14 @@ pub enum TransactionError {
 
     /// The format of `transaction.since` is invalid
     #[fail(
-        display = "InvalidSince: the field since in input {} is invalid",
+        display = "InvalidSince(Inputs[{}]): the field since is invalid",
         index
     )]
     InvalidSince { index: usize },
 
     /// The transaction is not mature which is required by `transaction.since`
     #[fail(
-        display = "Immature: the transaction is not mature because of the field since in input {}",
+        display = "Immature(Inputs[{}]): the transaction is immature because of the since requirement",
         index
     )]
     Immature { index: usize },
@@ -88,8 +88,11 @@ pub enum TransactionError {
     MismatchedVersion { expected: Version, actual: Version },
 
     /// The transaction size is too large
-    #[fail(display = "ExceededMaximumBlockBytes")]
-    ExceededMaximumBlockBytes,
+    #[fail(
+        display = "ExceededMaximumBlockBytes: expected transaction serialized size ({}) < block size limit ({})",
+        actual, limit
+    )]
+    ExceededMaximumBlockBytes { limit: u64, actual: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
@@ -285,7 +288,7 @@ impl TransactionError {
             | TransactionError::Empty { .. }
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince { .. }
-            | TransactionError::ExceededMaximumBlockBytes
+            | TransactionError::ExceededMaximumBlockBytes { .. }
             | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
             TransactionError::Immature { .. }

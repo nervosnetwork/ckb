@@ -199,7 +199,11 @@ impl<'a> SizeVerifier<'a> {
         if size <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(TransactionError::ExceededMaximumBlockBytes.into())
+            Err(TransactionError::ExceededMaximumBlockBytes {
+                actual: size,
+                limit: self.block_bytes_limit,
+            }
+            .into())
         }
     }
 }

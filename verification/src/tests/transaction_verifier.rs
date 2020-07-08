@@ -15,7 +15,7 @@ use ckb_types::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
         BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, TransactionBuilder,
-        TransactionInfo, TransactionView, Version,
+        TransactionInfo, TransactionView,
     },
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint},
@@ -57,7 +57,6 @@ pub fn test_version() {
 pub fn test_exceeded_maximum_block_bytes() {
     let data: Bytes = vec![1; 500].into();
     let transaction = TransactionBuilder::default()
-        .version((Version::default() + 1).pack())
         .output(
             CellOutput::new_builder()
                 .capacity(capacity_bytes!(50).pack())
@@ -69,7 +68,10 @@ pub fn test_exceeded_maximum_block_bytes() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::ExceededMaximumBlockBytes,
+        TransactionError::ExceededMaximumBlockBytes {
+            actual: 661,
+            limit: 100
+        },
     );
 }
 
