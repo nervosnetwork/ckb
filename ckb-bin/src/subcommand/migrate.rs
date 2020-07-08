@@ -3,7 +3,7 @@ use ckb_async_runtime::Handle;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> {
-    let builder = SharedBuilder::new(&args.config.db, async_handle);
+    let builder = SharedBuilder::new(&args.config.db, None, async_handle);
 
     if args.check {
         if builder.migration_check() {

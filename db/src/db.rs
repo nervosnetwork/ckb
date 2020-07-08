@@ -132,7 +132,7 @@ impl RocksDB {
 
     /// TODO(doc): @quake
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
-        let cf = self.cf_handle(col)?;
+        let cf = cf_handle(&self.inner, col)?;
         self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
     }
 
@@ -155,7 +155,7 @@ impl RocksDB {
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
-        let cf = self.cf_handle(col)?;
+        let cf = cf_handle(&self.inner, col)?;
         let iter = self
             .inner
             .full_iterator_cf(cf, IteratorMode::Start)
@@ -204,34 +204,7 @@ impl RocksDB {
         Arc::clone(&self.inner)
     }
 
-    pub fn batch_delete<K>(
-        &self,
-        col: Col,
-        wb: &mut WriteBatch,
-        keys: impl Iterator<Item = K>,
-    ) -> Result<()>
-    where
-        K: AsRef<[u8]>,
-    {
-        let cf = self.cf_handle(col)?;
-        for key in keys {
-            wb.delete_cf(cf, key).map_err(internal_error)?;
-            if wb.size_in_bytes() >= MAX_DELETE_BATCH_SIZE {
-                self.write_batch(&wb)?;
-                wb.clear().map_err(internal_error)?;
-            }
-        }
-
-        if !wb.is_empty() {
-            self.write_batch(&wb)?;
-        }
-        Ok(())
-    }
-
-    pub fn write_batch(&self, batch: &WriteBatch) -> Result<()> {
-        self.inner.write(batch).map_err(internal_error)
-    }
-
+    /// TODO(doc): @quake
     pub fn create_cf(&mut self, col: Col) -> Result<()> {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
@@ -244,10 +217,6 @@ impl RocksDB {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
         inner.drop_cf(col).map_err(internal_error)
-    }
-
-    pub fn cf_handle(&self, col: Col) -> Result<&ColumnFamily> {
-        cf_handle(&self.inner, col)
     }
 }
 

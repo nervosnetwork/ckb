@@ -27,17 +27,21 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::new(&args.config.db, async_handle)
-        .consensus(args.consensus.clone())
-        .tx_pool_config(args.config.tx_pool)
-        .notify_config(args.config.notify.clone())
-        .store_config(args.config.store)
-        .block_assembler_config(block_assembler_config)
-        .build()
-        .map_err(|err| {
-            eprintln!("Run error: {:?}", err);
-            ExitCode::Failure
-        })?;
+    let (shared, table) = SharedBuilder::new(
+        &args.config.db,
+        Some(args.config.ancient.clone()),
+        async_handle,
+    )
+    .consensus(args.consensus.clone())
+    .tx_pool_config(args.config.tx_pool)
+    .notify_config(args.config.notify.clone())
+    .store_config(args.config.store)
+    .block_assembler_config(block_assembler_config)
+    .build()
+    .map_err(|err| {
+        eprintln!("Run error: {:?}", err);
+        ExitCode::Failure
+    })?;
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;

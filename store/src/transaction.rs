@@ -7,8 +7,8 @@ use ckb_db::{
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_TIP_HEADER_KEY,
+    COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
@@ -123,8 +123,18 @@ impl StoreTransaction {
         let header = block.header().pack();
         let uncles = block.uncles().pack();
         let proposals = block.data().proposals();
+        let txs_len: packed::Uint32 = (block.transactions().len() as u32).pack();
         self.insert_raw(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())?;
+        self.insert_raw(
+            COLUMN_NUMBER_HASH,
+            packed::NumberHash::new_builder()
+                .number(block.number().pack())
+                .block_hash(hash.clone())
+                .build()
+                .as_slice(),
+            txs_len.as_slice(),
+        )?;
         self.insert_raw(
             COLUMN_BLOCK_PROPOSAL_IDS,
             hash.as_slice(),
@@ -142,10 +152,20 @@ impl StoreTransaction {
     }
 
     /// TODO(doc): @quake
-    pub fn delete_block(&self, hash: &packed::Byte32, txs_len: usize) -> Result<(), Error> {
+    pub fn delete_block(&self, block: &BlockView) -> Result<(), Error> {
+        let hash = block.hash();
+        let txs_len = block.transactions().len();
         self.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
+        self.delete(
+            COLUMN_NUMBER_HASH,
+            packed::NumberHash::new_builder()
+                .number(block.number().pack())
+                .block_hash(hash.clone())
+                .build()
+                .as_slice(),
+        )?;
         // currently rocksdb transaction do not support `DeleteRange`
         // https://github.com/facebook/rocksdb/issues/4812
         for index in 0..txs_len {

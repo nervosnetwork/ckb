@@ -4,7 +4,7 @@ use ckb_instrument::Export;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn export(args: ExportArgs, async_handle: Handle) -> Result<(), ExitCode> {
-    let (shared, _) = SharedBuilder::new(&args.config.db, async_handle)
+    let (shared, _) = SharedBuilder::new(&args.config.db, None, async_handle)
         .consensus(args.consensus)
         .build()
         .map_err(|err| {

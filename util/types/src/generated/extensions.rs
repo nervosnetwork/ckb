@@ -3709,6 +3709,172 @@ impl molecule::prelude::Builder for TransactionKeyBuilder {
     }
 }
 #[derive(Clone)]
+pub struct NumberHash(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for NumberHash {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for NumberHash {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for NumberHash {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for NumberHash {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        NumberHash::new_unchecked(v.into())
+    }
+}
+impl NumberHash {
+    pub const TOTAL_SIZE: usize = 40;
+    pub const FIELD_SIZES: [usize; 2] = [8, 32];
+    pub const FIELD_COUNT: usize = 2;
+    pub fn number(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(0..8))
+    }
+    pub fn block_hash(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(8..40))
+    }
+    pub fn as_reader<'r>(&'r self) -> NumberHashReader<'r> {
+        NumberHashReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for NumberHash {
+    type Builder = NumberHashBuilder;
+    const NAME: &'static str = "NumberHash";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        NumberHash(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        NumberHashReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        NumberHashReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .number(self.number())
+            .block_hash(self.block_hash())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct NumberHashReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for NumberHashReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for NumberHashReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for NumberHashReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
+        write!(f, " }}")
+    }
+}
+impl<'r> NumberHashReader<'r> {
+    pub const TOTAL_SIZE: usize = 40;
+    pub const FIELD_SIZES: [usize; 2] = [8, 32];
+    pub const FIELD_COUNT: usize = 2;
+    pub fn number(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[0..8])
+    }
+    pub fn block_hash(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[8..40])
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for NumberHashReader<'r> {
+    type Entity = NumberHash;
+    const NAME: &'static str = "NumberHashReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        NumberHashReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len != Self::TOTAL_SIZE {
+            return ve!(Self, TotalSizeNotMatch, Self::TOTAL_SIZE, slice_len);
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct NumberHashBuilder {
+    pub(crate) number: Uint64,
+    pub(crate) block_hash: Byte32,
+}
+impl NumberHashBuilder {
+    pub const TOTAL_SIZE: usize = 40;
+    pub const FIELD_SIZES: [usize; 2] = [8, 32];
+    pub const FIELD_COUNT: usize = 2;
+    pub fn number(mut self, v: Uint64) -> Self {
+        self.number = v;
+        self
+    }
+    pub fn block_hash(mut self, v: Byte32) -> Self {
+        self.block_hash = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for NumberHashBuilder {
+    type Entity = NumberHash;
+    const NAME: &'static str = "NumberHashBuilder";
+    fn expected_length(&self) -> usize {
+        Self::TOTAL_SIZE
+    }
+    fn write<W: ::molecule::io::Write>(&self, writer: &mut W) -> ::molecule::io::Result<()> {
+        writer.write_all(self.number.as_slice())?;
+        writer.write_all(self.block_hash.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        NumberHash::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct TransactionInfo(molecule::bytes::Bytes);
 impl ::core::fmt::LowerHex for TransactionInfo {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {

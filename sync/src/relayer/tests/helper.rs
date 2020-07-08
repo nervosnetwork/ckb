@@ -113,7 +113,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .genesis_block(genesis)
             .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
             .build();
-        SharedBuilder::default()
+        SharedBuilder::with_temp_db()
             .consensus(consensus)
             .build()
             .unwrap()

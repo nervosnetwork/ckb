@@ -328,8 +328,30 @@ fn static_runtime_handle() -> Handle {
     runtime.0.clone()
 }
 
-impl Default for SharedBuilder {
-    fn default() -> Self {
+const INIT_DB_VERSION: &str = "20191127135521";
+
+impl SharedBuilder {
+    pub fn new(config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
+        let db = RocksDB::open(config, COLUMNS);
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
+        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
+        migrations.add_migration(Box::new(migrations::CellMigration));
+
+        SharedBuilder {
+            db,
+            ancient_path: ancient,
+            consensus: None,
+            tx_pool_config: None,
+            notify_config: None,
+            store_config: None,
+            block_assembler_config: None,
+            migrations,
+            async_handle,
+        }
+    }
+
+    pub fn with_temp_db() -> Self {
         SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             ancient_path: None,
@@ -340,31 +362,6 @@ impl Default for SharedBuilder {
             block_assembler_config: None,
             migrations: Migrations::default(),
             async_handle: static_runtime_handle(),
-        }
-    }
-}
-
-const INIT_DB_VERSION: &str = "20191127135521";
-
-impl SharedBuilder {
-    /// TODO(doc): @quake
-    pub fn new(config: &DBConfig, async_handle: Handle) -> Self {
-        let db = RocksDB::open(config, COLUMNS);
-        let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
-        migrations.add_migration(Box::new(migrations::CellMigration));
-
-        SharedBuilder {
-            db,
-            ancient_path: Some(config.ancient.to_path_buf()),
-            consensus: None,
-            tx_pool_config: None,
-            notify_config: None,
-            store_config: None,
-            block_assembler_config: None,
-            migrations,
-            async_handle,
         }
     }
 }

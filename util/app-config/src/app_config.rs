@@ -34,8 +34,12 @@ pub enum AppConfig {
 pub struct CKBAppConfig {
     /// TODO(doc): @doitian
     pub data_dir: PathBuf,
+    /// freezer files path
+    #[serde(default)]
+    pub ancient: PathBuf,
     /// TODO(doc): @doitian
     pub tmp_dir: Option<PathBuf>,
+    /// TODO(doc): @doitian
     pub logger: LogConfig,
     /// TODO(doc): @doitian
     #[cfg(feature = "with_sentry")]
@@ -215,6 +219,7 @@ impl CKBAppConfig {
         self.indexer
             .db
             .adjust(root_dir, &self.data_dir, "indexer_db");
+        self.ancient = path_specified_or_else(&self.ancient, || self.data_dir.join("ancient"));
 
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
@@ -293,6 +298,18 @@ fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
     } else {
         eprintln!("Not a CKB directory, initialize one with `ckb init`.");
         Err(ExitCode::Config)
+    }
+}
+
+fn path_specified_or_else<P: AsRef<Path>, F: FnOnce() -> PathBuf>(
+    path: P,
+    default_path: F,
+) -> PathBuf {
+    let path_ref = path.as_ref();
+    if path_ref.to_str().is_none() || path_ref.to_str() == Some("") {
+        default_path()
+    } else {
+        path_ref.to_path_buf()
     }
 }
 
