@@ -70,8 +70,11 @@ pub enum TransactionError {
     InvalidSince { index: usize },
 
     /// The transaction is not mature which is required by `transaction.since`
-    #[fail(display = "Immature")]
-    Immature,
+    #[fail(
+        display = "Immature: the transaction is not mature because of the field since in input {}",
+        index
+    )]
+    Immature { index: usize },
 
     /// The transaction is not mature which is required by cellbase maturity rule
     #[fail(display = "CellbaseImmaturity({}[{}])", source, index)]
@@ -285,7 +288,7 @@ impl TransactionError {
             | TransactionError::ExceededMaximumBlockBytes
             | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
-            TransactionError::Immature
+            TransactionError::Immature { .. }
             | TransactionError::CellbaseImmaturity { .. }
             | TransactionError::MismatchedVersion => false,
         }

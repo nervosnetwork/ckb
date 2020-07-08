@@ -504,7 +504,7 @@ fn test_fraction_epoch_since_verify() {
         parent_hash.as_ref().to_owned(),
     )
     .verify();
-    assert_error_eq!(result.unwrap_err(), TransactionError::Immature);
+    assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
 
     let result = SinceVerifier::new(
         &rtx,
@@ -529,7 +529,7 @@ pub fn test_absolute_block_number_lock() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 10 height
     assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
@@ -547,7 +547,7 @@ pub fn test_absolute_epoch_number_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 10 epoch
     assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
@@ -565,7 +565,7 @@ pub fn test_relative_timestamp_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
 
     // spent after 1024 seconds
@@ -588,7 +588,7 @@ pub fn test_relative_epoch() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
 
     assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
@@ -617,7 +617,7 @@ pub fn test_since_both() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 1024 seconds and 10 blocks
     // fake median time: 1124
@@ -647,7 +647,7 @@ fn test_since_overflow() {
         let median_time_context = MockMedianTime::new(vec![0; 11]);
         assert_error_eq!(
             verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-            TransactionError::Immature,
+            TransactionError::Immature { index: 0 },
         );
     }
 }

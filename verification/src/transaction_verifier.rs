@@ -519,18 +519,18 @@ where
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < block_number {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
                     if self.epoch_number_with_fraction < epoch_number_with_fraction {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
                     let tip_timestamp = self.block_median_time(&self.parent_hash);
                     if tip_timestamp < timestamp {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 None => {
@@ -550,12 +550,12 @@ where
         if since.is_relative() {
             let info = match cell_meta.transaction_info {
                 Some(ref transaction_info) => Ok(transaction_info),
-                None => Err(TransactionError::Immature),
+                None => Err(TransactionError::Immature { index }),
             }?;
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < info.block_number + block_number {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
@@ -563,7 +563,7 @@ where
                     let b =
                         info.block_epoch.to_rational() + epoch_number_with_fraction.to_rational();
                     if a < b {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
@@ -574,7 +574,7 @@ where
                     let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
-                        return Err((TransactionError::Immature).into());
+                        return Err((TransactionError::Immature { index }).into());
                     }
                 }
                 None => {
