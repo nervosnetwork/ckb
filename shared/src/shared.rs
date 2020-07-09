@@ -5,9 +5,9 @@ use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, 
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::RocksDB;
+use ckb_db::{Direction, IteratorMode, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::COLUMNS;
+use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_notify::{NotifyController, NotifyService};
@@ -17,7 +17,8 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
-    packed::Byte32,
+    packed::{self, Byte32},
+    prelude::*,
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
@@ -206,7 +207,7 @@ impl Shared {
         let snapshot = self.snapshot();
         let current_epoch = snapshot.epoch_ext().number();
 
-        ckb_logger::debug!("freezer current_epoch {}", current_epoch);
+        ckb_logger::info!("freezer current_epoch {}", current_epoch);
 
         if current_epoch <= THRESHOLD_EPOCH {
             ckb_logger::debug!("freezer loaf");
@@ -234,7 +235,71 @@ impl Shared {
                 .and_then(|hash| self.store().get_unfrozen_block(&hash))
         };
 
-        freezer.freeze(threshold, get_unfrozen_block)?;
+        let ret = freezer.freeze(threshold, get_unfrozen_block)?;
+
+        // Wipe out frozen data
+        self.wipe_out_frozen_data(&snapshot, ret)?;
+
+        ckb_logger::info!("freezer finish ");
+
+        Ok(())
+    }
+
+    fn wipe_out_frozen_data(
+        &self,
+        snapshot: &Snapshot,
+        frozen: Vec<(BlockNumber, packed::Byte32, u32)>,
+    ) -> Result<(), Error> {
+        let mut side = Vec::with_capacity(frozen.len());
+        let mut batch = self.store.new_write_batch();
+
+        ckb_logger::info!("freezer wipe_out_frozen_data {} ", frozen.len());
+
+        // remain header
+        for (number, hash, txs) in frozen {
+            batch.delete_block_body(number, &hash, txs).map_err(|e| {
+                ckb_logger::error!("freezer delete_block_body failed {}", e);
+                e
+            })?;
+
+            let pack_number: packed::Uint64 = number.pack();
+            let prefix = pack_number.as_slice();
+            for (key, value) in snapshot
+                .get_iter(
+                    COLUMN_NUMBER_HASH,
+                    IteratorMode::From(prefix, Direction::Forward),
+                )
+                .take_while(|(key, _)| key.starts_with(prefix))
+            {
+                let reader = packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
+                let block_hash = reader.block_hash().to_entity();
+                if block_hash != hash {
+                    let txs =
+                        packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..]).unpack();
+                    side.push((reader.number().to_entity(), block_hash, txs));
+                }
+            }
+        }
+        self.store.write(&batch).map_err(|e| {
+            ckb_logger::error!("freezer write_batch delete failed {}", e);
+            e
+        })?;
+        batch.clear()?;
+
+        // Wipe out side chain
+        for (number, hash, txs) in side {
+            batch
+                .delete_block(number.unpack(), &hash, txs)
+                .map_err(|e| {
+                    ckb_logger::error!("freezer delete_block_body failed {}", e);
+                    e
+                })?;
+        }
+
+        self.store.write(&batch).map_err(|e| {
+            ckb_logger::error!("freezer write_batch delete failed {}", e);
+            e
+        })?;
         Ok(())
     }
 
