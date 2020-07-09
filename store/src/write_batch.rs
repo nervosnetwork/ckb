@@ -11,13 +11,12 @@ pub struct StoreWriteBatch {
 }
 
 impl StoreWriteBatch {
-    pub fn delete_block(
+    pub fn delete_block_body(
         &mut self,
         number: BlockNumber,
         hash: &packed::Byte32,
         txs_len: u32,
     ) -> Result<(), Error> {
-        self.inner.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
         self.inner.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
         self.inner
             .delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
@@ -45,5 +44,19 @@ impl StoreWriteBatch {
             txs_end_key.as_slice(),
         )?;
         Ok(())
+    }
+
+    pub fn delete_block(
+        &mut self,
+        number: BlockNumber,
+        hash: &packed::Byte32,
+        txs_len: u32,
+    ) -> Result<(), Error> {
+        self.inner.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
+        self.delete_block_body(number, hash, txs_len)
+    }
+
+    pub fn clear(&mut self) -> Result<(), Error> {
+        self.inner.clear()
     }
 }

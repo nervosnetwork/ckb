@@ -43,4 +43,8 @@ impl RocksDBWriteBatch {
             .delete_range_cf(cf, from, to)
             .map_err(internal_error)
     }
+
+    pub fn clear(&mut self) -> Result<()> {
+        self.inner.clear().map_err(internal_error)
+    }
 }

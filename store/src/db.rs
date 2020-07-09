@@ -85,6 +85,10 @@ impl ChainDB {
         }
     }
 
+    pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
+        self.db.write(&write_batch.inner)
+    }
+
     pub fn get_snapshot(&self) -> StoreSnapshot {
         StoreSnapshot {
             inner: self.db.get_snapshot(),

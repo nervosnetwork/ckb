@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 const LOCKNAME: &str = "FLOCK";
+type FreezeResult = (BlockNumber, packed::Byte32, u32);
 
 struct Inner {
     pub(crate) files: FreezerFiles,
@@ -58,12 +59,19 @@ impl Freezer {
         })
     }
 
-    pub fn freeze<F>(&self, threshold: BlockNumber, get_block_by_number: F) -> Result<(), Error>
+    pub fn freeze<F>(
+        &self,
+        threshold: BlockNumber,
+        get_block_by_number: F,
+    ) -> Result<Vec<FreezeResult>, Error>
     where
         F: Fn(BlockNumber) -> Option<BlockView>,
     {
         let number = self.number();
         let mut guard = self.inner.lock();
+        let mut ret = Vec::with_capacity(threshold.saturating_sub(number) as usize);
+        ckb_logger::info!("freezer freeze start {} threshold {}", number, threshold);
+
         for number in number..threshold {
             if let Some(block) = get_block_by_number(number) {
                 if let Some(ref header) = guard.tip {
@@ -77,14 +85,20 @@ impl Freezer {
                 }
                 let raw_block = block.data();
                 guard.files.append(number, raw_block.as_slice())?;
+                ret.push((
+                    number,
+                    block.header().hash(),
+                    block.transactions().len() as u32,
+                ));
                 guard.tip = Some(block.header());
-                ckb_logger::debug!("freezer block append {}", number);
+                ckb_logger::info!("freezer block append {}", number);
             } else {
                 ckb_logger::error!("freezer block missing {}", number);
                 break;
             }
         }
-        guard.files.sync_all()
+        guard.files.sync_all()?;
+        Ok(ret)
     }
 
     pub fn retrieve(&self, number: BlockNumber) -> Result<Option<Vec<u8>>, Error> {
