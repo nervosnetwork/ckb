@@ -26,6 +26,7 @@ use once_cell::sync::OnceCell;
 use std::cmp;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -35,11 +36,13 @@ const THRESHOLD_EPOCH: EpochNumber = 2;
 const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
 
 pub struct FreezerClose {
+    stopped: Arc<AtomicBool>,
     stop: StopHandler<()>,
 }
 
 impl Drop for FreezerClose {
     fn drop(&mut self) {
+        self.stopped.store(true, Ordering::SeqCst);
         self.stop.try_send();
     }
 }
@@ -199,7 +202,11 @@ impl Shared {
             .expect("Start FreezerService failed");
 
         let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
-        FreezerClose { stop }
+        let freezer = self.store.freezer().expect("freezer inited");
+        FreezerClose {
+            stopped: Arc::clone(&freezer.stopped),
+            stop,
+        }
     }
 
     fn freeze(&self) -> Result<(), Error> {

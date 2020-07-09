@@ -10,7 +10,7 @@ use ckb_util::Mutex;
 use fs2::FileExt;
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 const LOCKNAME: &str = "FLOCK";
@@ -26,6 +26,7 @@ pub struct Freezer {
     inner: Arc<Mutex<Inner>>,
     number: Arc<AtomicU64>,
     pub(crate) lock: Arc<File>,
+    pub stopped: Arc<AtomicBool>,
 }
 
 impl Freezer {
@@ -56,6 +57,7 @@ impl Freezer {
             number: Arc::clone(&inner.files.number),
             inner: Arc::new(Mutex::new(inner)),
             lock: Arc::new(lock),
+            stopped: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -73,6 +75,11 @@ impl Freezer {
         ckb_logger::info!("freezer freeze start {} threshold {}", number, threshold);
 
         for number in number..threshold {
+            if self.stopped.load(Ordering::SeqCst) {
+                guard.files.sync_all()?;
+                return Ok(ret);
+            }
+
             if let Some(block) = get_block_by_number(number) {
                 if let Some(ref header) = guard.tip {
                     if header.hash() != block.header().parent_hash() {
