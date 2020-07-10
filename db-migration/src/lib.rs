@@ -38,15 +38,18 @@ impl Migrations {
 
         match db_version {
             Some(ref v) => {
+                info!("Current database version {}", v);
                 for (_, m) in self
                     .migrations
                     .iter()
                     .filter(|(mv, _)| mv.as_str() > v.as_str())
                 {
+                    info!("Run migration {}", m.version());
                     db = m.migrate(db)?;
                     db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
+                    info!("Finish migration {}", m.version());
                 }
                 Ok(db)
             }
