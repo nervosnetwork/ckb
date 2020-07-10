@@ -6,5 +6,6 @@ use std::path::PathBuf;
 pub struct Config {
     #[serde(default)]
     pub path: PathBuf,
-    pub options: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub options: HashMap<String, String>,
 }

@@ -64,8 +64,9 @@ impl RocksDB {
                 }
             })?;
 
-        if let Some(db_opt) = config.options.as_ref() {
-            let rocksdb_options: Vec<(&str, &str)> = db_opt
+        if !config.options.is_empty() {
+            let rocksdb_options: Vec<(&str, &str)> = config
+                .options
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
@@ -179,11 +180,24 @@ mod tests {
             .unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
-            options: Some({
+            options: {
                 let mut opts = HashMap::new();
                 opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
                 opts
-            }),
+            },
+        };
+        RocksDB::open(&config, 2); // no panic
+    }
+
+    #[test]
+    fn test_set_rocksdb_options_empty() {
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("test_set_rocksdb_options_empty")
+            .tempdir()
+            .unwrap();
+        let config = DBConfig {
+            path: tmp_dir.as_ref().to_path_buf(),
+            options: HashMap::new(),
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -197,11 +211,11 @@ mod tests {
             .unwrap();
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
-            options: Some({
+            options: {
                 let mut opts = HashMap::new();
                 opts.insert("letsrock".to_owned(), "true".to_owned());
                 opts
-            }),
+            },
         };
         RocksDB::open(&config, 2); // panic
     }
