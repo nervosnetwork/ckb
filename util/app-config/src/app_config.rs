@@ -219,7 +219,9 @@ impl CKBAppConfig {
         self.indexer
             .db
             .adjust(root_dir, &self.data_dir, "indexer_db");
-        self.ancient = path_specified_or_else(&self.ancient, || self.data_dir.join("ancient"));
+        self.ancient = mkdir(path_specified_or_else(&self.ancient, || {
+            self.data_dir.join("ancient")
+        }))?;
 
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
