@@ -2,6 +2,7 @@ use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
     COLUMN_NUMBER_HASH,
 };
+use ckb_db::Col;
 use ckb_db::RocksDBWriteBatch;
 use ckb_error::Error;
 use ckb_types::{core::BlockNumber, packed, prelude::*};
@@ -11,6 +12,10 @@ pub struct StoreWriteBatch {
 }
 
 impl StoreWriteBatch {
+    pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.inner.put(col, key, value)
+    }
+
     pub fn delete_block_body(
         &mut self,
         number: BlockNumber,
