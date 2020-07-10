@@ -156,28 +156,27 @@ impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
 
-        if subcommand_name == cli::CMD_RESET_DATA {
-            self.db.path = self.data_dir.join("db");
-            self.indexer.db.path = self.data_dir.join("indexer_db");
-            self.network.path = self.data_dir.join("network");
-            self.logger.file = Some(
-                self.data_dir
-                    .join("logs")
-                    .join(subcommand_name.to_string() + ".log"),
-            );
+        self.db.update_path_if_not_set(self.data_dir.join("db"));
+        self.indexer
+            .db
+            .update_path_if_not_set(self.data_dir.join("indexer_db"));
+        self.network.path = self.data_dir.join("network");
+        let log_dir = self.data_dir.join("logs");
+        let log_file = log_dir.join(subcommand_name.to_string() + ".log");
 
+        if subcommand_name == cli::CMD_RESET_DATA {
+            self.logger.file = Some(log_file);
             return Ok(self);
         }
 
         self.data_dir = mkdir(self.data_dir)?;
+        self.db.path = mkdir(self.db.path)?;
+        self.indexer.db.path = mkdir(self.indexer.db.path)?;
+        self.network.path = mkdir(self.network.path)?;
         if self.logger.log_to_file {
-            self.logger.file = Some(touch(
-                mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
-            )?);
+            mkdir(log_dir)?;
+            self.logger.file = Some(touch(log_file)?);
         }
-        self.db.path = mkdir(self.data_dir.join("db"))?;
-        self.indexer.db.path = mkdir(self.data_dir.join("indexer_db"))?;
-        self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);
 
         Ok(self)
