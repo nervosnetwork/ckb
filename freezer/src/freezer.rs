@@ -72,7 +72,7 @@ impl Freezer {
         let number = self.number();
         let mut guard = self.inner.lock();
         let mut ret = Vec::with_capacity(threshold.saturating_sub(number) as usize);
-        ckb_logger::info!("freezer freeze start {} threshold {}", number, threshold);
+        ckb_logger::trace!("freezer freeze start {} threshold {}", number, threshold);
 
         for number in number..threshold {
             if self.stopped.load(Ordering::SeqCst) {
@@ -98,7 +98,7 @@ impl Freezer {
                     block.transactions().len() as u32,
                 ));
                 guard.tip = Some(block.header());
-                ckb_logger::info!("freezer block append {}", number);
+                ckb_logger::trace!("freezer block append {}", number);
             } else {
                 ckb_logger::error!("freezer block missing {}", number);
                 break;

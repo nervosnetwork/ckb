@@ -214,10 +214,10 @@ impl Shared {
         let snapshot = self.snapshot();
         let current_epoch = snapshot.epoch_ext().number();
 
-        ckb_logger::info!("freezer current_epoch {}", current_epoch);
+        ckb_logger::trace!("freezer current_epoch {}", current_epoch);
 
         if current_epoch <= THRESHOLD_EPOCH {
-            ckb_logger::debug!("freezer loaf");
+            ckb_logger::trace!("freezer loaf");
             return Ok(());
         }
 
@@ -247,7 +247,7 @@ impl Shared {
         // Wipe out frozen data
         self.wipe_out_frozen_data(&snapshot, ret)?;
 
-        ckb_logger::info!("freezer finish ");
+        ckb_logger::trace!("freezer finish ");
 
         Ok(())
     }
@@ -260,7 +260,7 @@ impl Shared {
         let mut side = Vec::with_capacity(frozen.len());
         let mut batch = self.store.new_write_batch();
 
-        ckb_logger::info!("freezer wipe_out_frozen_data {} ", frozen.len());
+        ckb_logger::trace!("freezer wipe_out_frozen_data {} ", frozen.len());
 
         // remain header
         for (number, hash, txs) in frozen {

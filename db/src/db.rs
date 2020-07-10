@@ -16,8 +16,6 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
-pub const MAX_DELETE_BATCH_SIZE: usize = 32 * 1024;
-
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
