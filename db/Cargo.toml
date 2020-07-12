@@ -12,3 +12,6 @@ ckb-error = { path = "../error" }
 tempfile = "3.0"
 libc = "0.2"
 rocksdb = { package = "ckb-rocksdb", version = "=0.13.0", features = ["snappy"] }
+
+[dev-dependencies]
+toml = "0.5"

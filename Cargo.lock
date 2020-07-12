@@ -310,6 +310,7 @@ dependencies = [
  "ckb-resource",
  "ckb-types",
  "clap",
+ "num_cpus",
  "path-clean",
  "rand 0.6.5",
  "sentry",
@@ -489,6 +490,7 @@ dependencies = [
  "ckb-rocksdb",
  "libc",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

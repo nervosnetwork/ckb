@@ -155,6 +155,7 @@ impl AppConfig {
 impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+        self.db.set_default_for_empty_options();
 
         if subcommand_name == cli::CMD_RESET_DATA {
             self.db.path = self.data_dir.join("db");

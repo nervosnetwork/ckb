@@ -22,6 +22,7 @@ ckb-types = { path = "../types" }
 ckb-fee-estimator = { path = "../fee-estimator" }
 p2p = { version="0.3.0-alpha.4", package="tentacle", features = ["molc"] }
 rand = "0.6"
+num_cpus = "1.10"
 
 [dev-dependencies]
 tempfile = "3.0"
