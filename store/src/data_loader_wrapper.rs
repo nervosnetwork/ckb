@@ -2,7 +2,7 @@ use crate::ChainStore;
 use ckb_script_data_loader::DataLoader;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::CellMeta, BlockExt, EpochExt, HeaderView},
+    core::{cell::CellMeta, HeaderView},
     packed::Byte32,
     prelude::*,
 };
@@ -23,15 +23,6 @@ impl<'a, T: ChainStore<'a>> DataLoader for DataLoaderWrapper<'a, T> {
                 self.0
                     .get_cell_data(&cell.out_point.tx_hash(), cell.out_point.index().unpack())
             })
-    }
-    // load BlockExt
-    #[inline]
-    fn get_block_ext(&self, block_hash: &Byte32) -> Option<BlockExt> {
-        self.0.get_block_ext(block_hash)
-    }
-
-    fn get_block_epoch(&self, block_hash: &Byte32) -> Option<EpochExt> {
-        self.0.get_block_epoch(block_hash)
     }
 
     fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {

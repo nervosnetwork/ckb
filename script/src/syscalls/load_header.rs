@@ -114,20 +114,18 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
         header: &HeaderView,
     ) -> Result<(u8, u64), VMError> {
         let field = HeaderField::parse_from_u64(machine.registers()[A5].to_u64())?;
-        let epoch = match self.data_loader.get_block_epoch(&header.hash()) {
-            Some(epoch) => epoch,
-            None => return Ok((ITEM_MISSING, 0)),
-        };
+        let epoch = header.epoch();
 
         let result = match field {
-            HeaderField::EpochNumber => (SUCCESS, store_u64(machine, epoch.number())?),
-            HeaderField::EpochStartBlockNumber => {
-                (SUCCESS, store_u64(machine, epoch.start_number())?)
-            }
-            HeaderField::EpochLength => (SUCCESS, store_u64(machine, epoch.length())?),
+            HeaderField::EpochNumber => epoch.number(),
+            HeaderField::EpochStartBlockNumber => header
+                .number()
+                .checked_sub(epoch.index())
+                .ok_or(VMError::Unexpected)?,
+            HeaderField::EpochLength => epoch.length(),
         };
 
-        Ok(result)
+        Ok((SUCCESS, store_u64(machine, result)?))
     }
 }
 
