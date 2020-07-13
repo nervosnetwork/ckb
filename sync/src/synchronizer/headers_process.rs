@@ -5,12 +5,8 @@ use crate::{Status, StatusCode, MAX_HEADERS_LEN};
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed::{self, Byte32},
-    prelude::*,
-};
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier, Verifier};
 
 pub struct HeadersProcess<'a> {
@@ -55,17 +51,11 @@ impl<'a> BlockMedianTimeContext for VerifierResolver<'a> {
     fn median_block_count(&self) -> u64 {
         self.shared.consensus().median_time_block_count() as u64
     }
+}
 
-    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
-        let header = self
-            .shared
-            .get_header(&block_hash)
-            .expect("[VerifierResolver] blocks used for median time exist");
-        (
-            header.timestamp(),
-            header.number(),
-            header.data().raw().parent_hash(),
-        )
+impl<'a> HeaderProvider for VerifierResolver<'a> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
+        self.shared.get_header(hash)
     }
 }
 
