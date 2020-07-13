@@ -1,5 +1,6 @@
 use crate::types::ScriptGroup;
 use ckb_error::{Error, ErrorKind};
+use ckb_types::core::Cycle;
 use failure::Fail;
 use std::fmt;
 
@@ -10,8 +11,8 @@ pub enum ScriptError {
     InvalidCodeHash,
 
     /// The script consumes too much cycles
-    #[fail(display = "ExceededMaximumCycles")]
-    ExceededMaximumCycles,
+    #[fail(display = "ExceededMaximumCycles: expect cycles <= {}", _0)]
+    ExceededMaximumCycles(Cycle),
 
     /// `script.type_hash` hits multiple cells with different data
     #[fail(display = "MultipleMatches")]

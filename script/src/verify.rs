@@ -282,9 +282,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             })?;
             let current_cycles = cycles
                 .checked_add(cycle)
-                .ok_or(ScriptError::ExceededMaximumCycles.source(group))?;
+                .ok_or(ScriptError::ExceededMaximumCycles(max_cycles).source(group))?;
             if current_cycles > max_cycles {
-                return Err(ScriptError::ExceededMaximumCycles.source(group).into());
+                return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                    .source(group)
+                    .into());
             }
             cycles = current_cycles;
         }
@@ -386,14 +388,20 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut machine = AsmMachine::new(default_machine, None);
         #[cfg(not(has_asm))]
         let mut machine = TraceMachine::new(default_machine);
+
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::InvalidCycles => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(format!("{:?}", error)),
+        };
+
         let bytes = machine
             .load_program(&program, &[])
-            .map_err(internal_error)?;
+            .map_err(map_vm_internal_error)?;
         machine
             .machine
             .add_cycles(transferred_byte_cycles(bytes))
-            .map_err(internal_error)?;
-        let code = machine.run().map_err(internal_error)?;
+            .map_err(map_vm_internal_error)?;
+        let code = machine.run().map_err(map_vm_internal_error)?;
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
@@ -402,16 +410,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     }
 }
 
-fn internal_error(error: VMInternalError) -> ScriptError {
-    if error == VMInternalError::InvalidCycles {
-        return ScriptError::ExceededMaximumCycles.into();
-    }
-    ScriptError::VMInternalError(format!("{:?}", error))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::type_id::TYPE_ID_CYCLES;
     use byteorder::{ByteOrder, LittleEndian};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::RocksDB;
@@ -606,7 +608,7 @@ mod tests {
             verifier
                 .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .unwrap_err(),
-            internal_error(VMInternalError::InvalidCycles).source_input(0),
+            ScriptError::ExceededMaximumCycles(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1).source_input(0),
         );
 
         assert!(verifier.verify(100_000_000).is_ok());
@@ -1173,7 +1175,9 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
-        assert!(verifier.verify(1_001_000).is_ok());
+        if let Err(err) = verifier.verify(TYPE_ID_CYCLES * 2) {
+            panic!("expect verification ok, got: {:?}", err);
+        }
     }
 
     #[test]
@@ -1234,8 +1238,8 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert_error_eq!(
-            verifier.verify(500_000).unwrap_err(),
-            ScriptError::ExceededMaximumCycles.source_input(0),
+            verifier.verify(TYPE_ID_CYCLES - 1).unwrap_err(),
+            ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - 1).source_input(0),
         );
     }
 
@@ -1587,8 +1591,8 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert_error_eq!(
-            verifier.verify(1_001_000).unwrap_err(),
             ScriptError::ValidationFailure(-2).source_input(0),
+            verifier.verify(TYPE_ID_CYCLES * 2).unwrap_err(),
         );
     }
 
