@@ -1,14 +1,15 @@
 use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
+    error::ScriptError,
     syscalls::{
         Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
         LoadTx, LoadWitness,
     },
     type_id::TypeIdSystemScript,
-    ScriptError,
+    types::{ScriptGroup, ScriptGroupType},
 };
 use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_traits::{CellDataProvider, HeaderProvider};
@@ -32,7 +33,6 @@ use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
     SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
@@ -40,33 +40,6 @@ use std::convert::TryFrom;
 type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
 type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
-
-// A script group is defined as scripts that share the same hash.
-// A script group will only be executed once per transaction, the
-// script itself should check against all inputs/outputs in its group
-// if needed.
-pub struct ScriptGroup {
-    pub script: Script,
-    pub input_indices: Vec<usize>,
-    pub output_indices: Vec<usize>,
-}
-
-impl ScriptGroup {
-    pub fn new(script: &Script) -> Self {
-        Self {
-            script: script.to_owned(),
-            input_indices: vec![],
-            output_indices: vec![],
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum ScriptGroupType {
-    Lock,
-    Type,
-}
 
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
@@ -268,25 +241,25 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     }
 
     // Extracts actual script binary either in dep cells.
-    pub fn extract_script(&self, script: &'a Script) -> Result<Bytes, Error> {
+    pub fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
             ScriptHashType::Data => {
                 if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(data.to_owned())
                 } else {
-                    Err(ScriptError::InvalidCodeHash.into())
+                    Err(ScriptError::InvalidCodeHash)
                 }
             }
             ScriptHashType::Type => {
                 if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash())
                 {
                     if *multiple {
-                        Err(ScriptError::MultipleMatches.into())
+                        Err(ScriptError::MultipleMatches)
                     } else {
                         Ok(data.to_owned())
                     }
                 } else {
-                    Err(ScriptError::InvalidCodeHash.into())
+                    Err(ScriptError::InvalidCodeHash)
                 }
             }
         }
@@ -305,13 +278,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     self.hash(),
                     e
                 );
-                e
+                e.source(group)
             })?;
             let current_cycles = cycles
                 .checked_add(cycle)
-                .ok_or(ScriptError::ExceededMaximumCycles)?;
+                .ok_or(ScriptError::ExceededMaximumCycles.source(group))?;
             if current_cycles > max_cycles {
-                return Err(ScriptError::ExceededMaximumCycles.into());
+                return Err(ScriptError::ExceededMaximumCycles.source(group).into());
             }
             cycles = current_cycles;
         }
@@ -325,14 +298,18 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         script_group_type: &ScriptGroupType,
         script_hash: &Byte32,
         max_cycles: Cycle,
-    ) -> Result<Cycle, Error> {
+    ) -> Result<Cycle, ScriptError> {
         match self.find_script_group(script_group_type, script_hash) {
             Some(group) => self.verify_script_group(group, max_cycles),
             None => Err(ScriptError::InvalidCodeHash.into()),
         }
     }
 
-    fn verify_script_group(&self, group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
+    fn verify_script_group(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
@@ -389,7 +366,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         ]
     }
 
-    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
+    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         #[cfg(has_asm)]
         let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
@@ -425,11 +402,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     }
 }
 
-fn internal_error(error: VMInternalError) -> Error {
+fn internal_error(error: VMInternalError) -> ScriptError {
     if error == VMInternalError::InvalidCycles {
         return ScriptError::ExceededMaximumCycles.into();
     }
-    InternalErrorKind::VM.reason(format!("{:?}", error)).into()
+    ScriptError::VMInternalError(format!("{:?}", error))
 }
 
 #[cfg(test)]
@@ -629,7 +606,7 @@ mod tests {
             verifier
                 .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .unwrap_err(),
-            internal_error(VMInternalError::InvalidCycles),
+            internal_error(VMInternalError::InvalidCycles).source_input(0),
         );
 
         assert!(verifier.verify(100_000_000).is_ok());
@@ -796,7 +773,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::MultipleMatches,
+            ScriptError::MultipleMatches.source_input(0),
         );
     }
 
@@ -860,7 +837,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1),
+            ScriptError::ValidationFailure(-1).source_input(0),
         );
     }
 
@@ -912,7 +889,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::InvalidCodeHash,
+            ScriptError::InvalidCodeHash.source_input(0),
         );
     }
 
@@ -1070,7 +1047,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1),
+            ScriptError::ValidationFailure(-1).source_output(0),
         );
     }
 
@@ -1258,7 +1235,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(500_000).unwrap_err(),
-            ScriptError::ExceededMaximumCycles,
+            ScriptError::ExceededMaximumCycles.source_input(0),
         );
     }
 
@@ -1462,7 +1439,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-3),
+            ScriptError::ValidationFailure(-3).source_output(0),
         );
     }
 
@@ -1542,7 +1519,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1),
+            ScriptError::ValidationFailure(-1).source_output(0),
         );
     }
 
@@ -1611,7 +1588,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-2),
+            ScriptError::ValidationFailure(-2).source_input(0),
         );
     }
 
