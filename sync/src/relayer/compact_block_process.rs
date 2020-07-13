@@ -5,18 +5,8 @@ use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-<<<<<<< HEAD
-use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed,
-    prelude::*,
-};
-=======
-use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
->>>>>>> refactor: add HeaderProvider trait
 use ckb_verification::{HeaderError, HeaderVerifier, Verifier};
 use std::collections::HashMap;
 use std::sync::Arc;

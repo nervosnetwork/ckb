@@ -5,12 +5,13 @@ use crate::{
         LoadTx, LoadWitness,
     },
     type_id::TypeIdSystemScript,
-    DataLoader, ScriptError,
+    ScriptError,
 };
 use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_error::{Error, InternalErrorKind};
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
+use ckb_traits::{CellDataProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -83,7 +84,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     type_groups: HashMap<Byte32, ScriptGroup>,
 }
 
-impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
+impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
     pub fn new(
         rtx: &'a ResolvedTransaction,
         data_loader: &'a DL,
