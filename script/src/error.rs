@@ -1,4 +1,4 @@
-use crate::types::ScriptGroup;
+use crate::types::{ScriptGroup, ScriptGroupType};
 use ckb_error::{Error, ErrorKind};
 use ckb_types::core::Cycle;
 use failure::Fail;
@@ -37,18 +37,18 @@ pub enum ScriptError {
 /// Locate the script using the first input index if possible, otherwise the first output index.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TransactionScriptErrorSource {
-    Inputs(usize),
-    Outputs(usize),
+    Inputs(usize, ScriptGroupType),
+    Outputs(usize, ScriptGroupType),
     Unknown,
 }
 
 impl TransactionScriptErrorSource {
     fn from_script_group(script_group: &ScriptGroup) -> Self {
         if let Some(n) = script_group.input_indices.first() {
-            TransactionScriptErrorSource::Inputs(*n)
+            TransactionScriptErrorSource::Inputs(*n, script_group.group_type)
         } else {
             if let Some(n) = script_group.output_indices.first() {
-                TransactionScriptErrorSource::Outputs(*n)
+                TransactionScriptErrorSource::Outputs(*n, script_group.group_type)
             } else {
                 TransactionScriptErrorSource::Unknown
             }
@@ -59,8 +59,10 @@ impl TransactionScriptErrorSource {
 impl fmt::Display for TransactionScriptErrorSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TransactionScriptErrorSource::Inputs(n) => write!(f, "Inputs[{}]", n),
-            TransactionScriptErrorSource::Outputs(n) => write!(f, "Outputs[{}]", n),
+            TransactionScriptErrorSource::Inputs(n, field) => write!(f, "Inputs[{}].{}", n, field),
+            TransactionScriptErrorSource::Outputs(n, field) => {
+                write!(f, "Outputs[{}].{}", n, field)
+            }
             TransactionScriptErrorSource::Unknown => write!(f, "Unknown"),
         }
     }
@@ -68,8 +70,8 @@ impl fmt::Display for TransactionScriptErrorSource {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionScriptError {
-    cause: ScriptError,
     source: TransactionScriptErrorSource,
+    cause: ScriptError,
 }
 
 impl fmt::Display for TransactionScriptError {
@@ -90,16 +92,23 @@ impl ScriptError {
         }
     }
 
-    pub fn source_input(self, index: usize) -> TransactionScriptError {
+    pub fn input_lock_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
-            source: TransactionScriptErrorSource::Inputs(index),
+            source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Lock),
             cause: self,
         }
     }
 
-    pub fn source_output(self, index: usize) -> TransactionScriptError {
+    pub fn input_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
-            source: TransactionScriptErrorSource::Outputs(index),
+            source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Type),
+            cause: self,
+        }
+    }
+
+    pub fn output_type_script(self, index: usize) -> TransactionScriptError {
+        TransactionScriptError {
+            source: TransactionScriptErrorSource::Outputs(index, ScriptGroupType::Type),
             cause: self,
         }
     }

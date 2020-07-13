@@ -106,12 +106,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             let output = &cell_meta.cell_output;
             let lock_group_entry = lock_groups
                 .entry(output.calc_lock_hash())
-                .or_insert_with(|| ScriptGroup::new(&output.lock()));
+                .or_insert_with(|| ScriptGroup::from_lock_script(&output.lock()));
             lock_group_entry.input_indices.push(i);
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
                     .entry(t.calc_script_hash())
-                    .or_insert_with(|| ScriptGroup::new(&t));
+                    .or_insert_with(|| ScriptGroup::from_type_script(&t));
                 type_group_entry.input_indices.push(i);
             }
         }
@@ -119,7 +119,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
                     .entry(t.calc_script_hash())
-                    .or_insert_with(|| ScriptGroup::new(&t));
+                    .or_insert_with(|| ScriptGroup::from_type_script(&t));
                 type_group_entry.output_indices.push(i);
             }
         }
@@ -608,7 +608,8 @@ mod tests {
             verifier
                 .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .unwrap_err(),
-            ScriptError::ExceededMaximumCycles(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1).source_input(0),
+            ScriptError::ExceededMaximumCycles(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
+                .input_lock_script(0),
         );
 
         assert!(verifier.verify(100_000_000).is_ok());
@@ -775,7 +776,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::MultipleMatches.source_input(0),
+            ScriptError::MultipleMatches.input_lock_script(0),
         );
     }
 
@@ -839,7 +840,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).source_input(0),
+            ScriptError::ValidationFailure(-1).input_lock_script(0),
         );
     }
 
@@ -891,7 +892,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::InvalidCodeHash.source_input(0),
+            ScriptError::InvalidCodeHash.input_lock_script(0),
         );
     }
 
@@ -1049,7 +1050,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).source_output(0),
+            ScriptError::ValidationFailure(-1).output_type_script(0),
         );
     }
 
@@ -1239,7 +1240,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(TYPE_ID_CYCLES - 1).unwrap_err(),
-            ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - 1).source_input(0),
+            ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - 1).input_type_script(0),
         );
     }
 
@@ -1443,7 +1444,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-3).source_output(0),
+            ScriptError::ValidationFailure(-3).output_type_script(0),
         );
     }
 
@@ -1523,7 +1524,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).source_output(0),
+            ScriptError::ValidationFailure(-1).output_type_script(0),
         );
     }
 
@@ -1591,8 +1592,8 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
         assert_error_eq!(
-            ScriptError::ValidationFailure(-2).source_input(0),
             verifier.verify(TYPE_ID_CYCLES * 2).unwrap_err(),
+            ScriptError::ValidationFailure(-2).input_type_script(0),
         );
     }
 
