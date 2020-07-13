@@ -19,7 +19,10 @@ pub enum ScriptError {
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[fail(display = "ValidationFailure({})", _0)]
+    #[fail(
+        display = "ValidationFailure({}): the exit code is per script specific, for system scripts, please check https://github.com/nervosnetwork/ckb-system-scripts/wiki/Error-codes",
+        _0
+    )]
     ValidationFailure(i8),
 
     /// Known bugs are detected in transaction script outputs
