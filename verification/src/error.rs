@@ -248,7 +248,9 @@ pub enum PowError {
     #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
     Boundary { expected: Byte32, actual: Byte32 },
 
-    #[fail(display = "InvalidNonce")]
+    #[fail(
+        display = "InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log"
+    )]
     InvalidNonce,
 }
 

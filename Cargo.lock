@@ -785,6 +785,7 @@ dependencies = [
  "ckb-hash",
  "ckb-types",
  "eaglesong",
+ "log 0.4.11",
  "serde",
 ]
 

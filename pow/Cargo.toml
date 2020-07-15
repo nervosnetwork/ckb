@@ -11,3 +11,4 @@ ckb-types = { path = "../util/types" }
 ckb-hash = { path = "../util/hash"}
 serde = { version = "1.0", features = ["derive"] }
 eaglesong = "0.1"
+log = "0.4"
