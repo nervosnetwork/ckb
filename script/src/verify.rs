@@ -282,7 +282,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             })?;
             let current_cycles = cycles
                 .checked_add(cycle)
-                .ok_or(ScriptError::ExceededMaximumCycles(max_cycles).source(group))?;
+                .ok_or_else(|| ScriptError::ExceededMaximumCycles(max_cycles).source(group))?;
             if current_cycles > max_cycles {
                 return Err(ScriptError::ExceededMaximumCycles(max_cycles)
                     .source(group)
@@ -297,13 +297,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     // CKB itself, it can be very helpful when building a CKB debugger.
     pub fn verify_single(
         &self,
-        script_group_type: &ScriptGroupType,
+        script_group_type: ScriptGroupType,
         script_hash: &Byte32,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
         match self.find_script_group(script_group_type, script_hash) {
             Some(group) => self.verify_script_group(group, max_cycles),
-            None => Err(ScriptError::InvalidCodeHash.into()),
+            None => Err(ScriptError::InvalidCodeHash),
         }
     }
 
@@ -328,7 +328,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     pub fn find_script_group(
         &self,
-        script_group_type: &ScriptGroupType,
+        script_group_type: ScriptGroupType,
         script_hash: &Byte32,
     ) -> Option<&ScriptGroup> {
         match script_group_type {
@@ -405,7 +405,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
-            Err(ScriptError::ValidationFailure(code).into())
+            Err(ScriptError::ValidationFailure(code))
         }
     }
 }

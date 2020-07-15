@@ -16,8 +16,8 @@ pub struct ScriptGroup {
 impl ScriptGroup {
     pub fn new(script: &Script, group_type: ScriptGroupType) -> Self {
         Self {
+            group_type,
             script: script.to_owned(),
-            group_type: group_type,
             input_indices: vec![],
             output_indices: vec![],
         }

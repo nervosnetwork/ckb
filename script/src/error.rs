@@ -46,12 +46,10 @@ impl TransactionScriptErrorSource {
     fn from_script_group(script_group: &ScriptGroup) -> Self {
         if let Some(n) = script_group.input_indices.first() {
             TransactionScriptErrorSource::Inputs(*n, script_group.group_type)
+        } else if let Some(n) = script_group.output_indices.first() {
+            TransactionScriptErrorSource::Outputs(*n, script_group.group_type)
         } else {
-            if let Some(n) = script_group.output_indices.first() {
-                TransactionScriptErrorSource::Outputs(*n, script_group.group_type)
-            } else {
-                TransactionScriptErrorSource::Unknown
-            }
+            TransactionScriptErrorSource::Unknown
         }
     }
 }
