@@ -65,4 +65,8 @@ impl Error {
     pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
         self.cause().and_then(|cause| cause.downcast_ref::<T>())
     }
+
+    pub fn unwrap_cause_or_self(&self) -> &dyn Fail {
+        self.cause().unwrap_or(self)
+    }
 }

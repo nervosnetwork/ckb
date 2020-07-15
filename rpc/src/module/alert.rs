@@ -42,30 +42,30 @@ impl AlertRpc for AlertRpcImpl {
         let now_ms = faketime::unix_time_as_millis();
         let notice_until: u64 = alert.raw().notice_until().unpack();
         if notice_until < now_ms {
-            return Err(RPCError::custom(
-                RPCError::Invalid,
-                format!(
-                    "expired alert, notice_until: {} server: {}",
-                    notice_until, now_ms
-                ),
-            ));
+            return Err(RPCError::invalid_params(format!(
+                "Expected `params[0].notice_until` in the future (> {}), got {}",
+                now_ms, notice_until
+            )));
         }
 
         let result = self.verifier.verify_signatures(&alert);
 
         match result {
             Ok(()) => {
-                if let Err(err) = self
-                    .network_controller
-                    .broadcast(SupportProtocols::Alert.protocol_id(), alert.as_bytes())
-                {
-                    error!("Broadcast alert failed: {:?}", err);
-                }
                 // set self node notifier
                 self.notifier.lock().add(&alert);
-                Ok(())
+
+                self.network_controller
+                    .broadcast(SupportProtocols::Alert.protocol_id(), alert.as_bytes())
+                    .map_err(|err| {
+                        error!("Broadcast alert failed: {:?}", err);
+                        RPCError::custom_with_error(RPCError::P2PFailedToBroadcast, err)
+                    })
             }
-            Err(e) => Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e))),
+            Err(e) => Err(RPCError::custom_with_error(
+                RPCError::AlertFailedToVerifySignatures,
+                e,
+            )),
         }
     }
 }

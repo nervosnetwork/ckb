@@ -5,9 +5,12 @@ use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum SubmitTxError {
     /// The fee rate of transaction is lower than min fee rate
-    #[fail(display = "LowFeeRate")]
-    LowFeeRate(u64),
-    #[fail(display = "ExceededMaximumAncestorsCount")]
+    #[fail(
+        display = "Transaction fee rate must >= {} shannons/KB, got: {}",
+        _0, _1
+    )]
+    LowFeeRate(u64, u64),
+    #[fail(display = "Transaction exceeded maximum ancestors count limit, try send it later")]
     ExceededMaximumAncestorsCount,
 }
 

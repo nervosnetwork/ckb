@@ -119,9 +119,13 @@ impl NetworkRpc for NetworkRpcImpl {
         absolute: Option<bool>,
         reason: Option<String>,
     ) -> Result<()> {
-        let ip_network = address
-            .parse()
-            .map_err(|_| RPCError::custom(RPCError::Invalid, "invalid address".to_owned()))?;
+        let ip_network = address.parse().map_err(|_| {
+            RPCError::invalid_params(format!(
+                "Expected `params[0]` to be a valid IP address, got {}",
+                address
+            ))
+        })?;
+
         match command.as_ref() {
             "insert" => {
                 let ban_until = if absolute.unwrap_or(false) {
@@ -132,24 +136,18 @@ impl NetworkRpc for NetworkRpcImpl {
                             .unwrap_or_else(|| DEFAULT_BAN_DURATION.into())
                             .value()
                 };
-                if let Err(err) =
-                    self.network_controller
-                        .ban(ip_network, ban_until, reason.unwrap_or_default())
-                {
-                    return Err(RPCError::custom(
-                        RPCError::Invalid,
-                        format!("ban address error {}", err),
-                    ));
-                }
+                self.network_controller
+                    .ban(ip_network, ban_until, reason.unwrap_or_default())
+                    .map_err(RPCError::ckb_internal_error)
             }
-            "delete" => self.network_controller.unban(&ip_network),
-            _ => {
-                return Err(RPCError::custom(
-                    RPCError::Invalid,
-                    "invalid command".to_owned(),
-                ))
+            "delete" => {
+                self.network_controller.unban(&ip_network);
+                Ok(())
             }
+            _ => Err(RPCError::invalid_params(format!(
+                "Expected `params[1]` to be in the list [insert, delete], got {}",
+                address,
+            ))),
         }
-        Ok(())
     }
 }
