@@ -19,12 +19,12 @@ use lru_cache::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-pub struct ContextualTransactionVerifier<'a, M> {
+pub struct TimeRelativeTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub since: SinceVerifier<'a, M>,
 }
 
-impl<'a, M> ContextualTransactionVerifier<'a, M>
+impl<'a, M> TimeRelativeTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -36,7 +36,7 @@ where
         parent_hash: Byte32,
         consensus: &'a Consensus,
     ) -> Self {
-        ContextualTransactionVerifier {
+        TimeRelativeTransactionVerifier {
             maturity: MaturityVerifier::new(
                 &rtx,
                 epoch_number_with_fraction,

@@ -19,7 +19,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
-use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
+use ckb_verification::{TimeRelativeTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
 use std::collections::HashMap;
@@ -365,7 +365,7 @@ impl TxPool {
 
         match cache_entry {
             Some(cache_entry) => {
-                ContextualTransactionVerifier::new(
+                TimeRelativeTransactionVerifier::new(
                     &rtx,
                     snapshot,
                     tip_number + 1,

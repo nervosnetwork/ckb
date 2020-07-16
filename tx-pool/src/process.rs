@@ -24,7 +24,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{cache::CacheEntry, ContextualTransactionVerifier, TransactionVerifier};
+use ckb_verification::{cache::CacheEntry, TimeRelativeTransactionVerifier, TransactionVerifier};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -593,7 +593,7 @@ fn verify_rtxs(
         .map(|tx| {
             let tx_hash = tx.transaction.hash();
             if let Some(cache_entry) = txs_verify_cache.get(&tx_hash) {
-                ContextualTransactionVerifier::new(
+                TimeRelativeTransactionVerifier::new(
                     &tx,
                     snapshot,
                     tip_number + 1,
