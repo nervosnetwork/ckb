@@ -24,7 +24,7 @@ pub use crate::error::{
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
 pub use crate::transaction_verifier::{
-    ContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric, TransactionVerifier,
+    ScriptVerifier, Since, SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
 };
 
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second

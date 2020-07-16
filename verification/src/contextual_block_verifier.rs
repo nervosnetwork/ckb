@@ -2,8 +2,8 @@ use crate::cache::{CacheEntry, TxVerifyCache};
 use crate::error::{BlockTransactionsError, EpochError};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{
-    BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier, TransactionVerifier,
-    UnknownParentError,
+    BlockErrorKind, CellbaseError, CommitError, TimeRelativeTransactionVerifier,
+    TransactionVerifier, UnknownParentError,
 };
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -392,7 +392,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
-                    ContextualTransactionVerifier::new(
+                    TimeRelativeTransactionVerifier::new(
                         &tx,
                         self.context,
                         self.block_number,
