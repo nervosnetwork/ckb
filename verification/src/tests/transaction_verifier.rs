@@ -2,6 +2,7 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, OutputsDataVerifier,
     Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
+use crate::error::TransactionErrorSource;
 use crate::TransactionError;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_DAO};
 use ckb_error::{assert_error_eq, Error};
@@ -14,7 +15,7 @@ use ckb_types::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
         BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, TransactionBuilder,
-        TransactionInfo, TransactionView, Version,
+        TransactionInfo, TransactionView,
     },
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint},
@@ -28,7 +29,12 @@ pub fn test_empty() {
     let transaction = TransactionBuilder::default().build();
     let verifier = EmptyVerifier::new(&transaction);
 
-    assert_error_eq!(verifier.verify().unwrap_err(), TransactionError::Empty);
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::Empty {
+            source: TransactionErrorSource::Inputs,
+        }
+    );
 }
 
 #[test]
@@ -40,7 +46,10 @@ pub fn test_version() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::MismatchedVersion,
+        TransactionError::MismatchedVersion {
+            expected: 0,
+            actual: 1
+        },
     );
 }
 
@@ -48,7 +57,6 @@ pub fn test_version() {
 pub fn test_exceeded_maximum_block_bytes() {
     let data: Bytes = vec![1; 500].into();
     let transaction = TransactionBuilder::default()
-        .version((Version::default() + 1).pack())
         .output(
             CellOutput::new_builder()
                 .capacity(capacity_bytes!(50).pack())
@@ -60,7 +68,10 @@ pub fn test_exceeded_maximum_block_bytes() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::ExceededMaximumBlockBytes,
+        TransactionError::ExceededMaximumBlockBytes {
+            actual: 661,
+            limit: 100
+        },
     );
 }
 
@@ -93,7 +104,12 @@ pub fn test_capacity_outofbound() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::InsufficientCellCapacity,
+        TransactionError::InsufficientCellCapacity {
+            source: TransactionErrorSource::Outputs,
+            index: 0,
+            capacity: capacity_bytes!(50),
+            occupied_capacity: capacity_bytes!(92),
+        }
     );
 }
 
@@ -148,7 +164,10 @@ pub fn test_inputs_cellbase_maturity() {
         if current < threshold {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
-                TransactionError::CellbaseImmaturity,
+                TransactionError::CellbaseImmaturity {
+                    source: TransactionErrorSource::Inputs,
+                    index: 0
+                },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
                 base_epoch,
                 current_epoch,
@@ -251,7 +270,10 @@ pub fn test_deps_cellbase_maturity() {
         if current < threshold {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
-                TransactionError::CellbaseImmaturity,
+                TransactionError::CellbaseImmaturity {
+                    source: TransactionErrorSource::CellDeps,
+                    index: 0
+                },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
                 base_epoch,
                 current_epoch,
@@ -322,23 +344,44 @@ pub fn test_capacity_invalid() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::OutputsSumOverflow,
+        TransactionError::OutputsSumOverflow {
+            inputs_sum: capacity_bytes!(149),
+            outputs_sum: capacity_bytes!(150),
+        },
     );
 }
 
 #[test]
-pub fn test_duplicate_deps() {
+pub fn test_duplicate_cell_deps() {
     let out_point = OutPoint::new(h256!("0x1").pack(), 0);
     let cell_dep = CellDep::new_builder().out_point(out_point).build();
     let transaction = TransactionBuilder::default()
-        .cell_deps(vec![cell_dep.clone(), cell_dep])
+        .cell_deps(vec![cell_dep.clone(), cell_dep.clone()])
         .build();
 
     let verifier = DuplicateDepsVerifier::new(&transaction);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::DuplicateDeps,
+        TransactionError::DuplicateCellDeps {
+            out_point: cell_dep.out_point()
+        },
+    );
+}
+
+#[test]
+pub fn test_duplicate_header_deps() {
+    let transaction = TransactionBuilder::default()
+        .header_deps(vec![h256!("0x1").pack(), h256!("0x1").pack()])
+        .build();
+
+    let verifier = DuplicateDepsVerifier::new(&transaction);
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::DuplicateHeaderDeps {
+            hash: h256!("0x1").pack()
+        },
     );
 }
 
@@ -430,7 +473,7 @@ fn test_invalid_since_verify() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::InvalidSince,
+        TransactionError::InvalidSince { index: 0 },
     );
 }
 
@@ -466,7 +509,7 @@ fn test_fraction_epoch_since_verify() {
         parent_hash.as_ref().to_owned(),
     )
     .verify();
-    assert_error_eq!(result.unwrap_err(), TransactionError::Immature);
+    assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
 
     let result = SinceVerifier::new(
         &rtx,
@@ -491,7 +534,7 @@ pub fn test_absolute_block_number_lock() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 10 height
     assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
@@ -509,7 +552,7 @@ pub fn test_absolute_epoch_number_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 10 epoch
     assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
@@ -527,7 +570,7 @@ pub fn test_relative_timestamp_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
 
     // spent after 1024 seconds
@@ -550,7 +593,7 @@ pub fn test_relative_epoch() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
 
     assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
@@ -579,7 +622,7 @@ pub fn test_since_both() {
 
     assert_error_eq!(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::Immature,
+        TransactionError::Immature { index: 0 },
     );
     // spent after 1024 seconds and 10 blocks
     // fake median time: 1124
@@ -609,7 +652,7 @@ fn test_since_overflow() {
         let median_time_context = MockMedianTime::new(vec![0; 11]);
         assert_error_eq!(
             verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-            TransactionError::Immature,
+            TransactionError::Immature { index: 0 },
         );
     }
 }
@@ -623,7 +666,10 @@ pub fn test_outputs_data_length_mismatch() {
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
-        TransactionError::OutputsDataLengthMismatch,
+        TransactionError::OutputsDataLengthMismatch {
+            outputs_len: 1,
+            outputs_data_len: 0
+        },
     );
 
     let transaction = TransactionBuilder::default()
