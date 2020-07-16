@@ -1,6 +1,6 @@
 use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
-use crate::error::SubmitTxError;
+use crate::error::Reject;
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     core::{
@@ -28,7 +28,7 @@ impl PendingQueue {
         self.inner.size()
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
         self.inner.add_entry(entry)
     }
 

@@ -1,7 +1,7 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
-use crate::error::{BlockAssemblerError, SubmitTxError};
+use crate::error::{BlockAssemblerError, Reject};
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
@@ -24,7 +24,10 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{cache::CacheEntry, TimeRelativeTransactionVerifier, TransactionVerifier};
+use ckb_verification::{
+    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    TimeRelativeTransactionVerifier,
+};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -395,13 +398,13 @@ impl TxPoolService {
         for ((rtx, cache_entry), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter())
         {
             if tx_pool.reach_cycles_limit(cache_entry.cycles) {
-                return Err(InternalErrorKind::TransactionPoolFull.into());
+                return Err(Reject::Full("cycles".to_owned(), tx_pool.config.max_cycles).into());
             }
 
             let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
             // reject txs which fee lower than min fee rate
             if fee < min_fee {
-                return Err(SubmitTxError::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
+                return Err(Reject::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
@@ -424,10 +427,25 @@ impl TxPoolService {
         Ok(())
     }
 
+    fn non_contextual_verify(&self, txs: &[TransactionView]) -> Result<(), Error> {
+        for tx in txs {
+            NonContextualTransactionVerifier::new(tx, &self.consensus).verify()?;
+
+            // cellbase is only valid in a block, not as a loose transaction
+            if tx.is_cellbase() {
+                return Err(Reject::Malformed("cellbase like".to_owned()).into());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn process_txs(
         &self,
         txs: Vec<TransactionView>,
     ) -> Result<Vec<CacheEntry>, Error> {
+        // non contextual verify first
+        self.non_contextual_verify(&txs)?;
+
         let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let (tip_hash, snapshot, rtxs, status) = self.pre_resolve_txs(&txs).await?;
         let fetched_cache = self.fetch_txs_verify_cache(txs.iter()).await;
@@ -517,7 +535,7 @@ fn check_transaction_hash_collision(
     for tx in txs {
         let short_id = tx.proposal_short_id();
         if tx_pool.contains_proposal_id(&short_id) {
-            return Err(InternalErrorKind::PoolTransactionDuplicated.into());
+            return Err(Reject::Duplicated(tx.hash()).into());
         }
     }
     Ok(())
@@ -531,7 +549,7 @@ fn resolve_tx<'a>(
 ) -> ResolveResult {
     let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
-        return Err(InternalErrorKind::TransactionPoolFull.into());
+        return Err(Reject::Full("size".to_owned(), tx_pool.config.max_mem_size as u64).into());
     }
 
     let short_id = tx.proposal_short_id();
@@ -604,7 +622,7 @@ fn verify_rtxs(
                 .verify()
                 .map(|_| (tx, *cache_entry))
             } else {
-                TransactionVerifier::new(
+                ContextualTransactionVerifier::new(
                     &tx,
                     snapshot,
                     tip_number + 1,

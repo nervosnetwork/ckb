@@ -1,21 +1,35 @@
 use ckb_error::{Error, ErrorKind};
+use ckb_types::packed::Byte32;
 use failure::Fail;
 use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum SubmitTxError {
+pub enum Reject {
     /// The fee rate of transaction is lower than min fee rate
     #[fail(
         display = "Transaction fee rate must >= {} shannons/KB, got: {}",
         _0, _1
     )]
     LowFeeRate(u64, u64),
+
     #[fail(display = "Transaction exceeded maximum ancestors count limit, try send it later")]
     ExceededMaximumAncestorsCount,
+
+    #[fail(
+        display = "Transaction pool exceeded maximum {} limit({}), try send it later",
+        _0, _1
+    )]
+    Full(String, u64),
+
+    #[fail(display = "Transaction({}) already exist in transaction_pool", _0)]
+    Duplicated(Byte32),
+
+    #[fail(display = "Malformed {} transaction", _0)]
+    Malformed(String),
 }
 
-impl From<SubmitTxError> for Error {
-    fn from(error: SubmitTxError) -> Self {
+impl From<Reject> for Error {
+    fn from(error: Reject) -> Self {
         error.context(ErrorKind::SubmitTransaction).into()
     }
 }

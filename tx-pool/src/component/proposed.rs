@@ -1,6 +1,6 @@
 use crate::component::container::SortedTxMap;
 use crate::component::entry::TxEntry;
-use crate::error::SubmitTxError;
+use crate::error::Reject;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -196,7 +196,7 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
         let inputs = entry.transaction.input_pts_iter();
         let outputs = entry.transaction.output_pts();
 

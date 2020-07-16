@@ -13,12 +13,6 @@ pub enum InternalErrorKind {
     /// e.g. `Capacity::safe_add`
     CapacityOverflow,
 
-    /// The transaction_pool is already full
-    TransactionPoolFull,
-
-    /// The transaction already exist in transaction_pool
-    PoolTransactionDuplicated,
-
     /// Persistent data had corrupted
     DataCorrupted,
 

@@ -3,10 +3,10 @@ use super::component::{DefectEntry, TxEntry};
 use crate::component::orphan::OrphanPool;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
-use crate::error::SubmitTxError;
+use crate::error::Reject;
 use ckb_app_config::TxPoolConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{Error, ErrorKind, InternalErrorKind};
+use ckb_error::{Error, ErrorKind};
 use ckb_logger::{debug, error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -140,7 +140,7 @@ impl TxPool {
     }
 
     // If did have this value present, false is returned.
-    pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
+    pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         if self
             .gap
             .contains_key(&entry.transaction.proposal_short_id())
@@ -152,12 +152,12 @@ impl TxPool {
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
-    pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
+    pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_gap {}", entry.transaction.hash());
         self.gap.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
+    pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction.hash());
         self.touch_last_txs_updated_at();
         self.proposed.add_entry(entry).map(|entry| entry.is_none())
@@ -549,9 +549,7 @@ impl TxPool {
                 if tx_pool.add_gap(entry)? {
                     Ok(())
                 } else {
-                    Err(InternalErrorKind::PoolTransactionDuplicated
-                        .reason(tx_hash)
-                        .into())
+                    Err(Reject::Duplicated(tx_hash).into())
                 }
             },
         )
@@ -609,9 +607,7 @@ impl TxPool {
                 if tx_pool.add_pending(entry)? {
                     Ok(())
                 } else {
-                    Err(InternalErrorKind::PoolTransactionDuplicated
-                        .reason(tx_hash)
-                        .into())
+                    Err(Reject::Duplicated(tx_hash).into())
                 }
             },
         )
