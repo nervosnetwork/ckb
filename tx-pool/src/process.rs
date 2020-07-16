@@ -24,7 +24,10 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{cache::CacheEntry, TimeRelativeTransactionVerifier, TransactionVerifier};
+use ckb_verification::{
+    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    TimeRelativeTransactionVerifier,
+};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -424,10 +427,25 @@ impl TxPoolService {
         Ok(())
     }
 
+    fn non_contextual_verify(&self, txs: &[TransactionView]) -> Result<(), Error> {
+        for tx in txs {
+            NonContextualTransactionVerifier::new(tx, &self.consensus).verify()?;
+
+            // cellbase is only valid in a block, not as a loose transaction
+            if tx.is_cellbase() {
+                return Err(SubmitTxError::Malformed("cellbase like".to_owned()).into());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn process_txs(
         &self,
         txs: Vec<TransactionView>,
     ) -> Result<Vec<CacheEntry>, Error> {
+        // non contextual verify first
+        self.non_contextual_verify(&txs)?;
+
         let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let (tip_hash, snapshot, rtxs, status) = self.pre_resolve_txs(&txs).await?;
         let fetched_cache = self.fetch_txs_verify_cache(txs.iter()).await;
@@ -604,7 +622,7 @@ fn verify_rtxs(
                 .verify()
                 .map(|_| (tx, *cache_entry))
             } else {
-                TransactionVerifier::new(
+                ContextualTransactionVerifier::new(
                     &tx,
                     snapshot,
                     tip_number + 1,

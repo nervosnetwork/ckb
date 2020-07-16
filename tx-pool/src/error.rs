@@ -9,6 +9,9 @@ pub enum SubmitTxError {
     LowFeeRate(u64),
     #[fail(display = "ExceededMaximumAncestorsCount")]
     ExceededMaximumAncestorsCount,
+
+    #[fail(display = "Malformed {} transaction", _0)]
+    Malformed(String),
 }
 
 impl From<SubmitTxError> for Error {
