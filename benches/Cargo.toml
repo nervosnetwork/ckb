@@ -1,6 +1,6 @@
 [package]
 name = "ckb-benches"
-version = "0.34.0-pre"
+version = "0.35.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
