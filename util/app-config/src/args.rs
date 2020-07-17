@@ -23,12 +23,14 @@ pub struct RunArgs {
     pub block_assembler_advanced: bool,
 }
 
-pub struct ProfArgs {
+pub type ProfileArgs = Option<(Option<u64>, Option<u64>)>;
+pub struct ReplayArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
     pub tmp_target: PathBuf,
-    pub from: u64,
-    pub to: u64,
+    pub profile: ProfileArgs,
+    pub sanity_check: bool,
+    pub full_verfication: bool,
 }
 
 pub struct MinerArgs {
@@ -78,4 +80,8 @@ pub struct ResetDataArgs {
     pub network_peer_store_path: PathBuf,
     pub network_secret_key_path: PathBuf,
     pub logs_dir: Option<PathBuf>,
+}
+
+pub struct PeerIDArgs {
+    pub peer_id: p2p::secio::PeerId,
 }

@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_jsonrpc_types::{BannedAddr, Node, NodeAddress, Timestamp};
+use ckb_jsonrpc_types::{BannedAddr, LocalNode, NodeAddress, RemoteNode, Timestamp};
 use ckb_network::{MultiaddrExt, NetworkController};
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
@@ -13,11 +13,11 @@ const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
 pub trait NetworkRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"local_node_info","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "local_node_info")]
-    fn local_node_info(&self) -> Result<Node>;
+    fn local_node_info(&self) -> Result<LocalNode>;
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_peers","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "get_peers")]
-    fn get_peers(&self) -> Result<Vec<Node>>;
+    fn get_peers(&self) -> Result<Vec<RemoteNode>>;
 
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_banned_addresses","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "get_banned_addresses")]
@@ -40,10 +40,9 @@ pub(crate) struct NetworkRpcImpl {
 }
 
 impl NetworkRpc for NetworkRpcImpl {
-    fn local_node_info(&self) -> Result<Node> {
-        Ok(Node {
-            version: self.network_controller.node_version().to_string(),
-            is_outbound: None,
+    fn local_node_info(&self) -> Result<LocalNode> {
+        Ok(LocalNode {
+            version: self.network_controller.version().to_owned(),
             node_id: self.network_controller.node_id(),
             addresses: self
                 .network_controller
@@ -57,7 +56,7 @@ impl NetworkRpc for NetworkRpcImpl {
         })
     }
 
-    fn get_peers(&self) -> Result<Vec<Node>> {
+    fn get_peers(&self) -> Result<Vec<RemoteNode>> {
         let peers = self.network_controller.connected_peers();
         let mut nodes = Vec::with_capacity(peers.len());
         for (peer_id, peer) in peers.into_iter() {
@@ -84,8 +83,8 @@ impl NetworkRpc for NetworkRpcImpl {
                 }
             }
 
-            nodes.push(Node {
-                is_outbound: Some(peer.is_outbound()),
+            nodes.push(RemoteNode {
+                is_outbound: peer.is_outbound(),
                 version: peer
                     .identify_info
                     .map(|info| info.client_version)

@@ -11,7 +11,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeRate;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
-use ckb_network::{NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::{
@@ -27,19 +27,15 @@ use ckb_types::{
         EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{
-        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder,
-    },
+    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
     H256,
 };
-use ckb_util::{Condvar, Mutex};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
@@ -148,42 +144,17 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .build()
         .unwrap();
     let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
-    let tx_pool_controller = shared.tx_pool_controller();
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
-
-    // prepare fee estimator samples
-    let sample_txs: Vec<Byte32> = (0..30)
-        .map(|_| {
-            let mut buf = [0u8; 32];
-            let mut rng = thread_rng();
-            rng.fill(&mut buf);
-            buf.pack()
-        })
-        .collect();
-    let fee_rate = FeeRate::from_u64(2_000);
-    let send_height = height.saturating_sub(9);
 
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
             .process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
-        // Fake fee estimator samples
-        if block.header().number() == send_height {
-            for tx_hash in sample_txs.clone() {
-                tx_pool_controller
-                    .estimator_track_tx(tx_hash, fee_rate, send_height)
-                    .expect("prepare estimator samples");
-            }
-        }
         parent = block;
     }
-    // mark txs as confirmed
-    tx_pool_controller
-        .estimator_process_block(height + 1, sample_txs.into_iter())
-        .expect("process estimator samples");
 
     // Start network services
     let dir = tempfile::tempdir()
@@ -204,9 +175,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
             Vec::new(),
             shared.consensus().identify_name(),
             "0.1.0".to_string(),
-            Arc::new((Mutex::new(()), Condvar::new())),
+            DefaultExitHandler::default(),
         )
-        .start::<&str>(Default::default(), None)
+        .start(Some("rpc-test-network"))
         .expect("Start network service failed")
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone()));
@@ -350,12 +321,17 @@ fn request_of(method: &str, params: Value) -> Value {
 
 // Get the actual result of the given case
 fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -> Value {
-    let request = request_of(method, params);
+    let request = request_of(method, params.clone());
     match client
         .post(uri)
         .json(&request)
         .send()
-        .expect("send request")
+        .unwrap_or_else(|_| {
+            panic!(
+                "send request error, method: {:?}, params: {:?}",
+                method, params
+            )
+        })
         .json::<JsonResponse>()
     {
         Err(err) => panic!("{} response error: {:?}", method, err),
@@ -406,7 +382,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         | "get_current_epoch"
         | "get_blockchain_info"
         | "tx_pool_info"
-        | "get_lock_hash_index_states" => vec![],
+        | "get_lock_hash_index_states"
+        | "clear_tx_pool" => vec![],
         "get_epoch_by_number" => vec![json!("0x0")],
         "get_block_hash" | "get_block_by_number" | "get_header_by_number" => {
             vec![json!(tip_number)]

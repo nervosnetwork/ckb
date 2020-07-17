@@ -53,9 +53,9 @@ dependencies = [
 
 [[package]]
 name = "arc-swap"
-version = "0.4.4"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7b8a9123b8027467bce0099fe556c628a53c8d83df0507084c31e9ba2e39aff"
+checksum = "4d25d88fd6b8041580a654f9d0c581a047baee2b3efee13275f2fc392fc75034"
 
 [[package]]
 name = "arrayvec"
@@ -237,10 +237,11 @@ dependencies = [
 
 [[package]]
 name = "bytes"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "130aac562c0dd69c56b3b1cc8ffd2e17be31d0b6c25b61c96b76231aa23e39e1"
+checksum = "118cf036fbb97d0816e3c34b2d7a1e8cfc60f68fcf63d550ddbe9bd5f59c213b"
 dependencies = [
+ "loom",
  "serde",
 ]
 
@@ -289,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -298,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -321,15 +322,15 @@ dependencies = [
 
 [[package]]
 name = "ckb-async-runtime"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "crossbeam-channel",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
 name = "ckb-benches"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -354,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "base64",
  "ckb-app-config",
@@ -387,11 +388,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
-version = "0.33.1"
+version = "0.34.0"
 
 [[package]]
 name = "ckb-chain"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "bitflags",
  "ckb-app-config",
@@ -416,7 +417,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-crypto",
  "ckb-dao-utils",
@@ -434,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-crypto"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-fixed-hash",
  "failure",
@@ -446,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -460,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao-utils"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "byteorder",
  "ckb-error",
@@ -471,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-error",
@@ -483,17 +484,17 @@ dependencies = [
 
 [[package]]
 name = "ckb-error"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-occupied-capacity",
  "enum-display-derive",
  "failure",
- "quote 1.0.6",
+ "quote 1.0.7",
 ]
 
 [[package]]
 name = "ckb-fee-estimator"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-logger",
  "ckb-types",
@@ -502,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-hack",
@@ -511,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "failure",
  "faster-hex 0.4.1",
@@ -520,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-hack"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro-hack",
@@ -531,14 +532,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-hash"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "blake2b-rs",
 ]
 
 [[package]]
 name = "ckb-indexer"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -556,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-chain",
  "ckb-jsonrpc-types",
@@ -569,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-types",
  "faster-hex 0.4.1",
@@ -594,16 +595,16 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ansi_term 0.12.1",
  "backtrace",
  "chrono",
+ "ckb-util",
  "crossbeam-channel",
  "env_logger",
  "lazy_static",
  "log 0.4.8",
- "parking_lot 0.7.1",
  "regex",
  "sentry",
  "serde",
@@ -612,8 +613,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
+ "ckb-db",
  "ckb-logger",
  "futures 0.3.4",
  "heim",
@@ -623,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-hash",
@@ -648,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-crypto",
  "ckb-logger",
@@ -658,11 +660,10 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "bs58",
  "ckb-app-config",
- "ckb-build-info",
  "ckb-hash",
  "ckb-logger",
  "ckb-stop-handler",
@@ -686,13 +687,13 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 
 [[package]]
 name = "ckb-network-alert"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-crypto",
@@ -711,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-notify"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-logger",
@@ -722,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
@@ -731,14 +732,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-core"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-occupied-capacity-core",
  "proc-macro-hack",
@@ -748,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "byteorder",
  "ckb-hash",
@@ -759,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -768,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
@@ -776,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -790,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -814,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -853,7 +854,6 @@ dependencies = [
  "jsonrpc-ws-server",
  "num_cpus",
  "pretty_assertions",
- "rand 0.7.0",
  "reqwest",
  "sentry",
  "serde",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -888,14 +888,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-script-data-loader"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-shared"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "arc-swap",
  "ckb-app-config",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-snapshot"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "arc-swap",
  "ckb-chain-spec",
@@ -928,18 +928,18 @@ dependencies = [
 
 [[package]]
 name = "ckb-stop-handler"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-logger",
  "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
 name = "ckb-store"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "bitflags",
  "ckb-chain",
@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-test-chain-utils"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao-utils",
@@ -1013,14 +1013,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1041,15 +1041,15 @@ dependencies = [
  "failure",
  "faketime",
  "lru-cache",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
 name = "ckb-types"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "bit-vec",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-util"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map 0.5.1",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
@@ -1100,7 +1100,7 @@ dependencies = [
  "lru-cache",
  "rand 0.6.5",
  "rayon",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -1110,7 +1110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a75c9a092719293a09da2e233fd7802fe909fa2b88a9256034f1e486a6bc7c"
 dependencies = [
  "byteorder",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "cc",
  "ckb-vm-definitions",
  "derive_more",
@@ -1432,7 +1432,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2159be042979966de68315bce7034bb000c775f22e3e834e1c52ff78f041cae8"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -1543,7 +1543,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "030a733c8287d6213886dd487564ff5c8f6aae10278b3588ed177f9d18f8d231"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
  "synstructure",
 ]
@@ -1714,7 +1714,7 @@ checksum = "9a5081aa3de1f7542a794a397cde100ed903b0630152d0973479018fd85423a7"
 dependencies = [
  "proc-macro-hack",
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -1747,6 +1747,19 @@ dependencies = [
  "proc-macro-hack",
  "proc-macro-nested",
  "slab",
+]
+
+[[package]]
+name = "generator"
+version = "0.6.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "add72f17bb81521258fcc8a7a3245b1e184e916bfbe34f0ea89558f440df5c68"
+dependencies = [
+ "cc",
+ "libc",
+ "log 0.4.8",
+ "rustc_version",
+ "winapi 0.3.8",
 ]
 
 [[package]]
@@ -2314,13 +2327,13 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-derive"
-version = "14.0.5"
+version = "14.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8609af8f63b626e8e211f52441fcdb6ec54f1a446606b10d5c89ae9bf8a20058"
+checksum = "0fadf6945e227246825a583514534d864554e9f23d80b3c77d034b10983db5ef"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -2474,6 +2487,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ecc775857611e1df29abba5c41355cdf540e7e9d4acfdf0f355eefee82330b7"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+]
+
+[[package]]
 name = "lru-cache"
 version = "0.1.0"
 source = "git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8#a35fdb81a309dd494c8edc02c0ff44e0597a4be4"
@@ -2533,9 +2557,12 @@ dependencies = [
 
 [[package]]
 name = "merkle-cbt"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d589b5a7ca642540e7ccfbca3bcd0aa18693eb9287e2a6b17c79b1d062d52863"
+checksum = "0c95c71a8dc57c7ad9b7623cf05711bb4e3daef44f1931c91e7d49c60de693ca"
+dependencies = [
+ "cfg-if",
+]
 
 [[package]]
 name = "mime"
@@ -2649,7 +2676,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "663f76cc52219e5957e2f5563cce9d89f98aa8503c9c898b5c412d97df663998"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "cfg-if",
  "faster-hex 0.4.1",
 ]
@@ -3009,7 +3036,7 @@ checksum = "4214c9e912ef61bf42b81ba9a47e8aad1b2ffaf739ab162bf96d1e011f54e6c5"
 dependencies = [
  "proc-macro-hack",
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -3223,9 +3250,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.6"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54a21852a652ad6f610c9510194f398ff6f8692e334fd1145fed931f7fbe44ea"
+checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
 dependencies = [
  "proc-macro2 1.0.8",
 ]
@@ -3659,6 +3686,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "332ffa32bf586782a3efaeb58f127980944bbc8c4d6913a86107ac2a5ab24b28"
+
+[[package]]
 name = "scopeguard"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3686,7 +3719,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8584eea9b9ff42825b46faf46a8c24d2cff13ec152fa2a50df788b87c07ee28"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -3812,7 +3845,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac5d00fc561ba2724df6758a17de23df5914f20e41cb00f94d5b7ae42fffaff8"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -3974,7 +4007,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af6f3550d8dff9ef7dc34d384ac6f107e5d31c8f57d9f28e0081503f547ac8f5"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "unicode-xid 0.2.0",
 ]
 
@@ -3994,7 +4027,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f085a5855930c0441ca1288cf044ea4aecf4f43a91668abdb870b4ba546a203"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
  "unicode-xid 0.2.0",
 ]
@@ -4015,11 +4048,11 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.3.0-alpha.4"
+version = "0.3.0-alpha.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f7cab1d0b16fd44c8981b075625b8a68d838e0181f43b878dbf7f8eea5b2bf9"
+checksum = "d372fcc0a53b9ca6705cc8e46b0a68850280c1b48f78c8c177eb8dfe50232413"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "igd",
  "libc",
@@ -4027,7 +4060,8 @@ dependencies = [
  "molecule",
  "tentacle-multiaddr",
  "tentacle-secio",
- "tokio 0.2.20",
+ "thiserror",
+ "tokio 0.2.21",
  "tokio-util",
  "tokio-yamux",
  "winapi 0.3.8",
@@ -4040,7 +4074,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d216ab77a6719cbcdf9d10ae35d825d29c2920090c2cb5d6179d953f9e4dfc3"
 dependencies = [
  "bs58",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "serde",
  "sha2",
  "unsigned-varint",
@@ -4048,12 +4082,12 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e314fcedaa2dfe7b0dc3d4894a21fa3e60b0fe7b4e9e506b1538974ab9ee02f"
+checksum = "58e14b0d86f0a9a2580cb4fb866ba15dcd1ddd6f055f342b806009dd401381a0"
 dependencies = [
  "bs58",
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "log 0.4.8",
  "molecule",
@@ -4062,7 +4096,7 @@ dependencies = [
  "rand 0.7.0",
  "ring",
  "secp256k1 0.17.2",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
  "unsigned-varint",
 ]
@@ -4103,6 +4137,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dfdd070ccd8ccb78f4ad66bf1982dc37f620ef696c6b5028fe2ed83dd3d0d08"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd80fc12f73063ac132ac92aceea36734f04a1d93c1240c6944e23a3b8841793"
+dependencies = [
+ "proc-macro2 1.0.8",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
@@ -4190,11 +4244,11 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.20"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05c1d570eb1a36f0345a5ce9c6c6e665b70b73d11236912c0b477616aeec47b1"
+checksum = "d099fa27b9702bed751524694adbe393e18b36b204da91eb1cbbbbb4a5ee2d58"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "fnv",
  "futures-core",
  "iovec",
@@ -4278,7 +4332,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
 dependencies = [
  "proc-macro2 1.0.8",
- "quote 1.0.6",
+ "quote 1.0.7",
  "syn 1.0.14",
 ]
 
@@ -4402,24 +4456,24 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures-core",
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
- "tokio 0.2.20",
+ "tokio 0.2.21",
 ]
 
 [[package]]
 name = "tokio-yamux"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fadb4597f69de066b89607edb8810ee52d54342702629fc78aece5663f2b8f29"
+checksum = "24efa898a2c99b751966227ee5dedcb4a9dc549471eadde0df92bd16fc7f34d5"
 dependencies = [
- "bytes 0.5.4",
+ "bytes 0.5.5",
  "futures 0.3.4",
  "log 0.4.8",
- "tokio 0.2.20",
+ "tokio 0.2.21",
  "tokio-util",
 ]
 

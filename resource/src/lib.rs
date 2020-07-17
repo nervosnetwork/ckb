@@ -221,15 +221,17 @@ mod tests {
     #[test]
     fn test_export() {
         let root_dir = mkdir();
-        let context = TemplateContext {
-            spec: "dev",
-            rpc_port: "7000",
-            p2p_port: "8000",
-            log_to_file: true,
-            log_to_stdout: true,
-            block_assembler: "",
-            spec_source: "bundled",
-        };
+        let context = TemplateContext::new(
+            "dev",
+            vec![
+                ("rpc_port", "7000"),
+                ("p2p_port", "8000"),
+                ("log_to_file", "true"),
+                ("log_to_stdout", "true"),
+                ("block_assembler", ""),
+                ("spec_source", "bundled"),
+            ],
+        );
         Resource::bundled_ckb_config()
             .export(&context, root_dir.path())
             .expect("export ckb.toml");

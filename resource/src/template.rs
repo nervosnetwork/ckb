@@ -1,5 +1,5 @@
 pub const DEFAULT_SPEC: &str = "mainnet";
-pub const AVAILABLE_SPECS: &[&str] = &["mainnet", "testnet", "dev"];
+pub const AVAILABLE_SPECS: &[&str] = &["mainnet", "testnet", "staging", "dev"];
 pub const DEFAULT_RPC_PORT: &str = "8114";
 pub const DEFAULT_P2P_PORT: &str = "8115";
 
@@ -7,18 +7,30 @@ const START_MARKER: &str = " # {{";
 const END_MAKER: &str = "# }}";
 const WILDCARD_BRANCH: &str = "# _ => ";
 
+use std::collections::HashMap;
 use std::io;
 
 pub struct Template<T>(T);
 
 pub struct TemplateContext<'a> {
-    pub spec: &'a str,
-    pub spec_source: &'a str,
-    pub rpc_port: &'a str,
-    pub p2p_port: &'a str,
-    pub log_to_file: bool,
-    pub log_to_stdout: bool,
-    pub block_assembler: &'a str,
+    spec: &'a str,
+    kvs: HashMap<&'a str, &'a str>,
+}
+
+impl<'a> TemplateContext<'a> {
+    pub fn new<I>(spec: &'a str, kvs: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        Self {
+            spec,
+            kvs: kvs.into_iter().collect(),
+        }
+    }
+
+    pub fn insert(&mut self, key: &'a str, value: &'a str) {
+        self.kvs.insert(key, value);
+    }
 }
 
 impl<T> Template<T> {
@@ -33,13 +45,11 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
     writeln!(
         w,
         "{}",
-        s.replace("\\n", "\n")
-            .replace("{rpc_port}", context.rpc_port)
-            .replace("{p2p_port}", context.p2p_port)
-            .replace("{log_to_file}", &format!("{}", context.log_to_file))
-            .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))
-            .replace("{block_assembler}", context.block_assembler)
-            .replace("{spec_source}", context.spec_source)
+        context
+            .kvs
+            .iter()
+            .fold(s.replace("\\n", "\n"), |s, (key, value)| s
+                .replace(format!("{{{}}}", key).as_str(), value))
     )
 }
 

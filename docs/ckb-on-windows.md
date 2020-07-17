@@ -56,8 +56,7 @@ with the workload: "Desktop development with C++".
 - Build [CKB].
 
   ```posh
-  $env:RUSTFLAGS = "--cfg disable_faketime"
-  cargo build --release
+  devtools/windows/make prod
   ```
 
 [CKB]: https://github.com/nervosnetwork/ckb

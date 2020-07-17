@@ -3,10 +3,12 @@ pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
 pub(crate) mod ping;
+pub(crate) mod support_protocols;
+
 #[cfg(test)]
 mod test;
 
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
 use p2p::{
     builder::MetaBuilder,
@@ -20,7 +22,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio_util::codec::length_delimited;
 
@@ -110,6 +112,23 @@ pub struct CKBProtocol {
 }
 
 impl CKBProtocol {
+    // a helper constructor to build `CKBProtocol` with `SupportProtocols` enum
+    pub fn new_with_support_protocol(
+        support_protocol: support_protocols::SupportProtocols,
+        handler: Box<dyn CKBProtocolHandler>,
+        network_state: Arc<NetworkState>,
+    ) -> Self {
+        CKBProtocol {
+            id: support_protocol.protocol_id(),
+            max_frame_length: support_protocol.max_frame_length(),
+            protocol_name: support_protocol.name(),
+            supported_versions: support_protocol.support_versions(),
+            flag: support_protocol.flag(),
+            network_state,
+            handler,
+        }
+    }
+
     pub fn new(
         protocol_name: String,
         id: ProtocolId,
@@ -167,7 +186,7 @@ impl CKBProtocol {
             })
             .support_versions(supported_versions)
             .service_handle(move || {
-                ProtocolHandle::Both(Box::new(CKBHandler {
+                ProtocolHandle::Callback(Box::new(CKBHandler {
                     proto_id: self.id,
                     network_state: Arc::clone(&self.network_state),
                     handler: self.handler,
@@ -201,6 +220,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.protocols.insert(self.proto_id, version.to_owned());
+            }
+        });
+
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
@@ -214,6 +239,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.protocols.remove(&self.proto_id);
+            }
+        });
+
         let pending_data_size = context.session.pending_data_size();
         let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
@@ -227,6 +258,12 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(peer) = reg.get_peer_mut(context.session.id) {
+                peer.last_message_time = Some(Instant::now());
+            }
+        });
+
         trace!(
             "[received message]: {}, {}, length={}",
             self.proto_id,
@@ -362,6 +399,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
+        debug!("disconnect peer: {}, message: {}", peer_index, message);
         disconnect_with_message(&self.p2p_control, peer_index, message)?;
         Ok(())
     }

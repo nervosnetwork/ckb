@@ -111,9 +111,11 @@ fn inflight_blocks_timeout() {
     assert!(inflight_blocks.insert(1.into(), (7, h256!("0x7").pack()).into()));
 
     let peers = inflight_blocks.prune(0);
-    assert_eq!(peers, HashSet::from_iter(vec![1.into(), 2.into()]));
+    assert_eq!(peers, HashSet::from_iter(vec![1.into()]));
     assert!(inflight_blocks.insert(3.into(), (2, h256!("0x2").pack()).into()));
     assert!(inflight_blocks.insert(3.into(), (3, h256!("0x3").pack()).into()));
+
+    assert_eq!(inflight_blocks.peer_can_fetch_count(2.into()), 16 >> 4);
 
     assert_eq!(
         inflight_blocks

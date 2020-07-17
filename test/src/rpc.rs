@@ -6,9 +6,9 @@ mod error;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
     BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
-    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LockHashIndexState,
-    Node, OutPoint, PeerState, Timestamp, Transaction, TransactionWithStatus, TxPoolInfo, Uint64,
-    Version,
+    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LocalNode,
+    LockHashIndexState, OutPoint, PeerState, RemoteNode, Timestamp, Transaction,
+    TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -126,13 +126,13 @@ impl RpcClient {
             .expect("rpc call get_epoch_by_number")
     }
 
-    pub fn local_node_info(&self) -> Node {
+    pub fn local_node_info(&self) -> LocalNode {
         self.inner
             .local_node_info()
             .expect("rpc call local_node_info")
     }
 
-    pub fn get_peers(&self) -> Vec<Node> {
+    pub fn get_peers(&self) -> Vec<RemoteNode> {
         self.inner.get_peers().expect("rpc call get_peers")
     }
 
@@ -225,6 +225,12 @@ impl RpcClient {
             .process_block_without_verify(block, broadcast)
             .expect("rpc call process_block_without verify")
             .map(|x| x.pack())
+    }
+
+    pub fn truncate(&self, target_tip_hash: Byte32) {
+        self.inner()
+            .truncate(target_tip_hash.unpack())
+            .expect("rpc call truncate")
     }
 
     pub fn get_live_cells_by_lock_hash(
@@ -333,8 +339,8 @@ jsonrpc!(pub struct Inner {
     pub fn get_current_epoch(&self) -> EpochView;
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
 
-    pub fn local_node_info(&self) -> Node;
-    pub fn get_peers(&self) -> Vec<Node>;
+    pub fn local_node_info(&self) -> LocalNode;
+    pub fn get_peers(&self) -> Vec<RemoteNode>;
     pub fn get_banned_addresses(&self) -> Vec<BannedAddr>;
     pub fn set_ban(
         &self,
@@ -364,6 +370,7 @@ jsonrpc!(pub struct Inner {
     pub fn add_node(&self, peer_id: String, address: String) -> ();
     pub fn remove_node(&self, peer_id: String) -> ();
     pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
+    pub fn truncate(&self, target_tip_hash: H256) -> ();
 
     pub fn get_live_cells_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<LiveCell>;
     pub fn get_transactions_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<CellTransaction>;

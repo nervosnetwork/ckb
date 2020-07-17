@@ -22,7 +22,7 @@ interval = 600
 - Compile `ckb` with feature `profiling`.
 
   ```sh
-  make build-for-profiling`
+  make build-for-profiling
   ```
 
   After compiling, a script named `jeprof` will be generated in `target` direcotry.
@@ -60,3 +60,4 @@ interval = 600
 
 - [JEMALLOC: Use Case: Leak Checking](https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Leak-Checking)
 - [JEMALLOC: Use Case: Heap Profiling](https://github.com/jemalloc/jemalloc/wiki/Use-Case%3A-Heap-Profiling)
+- [RocksDB: Memory usage in RocksDB](https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB)

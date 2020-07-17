@@ -6,14 +6,13 @@ use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_error::Error;
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
     core::{BlockView, Cycle, TransactionView, UncleBlockView, Version},
-    packed::{Byte32, ProposalShortId},
+    packed::ProposalShortId,
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use failure::Error as FailureError;
@@ -78,9 +77,7 @@ pub enum Message {
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
-    EstimateFeeRate(Request<usize, FeeRate>),
-    EstimatorTrackTx(Notify<(Byte32, FeeRate, u64)>),
-    EstimatorProcessBlock(Notify<(u64, Vec<Byte32>)>),
+    ClearPool(Request<(), ()>),
 }
 
 #[derive(Clone)]
@@ -257,48 +254,15 @@ impl TxPoolController {
         response.recv().map_err(Into::into)
     }
 
-    pub fn estimate_fee_rate(&self, expect_confirm_blocks: usize) -> Result<FeeRate, FailureError> {
+    pub fn clear_pool(&self) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call(expect_confirm_blocks, responder);
-        sender
-            .try_send(Message::EstimateFeeRate(request))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e
-            })?;
+        let request = Request::call((), responder);
+        sender.try_send(Message::ClearPool(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
         response.recv().map_err(Into::into)
-    }
-
-    pub fn estimator_track_tx(
-        &self,
-        tx_hash: Byte32,
-        fee_rate: FeeRate,
-        height: u64,
-    ) -> Result<(), FailureError> {
-        let mut sender = self.sender.clone();
-        let notify = Notify::notify((tx_hash, fee_rate, height));
-        sender
-            .try_send(Message::EstimatorTrackTx(notify))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
-    }
-
-    pub fn estimator_process_block(
-        &self,
-        height: u64,
-        txs: impl Iterator<Item = Byte32>,
-    ) -> Result<(), FailureError> {
-        let mut sender = self.sender.clone();
-        let notify = Notify::notify((height, txs.collect::<Vec<_>>()));
-        sender
-            .try_send(Message::EstimatorProcessBlock(notify))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
     }
 }
 
@@ -533,27 +497,11 @@ async fn process(service: TxPoolService, message: Message) {
                 error!("responder send plug_entry failed {:?}", e);
             };
         }
-        Message::EstimateFeeRate(Request {
-            responder,
-            arguments: expect_confirm_blocks,
-        }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let fee_rate = tx_pool.fee_estimator.estimate(expect_confirm_blocks);
-            if let Err(e) = responder.send(fee_rate) {
-                error!("responder send estimate_fee_rate failed {:?}", e)
+        Message::ClearPool(Request { responder, .. }) => {
+            service.clear_pool().await;
+            if let Err(e) = responder.send(()) {
+                error!("responder send clear_pool failed {:?}", e)
             };
-        }
-        Message::EstimatorTrackTx(Notify {
-            arguments: (tx_hash, fee_rate, height),
-        }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            tx_pool.fee_estimator.track_tx(tx_hash, fee_rate, height);
-        }
-        Message::EstimatorProcessBlock(Notify {
-            arguments: (height, txs),
-        }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            tx_pool.fee_estimator.process_block(height, txs.into_iter());
         }
     }
 }

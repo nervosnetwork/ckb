@@ -28,6 +28,10 @@ pub trait PoolRpc {
     // curl -d '{"params": [], "method": "tx_pool_info", "jsonrpc": "2.0", "id": 2}' -H 'content-type:application/json' http://localhost:8114
     #[rpc(name = "tx_pool_info")]
     fn tx_pool_info(&self) -> Result<TxPoolInfo>;
+
+    // curl -d '{"params": [], "method": "clear_tx_pool", "jsonrpc": "2.0", "id": 2}' -H 'content-type:application/json' http://localhost:8114
+    #[rpc(name = "clear_tx_pool")]
+    fn clear_tx_pool(&self) -> Result<()>;
 }
 
 pub(crate) struct PoolRpcImpl {
@@ -142,6 +146,15 @@ impl PoolRpc for PoolRpcImpl {
             min_fee_rate: self.min_fee_rate.as_u64().into(),
             last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
         })
+    }
+
+    fn clear_tx_pool(&self) -> Result<()> {
+        let tx_pool = self.shared.tx_pool_controller();
+        tx_pool
+            .clear_pool()
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
+
+        Ok(())
     }
 }
 

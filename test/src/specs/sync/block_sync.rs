@@ -4,8 +4,7 @@ use crate::utils::{
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
-use ckb_network::{bytes::Bytes, PeerIndex};
-use ckb_sync::NetworkProtocol;
+use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};
 use ckb_types::{
     core::BlockView,
     packed::{self, Byte32, GetBlocks, SyncMessage},
@@ -369,7 +368,7 @@ impl Spec for BlockSyncRelayerCollaboration {
 
         sync_block(&net, peer_id, &first);
         net.send(
-            NetworkProtocol::RELAY.into(),
+            SupportProtocols::Relay.protocol_id(),
             peer_id,
             build_compact_block(&last),
         );
@@ -557,19 +556,23 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
 
 fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
     net.send(
-        NetworkProtocol::SYNC.into(),
+        SupportProtocols::Sync.protocol_id(),
         peer_id,
         build_header(&block.header()),
     );
 }
 
 fn sync_block(net: &Net, peer_id: PeerIndex, block: &BlockView) {
-    net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(block));
+    net.send(
+        SupportProtocols::Sync.protocol_id(),
+        peer_id,
+        build_block(block),
+    );
 }
 
 fn sync_get_blocks(net: &Net, peer_id: PeerIndex, hashes: &[Byte32]) {
     net.send(
-        NetworkProtocol::SYNC.into(),
+        SupportProtocols::Sync.protocol_id(),
         peer_id,
         build_get_blocks(hashes),
     );

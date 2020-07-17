@@ -1,3 +1,75 @@
+# [v0.34.0](https://github.com/nervosnetwork/ckb/compare/v0.33.1...v0.34.0) (2020-07-17)
+
+### Features
+
+* #2067: Optimize scheduler (@driftluo)
+
+    Problems with the current scheduler:
+    1. The calculation is too frequent
+    2. Inability to adapt to complex network environments.
+
+    This PR implements an adaptive scheduler based on past data, removing most of the redundant calculations.
+
+* #2145: Don't cache all block status in memory (@yangby-cryptape)
+
+    When a node is start from number 0, it will sync all headers at first, then the `block_status_map` will be full quickly.
+    Then, along with the block sync, all data in `block_status_map` will be removed.
+    When the IBD is done, there will be nothing left in `block_status_map`.
+
+    But when another new-started node try to sync data from this node, this node will fetch all block statuses from database and insert them into `block_status_map` without deletions. And full block status will store in memory until the node is shutdown.
+
+* #2113: Change logger filter dynamically via RPC (@yangby-cryptape)
+* #2036: Monitor rocksdb memory usages in logs (optional; default: disable) (@yangby-cryptape)
+* #2114: Add command to generate peer id (@driftluo)
+
+    ```
+    $ ckb peer-id gen --secret_path ./a.txt
+    $ ckb peer-id from-secret --secret-path ./a.txt
+    ```
+
+* #2045: New subcommand replay (@zhangsoledad)
+
+    The new subcommand can be used in both profiling and sanity check, such as verifiying the downloaded data directory archive.
+
+* #2042: Return filename of `jemalloc_profiling_dump` (@keroro520)
+* #2064: Add RPC truncate (@keroro520)
+
+    For convenient to reproduce a specified environment when test, this PR adds RPC `truncate(target_tip_hash)` to roll-back the blockchain downto the target block.
+
+* #2081: Update `last_common_header` only in `find_blocks_to_fetch` (@keroro520)
+
+    `peer.best_known_block` refers to the best-known block we know this peer has announced; `peer.last_common_header` refers to the last block we both stored between local and peer. This PR proposes a new process to update the two fields.
+
+* #2136: Add RPC `clear_tx_pool` to remove all the transactions in the tx-pool (@keroro520)
+
+### Bug Fixes
+
+* #2101: Resolve an unexpected shutdown issue when we got a `ProtoHandleBlock` error in p2p (@quake)
+* #2124: `prepare_uncles_test` failed on `block_template` update delayed (@zhangsoledad)
+* #2140: Shrink state map (@zhangsoledad)
+
+    Cause rust hash table capacity does not shrink automatically, we need explicit call `shrink` for predictable limit memory usage.
+* #2109: Fix deadlock caused by conflicting lock order (@BurtonQin)
+
+### Improvements
+
+* #2126: Remove fee estimator (@zhangsoledad)
+
+    This `estimate_fee_rate` RPC is experimental, due to availability and performance issues, we decide to remove it.
+
+* #2128: Try next listen address on parsing error (@doitian)
+* #2107: Use generic key / value in template context (@quake)
+
+    This PR changed `TemplateContext` key/value from fixed field to hashmap, it made the `ckb-resource` crate easier to use in 3rd party applications
+
+* #2103: Use generic type in NetworkService (@quake)
+
+    This PR changed `NetworkService`'s exit_condvar to generic type and removed node_version from `start` fn, make it easier to use `ckb-network` crate as a lib
+
+* #2096: Move network protocol related variables to SupportProtocols (@quake)
+
+    To eliminate dependence of `ckb-sync` crate,  this PR refactored network protocol related variables and move them to a new enum: `SupportProtocols`
+
 # [v0.33.1](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.33.1) (2020-07-02)
 
 ### Bug Fixes
@@ -48,6 +120,7 @@
 
 ### Bug Fixes
 
+* nervosnetwork/tentacle#218: Fix FutureTask signals memory leak (@TheWaWaR)
 * #2039: Use wrong function to get a slice to decode ping messages (@yangby-cryptape)
 * #2035: Remove unsupport configurations in Cargo.toml (@yangby-cryptape)
 * #2054: Fix a typo of a thread name (@yangby-cryptape)

@@ -316,7 +316,6 @@ fn all_specs() -> SpecMap {
         Box::new(SendLargeCyclesTxToRelay::new()),
         Box::new(TxsRelayOrder),
         Box::new(SendArrowTxs),
-        Box::new(FeeEstimate),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),
@@ -391,6 +390,7 @@ fn all_specs() -> SpecMap {
         Box::new(AvoidDuplicatedProposalsWithUncles),
         Box::new(TemplateTxSelect),
         Box::new(BlockSyncRelayerCollaboration),
+        Box::new(RpcTruncate),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
     ];

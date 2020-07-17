@@ -3,11 +3,12 @@ use crate::synchronizer::{
     TIMEOUT_EVICTION_TOKEN,
 };
 use crate::tests::TestNode;
-use crate::{NetworkProtocol, SyncShared, Synchronizer};
+use crate::{SyncShared, Synchronizer};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_network::SupportProtocols;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
@@ -37,7 +38,7 @@ fn basic_sync() {
     let (mut node1, shared1) = setup_node(1);
     let (mut node2, shared2) = setup_node(3);
 
-    node1.connect(&mut node2, NetworkProtocol::SYNC.into());
+    node1.connect(&mut node2, SupportProtocols::Sync.protocol_id());
 
     let (signal_tx1, signal_rx1) = sync_channel(DEFAULT_CHANNEL);
     thread::Builder::new()
@@ -170,7 +171,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(
-        NetworkProtocol::SYNC.into(),
+        SupportProtocols::Sync.protocol_id(),
         &protocol,
         &[
             SEND_GET_HEADERS_TOKEN,

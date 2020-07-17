@@ -6,9 +6,8 @@ use super::{
 };
 
 use crate::{
-    network::EventHandler,
-    network::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID},
-    NetworkState, PeerIdentifyInfo,
+    network::{DefaultExitHandler, EventHandler},
+    NetworkState, PeerIdentifyInfo, SupportProtocols,
 };
 
 use std::{
@@ -19,10 +18,9 @@ use std::{
 };
 
 use ckb_app_config::NetworkConfig;
-use ckb_util::{Condvar, Mutex};
 use futures::{channel::mpsc::channel, StreamExt};
 use p2p::{
-    builder::{MetaBuilder, ServiceBuilder},
+    builder::ServiceBuilder,
     multiaddr::{Multiaddr, Protocol},
     service::{ProtocolHandle, ServiceControl, TargetProtocol},
     utils::multiaddr_to_socketaddr,
@@ -126,64 +124,51 @@ fn net_service_start(name: String) -> Node {
     network_state
         .protocol_ids
         .write()
-        .insert(PING_PROTOCOL_ID.into());
+        .insert(SupportProtocols::Ping.protocol_id());
     network_state
         .protocol_ids
         .write()
-        .insert(DISCOVERY_PROTOCOL_ID.into());
+        .insert(SupportProtocols::Discovery.protocol_id());
     network_state
         .protocol_ids
         .write()
-        .insert(IDENTIFY_PROTOCOL_ID.into());
+        .insert(SupportProtocols::Identify.protocol_id());
     network_state
         .protocol_ids
         .write()
-        .insert(FEELER_PROTOCOL_ID.into());
+        .insert(SupportProtocols::Feeler.protocol_id());
 
     // Ping protocol
     let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
     let ping_interval = Duration::from_secs(5);
     let ping_timeout = Duration::from_secs(10);
 
-    let ping_meta = MetaBuilder::default()
-        .id(PING_PROTOCOL_ID.into())
-        .service_handle(move || {
-            ProtocolHandle::Both(Box::new(PingHandler::new(
-                ping_interval,
-                ping_timeout,
-                ping_sender,
-            )))
-        })
-        .build();
+    let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
+        ProtocolHandle::Both(Box::new(PingHandler::new(
+            ping_interval,
+            ping_timeout,
+            ping_sender,
+        )))
+    });
 
     // Discovery protocol
     let disc_network_state = Arc::clone(&network_state);
-    let disc_meta = MetaBuilder::default()
-        .id(DISCOVERY_PROTOCOL_ID.into())
-        .service_handle(move || {
-            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_network_state, true)))
-        })
-        .build();
+    let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
+        ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_network_state, true)))
+    });
 
     // Identify protocol
     let identify_callback =
         IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
-    let identify_meta = MetaBuilder::default()
-        .id(IDENTIFY_PROTOCOL_ID.into())
-        .service_handle(move || {
-            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
-        })
-        .build();
+    let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
+        ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+    });
 
     // Feeler protocol
-    let feeler_meta = MetaBuilder::default()
-        .id(FEELER_PROTOCOL_ID.into())
-        .name(move |_| "/ckb/flr".to_string())
-        .service_handle({
-            let network_state = Arc::clone(&network_state);
-            move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
-        })
-        .build();
+    let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
+        let network_state = Arc::clone(&network_state);
+        move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+    });
 
     let service_builder = ServiceBuilder::default()
         .insert_protocol(ping_meta)
@@ -197,7 +182,7 @@ fn net_service_start(name: String) -> Node {
         .forever(true)
         .build(EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_condvar: Arc::new((Mutex::new(()), Condvar::new())),
+            exit_handler: DefaultExitHandler::default(),
         });
 
     let mut ping_service = PingService::new(
@@ -294,18 +279,27 @@ fn test_identify_behavior() {
     let node2 = net_service_start("/test/2".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node3, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node3,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node3, 1);
 
     // identify will ban node when they are on the different net
-    node2.dial(&node3, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node2.dial(
+        &node3,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
 
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 0);
@@ -328,9 +322,9 @@ fn test_identify_behavior() {
     assert_eq!(
         protocols,
         vec![
-            PING_PROTOCOL_ID.into(),
-            DISCOVERY_PROTOCOL_ID.into(),
-            IDENTIFY_PROTOCOL_ID.into()
+            SupportProtocols::Ping.protocol_id(),
+            SupportProtocols::Discovery.protocol_id(),
+            SupportProtocols::Identify.protocol_id()
         ]
     );
 }
@@ -340,14 +334,17 @@ fn test_feeler_behavior() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 1);
 
     node2.open_protocols(
         node2.connected_sessions()[0],
-        TargetProtocol::Single(FEELER_PROTOCOL_ID.into()),
+        TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
     );
 
     wait_connect_state(&node1, 0);
@@ -360,8 +357,14 @@ fn test_discovery_behavior() {
     let node2 = net_service_start("/test/1".to_string());
     let node3 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node3.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node3.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 2);
@@ -390,7 +393,10 @@ fn test_discovery_behavior() {
             .unwrap()
     };
 
-    node3.dial_addr(addr, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node3.dial_addr(
+        addr,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 2);
     wait_connect_state(&node2, 2);
@@ -413,7 +419,10 @@ fn test_ban() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 1);
@@ -423,10 +432,22 @@ fn test_ban() {
     wait_connect_state(&node1, 0);
     wait_connect_state(&node2, 0);
 
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node1.dial(&node2, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 0);
     wait_connect_state(&node2, 0);
@@ -441,17 +462,32 @@ fn test_bootnode_mode_inbound_eviction() {
     let node5 = net_service_start("/test/1".to_string());
     let node6 = net_service_start("/test/1".to_string());
 
-    node2.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node3.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
-    node4.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node2.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node3.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    node4.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     // Normal connection
     wait_connect_state(&node1, 3);
-    node5.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node5.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     wait_connect_state(&node1, 4);
     // Arrival eviction condition 4 + 10, eviction 2
-    node6.dial(&node1, TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node6.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
 
     // Normal connection, 2 + 1
     wait_connect_state(&node1, 3);

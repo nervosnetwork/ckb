@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.33.1"
+version = "0.34.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -50,4 +50,3 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"
 ckb-dao-utils = { path = "../util/dao/utils" }
-rand = "0.7"

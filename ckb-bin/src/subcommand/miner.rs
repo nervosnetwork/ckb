@@ -16,7 +16,7 @@ pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
         args.limit,
     );
 
-    ckb_memory_tracker::track_current_process(args.memory_tracker.interval);
+    ckb_memory_tracker::track_current_process_simple(args.memory_tracker.interval);
 
     thread::Builder::new()
         .name("client".to_string())

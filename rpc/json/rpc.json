@@ -328,7 +328,6 @@
                     "score": "0x1"
                 }
             ],
-            "is_outbound": null,
             "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
             "version": "0.0.0"
         },
@@ -599,7 +598,8 @@
         ],
         "result": {
             "fee_rate": "0x7d0"
-        }
+        },
+        "skip": true
     },
     {
         "description": "Send new transaction into transaction pool.",
@@ -803,6 +803,13 @@
             "total_tx_cycles": "0x219",
             "total_tx_size": "0x112"
         }
+    },
+    {
+        "description": "Remove all transactions from the tx-pool",
+        "method": "clear_tx_pool",
+        "module": "pool",
+        "params": [],
+        "result": null
     },
     {
         "description": "Get block by number",

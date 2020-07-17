@@ -1,5 +1,11 @@
-use crate::ProtocolId;
-use p2p::{error::Error as P2PError, secio::PeerId, SessionId};
+use p2p::{
+    error::{
+        DialerErrorKind, ListenErrorKind, ProtocolHandleErrorKind, SendErrorKind,
+        TransportErrorKind,
+    },
+    secio::PeerId,
+    SessionId,
+};
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
@@ -9,13 +15,20 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     Peer(PeerError),
-    Protocol(ProtocolError),
     Io(IoError),
     P2P(P2PError),
     Addr(AddrError),
     Dial(String),
     PeerStore(PeerStoreError),
-    Shutdown,
+}
+
+#[derive(Debug)]
+pub enum P2PError {
+    Transport(TransportErrorKind),
+    Protocol(ProtocolHandleErrorKind),
+    Dail(DialerErrorKind),
+    Listen(ListenErrorKind),
+    Send(SendErrorKind),
 }
 
 #[derive(Debug)]
@@ -29,7 +42,6 @@ pub enum PeerStoreError {
 pub enum PeerError {
     SessionExists(SessionId),
     PeerIdExists(PeerId),
-    NotFound(PeerId),
     NonReserved,
     Banned,
     ReachMaxInboundLimit,
@@ -37,15 +49,7 @@ pub enum PeerError {
 }
 
 #[derive(Debug)]
-pub enum ProtocolError {
-    NotFound(ProtocolId),
-    DisallowRegisterTimer,
-    Duplicate(ProtocolId),
-}
-
-#[derive(Debug)]
 pub enum AddrError {
-    InvalidPeerId,
     MissingIP,
     MissingPort,
 }
@@ -68,12 +72,6 @@ impl From<IoError> for Error {
     }
 }
 
-impl From<ProtocolError> for Error {
-    fn from(err: ProtocolError) -> Error {
-        Error::Protocol(err)
-    }
-}
-
 impl From<P2PError> for Error {
     fn from(err: P2PError) -> Error {
         Error::P2P(err)
@@ -83,6 +81,36 @@ impl From<P2PError> for Error {
 impl From<AddrError> for Error {
     fn from(err: AddrError) -> Error {
         Error::Addr(err)
+    }
+}
+
+impl From<TransportErrorKind> for Error {
+    fn from(err: TransportErrorKind) -> Error {
+        Error::P2P(P2PError::Transport(err))
+    }
+}
+
+impl From<ProtocolHandleErrorKind> for Error {
+    fn from(err: ProtocolHandleErrorKind) -> Error {
+        Error::P2P(P2PError::Protocol(err))
+    }
+}
+
+impl From<DialerErrorKind> for Error {
+    fn from(err: DialerErrorKind) -> Error {
+        Error::P2P(P2PError::Dail(err))
+    }
+}
+
+impl From<ListenErrorKind> for Error {
+    fn from(err: ListenErrorKind) -> Error {
+        Error::P2P(P2PError::Listen(err))
+    }
+}
+
+impl From<SendErrorKind> for Error {
+    fn from(err: SendErrorKind) -> Error {
+        Error::P2P(P2PError::Send(err))
     }
 }
 
@@ -98,7 +126,7 @@ impl Display for PeerError {
     }
 }
 
-impl Display for ProtocolError {
+impl Display for P2PError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

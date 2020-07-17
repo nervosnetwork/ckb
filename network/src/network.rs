@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::errors::{Error, P2PError};
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
     types::{AddrInfo, BannedAddr, IpPort, MultiaddrExt},
@@ -10,18 +10,14 @@ use crate::protocols::{
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
     ping::{PingHandler, PingService},
+    support_protocols::SupportProtocols,
 };
 use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{
-    Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
-    MAX_FRAME_LENGTH_DISCONNECTMSG, MAX_FRAME_LENGTH_DISCOVERY, MAX_FRAME_LENGTH_FEELER,
-    MAX_FRAME_LENGTH_IDENTIFY, MAX_FRAME_LENGTH_PING,
-};
+use crate::{Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl};
 use ckb_app_config::NetworkConfig;
-use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
@@ -31,15 +27,15 @@ use futures::{
 };
 use ipnetwork::IpNetwork;
 use p2p::{
-    builder::{MetaBuilder, ServiceBuilder},
+    builder::ServiceBuilder,
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
-    error::Error as P2pError,
+    error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{self, Multiaddr},
-    secio::{self, PeerId},
+    secio::{self, error::SecioError, PeerId},
     service::{
-        BlockingFlag, ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent,
-        TargetProtocol, TargetSession,
+        ProtocolEvent, ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol,
+        TargetSession,
     },
     traits::ServiceHandle,
     utils::extract_peer_id,
@@ -48,7 +44,6 @@ use p2p::{
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    io,
     pin::Pin,
     sync::Arc,
     thread,
@@ -56,13 +51,6 @@ use std::{
     usize,
 };
 use tokio::runtime;
-use tokio_util::codec::length_delimited;
-
-pub(crate) const PING_PROTOCOL_ID: usize = 0;
-pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
-pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
-pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
-pub(crate) const DISCONNECT_MESSAGE_PROTOCOL_ID: usize = 4;
 
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
@@ -449,7 +437,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
             false,
         ) {
             debug!("dial_identify error: {}", err);
@@ -462,7 +450,7 @@ impl NetworkState {
             p2p_control,
             peer_id,
             addr,
-            TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
             false,
         ) {
             debug!("dial_feeler error {}", err);
@@ -482,7 +470,7 @@ impl NetworkState {
                 p2p_control,
                 self.local_peer_id(),
                 addr,
-                TargetProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+                TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 true,
             ) {
                 debug!("try_dial_observed_addrs error {}", err);
@@ -509,12 +497,34 @@ impl NetworkState {
     }
 }
 
-pub struct EventHandler {
+pub struct EventHandler<T> {
     pub(crate) network_state: Arc<NetworkState>,
-    pub(crate) exit_condvar: Arc<(Mutex<()>, Condvar)>,
+    pub(crate) exit_handler: T,
 }
 
-impl EventHandler {
+pub trait ExitHandler: Send + Unpin + 'static {
+    fn notify_exit(&self);
+}
+
+#[derive(Clone, Default)]
+pub struct DefaultExitHandler {
+    lock: Arc<Mutex<()>>,
+    exit: Arc<Condvar>,
+}
+
+impl DefaultExitHandler {
+    pub fn wait_for_exit(&self) {
+        self.exit.wait(&mut self.lock.lock());
+    }
+}
+
+impl ExitHandler for DefaultExitHandler {
+    fn notify_exit(&self) {
+        self.exit.notify_all();
+    }
+}
+
+impl<T> EventHandler<T> {
     fn inbound_eviction(&self, context: &mut ServiceContext) {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
@@ -549,7 +559,7 @@ impl EventHandler {
     }
 }
 
-impl ServiceHandle for EventHandler {
+impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError {
@@ -557,7 +567,11 @@ impl ServiceHandle for EventHandler {
                 ref error,
             } => {
                 debug!("DialerError({}) {}", address, error);
-                if error == &P2pError::ConnectSelf {
+
+                if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
+                    SecioError::ConnectSelf,
+                )) = error
+                {
                     debug!("dial observed address success: {:?}", address);
                     let addr = address
                         .iter()
@@ -579,18 +593,12 @@ impl ServiceHandle for EventHandler {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 let message = format!("ProtocolError id={}", proto_id);
                 // Ban because misbehave of remote peer
-                if let P2pError::IoError(_) = error {
-                    self.network_state.ban_session(
-                        &context.control(),
-                        id,
-                        Duration::from_secs(300),
-                        message,
-                    );
-                } else if let Err(err) =
-                    disconnect_with_message(context.control(), id, message.as_str())
-                {
-                    debug!("Disconnect failed {:?}, error {:?}", id, err);
-                }
+                self.network_state.ban_session(
+                    &context.control(),
+                    id,
+                    Duration::from_secs(300),
+                    message,
+                );
             }
             ServiceError::SessionTimeout { session_context } => {
                 warn!(
@@ -635,7 +643,7 @@ impl ServiceHandle for EventHandler {
                     },
                 );
 
-                if let P2pError::ProtoHandleAbnormallyClosed(opt_session_id) = error {
+                if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
                     if let Some(id) = opt_session_id {
                         self.network_state.ban_session(
                             &context.control(),
@@ -644,7 +652,7 @@ impl ServiceHandle for EventHandler {
                             format!("protocol {} panic when process peer message", proto_id),
                         );
                     }
-                    self.exit_condvar.1.notify_all();
+                    self.exit_handler.notify_exit();
                 }
             }
         }
@@ -835,27 +843,24 @@ impl ServiceHandle for EventHandler {
     }
 }
 
-pub struct NetworkService {
-    p2p_service: Service<EventHandler>,
+pub struct NetworkService<T> {
+    p2p_service: Service<EventHandler<T>>,
     network_state: Arc<NetworkState>,
     // Background services
     bg_services: Vec<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
+    version: String,
 }
 
-impl NetworkService {
+impl<T: ExitHandler> NetworkService<T> {
     pub fn new(
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
         required_protocol_ids: Vec<ProtocolId>,
         name: String,
-        client_version: String,
-        exit_condvar: Arc<(Mutex<()>, Condvar)>,
-    ) -> NetworkService {
+        version: String,
+        exit_handler: T,
+    ) -> Self {
         let config = &network_state.config;
-
-        let mut no_blocking_flag = BlockingFlag::default();
-        no_blocking_flag.disable_all();
-
         // == Build special protocols
 
         // TODO: how to deny banned node to open those protocols?
@@ -864,98 +869,40 @@ impl NetworkService {
         let ping_interval = Duration::from_secs(config.ping_interval_secs);
         let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
 
-        let ping_meta = MetaBuilder::default()
-            .id(PING_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/ping".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_PING)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(PingHandler::new(
-                    ping_interval,
-                    ping_timeout,
-                    ping_sender,
-                )))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(PingHandler::new(
+                ping_interval,
+                ping_timeout,
+                ping_sender,
+            )))
+        });
 
         // Discovery protocol
         let disc_network_state = Arc::clone(&network_state);
-        let disc_meta = MetaBuilder::default()
-            .id(DISCOVERY_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/discovery".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_DISCOVERY)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
-                    disc_network_state,
-                    config.discovery_local_address,
-                )))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
+                disc_network_state,
+                config.discovery_local_address,
+            )))
+        });
 
         // Identify protocol
         let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
-        let identify_meta = MetaBuilder::default()
-            .id(IDENTIFY_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/identify".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_IDENTIFY)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || {
-                ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
-            })
-            .flag(no_blocking_flag)
-            .build();
+            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
+        let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
+            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+        });
 
         // Feeler protocol
-        // TODO: versions
-        let feeler_meta = MetaBuilder::default()
-            .id(FEELER_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/flr".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_FEELER)
-                        .new_codec(),
-                )
-            })
-            .service_handle({
-                let network_state = Arc::clone(&network_state);
-                move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
-            })
-            .flag(no_blocking_flag)
-            .build();
+        let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
+            let network_state = Arc::clone(&network_state);
+            move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+        });
 
-        let disconnect_message_meta = MetaBuilder::default()
-            .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/disconnectmsg".to_string())
-            .codec(|| {
-                Box::new(
-                    length_delimited::Builder::new()
-                        .max_frame_length(MAX_FRAME_LENGTH_DISCONNECTMSG)
-                        .new_codec(),
-                )
-            })
-            .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
-            .flag(no_blocking_flag)
-            .build();
+        let disconnect_message_meta = SupportProtocols::DisconnectMessage
+            .build_meta_with_service_handle(move || {
+                ProtocolHandle::Both(Box::new(DisconnectMessageProtocol))
+            });
 
         // == Build p2p service struct
         let mut protocol_metas = protocols
@@ -975,7 +922,7 @@ impl NetworkService {
         }
         let event_handler = EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_condvar,
+            exit_handler,
         };
         let p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
@@ -1026,14 +973,11 @@ impl NetworkService {
             p2p_service,
             network_state,
             bg_services,
+            version,
         }
     }
 
-    pub fn start<S: ToString>(
-        self,
-        node_version: Version,
-        thread_name: Option<S>,
-    ) -> Result<NetworkController, Error> {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
@@ -1071,6 +1015,7 @@ impl NetworkService {
 
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
+        let version = self.version.clone();
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -1114,7 +1059,9 @@ impl NetworkService {
                                     addr.clone(),
                                     err
                                 );
-                                start_sender.send(Err(Error::Io(err))).unwrap();
+                                start_sender
+                                    .send(Err(Error::P2P(P2PError::Transport(err))))
+                                    .expect("channel abnormal shutdown");
                                 return;
                             }
                         };
@@ -1169,7 +1116,7 @@ impl NetworkService {
 
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
-            node_version,
+            version,
             network_state,
             p2p_control,
             stop,
@@ -1179,7 +1126,7 @@ impl NetworkService {
 
 #[derive(Clone)]
 pub struct NetworkController {
-    node_version: Version,
+    version: String,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     stop: StopHandler<()>,
@@ -1190,8 +1137,8 @@ impl NetworkController {
         self.network_state.public_urls(max_urls)
     }
 
-    pub fn node_version(&self) -> &Version {
-        &self.node_version
+    pub fn version(&self) -> &String {
+        &self.version
     }
 
     pub fn node_id(&self) -> String {
@@ -1268,7 +1215,7 @@ impl NetworkController {
         target: TargetSession,
         proto_id: ProtocolId,
         data: Bytes,
-    ) -> Result<(), P2pError> {
+    ) -> Result<(), SendErrorKind> {
         let now = Instant::now();
         loop {
             let result = if quick {
@@ -1282,10 +1229,10 @@ impl NetworkController {
                 Ok(()) => {
                     return Ok(());
                 }
-                Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
+                Err(SendErrorKind::WouldBlock) => {
                     if now.elapsed() > P2P_SEND_TIMEOUT {
                         warn!("broadcast message to {} timeout", proto_id);
-                        return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
+                        return Err(SendErrorKind::WouldBlock);
                     }
                     thread::sleep(P2P_TRY_SEND_INTERVAL);
                 }
@@ -1297,13 +1244,13 @@ impl NetworkController {
         }
     }
 
-    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
-    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
@@ -1314,7 +1261,7 @@ impl NetworkController {
         session_id: SessionId,
         proto_id: ProtocolId,
         data: Bytes,
-    ) -> Result<(), P2pError> {
+    ) -> Result<(), SendErrorKind> {
         let target = TargetSession::Single(session_id);
         self.try_broadcast(false, target, proto_id, data)
     }
@@ -1331,11 +1278,15 @@ pub(crate) fn disconnect_with_message(
     control: &ServiceControl,
     peer_index: SessionId,
     message: &str,
-) -> Result<(), P2pError> {
+) -> Result<(), SendErrorKind> {
     if !message.is_empty() {
         let data = Bytes::from(message.as_bytes().to_vec());
         // Must quick send, otherwise this message will be dropped.
-        control.quick_send_message_to(peer_index, DISCONNECT_MESSAGE_PROTOCOL_ID.into(), data)?;
+        control.quick_send_message_to(
+            peer_index,
+            SupportProtocols::DisconnectMessage.protocol_id(),
+            data,
+        )?;
     }
     control.disconnect(peer_index)
 }

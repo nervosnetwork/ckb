@@ -271,7 +271,7 @@ impl Relayer {
         let boxed = Arc::new(block);
         if self
             .shared()
-            .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
+            .insert_new_block(&self.chain, Arc::clone(&boxed))
             .unwrap_or(false)
         {
             debug_target!(
@@ -691,7 +691,7 @@ impl CKBProtocolHandler for Relayer {
 
     fn connected(
         &mut self,
-        nc: Arc<dyn CKBProtocolContext + Sync>,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         version: &str,
     ) {
@@ -701,28 +701,13 @@ impl CKBProtocolHandler for Relayer {
             version,
             peer_index
         );
-        let protocol = nc.protocol_id();
-        let version = version.to_string();
-        nc.with_peer_mut(
-            peer_index,
-            Box::new(move |peer| {
-                peer.protocols.insert(protocol, version);
-            }),
-        );
     }
 
-    fn disconnected(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info_target!(
             crate::LOG_TARGET_RELAY,
             "RelayProtocol.disconnected peer={}",
             peer_index
-        );
-        let protocol = nc.protocol_id();
-        nc.with_peer_mut(
-            peer_index,
-            Box::new(move |peer| {
-                peer.protocols.remove(&protocol);
-            }),
         );
         // remove all rate limiter keys that have been expireable for 1 minutes:
         self.rate_limiter.lock().cleanup(Duration::from_secs(60));
