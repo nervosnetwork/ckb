@@ -329,7 +329,7 @@ impl PeerState {
             if *timeout >= now {
                 break;
             }
-            timeouts.push(timeout.clone());
+            timeouts.push(*timeout);
             all_txs.extend(txs.clone());
         }
         for timeout in timeouts {

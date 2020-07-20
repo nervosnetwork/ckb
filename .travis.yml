@@ -1,5 +1,5 @@
 language: rust
-rust: 1.41.0
+rust: 1.45.2
 dist: xenial
 sudo: true
 cache:
@@ -85,14 +85,15 @@ matrix:
       rust: stable
       cache: false
       addons: { apt: { packages: [] } }
-      env:
-        - CLIPPY_OPTS="-D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from"
       install:
         - rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
         - rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
       script:
-        - cargo +stable fmt --all -- --check
-        - cargo +stable clippy --all --all-targets --all-features -- ${CLIPPY_OPTS}
+        - mv rust-toolchain rust-toolchain.bak
+        - echo "stable" > rust-toolchain
+        - make fmt
+        - make clippy
+        - mv rust-toolchain.bak rust-toolchain
     - name: Quick Check
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
@@ -154,7 +155,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.41.0
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.45.2
       script:
         - mkdir -p $HOME/.cargo
         - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
@@ -165,7 +166,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.41.0
+      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.45.2
       script:
         - mkdir -p $HOME/.cargo
         - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo $BUILDER_IMAGE scl enable llvm-toolset-7 'make prod'

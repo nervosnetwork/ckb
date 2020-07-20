@@ -28,7 +28,7 @@ impl Spec for Discovery {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         // enable outbound peer service to connect discovered peers
         Box::new(|config| {
             config.network.connect_outbound_interval_secs = 1;

@@ -483,7 +483,7 @@ impl Node {
 
     fn prepare_chain_spec(
         &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
         let always_success_cell = include_bytes!("../../script/testdata/always_success");
@@ -524,10 +524,7 @@ impl Node {
         .map_err(Into::into)
     }
 
-    fn rewrite_spec(
-        &self,
-        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
-    ) -> Result<(), Error> {
+    fn rewrite_spec(&self, modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>) -> Result<(), Error> {
         // rewrite ckb.toml
         let ckb_config_path = format!("{}/ckb.toml", self.working_dir());
         let mut ckb_config: CKBAppConfig =
@@ -549,8 +546,8 @@ impl Node {
 
     pub fn edit_config_file(
         &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
-        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
+        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>,
     ) {
         let rpc_port = format!("{}", self.rpc_port);
         let p2p_port = format!("{}", self.p2p_port);

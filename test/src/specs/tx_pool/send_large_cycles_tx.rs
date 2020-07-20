@@ -79,7 +79,7 @@ impl Spec for SendLargeCyclesTxInBlock {
         assert!(result, "block can't relay to node1");
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let lock_arg = self.lock_arg.clone();
         Box::new(move |config| {
             config.network.connect_outbound_interval_secs = 0;
@@ -147,7 +147,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(!result, "Node1 should ignore tx");
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let lock_arg = self.lock_arg.clone();
         Box::new(move |config| {
             config.network.connect_outbound_interval_secs = 0;

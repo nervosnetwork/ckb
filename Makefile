@@ -3,7 +3,8 @@ SHELL = /bin/sh
 MOLC    := moleculec
 MOLC_VERSION := 0.6.0
 VERBOSE := $(if ${CI},--verbose,)
-CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
+	-A clippy::mutable_key_type
 CKB_TEST_ARGS := -c 4
 INTEGRATION_RUST_LOG := ckb-network=error
 

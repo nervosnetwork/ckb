@@ -5,7 +5,6 @@ use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use std::sync::Arc;
-use tempfile;
 
 pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
     let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)

@@ -104,7 +104,7 @@ impl Spec for SendSecpTxUseDepGroup {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let pubkey_data = self
             .privkey
             .pubkey()
@@ -238,7 +238,7 @@ impl Spec for CheckTypical2In2OutTx {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let lock_arg = self.lock_arg.clone();
         Box::new(move |config| {
             let block_assembler =

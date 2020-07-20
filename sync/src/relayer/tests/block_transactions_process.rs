@@ -47,7 +47,7 @@ fn test_accept_block() {
 
     let block = BlockBuilder::default()
         .transactions(vec![tx1, tx2.clone()])
-        .uncle(uncle.clone().as_uncle())
+        .uncle(uncle.as_uncle())
         .build();
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
 

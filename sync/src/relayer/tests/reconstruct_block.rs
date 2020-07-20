@@ -71,7 +71,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
     let block = BlockBuilder::default()
         .transactions(prepare.clone())
-        .uncles(vec![uncle.clone().as_uncle()])
+        .uncles(vec![uncle.as_uncle()])
         .build();
 
     let uncle_hash = uncle.hash();
@@ -139,7 +139,7 @@ fn test_reconstruct_invalid_uncles() {
         .build();
 
     let block = BlockBuilder::default()
-        .uncles(vec![uncle.clone().as_uncle()])
+        .uncles(vec![uncle.as_uncle()])
         .build();
 
     let uncle_hash = uncle.hash();

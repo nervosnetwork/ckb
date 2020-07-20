@@ -31,7 +31,7 @@ impl Spec for CellbaseMaturity {
             "Tx will be added to pending pool in N + {} block",
             MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
+        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
         assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
@@ -48,7 +48,7 @@ impl Spec for CellbaseMaturity {
         node.assert_tx_pool_size(0, 0);
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.cellbase_maturity = MATURITY;
         })

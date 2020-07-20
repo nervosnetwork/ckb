@@ -1,7 +1,6 @@
 use crate::{BlockNumber, Timestamp, Uint64};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TxPoolInfo {
