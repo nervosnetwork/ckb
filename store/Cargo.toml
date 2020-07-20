@@ -10,7 +10,7 @@ ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
-ckb-script-data-loader = { path = "../script/data-loader" }
+ckb-traits = { path = "../traits" }
 ckb-util = { path = "../util" }
 ckb-error = { path = "../error" }
 ckb-app-config = { path = "../util/app-config" }

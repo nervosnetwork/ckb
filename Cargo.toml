@@ -34,7 +34,6 @@ members = [
     "util/runtime",
     "util/jsonrpc-types",
     "util/fee-estimator",
-    "script/data-loader",
     "db",
     "db-migration",
     "resource",

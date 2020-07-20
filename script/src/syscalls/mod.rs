@@ -175,11 +175,11 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DataLoader;
     use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
     use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
+    use ckb_traits::{CellDataProvider, HeaderProvider};
     use ckb_types::{
         bytes::Bytes,
         core::{
@@ -561,10 +561,13 @@ mod tests {
         headers: HashMap<Byte32, HeaderView>,
     }
 
-    impl DataLoader for MockDataLoader {
-        fn load_cell_data(&self, _cell: &CellMeta) -> Option<(Bytes, Byte32)> {
+    impl CellDataProvider for MockDataLoader {
+        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<(Bytes, Byte32)> {
             None
         }
+    }
+
+    impl HeaderProvider for MockDataLoader {
         fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
             self.headers.get(block_hash).cloned()
         }

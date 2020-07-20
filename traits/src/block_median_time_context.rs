@@ -1,19 +1,22 @@
+use crate::HeaderProvider;
 use ckb_types::{core::BlockNumber, packed::Byte32};
 
 /// The invoker should only rely on `block_median_time` function
 /// the other functions only use to help the default `block_median_time`, and maybe unimplemented.
-pub trait BlockMedianTimeContext {
+pub trait BlockMedianTimeContext: HeaderProvider {
     fn median_block_count(&self) -> u64;
 
     /// Return timestamp and block_number of the corresponding block_hash, and hash of parent block
-    ///
-    /// Fake implementation:
-    /// ```ignore
-    /// let current_header = get_block_header(block_hash);
-    /// let parent_header = current_header.timestamp_and_parent().header();
-    /// return (parent_header.timestamp(), current_header.number(), parent_header.hash());
-    /// ```
-    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32);
+    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
+        let header = self
+            .get_header(block_hash)
+            .expect("[BlockMedianTimeContext] blocks used for median time exist");
+        (
+            header.timestamp(),
+            header.number(),
+            header.data().raw().parent_hash(),
+        )
+    }
 
     /// Return past block median time, **including the timestamp of the given one**
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {

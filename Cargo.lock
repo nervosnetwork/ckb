@@ -462,8 +462,8 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-db",
  "ckb-error",
- "ckb-script-data-loader",
  "ckb-store",
+ "ckb-traits",
  "ckb-types",
 ]
 
@@ -893,9 +893,9 @@ dependencies = [
  "ckb-error",
  "ckb-hash",
  "ckb-logger",
- "ckb-script-data-loader",
  "ckb-store",
  "ckb-test-chain-utils",
+ "ckb-traits",
  "ckb-types",
  "ckb-vm",
  "ckb-vm-definitions",
@@ -905,13 +905,6 @@ dependencies = [
  "proptest",
  "serde",
  "tiny-keccak",
-]
-
-[[package]]
-name = "ckb-script-data-loader"
-version = "0.35.0-pre"
-dependencies = [
- "ckb-types",
 ]
 
 [[package]]
@@ -967,7 +960,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-error",
- "ckb-script-data-loader",
+ "ckb-traits",
  "ckb-types",
  "ckb-util",
  "lru-cache",

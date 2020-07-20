@@ -5,12 +5,8 @@ use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed,
-    prelude::*,
-};
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier, Verifier};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -298,29 +294,15 @@ struct CompactBlockMedianTimeView<'a> {
     consensus: &'a Consensus,
 }
 
-impl<'a> CompactBlockMedianTimeView<'a> {
-    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
-        // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
-        (self.fn_get_pending_header)(hash.to_owned())
-    }
-}
-
 impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
     fn median_block_count(&self) -> u64 {
         self.consensus.median_time_block_count() as u64
     }
+}
 
-    fn timestamp_and_parent(
-        &self,
-        block_hash: &packed::Byte32,
-    ) -> (u64, BlockNumber, packed::Byte32) {
-        let header = self
-            .get_header(&block_hash)
-            .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
-        (
-            header.timestamp(),
-            header.number(),
-            header.data().raw().parent_hash(),
-        )
+impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
+        // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
+        (self.fn_get_pending_header)(hash.to_owned())
     }
 }

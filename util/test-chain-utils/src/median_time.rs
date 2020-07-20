@@ -1,6 +1,6 @@
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{
-    core::{BlockNumber, EpochNumberWithFraction, TransactionInfo},
+    core::{BlockNumber, EpochNumberWithFraction, HeaderView, TransactionInfo},
     packed::Byte32,
     prelude::*,
 };
@@ -29,6 +29,12 @@ impl BlockMedianTimeContext for MockMedianTime {
             }
         }
         unreachable!()
+    }
+}
+
+impl HeaderProvider for MockMedianTime {
+    fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
     }
 }
 

@@ -12,7 +12,7 @@ ckb-chain-spec = { path = "../../spec" }
 ckb-store = { path = "../../store" }
 ckb-dao-utils = { path = "./utils" }
 ckb-error = { path = "../../error" }
-ckb-script-data-loader = { path = "../../script/data-loader" }
+ckb-traits = { path = "../../traits" }
 
 [dev-dependencies]
 ckb-db = { path = "../../db" }
