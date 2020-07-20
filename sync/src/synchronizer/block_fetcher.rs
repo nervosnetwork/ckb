@@ -111,13 +111,13 @@ impl<'a> BlockFetcher<'a> {
             let mut header = self
                 .active_chain
                 .get_ancestor(&best_known.hash(), start + span - 1)?;
+            let mut status = self.active_chain.get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
 
-                let status = self.active_chain.get_block_status(&hash);
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
@@ -132,10 +132,14 @@ impl<'a> BlockFetcher<'a> {
                     fetch.push(header)
                 }
 
+                status = self.active_chain.get_block_status(&parent_hash);
                 header = self
                     .synchronizer
                     .shared
-                    .get_header_view(&parent_hash)?
+                    .get_header_view(
+                        &parent_hash,
+                        Some(status.contains(BlockStatus::BLOCK_STORED)),
+                    )?
                     .into_inner();
             }
 

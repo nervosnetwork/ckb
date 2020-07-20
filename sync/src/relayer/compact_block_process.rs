@@ -83,7 +83,7 @@ impl<'a> CompactBlockProcess<'a> {
         if status.contains(BlockStatus::BLOCK_STORED) {
             // update last common header and best known
             let parent = shared
-                .get_header_view(&header.data().raw().parent_hash())
+                .get_header_view(&header.data().raw().parent_hash(), Some(true))
                 .expect("parent block must exist");
             let header_view = {
                 let total_difficulty = parent.total_difficulty() + header.difficulty();
@@ -98,7 +98,8 @@ impl<'a> CompactBlockProcess<'a> {
             return StatusCode::BlockIsInvalid.with_context(block_hash);
         }
 
-        let parent = shared.get_header_view(&header.data().raw().parent_hash());
+        let store_first = tip.number() + 1 >= header.number();
+        let parent = shared.get_header_view(&header.data().raw().parent_hash(), Some(store_first));
         if parent.is_none() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -152,7 +153,7 @@ impl<'a> CompactBlockProcess<'a> {
                             .map(|(compact_block, _)| compact_block.header().into_view())
                             .or_else(|| {
                                 shared
-                                    .get_header_view(&block_hash)
+                                    .get_header_view(&block_hash, None)
                                     .map(|header_view| header_view.into_inner())
                             })
                     }

@@ -870,14 +870,20 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F, G>(&mut self, mut get_header_view: F, fast_scanner: G)
-    where
-        F: FnMut(&Byte32) -> Option<HeaderView>,
+    pub fn build_skip<F, G>(
+        &mut self,
+        tip_number: BlockNumber,
+        mut get_header_view: F,
+        fast_scanner: G,
+    ) where
+        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        self.skip_hash = get_header_view(&self.parent_hash())
+        let store_first = self.number() <= tip_number;
+        self.skip_hash = get_header_view(&self.parent_hash(), Some(store_first))
             .and_then(|parent| {
                 parent.get_ancestor(
+                    tip_number,
                     get_skip_height(self.number()),
                     get_header_view,
                     fast_scanner,
@@ -889,12 +895,13 @@ impl HeaderView {
     // NOTE: get_header_view may change source state, for cache or for tests
     pub fn get_ancestor<F, G>(
         self,
+        tip_number: BlockNumber,
         number: BlockNumber,
         mut get_header_view: F,
         fast_scanner: G,
     ) -> Option<core::HeaderView>
     where
-        F: FnMut(&Byte32) -> Option<HeaderView>,
+        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         let timestamp = unix_time_as_millis();
@@ -910,6 +917,7 @@ impl HeaderView {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
             steps += 1;
+            let store_first = current.number() <= tip_number;
             match current.skip_hash {
                 Some(ref hash)
                     if number_skip == number
@@ -918,11 +926,11 @@ impl HeaderView {
                                 && number_skip_prev >= number)) =>
                 {
                     // Only follow skip if parent->skip isn't better than skip->parent
-                    current = get_header_view(hash)?;
+                    current = get_header_view(hash, Some(store_first))?;
                     number_walk = number_skip;
                 }
                 _ => {
-                    current = get_header_view(&current.parent_hash())?;
+                    current = get_header_view(&current.parent_hash(), Some(store_first))?;
                     number_walk -= 1;
                 }
             }
@@ -1131,8 +1139,10 @@ impl SyncShared {
     // Update the shared_best_header if need
     // Update the peer's best_known_header
     pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
+        let tip_number = self.active_chain().tip_number();
+        let store_first = tip_number >= header.number();
         let parent_view = self
-            .get_header_view(&header.data().raw().parent_hash())
+            .get_header_view(&header.data().raw().parent_hash(), Some(store_first))
             .expect("parent should be verified");
         let mut header_view = {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -1141,7 +1151,8 @@ impl SyncShared {
 
         let snapshot = Arc::clone(&self.shared.snapshot());
         header_view.build_skip(
-            |hash| self.get_header_view(hash),
+            tip_number,
+            |hash, store_first_opt| self.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number() <= snapshot.tip_number()
@@ -1149,7 +1160,7 @@ impl SyncShared {
                 {
                     snapshot
                         .get_block_hash(number)
-                        .and_then(|hash| self.get_header_view(&hash))
+                        .and_then(|hash| self.get_header_view(&hash, Some(true)))
                 } else {
                     None
                 }
@@ -1167,15 +1178,30 @@ impl SyncShared {
         self.state.may_set_shared_best_header(header_view);
     }
 
-    pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
+    pub fn get_header_view(
+        &self,
+        hash: &Byte32,
+        store_first_opt: Option<bool>,
+    ) -> Option<HeaderView> {
         let store = self.store();
-        self.state.header_map.read().get(hash).cloned().or_else(|| {
-            store.get_block_header(hash).and_then(|header| {
-                store
-                    .get_block_ext(&hash)
-                    .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+        if store_first_opt.unwrap_or(false) {
+            store
+                .get_block_header(hash)
+                .and_then(|header| {
+                    store
+                        .get_block_ext(&hash)
+                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                })
+                .or_else(|| self.state.header_map.read().get(hash).cloned())
+        } else {
+            self.state.header_map.read().get(hash).cloned().or_else(|| {
+                store.get_block_header(hash).and_then(|header| {
+                    store
+                        .get_block_ext(&hash)
+                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                })
             })
-        })
+        }
     }
 
     pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
@@ -1534,15 +1560,16 @@ impl ActiveChain {
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
         let tip_number = self.tip_number();
-        self.shared.get_header_view(base)?.get_ancestor(
+        self.shared.get_header_view(base, None)?.get_ancestor(
+            tip_number,
             number,
-            |hash| self.shared.get_header_view(hash),
+            |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
                 {
                     self.get_block_hash(number)
-                        .and_then(|hash| self.shared.get_header_view(&hash))
+                        .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
                 } else {
                     None
                 }
@@ -1814,7 +1841,7 @@ mod tests {
             parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero());
-            view.build_skip(|hash| header_map.get(hash).cloned(), |_, _| None);
+            view.build_skip(0, |hash, _| header_map.get(hash).cloned(), |_, _| None);
             header_map.insert(view.hash(), view);
         }
 
@@ -1842,8 +1869,9 @@ mod tests {
                 .cloned()
                 .unwrap()
                 .get_ancestor(
+                    0,
                     b,
-                    |hash| {
+                    |hash, _| {
                         count += 1;
                         header_map.get(hash).cloned()
                     },
