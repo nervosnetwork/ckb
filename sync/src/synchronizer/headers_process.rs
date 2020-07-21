@@ -117,6 +117,37 @@ impl<'a> HeadersProcess<'a> {
         acceptor.accept()
     }
 
+    fn debug(&self) {
+        if log_enabled!(Level::Debug) {
+            // Regain the updated best known
+            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
+            debug!(
+                "chain: num={}, diff={:#x};",
+                self.active_chain.tip_number(),
+                self.active_chain.total_difficulty()
+            );
+            debug!(
+                "shared best_known_header: num={}, diff={:#x}, hash={};",
+                shared_best_known.number(),
+                shared_best_known.total_difficulty(),
+                shared_best_known.hash(),
+            );
+            if let Some(header) = peer_best_known {
+                debug!(
+                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
+                    self.peer,
+                    header.number(),
+                    header.total_difficulty(),
+                    header.hash()
+                );
+            } else {
+                debug!("state: null;");
+            }
+            debug!("peer: {}", self.peer);
+        }
+    }
+
     pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
         let shared = self.synchronizer.shared();
@@ -135,15 +166,15 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if headers.is_empty() {
-            // Reset headers sync timeout
-            self.synchronizer
-                .peers()
-                .state
-                .write()
-                .get_mut(&self.peer)
-                .expect("Peer must exists")
-                .headers_sync_timeout = None;
             debug!("HeadersProcess is_empty (synchronized)");
+            let ibd = self.active_chain.is_initial_block_download();
+            if !ibd {
+                if let Some(ref mut peer_state) =
+                    self.synchronizer.peers().state.write().get_mut(&self.peer)
+                {
+                    peer_state.stop_headers_sync();
+                }
+            }
             return Status::ok();
         }
 
@@ -188,34 +219,7 @@ impl<'a> HeadersProcess<'a> {
             }
         }
 
-        if log_enabled!(Level::Debug) {
-            // Regain the updated best known
-            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
-            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
-            debug!(
-                "chain: num={}, diff={:#x};",
-                self.active_chain.tip_number(),
-                self.active_chain.total_difficulty()
-            );
-            debug!(
-                "shared best_known_header: num={}, diff={:#x}, hash={};",
-                shared_best_known.number(),
-                shared_best_known.total_difficulty(),
-                shared_best_known.hash(),
-            );
-            if let Some(header) = peer_best_known {
-                debug!(
-                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
-                    self.peer,
-                    header.number(),
-                    header.total_difficulty(),
-                    header.hash()
-                );
-            } else {
-                debug!("state: null;");
-            }
-            debug!("peer: {}", self.peer);
-        }
+        self.debug();
 
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");

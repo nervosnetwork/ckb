@@ -46,10 +46,18 @@ pub(crate) const LOW_INDEX: usize = TIME_TRACE_SIZE * 9 / 10;
 
 pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
 
-//  Timeout = base + per_header * (expected number of headers)
-pub const HEADERS_DOWNLOAD_TIMEOUT_BASE: u64 = 6 * 60 * 1000; // 6 minutes
-pub const HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER: u64 = 1; // 1ms/header
-pub const POW_SPACE: u64 = 10_000; // 10s
+// Inspect the headers downloading every 2 minutes
+pub const HEADERS_DOWNLOAD_INSPECT_WINDOW: u64 = 2 * 60 * 1000;
+// Global Average Speed
+//      Expect 300 KiB/second
+//          = 1600 headers/second (300*1024/192)
+//          = 96000 headers/minute (1600*60)
+//          = 11.11 days-in-blockchain/minute-in-reality (96000*10/60/60/24)
+//      => Sync 1 year headers in blockchain will be in 32.85 minutes (365/11.11) in reality
+pub const HEADERS_DOWNLOAD_HEADERS_PER_SECOND: u64 = 1600;
+// Acceptable Lowest Instantaneous Speed: 75.0 KiB/second (300/4)
+pub const HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE: u64 = 4;
+pub const POW_INTERVAL: u64 = 10;
 
 // Protect at least this many outbound peers from disconnection due to slow
 // behind headers chain.
