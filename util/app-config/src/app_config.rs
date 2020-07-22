@@ -27,6 +27,7 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    pub tmp_dir: Option<PathBuf>,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     #[serde(default)]
@@ -161,6 +162,9 @@ impl CKBAppConfig {
             .db
             .update_path_if_not_set(self.data_dir.join("indexer_db"));
         self.network.path = self.data_dir.join("network");
+        if self.tmp_dir.is_none() {
+            self.tmp_dir = Some(self.data_dir.join("tmp"));
+        }
         let log_dir = self.data_dir.join("logs");
         let log_file = log_dir.join(subcommand_name.to_string() + ".log");
 
@@ -173,6 +177,9 @@ impl CKBAppConfig {
         self.db.path = mkdir(self.db.path)?;
         self.indexer.db.path = mkdir(self.indexer.db.path)?;
         self.network.path = mkdir(self.network.path)?;
+        if let Some(tmp_dir) = self.tmp_dir {
+            self.tmp_dir = Some(mkdir(tmp_dir)?);
+        }
         if self.logger.log_to_file {
             mkdir(log_dir)?;
             self.logger.file = Some(touch(log_file)?);

@@ -975,6 +975,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-dao-utils",
+ "ckb-db",
  "ckb-error",
  "ckb-fee-estimator",
  "ckb-logger",
@@ -995,6 +996,7 @@ dependencies = [
  "rand 0.6.5",
  "ratelimit_meter",
  "sentry",
+ "tempfile",
 ]
 
 [[package]]

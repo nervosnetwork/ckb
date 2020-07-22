@@ -33,9 +33,14 @@ use std::fmt;
 use std::hash::Hash;
 use std::mem;
 use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+mod header_map;
+
+pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 50000;
@@ -861,14 +866,14 @@ impl Peers {
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: &HeaderView) {
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
         if let Some(peer_state) = self.state.write().get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.is_better_than(&hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view.clone());
+                    peer_state.best_known_header = Some(header_view);
                 }
             } else {
-                peer_state.best_known_header = Some(header_view.clone());
+                peer_state.best_known_header = Some(header_view);
             }
         }
     }
@@ -1079,6 +1084,59 @@ impl HeaderView {
     pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
         self.total_difficulty() > total_difficulty
     }
+
+    fn from_slice_should_be_ok(slice: &[u8]) -> Self {
+        let len_size = packed::Uint32Reader::TOTAL_SIZE;
+        if slice.len() < len_size {
+            panic!("failed to unpack item in header map: header part is broken");
+        }
+        let mut idx = 0;
+        let inner_len = {
+            let reader = packed::Uint32Reader::from_slice_should_be_ok(&slice[idx..idx + len_size]);
+            Unpack::<u32>::unpack(&reader) as usize
+        };
+        idx += len_size;
+        let total_difficulty_len = packed::Uint256Reader::TOTAL_SIZE;
+        if slice.len() < len_size + inner_len + total_difficulty_len {
+            panic!("failed to unpack item in header map: body part is broken");
+        }
+        let inner = {
+            let reader =
+                packed::HeaderViewReader::from_slice_should_be_ok(&slice[idx..idx + inner_len]);
+            Unpack::<core::HeaderView>::unpack(&reader)
+        };
+        idx += inner_len;
+        let total_difficulty = {
+            let reader = packed::Uint256Reader::from_slice_should_be_ok(
+                &slice[idx..idx + total_difficulty_len],
+            );
+            Unpack::<U256>::unpack(&reader)
+        };
+        idx += total_difficulty_len;
+        let skip_hash = {
+            packed::Byte32OptReader::from_slice_should_be_ok(&slice[idx..])
+                .to_entity()
+                .to_opt()
+        };
+        Self {
+            inner,
+            total_difficulty,
+            skip_hash,
+        }
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        let inner: packed::HeaderView = self.inner.pack();
+        let total_difficulty: packed::Uint256 = self.total_difficulty.pack();
+        let skip_hash: packed::Byte32Opt = Pack::pack(&self.skip_hash);
+        let inner_len: packed::Uint32 = (inner.as_slice().len() as u32).pack();
+        v.extend_from_slice(inner_len.as_slice());
+        v.extend_from_slice(inner.as_slice());
+        v.extend_from_slice(total_difficulty.as_slice());
+        v.extend_from_slice(skip_hash.as_slice());
+        v
+    }
 }
 
 // Compute what height to jump back to with the skip pointer.
@@ -1119,6 +1177,13 @@ pub struct SyncShared {
 
 impl SyncShared {
     pub fn new(shared: Shared) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, None)
+    }
+
+    pub fn with_tmpdir<P>(shared: Shared, tmpdir: Option<P>) -> SyncShared
+    where
+        P: AsRef<Path>,
+    {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
             (
@@ -1127,13 +1192,14 @@ impl SyncShared {
             )
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
+        let header_map = HeaderMap::new(tmpdir, 300_000, 20_000);
 
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
             ibd_finished: AtomicBool::new(false),
             shared_best_header,
-            header_map: RwLock::new(HashMap::new()),
+            header_map,
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
@@ -1290,15 +1356,12 @@ impl SyncShared {
                 }
             },
         );
-        self.state
-            .header_map
-            .write()
-            .insert(header.hash(), header_view.clone());
+        self.state.header_map.insert(header_view.clone());
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
         self.state
             .peers()
-            .may_set_best_known_header(peer, &header_view);
+            .may_set_best_known_header(peer, header_view.clone());
         self.state.may_set_shared_best_header(header_view);
     }
 
@@ -1316,9 +1379,9 @@ impl SyncShared {
                         .get_block_ext(&hash)
                         .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
                 })
-                .or_else(|| self.state.header_map.read().get(hash).cloned())
+                .or_else(|| self.state.header_map.get(hash))
         } else {
-            self.state.header_map.read().get(hash).cloned().or_else(|| {
+            self.state.header_map.get(hash).or_else(|| {
                 store.get_block_header(hash).and_then(|header| {
                     store
                         .get_block_ext(&hash)
@@ -1331,10 +1394,8 @@ impl SyncShared {
     pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
         self.state
             .header_map
-            .read()
             .get(hash)
-            .map(HeaderView::inner)
-            .cloned()
+            .map(HeaderView::into_inner)
             .or_else(|| self.store().get_block_header(hash))
     }
 
@@ -1364,7 +1425,7 @@ pub struct SyncState {
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
-    header_map: RwLock<HashMap<Byte32, HeaderView>>,
+    header_map: HeaderMap,
     block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
     tx_filter: Mutex<Filter<Byte32>>,
 
@@ -1454,7 +1515,7 @@ impl SyncState {
         }
 
         assert!(
-            self.header_map.read().contains_key(&header.hash()),
+            self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
         metric!({
@@ -1465,10 +1526,7 @@ impl SyncState {
     }
 
     pub fn remove_header_view(&self, hash: &Byte32) {
-        let mut guard = self.header_map.write();
-        guard.remove(hash);
-
-        shrink_to_fit!(guard, SHRINK_THREHOLD);
+        self.header_map.remove(hash);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -1588,7 +1646,7 @@ impl SyncState {
             // header list is an ordered list, sorted from highest to lowest,
             // so here you discard and exit early
             for hash in header_list {
-                if let Some(header) = self.header_map.read().get(&hash) {
+                if let Some(header) = self.header_map.get(&hash) {
                     self.peers.may_set_best_known_header(pi, header);
                     break;
                 } else {
@@ -1602,7 +1660,7 @@ impl SyncState {
         // header list is an ordered list, sorted from highest to lowest,
         // when header hash unknown, break loop is ok
         while let Some(hash) = self.peers().take_unknown_last(pi) {
-            if let Some(header) = self.header_map.read().get(&hash) {
+            if let Some(header) = self.header_map.get(&hash) {
                 self.peers.may_set_best_known_header(pi, header);
             } else {
                 self.peers.insert_unknown_header_hash(pi, hash);
