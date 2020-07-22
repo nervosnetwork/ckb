@@ -166,16 +166,41 @@ fn enable_ansi_support() {}
 // Parse crate name leniently in logger filter: convert "-" to "_".
 fn convert_compatible_crate_name(spec: &str) -> String {
     let mut parts = spec.splitn(2, '/');
-    match (parts.next(), parts.next()) {
-        (Some(mods), Some(filter)) => [&mods.replace("-", "_"), filter].join("/"),
-        _ => spec.replace("-", "_"),
+    let first_part = parts.next();
+    let last_part = parts.next();
+    let mut mods = Vec::new();
+    if let Some(mods_part) = first_part {
+        for m in mods_part.split(',') {
+            mods.push(m.to_owned());
+            if m.contains('-') {
+                mods.push(m.replace("-", "_"));
+            }
+        }
+    }
+    if let Some(filter) = last_part {
+        [&mods.join(","), filter].join("/")
+    } else {
+        mods.join(",")
     }
 }
 
 #[test]
 fn test_convert_compatible_crate_name() {
     let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace/*[0-9]";
-    let expected = "info,a_b=trace,c_d_e_f=warn,g_h_i=debug,jkl=trace/*[0-9]";
+    let expected = "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace/*[0-9]";
+    let result = convert_compatible_crate_name(&spec);
+    assert_eq!(&result, &expected);
+    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace";
+    let expected =
+        "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace";
+    let result = convert_compatible_crate_name(&spec);
+    assert_eq!(&result, &expected);
+    let spec = "info/*[0-9]";
+    let expected = "info/*[0-9]";
+    let result = convert_compatible_crate_name(&spec);
+    assert_eq!(&result, &expected);
+    let spec = "info";
+    let expected = "info";
     let result = convert_compatible_crate_name(&spec);
     assert_eq!(&result, &expected);
 }
