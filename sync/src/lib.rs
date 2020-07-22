@@ -44,7 +44,7 @@ pub(crate) const NORMAL_INDEX: usize = TIME_TRACE_SIZE * 4 / 5;
 // Low Zone Boundaries for the Time Window
 pub(crate) const LOW_INDEX: usize = TIME_TRACE_SIZE * 9 / 10;
 
-pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
+pub(crate) const LOG_TARGET_RELAY: &str = "ckb_relay";
 
 // Inspect the headers downloading every 2 minutes
 pub const HEADERS_DOWNLOAD_INSPECT_WINDOW: u64 = 2 * 60 * 1000;

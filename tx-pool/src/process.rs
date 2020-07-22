@@ -8,7 +8,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug_target, info};
+use ckb_logger::{debug, info};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -728,29 +728,15 @@ fn _update_tx_pool_for_reorg(
     for (cycles, size, tx) in entries {
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
-            debug_target!(
-                crate::LOG_TARGET_TX_POOL,
-                "Failed to add proposed tx {}, reason: {}",
-                tx_hash,
-                e
-            );
+            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
         }
     }
 
     for (cycles, size, tx) in gaps {
-        debug_target!(
-            crate::LOG_TARGET_TX_POOL,
-            "tx proposed, add to gap {}",
-            tx.hash()
-        );
+        debug!("tx proposed, add to gap {}", tx.hash());
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
-            debug_target!(
-                crate::LOG_TARGET_TX_POOL,
-                "Failed to add tx to gap {}, reason: {}",
-                tx_hash,
-                e
-            );
+            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
         }
     }
 

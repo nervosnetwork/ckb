@@ -5,8 +5,6 @@ pub mod pool;
 mod process;
 pub mod service;
 
-pub(crate) const LOG_TARGET_TX_POOL: &str = "ckb-tx-pool";
-
 pub use component::entry::TxEntry;
 pub use process::PlugTarget;
 pub use service::{TxPoolController, TxPoolServiceBuilder};
