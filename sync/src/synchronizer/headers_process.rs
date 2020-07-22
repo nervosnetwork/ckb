@@ -304,6 +304,7 @@ where
             // HeaderVerifier return HeaderError or UnknownParentError
             if let Some(header_error) = error.downcast_ref::<HeaderError>() {
                 if header_error.is_too_new() {
+                    state.temporary_invalid(Some(ValidationError::Verify(error)));
                     false
                 } else {
                     state.dos(Some(ValidationError::Verify(error)), 100);
@@ -385,13 +386,14 @@ where
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ValidationState {
-    VALID,
-    INVALID,
+    Valid,
+    TemporaryInvalid,
+    Invalid,
 }
 
 impl Default for ValidationState {
     fn default() -> Self {
-        ValidationState::VALID
+        ValidationState::Valid
     }
 }
 
@@ -417,10 +419,15 @@ impl ValidationResult {
     pub fn dos(&mut self, error: Option<ValidationError>, misbehavior: u32) {
         self.error = error;
         self.misbehavior += misbehavior;
-        self.state = ValidationState::INVALID;
+        self.state = ValidationState::Invalid;
+    }
+
+    pub fn temporary_invalid(&mut self, error: Option<ValidationError>) {
+        self.error = error;
+        self.state = ValidationState::TemporaryInvalid;
     }
 
     pub fn is_valid(&self) -> bool {
-        self.state == ValidationState::VALID
+        self.state == ValidationState::Valid
     }
 }
