@@ -1,5 +1,5 @@
 use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier};
-use crate::{HeaderErrorKind, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
+use crate::{BlockVersionError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
@@ -19,7 +19,13 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&header, BLOCK_VERSION);
 
-    assert_error_eq!(verifier.verify().unwrap_err(), HeaderErrorKind::Version);
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        BlockVersionError {
+            expected: BLOCK_VERSION,
+            actual: BLOCK_VERSION + 1
+        }
+    );
 }
 
 #[cfg(not(disable_faketime))]
