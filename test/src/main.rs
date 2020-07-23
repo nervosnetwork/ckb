@@ -292,6 +292,7 @@ fn all_specs() -> SpecMap {
         Box::new(DAOWithSatoshiCellOccupied),
         Box::new(SpendSatoshiCell::new()),
         Box::new(MiningBasic),
+        Box::new(BlockTemplates),
         Box::new(BootstrapCellbase),
         Box::new(TemplateSizeLimit),
         Box::new(PoolReconcile),

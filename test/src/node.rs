@@ -1,6 +1,6 @@
 use crate::rpc::RpcClient;
 use crate::utils::{temp_path, wait_until};
-use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
@@ -277,6 +277,10 @@ impl Node {
 
     pub fn generate_blocks(&self, blocks_num: usize) -> Vec<Byte32> {
         (0..blocks_num).map(|_| self.generate_block()).collect()
+    }
+
+    pub fn generate_blocks_until_contains_valid_cellbase(&self) -> Vec<Byte32> {
+        self.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize)
     }
 
     // generate a new block and submit it through rpc.
