@@ -29,7 +29,7 @@ pub use crate::transaction_verifier::{
 
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second
 
-pub(crate) const LOG_TARGET: &str = "ckb-chain";
+pub(crate) const LOG_TARGET: &str = "ckb_chain";
 
 pub trait Verifier {
     type Target;

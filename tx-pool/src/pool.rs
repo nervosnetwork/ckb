@@ -7,7 +7,7 @@ use crate::error::SubmitTxError;
 use ckb_app_config::TxPoolConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, ErrorKind, InternalErrorKind};
-use ckb_logger::{debug_target, error_target, trace_target};
+use ckb_logger::{debug, error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -122,20 +122,16 @@ impl TxPool {
     // cycles overflow is possible, currently obtaining cycles is not accurate
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
-            error_target!(
-                crate::LOG_TARGET_TX_POOL,
+            error!(
                 "total_tx_size {} overflow by sub {}",
-                self.total_tx_size,
-                tx_size
+                self.total_tx_size, tx_size
             );
             0
         });
         let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
-            error_target!(
-                crate::LOG_TARGET_TX_POOL,
+            error!(
                 "total_tx_cycles {} overflow by sub {}",
-                self.total_tx_cycles,
-                cycles
+                self.total_tx_cycles, cycles
             );
             0
         });
@@ -151,30 +147,18 @@ impl TxPool {
         {
             return Ok(false);
         }
-        trace_target!(
-            crate::LOG_TARGET_TX_POOL,
-            "add_pending {}",
-            entry.transaction.hash()
-        );
+        trace!("add_pending {}", entry.transaction.hash());
         self.pending.add_entry(entry).map(|entry| entry.is_none())
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
     pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
-        trace_target!(
-            crate::LOG_TARGET_TX_POOL,
-            "add_gap {}",
-            entry.transaction.hash()
-        );
+        trace!("add_gap {}", entry.transaction.hash());
         self.gap.add_entry(entry).map(|entry| entry.is_none())
     }
 
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, SubmitTxError> {
-        trace_target!(
-            crate::LOG_TARGET_TX_POOL,
-            "add_proposed {}",
-            entry.transaction.hash()
-        );
+        trace!("add_proposed {}", entry.transaction.hash());
         self.touch_last_txs_updated_at();
         self.proposed.add_entry(entry).map(|entry| entry.is_none())
     }
@@ -186,7 +170,7 @@ impl TxPool {
         tx: TransactionView,
         unknowns: Vec<OutPoint>,
     ) -> Option<DefectEntry> {
-        trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {}", &tx.hash());
+        trace!("add_orphan {}", &tx.hash());
         self.orphan
             .add_tx(cache_entry, size, tx, unknowns.into_iter())
     }
@@ -288,7 +272,7 @@ impl TxPool {
     ) {
         for (tx, related_out_points) in txs {
             let hash = tx.hash();
-            trace_target!(crate::LOG_TARGET_TX_POOL, "committed {}", hash);
+            trace!("committed {}", hash);
             for entry in self.proposed.remove_committed_tx(tx, &related_out_points) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }
@@ -301,20 +285,12 @@ impl TxPool {
         for id in ids {
             for entry in self.gap.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry) {
-                    debug_target!(
-                        crate::LOG_TARGET_TX_POOL,
-                        "move expired gap to pending error {}",
-                        err
-                    );
+                    debug!("move expired gap to pending error {}", err);
                 }
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry) {
-                    debug_target!(
-                        crate::LOG_TARGET_TX_POOL,
-                        "move expired proposed to pending error {}",
-                        err
-                    );
+                    debug!("move expired proposed to pending error {}", err);
                 }
             }
         }
@@ -405,12 +381,7 @@ impl TxPool {
                         entry.size,
                         entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
                     );
-                    trace_target!(
-                        crate::LOG_TARGET_TX_POOL,
-                        "proposed tx {} failed {:?}",
-                        tx_hash,
-                        ret
-                    );
+                    trace!("proposed tx {} failed {:?}", tx_hash, ret);
                 }
             } else {
                 let ret = self.pending_tx(entry.cache_entry, entry.size, entry.transaction);
@@ -419,12 +390,7 @@ impl TxPool {
                         entry.size,
                         entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
                     );
-                    trace_target!(
-                        crate::LOG_TARGET_TX_POOL,
-                        "pending tx {} failed {:?}",
-                        tx_hash,
-                        ret
-                    );
+                    trace!("pending tx {} failed {:?}", tx_hash, ret);
                 }
             }
         }
@@ -438,8 +404,7 @@ impl TxPool {
         DaoCalculator::new(snapshot.consensus(), snapshot)
             .transaction_fee(&rtx)
             .map_err(|err| {
-                error_target!(
-                    crate::LOG_TARGET_TX_POOL,
+                error!(
                     "Failed to generate tx fee for {}, reason: {:?}",
                     rtx.transaction.hash(),
                     err
@@ -489,12 +454,9 @@ impl TxPool {
                             size,
                             cache_entry.map(|c| c.cycles).unwrap_or(0),
                         );
-                        debug_target!(
-                            crate::LOG_TARGET_TX_POOL,
+                        debug!(
                             "Failed to add tx to {} {}, verify failed, reason: {:?}",
-                            pool_name,
-                            tx_hash,
-                            err,
+                            pool_name, tx_hash, err,
                         );
                     }
                     ErrorKind::OutPoint => {
@@ -546,12 +508,9 @@ impl TxPool {
                         }
                     }
                     _ => {
-                        debug_target!(
-                            crate::LOG_TARGET_TX_POOL,
+                        debug!(
                             "Failed to add tx to {} {}, unknown reason: {:?}",
-                            pool_name,
-                            tx_hash,
-                            err
+                            pool_name, tx_hash, err
                         );
                         self.update_statics_for_remove_tx(
                             size,
