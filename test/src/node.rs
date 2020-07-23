@@ -285,7 +285,7 @@ impl Node {
 
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> Byte32 {
-        self.submit_block(&self.new_block(None, None, None))
+        self.rpc_client().generate_block()
     }
 
     // Convenient way to construct an uncle block
