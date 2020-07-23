@@ -1,6 +1,7 @@
 use crate::error::RPCError;
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::{chain::ChainController, switch::Switch};
-use ckb_jsonrpc_types::{Block, BlockView, Cycle, Transaction};
+use ckb_jsonrpc_types::{Block, BlockView, Cycle, JsonBytes, Script, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::shared::Shared;
@@ -26,6 +27,13 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "truncate")]
     fn truncate(&self, target_tip_hash: H256) -> Result<()>;
+
+    #[rpc(name = "generate_block")]
+    fn generate_block(
+        &self,
+        block_assembler_script: Option<Script>,
+        block_assembler_message: Option<JsonBytes>,
+    ) -> Result<H256>;
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
@@ -109,6 +117,49 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())
+    }
+
+    fn generate_block(
+        &self,
+        block_assembler_script: Option<Script>,
+        block_assembler_message: Option<JsonBytes>,
+    ) -> Result<H256> {
+        let tx_pool = self.shared.tx_pool_controller();
+        let block_assembler_config = block_assembler_script.map(|script| BlockAssemblerConfig {
+            code_hash: script.code_hash,
+            hash_type: script.hash_type,
+            args: script.args,
+            message: block_assembler_message.unwrap_or_default(),
+        });
+        let block_template = tx_pool
+            .get_block_template_with_block_assembler_config(
+                None,
+                None,
+                None,
+                block_assembler_config,
+            )
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+
+        let block: packed::Block = block_template.into();
+        let block_view = Arc::new(block.into_view());
+        let content = packed::CompactBlock::build_from_block(&block_view, &HashSet::new());
+        let message = packed::RelayMessage::new_builder().set(content).build();
+
+        // insert block to chain
+        self.chain
+            .process_block(Arc::clone(&block_view))
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+
+        // announce new block
+        if let Err(err) = self
+            .network_controller
+            .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+        {
+            error!("Broadcast new block failed: {:?}", err);
+        }
+
+        Ok(block_view.header().hash().unpack())
     }
 
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
