@@ -1,4 +1,5 @@
-use ckb_logger::configure_logger_filter;
+use ckb_jsonrpc_types::ExtraLoggerConfig;
+use ckb_logger::{configure_logger_filter, Logger};
 use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
 use jsonrpc_derive::rpc;
 use std::time;
@@ -9,6 +10,8 @@ pub trait DebugRpc {
     fn jemalloc_profiling_dump(&self) -> Result<String>;
     #[rpc(name = "set_logger_filter")]
     fn set_logger_filter(&self, filter: String) -> Result<()>;
+    #[rpc(name = "set_extra_logger")]
+    fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()>;
 }
 
 pub(crate) struct DebugRpcImpl {}
@@ -33,5 +36,25 @@ impl DebugRpc for DebugRpcImpl {
     fn set_logger_filter(&self, filter: String) -> Result<()> {
         configure_logger_filter(&filter);
         Ok(())
+    }
+
+    fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()> {
+        if let Err(err) = Logger::check_extra_logger_name(&name) {
+            return Err(Error {
+                code: InternalError,
+                message: err,
+                data: None,
+            });
+        }
+        if let Some(config) = config_opt {
+            Logger::update_extra_logger(name, config.filter)
+        } else {
+            Logger::remove_extra_logger(name)
+        }
+        .map_err(|err| Error {
+            code: InternalError,
+            message: err,
+            data: None,
+        })
     }
 }

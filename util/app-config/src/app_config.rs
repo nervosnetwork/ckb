@@ -165,8 +165,11 @@ impl CKBAppConfig {
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
         }
-        let log_dir = self.data_dir.join("logs");
-        let log_file = log_dir.join(subcommand_name.to_string() + ".log");
+        self.logger.log_dir = self.data_dir.join("logs");
+        let log_file = self
+            .logger
+            .log_dir
+            .join(subcommand_name.to_string() + ".log");
 
         if subcommand_name == cli::CMD_RESET_DATA {
             self.logger.file = Some(log_file);
@@ -181,7 +184,7 @@ impl CKBAppConfig {
             self.tmp_dir = Some(mkdir(tmp_dir)?);
         }
         if self.logger.log_to_file {
-            mkdir(log_dir)?;
+            mkdir(self.logger.log_dir.clone())?;
             self.logger.file = Some(touch(log_file)?);
         }
         self.chain.spec.absolutize(root_dir);

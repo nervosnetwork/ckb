@@ -8,9 +8,10 @@ use lazy_static::lazy_static;
 use log::{LevelFilter, Log, Metadata, Record};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::{fs, panic, sync, thread};
+use std::{fs, panic, process, sync, thread};
 
 pub use log::{self as internal, Level, SetLoggerError};
 pub use serde_json::{json, Map, Value};
@@ -141,8 +142,14 @@ macro_rules! log_enabled_target {
 }
 
 enum Message {
-    Record(String),
+    Record {
+        is_match: bool,
+        extras: Vec<String>,
+        data: String,
+    },
     Filter(Filter),
+    UpdateExtraLogger(String, Filter),
+    RemoveExtraLogger(String),
     Terminate,
 }
 
@@ -152,6 +159,12 @@ pub struct Logger {
     handle: Mutex<Option<thread::JoinHandle<()>>>,
     filter: sync::Arc<RwLock<Filter>>,
     emit_sentry_breadcrumbs: bool,
+    extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
+}
+
+#[derive(Debug)]
+pub struct ExtraLogger {
+    filter: Filter,
 }
 
 #[cfg(target_os = "windows")]
@@ -207,26 +220,60 @@ fn test_convert_compatible_crate_name() {
 
 impl Logger {
     fn new(config: Config) -> Logger {
-        let mut builder = Builder::new();
-
-        if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
-            builder.parse(&convert_compatible_crate_name(env_filter));
-        } else if let Some(ref config_filter) = config.filter {
-            builder.parse(&convert_compatible_crate_name(config_filter));
+        for name in config.extra.keys() {
+            if let Err(err) = Self::check_extra_logger_name(name) {
+                eprintln!("Error: {}", err);
+                process::exit(1);
+            }
         }
 
         let (sender, receiver) = unbounded();
         CONTROL_HANDLE.write().replace(sender.clone());
+
         let Config {
             color,
             file,
+            log_dir,
             log_to_file,
             log_to_stdout,
             ..
         } = config;
         let file = if log_to_file { file } else { None };
-        let filter = sync::Arc::new(RwLock::new(builder.build()));
+
+        let filter = {
+            let filter = if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
+                Self::build_filter(env_filter)
+            } else if let Some(ref config_filter) = config.filter {
+                Self::build_filter(config_filter)
+            } else {
+                Self::build_filter("")
+            };
+            sync::Arc::new(RwLock::new(filter))
+        };
         let filter_for_update = sync::Arc::clone(&filter);
+
+        let extra_loggers = {
+            let extra_loggers = config
+                .extra
+                .iter()
+                .map(|(name, extra)| {
+                    let filter = Self::build_filter(&extra.filter);
+                    let extra_logger = ExtraLogger { filter };
+                    (name.to_owned(), extra_logger)
+                })
+                .collect::<HashMap<_, _>>();
+            sync::Arc::new(RwLock::new(extra_loggers))
+        };
+        let extra_loggers_for_update = sync::Arc::clone(&extra_loggers);
+
+        let extra_files = config
+            .extra
+            .keys()
+            .map(|name| {
+                let file = log_dir.clone().join(name.to_owned() + ".log");
+                (name.to_owned(), file)
+            })
+            .collect::<HashMap<_, _>>();
 
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
@@ -242,28 +289,82 @@ impl Logger {
                             panic!("Cannot write to log file given: {:?}", file.as_os_str())
                         })
                 });
+                let mut extra_files = extra_files
+                    .into_iter()
+                    .map(|(name, file)| {
+                        let file = fs::OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(&file)
+                            .unwrap_or_else(|_| {
+                                panic!("Cannot write to log file given: {:?}", file.as_os_str())
+                            });
+                        (name, file)
+                    })
+                    .collect::<HashMap<_, _>>();
 
                 loop {
                     match receiver.recv() {
-                        Ok(Message::Record(record)) => {
-                            let removed_color = sanitize_color(record.as_ref());
-                            let output = if color { record } else { removed_color.clone() };
-                            if let Some(mut file) = file.as_ref() {
-                                let _ = file.write_all(removed_color.as_bytes());
-                                let _ = file.write_all(b"\n");
-                            };
-                            if log_to_stdout {
-                                println!("{}", output);
+                        Ok(Message::Record {
+                            is_match,
+                            extras,
+                            data,
+                        }) => {
+                            let removed_color =
+                                if (is_match && (!color || file.is_some())) || !extras.is_empty() {
+                                    sanitize_color(data.as_ref())
+                                } else {
+                                    "".to_owned()
+                                };
+                            if is_match {
+                                if log_to_stdout {
+                                    let output = if color {
+                                        data.as_str()
+                                    } else {
+                                        removed_color.as_str()
+                                    };
+                                    println!("{}", output);
+                                }
+                                if let Some(mut file) = file.as_ref() {
+                                    let _ = file.write_all(removed_color.as_bytes());
+                                    let _ = file.write_all(b"\n");
+                                };
                             }
+                            for name in extras {
+                                if let Some(mut file) = extra_files.get(&name) {
+                                    let _ = file.write_all(removed_color.as_bytes());
+                                    let _ = file.write_all(b"\n");
+                                }
+                            }
+                            continue;
                         }
                         Ok(Message::Filter(filter)) => {
                             *filter_for_update.write() = filter;
-                            log::set_max_level(filter_for_update.read().filter());
+                        }
+                        Ok(Message::UpdateExtraLogger(name, filter)) => {
+                            let file = log_dir.clone().join(name.clone() + ".log");
+                            let file_res =
+                                fs::OpenOptions::new().append(true).create(true).open(&file);
+                            if let Ok(file) = file_res {
+                                extra_files.insert(name.clone(), file);
+                                extra_loggers_for_update
+                                    .write()
+                                    .insert(name, ExtraLogger { filter });
+                            }
+                        }
+                        Ok(Message::RemoveExtraLogger(name)) => {
+                            extra_loggers_for_update.write().remove(&name);
+                            extra_files.remove(&name);
                         }
                         Ok(Message::Terminate) | Err(_) => {
                             break;
                         }
                     }
+                    let max_level = Self::max_level_filter(
+                        &filter_for_update.read(),
+                        &extra_loggers_for_update.read(),
+                    );
+                    log::set_max_level(max_level);
                 }
             })
             .expect("Logger thread init should not fail");
@@ -273,22 +374,93 @@ impl Logger {
             handle: Mutex::new(Some(tb)),
             filter,
             emit_sentry_breadcrumbs: config.emit_sentry_breadcrumbs.unwrap_or_default(),
+            extra_loggers,
         }
     }
 
+    fn build_filter(filter_str: &str) -> Filter {
+        Builder::new()
+            .parse(&convert_compatible_crate_name(filter_str))
+            .build()
+    }
+
+    fn max_level_filter(
+        main_filter: &Filter,
+        extra_loggers: &HashMap<String, ExtraLogger>,
+    ) -> LevelFilter {
+        extra_loggers
+            .values()
+            .fold(main_filter.filter(), |ret, curr| {
+                ret.max(curr.filter.filter())
+            })
+    }
+
     pub fn filter(&self) -> LevelFilter {
-        self.filter.read().filter()
+        Self::max_level_filter(&self.filter.read(), &self.extra_loggers.read())
+    }
+
+    fn send_message(message: Message) -> Result<(), String> {
+        CONTROL_HANDLE
+            .read()
+            .as_ref()
+            .ok_or_else(|| "no sender for logger service".to_owned())
+            .and_then(|sender| {
+                sender
+                    .send(message)
+                    .map_err(|err| format!("failed to send message to logger service: {}", err))
+                    .map(|_| ())
+            })
+    }
+
+    pub fn check_extra_logger_name(name: &str) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("the name of extra shouldn't be empty".to_owned());
+        }
+        match Regex::new(r"^[0-9a-zA-Z_-]+$") {
+            Ok(re) => {
+                if !re.is_match(&name) {
+                    return Err(format!(
+                        "invaild extra logger name \"{}\", only \"0-9a-zA-Z_-\" are allowed",
+                        name
+                    ));
+                }
+            }
+            Err(err) => {
+                return Err(format!("failed to check the name of extra logger: {}", err));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_extra_logger(name: String, filter_str: String) -> Result<(), String> {
+        let filter = Self::build_filter(&filter_str);
+        let message = Message::UpdateExtraLogger(name, filter);
+        Self::send_message(message)
+    }
+
+    pub fn remove_extra_logger(name: String) -> Result<(), String> {
+        let message = Message::RemoveExtraLogger(name);
+        Self::send_message(message)
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub filter: Option<String>,
     pub color: bool,
     pub file: Option<PathBuf>,
+    #[serde(skip)]
+    pub log_dir: PathBuf,
     pub log_to_file: bool,
     pub log_to_stdout: bool,
     pub emit_sentry_breadcrumbs: Option<bool>,
+    #[serde(default)]
+    pub extra: HashMap<String, ExtraLoggerConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExtraLoggerConfig {
+    pub filter: String,
 }
 
 impl Default for Config {
@@ -297,9 +469,11 @@ impl Default for Config {
             filter: None,
             color: !cfg!(windows),
             file: None,
+            log_dir: Default::default(),
             log_to_file: false,
             log_to_stdout: true,
             emit_sentry_breadcrumbs: None,
+            extra: Default::default(),
         }
     }
 }
@@ -307,11 +481,29 @@ impl Default for Config {
 impl Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
         self.filter.read().enabled(metadata)
+            || self
+                .extra_loggers
+                .read()
+                .values()
+                .any(|logger| logger.filter.enabled(metadata))
     }
 
     fn log(&self, record: &Record) {
-        // Check if the record is matched by the filter
-        if self.filter.read().matches(record) {
+        // Check if the record is matched by the main filter
+        let is_match = self.filter.read().matches(record);
+        let extras = self
+            .extra_loggers
+            .read()
+            .iter()
+            .filter_map(|(name, logger)| {
+                if logger.filter.matches(record) {
+                    Some(name.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if is_match || !extras.is_empty() {
             if self.emit_sentry_breadcrumbs {
                 use sentry::{add_breadcrumb, integrations::log::breadcrumb_from_record};
                 add_breadcrumb(|| breadcrumb_from_record(record));
@@ -333,7 +525,11 @@ impl Log for Logger {
                     record.args()
                 )
             };
-            let _ = self.sender.send(Message::Record(with_color));
+            let _ = self.sender.send(Message::Record {
+                is_match,
+                extras,
+                data: with_color,
+            });
         }
     }
 
@@ -431,11 +627,7 @@ pub fn __log_metric(metric: &mut Value, default_target: &str) {
 }
 
 pub fn configure_logger_filter(filter_str: &str) {
-    let filter = Builder::new()
-        .parse(&convert_compatible_crate_name(filter_str))
-        .build();
-    let _ = CONTROL_HANDLE
-        .read()
-        .as_ref()
-        .map(|sender| sender.send(Message::Filter(filter)));
+    let filter = Logger::build_filter(filter_str);
+    let message = Message::Filter(filter);
+    let _todo_should_return_result = Logger::send_message(message);
 }
