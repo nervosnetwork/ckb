@@ -2104,6 +2104,8 @@ http://localhost:8114
         "orphan": "0x0",
         "pending": "0x1",
         "proposed": "0x0",
+        "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+        "tip_number": "0x400",
         "total_tx_cycles": "0x219",
         "total_tx_size": "0x112"
     }

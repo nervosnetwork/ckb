@@ -128,6 +128,8 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool_info = get_tx_pool_info.unwrap();
 
         Ok(TxPoolInfo {
+            tip_hash: tx_pool_info.tip_hash.unpack(),
+            tip_number: tx_pool_info.tip_number.into(),
             pending: (tx_pool_info.pending_size as u64).into(),
             proposed: (tx_pool_info.proposed_size as u64).into(),
             orphan: (tx_pool_info.orphan_size as u64).into(),

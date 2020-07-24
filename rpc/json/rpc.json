@@ -342,8 +342,8 @@
             {
                 "addresses": [
                     {
-                        "score": "0x64",
-                        "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN"
+                        "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+                        "score": "0x64"
                     },
                     {
                         "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
@@ -355,15 +355,15 @@
                 "version": "0.31.0 (4231360 2020-04-20)"
             },
             {
-                "version": "0.29.0 (a6733e6 2020-02-26)",
                 "addresses": [
                     {
                         "address": "/ip4/174.80.182.60/tcp/52965/p2p/QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
                         "score": "0x1"
                     }
                 ],
+                "is_outbound": false,
                 "node_id": "QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
-                "is_outbound": false
+                "version": "0.29.0 (a6733e6 2020-02-26)"
             }
         ],
         "skip": true
@@ -800,6 +800,8 @@
             "orphan": "0x0",
             "pending": "0x1",
             "proposed": "0x0",
+            "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+            "tip_number": "0x400",
             "total_tx_cycles": "0x219",
             "total_tx_size": "0x112"
         }
@@ -1349,15 +1351,10 @@
             "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
         ],
         "result": {
+            "block_number": "0x400",
             "capacity": "0xb00fb84df292",
-            "cells_count": "0x3f5",
-            "block_number": "0x400"
+            "cells_count": "0x3f5"
         },
-        "types": [
-            {
-                "lock_hash": "Cell lock script hash"
-            }
-        ],
         "returns": [
             {
                 "capacity": "Total capacity"
@@ -1367,6 +1364,11 @@
             },
             {
                 "block_number": "At which block capacity was calculated"
+            }
+        ],
+        "types": [
+            {
+                "lock_hash": "Cell lock script hash"
             }
         ]
     },
@@ -1563,17 +1565,17 @@
             "new_tip_header"
         ],
         "result": "0x2a",
-        "types": [
-            {
-                "topic": "Subscription topic (enum: new_tip_header | new_tip_block)"
-            }
-        ],
         "returns": [
             {
                 "id": "Subscription id"
             }
         ],
-        "skip": true
+        "skip": true,
+        "types": [
+            {
+                "topic": "Subscription topic (enum: new_tip_header | new_tip_block)"
+            }
+        ]
     },
     {
         "description": "unsubscribe from a subscribed topic",
@@ -1583,16 +1585,16 @@
             "0x2a"
         ],
         "result": true,
-        "types": [
-            {
-                "id": "Subscription id"
-            }
-        ],
         "returns": [
             {
                 "result": "Unsubscribe result"
             }
         ],
-        "skip": true
+        "skip": true,
+        "types": [
+            {
+                "id": "Subscription id"
+            }
+        ]
     }
 ]
