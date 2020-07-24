@@ -8,7 +8,6 @@ use ckb_types::{
     packed::{self, Alert, RawAlert},
     prelude::*,
 };
-use log::info;
 
 pub struct AlertPropagation {
     alert_config: NetworkAlertConfig,
@@ -27,82 +26,57 @@ impl Default for AlertPropagation {
 
 impl Spec for AlertPropagation {
     crate::name!("alert_propagation");
-
     crate::setup!(num_nodes: 3);
+    // Case: alert propagation in p2p network
+    //    1. create and send alert via node0; all nodes should receive the alert;
+    //    2. cancel previous alert via node0; all nodes should receive the alert;
+    //    3. resend the first alert, all nodes should ignore the alert.
 
     fn run(&self, net: &mut Net) {
         let node0 = &net.nodes[0];
-        let warning1: Bytes = b"pretend we are in dangerous status".to_vec().into();
-        let id1: u32 = 42;
         let notice_until = faketime::unix_time_as_millis() + 100_000;
 
-        // send alert
+        // create and relay alert
+        let id1: u32 = 42;
+        let warning1: Bytes = b"pretend we are in dangerous status".to_vec().into();
         let raw_alert = RawAlert::new_builder()
             .id(id1.pack())
             .message(warning1.pack())
             .notice_until(notice_until.pack())
             .build();
-        let msg: Message = raw_alert.calc_alert_hash().unpack();
-        let signatures = self
-            .privkeys
-            .iter()
-            .take(2)
-            .map(|key| {
-                let data: Bytes = key
-                    .sign_recoverable(&msg)
-                    .expect("Sign failed")
-                    .serialize()
-                    .into();
-                data.pack()
-            })
-            .collect::<Vec<packed::Bytes>>();
-        let alert = Alert::new_builder()
-            .raw(raw_alert)
-            .signatures(signatures.pack())
-            .build();
-        // send alert
+        let alert = create_alert(raw_alert, &self.privkeys);
         node0.rpc_client().send_alert(alert.clone().into());
-        info!("Waiting for alert relay");
         let ret = wait_until(20, || {
             net.nodes
                 .iter()
                 .all(|node| !node.rpc_client().get_blockchain_info().alerts.is_empty())
         });
-        assert!(ret, "alert is relayed");
+        assert!(ret, "Alert should be relayed, but not");
         for node in net.nodes.iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
-            assert_eq!(alerts.len(), 1);
-            assert_eq!(alerts[0].message, warning1);
+            assert_eq!(
+                alerts.len(),
+                1,
+                "All nodes should receive the alert, but not"
+            );
+            assert_eq!(
+                alerts[0].message, warning1,
+                "Alert message should be {}, but got {}",
+                "pretend we are in dangerous status", alerts[0].message
+            );
         }
 
         // cancel previous alert
+        let id2: u32 = 43;
         let warning2: Bytes = b"alert is canceled".to_vec().into();
         let raw_alert2 = RawAlert::new_builder()
-            .id(2u32.pack())
+            .id(id2.pack())
             .cancel(id1.pack())
             .message(warning2.pack())
             .notice_until(notice_until.pack())
             .build();
-        let msg: Message = raw_alert2.calc_alert_hash().unpack();
-        let signatures = self
-            .privkeys
-            .iter()
-            .take(2)
-            .map(|key| {
-                let data: Bytes = key
-                    .sign_recoverable(&msg)
-                    .expect("Sign failed")
-                    .serialize()
-                    .into();
-                data.pack()
-            })
-            .collect::<Vec<packed::Bytes>>();
-        let alert2 = Alert::new_builder()
-            .raw(raw_alert2)
-            .signatures(signatures.pack())
-            .build();
+        let alert2 = create_alert(raw_alert2, &self.privkeys);
         node0.rpc_client().send_alert(alert2.into());
-        info!("Waiting for alert relay");
         let ret = wait_until(20, || {
             net.nodes.iter().all(|node| {
                 node.rpc_client()
@@ -112,18 +86,44 @@ impl Spec for AlertPropagation {
                     .all(|a| Into::<u32>::into(a.id) != id1)
             })
         });
-        assert!(ret, "alert is relayed");
+        assert!(ret, "Alert should be relayed, but not");
         for node in net.nodes.iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
-            assert_eq!(alerts.len(), 1);
-            assert_eq!(alerts[0].message, warning2);
+            assert_eq!(
+                alerts.len(),
+                1,
+                "All nodes should receive the alert, but not"
+            );
+            assert_eq!(
+                alerts[0].message, warning2,
+                "Alert message should be {}, but got {}",
+                "alert is canceled", alerts[0].message
+            );
         }
 
         // send canceled alert again, should ignore by all nodes
         node0.rpc_client().send_alert(alert.into());
+        let ret = wait_until(20, || {
+            net.nodes.iter().all(|node| {
+                node.rpc_client()
+                    .get_blockchain_info()
+                    .alerts
+                    .iter()
+                    .all(|a| Into::<u32>::into(a.id) != id1)
+            })
+        });
+        assert!(ret, "Alert should be relayed, but not");
         let alerts = node0.rpc_client().get_blockchain_info().alerts;
-        assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].message, warning2);
+        assert_eq!(
+            alerts.len(),
+            1,
+            "All nodes should receive the alert, but not"
+        );
+        assert_eq!(
+            alerts[0].message, warning2,
+            "Alert message should be {}, but got {}",
+            "alert is canceled", alerts[0].message
+        );
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
@@ -136,4 +136,24 @@ impl Spec for AlertPropagation {
             config.rpc.modules.push(RpcModule::Alert);
         })
     }
+}
+
+fn create_alert(raw_alert: RawAlert, privkeys: &[Privkey]) -> Alert {
+    let msg: Message = raw_alert.calc_alert_hash().unpack();
+    let signatures = privkeys
+        .iter()
+        .take(2)
+        .map(|key| {
+            let data: Bytes = key
+                .sign_recoverable(&msg)
+                .expect("Sign failed")
+                .serialize()
+                .into();
+            data.pack()
+        })
+        .collect::<Vec<packed::Bytes>>();
+    Alert::new_builder()
+        .raw(raw_alert)
+        .signatures(signatures.pack())
+        .build()
 }
