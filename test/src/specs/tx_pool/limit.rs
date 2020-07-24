@@ -24,7 +24,7 @@ impl Spec for SizeLimit {
         let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         let one_tx_size = tx_pool_info.total_tx_size.value();
         let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
 
@@ -87,7 +87,7 @@ impl Spec for CyclesLimit {
         let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
         let one_tx_size = tx.data().serialized_size_in_block();
 

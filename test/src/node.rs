@@ -4,6 +4,7 @@ use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
+use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_types::{
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
@@ -13,10 +14,12 @@ use ckb_types::{
     prelude::*,
 };
 use failure::Error;
+use failure::_core::time::Duration;
 use std::convert::Into;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
+use std::time::Instant;
 
 pub struct Node {
     binary: String,
@@ -361,6 +364,27 @@ impl Node {
             .into()
     }
 
+    /// The states of chain and txpool are updated asynchronously. Which means that the chain has
+    /// updated to the newest tip but txpool not.
+    /// get_tip_tx_pool_info wait to ensure the txpool update to the newest tip as well.
+    pub fn get_tip_tx_pool_info(&self) -> TxPoolInfo {
+        let tip_header = self.rpc_client().get_tip_header();
+        let tip_hash = &tip_header.hash;
+        let instant = Instant::now();
+        let mut recent = TxPoolInfo::default();
+        while instant.elapsed() < Duration::from_secs(10) {
+            let tx_pool_info = self.rpc_client().tx_pool_info();
+            if &tx_pool_info.tip_hash == tip_hash {
+                return tx_pool_info;
+            }
+            recent = tx_pool_info;
+        }
+        panic!(
+            "timeout to get_tip_tx_pool_info, tip_header={:?}, tx_pool_info: {:?}",
+            tip_header, recent
+        );
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
@@ -552,24 +576,24 @@ impl Node {
     }
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), pending_size);
         assert_eq!(tx_pool_info.proposed.value(), proposed_size);
     }
 
     pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_serialized_size(&self, total_tx_size: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
     }
 }

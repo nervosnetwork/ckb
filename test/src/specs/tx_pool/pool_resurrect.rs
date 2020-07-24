@@ -30,7 +30,7 @@ impl Spec for PoolResurrect {
         node0.generate_blocks(3);
 
         info!("Pool should be empty");
-        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), 0);
 
         info!("Generate 5 blocks on node1");
