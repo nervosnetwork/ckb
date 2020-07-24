@@ -263,10 +263,7 @@ impl Setup {
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();
         let network_secret_key_path = network_config.secret_key_path();
-        let logs_dir = config
-            .logger
-            .file
-            .and_then(|path| path.parent().map(|dir| dir.to_path_buf()));
+        let logs_dir = Some(config.logger.log_dir);
 
         let force = matches.is_present(cli::ARG_FORCE);
         let all = matches.is_present(cli::ARG_ALL);

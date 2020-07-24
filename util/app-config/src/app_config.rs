@@ -166,13 +166,12 @@ impl CKBAppConfig {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
         }
         self.logger.log_dir = self.data_dir.join("logs");
-        let log_file = self
+        self.logger.file = self
             .logger
             .log_dir
             .join(subcommand_name.to_string() + ".log");
 
         if subcommand_name == cli::CMD_RESET_DATA {
-            self.logger.file = Some(log_file);
             return Ok(self);
         }
 
@@ -185,7 +184,7 @@ impl CKBAppConfig {
         }
         if self.logger.log_to_file {
             mkdir(self.logger.log_dir.clone())?;
-            self.logger.file = Some(touch(log_file)?);
+            self.logger.file = touch(self.logger.file)?;
         }
         self.chain.spec.absolutize(root_dir);
 
@@ -196,8 +195,11 @@ impl CKBAppConfig {
 impl MinerAppConfig {
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
         self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir)?)?;
+        self.logger.log_dir = self.data_dir.join("logs");
+        self.logger.file = self.logger.log_dir.join("miner.log");
         if self.logger.log_to_file {
-            self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
+            mkdir(self.logger.log_dir.clone())?;
+            self.logger.file = touch(self.logger.file)?;
         }
         self.chain.spec.absolutize(root_dir);
 
@@ -332,7 +334,6 @@ mod tests {
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
-            assert_eq!(ckb_config.logger.file, None);
             assert_eq!(ckb_config.logger.log_to_file, false);
             assert_eq!(ckb_config.logger.log_to_stdout, true);
         }
@@ -343,7 +344,6 @@ mod tests {
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
-            assert_eq!(miner_config.logger.file, None);
             assert_eq!(miner_config.logger.log_to_file, false);
             assert_eq!(miner_config.logger.log_to_stdout, true);
         }

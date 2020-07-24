@@ -28,7 +28,7 @@ pub use self::blockchain::{
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
-pub use self::debug::ExtraLoggerConfig;
+pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{

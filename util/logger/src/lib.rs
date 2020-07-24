@@ -147,7 +147,12 @@ enum Message {
         extras: Vec<String>,
         data: String,
     },
-    Filter(Filter),
+    UpdateMainLogger {
+        filter: Option<Filter>,
+        to_stdout: Option<bool>,
+        to_file: Option<bool>,
+        color: Option<bool>,
+    },
     UpdateExtraLogger(String, Filter),
     RemoveExtraLogger(String),
     Terminate,
@@ -160,6 +165,15 @@ pub struct Logger {
     filter: sync::Arc<RwLock<Filter>>,
     emit_sentry_breadcrumbs: bool,
     extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
+}
+
+#[derive(Debug)]
+pub struct MainLogger {
+    file_path: PathBuf,
+    file: Option<fs::File>,
+    to_stdout: bool,
+    to_file: bool,
+    color: bool,
 }
 
 #[derive(Debug)]
@@ -232,13 +246,32 @@ impl Logger {
 
         let Config {
             color,
-            file,
+            file: file_path,
             log_dir,
             log_to_file,
             log_to_stdout,
             ..
         } = config;
-        let file = if log_to_file { file } else { None };
+        let mut main_logger = {
+            let file = if log_to_file {
+                match Self::open_log_file(&file_path) {
+                    Err(err) => {
+                        eprintln!("Error: {}", err);
+                        process::exit(1);
+                    }
+                    Ok(file) => Some(file),
+                }
+            } else {
+                None
+            };
+            MainLogger {
+                file_path,
+                file,
+                to_stdout: log_to_stdout,
+                to_file: log_to_file,
+                color,
+            }
+        };
 
         let filter = {
             let filter = if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
@@ -266,42 +299,26 @@ impl Logger {
         };
         let extra_loggers_for_update = sync::Arc::clone(&extra_loggers);
 
-        let extra_files = config
-            .extra
-            .keys()
-            .map(|name| {
-                let file = log_dir.clone().join(name.to_owned() + ".log");
-                (name.to_owned(), file)
-            })
-            .collect::<HashMap<_, _>>();
+        let mut extra_files = {
+            let extra_files_res = config
+                .extra
+                .keys()
+                .map(|name| {
+                    let file_path = log_dir.clone().join(name.to_owned() + ".log");
+                    Self::open_log_file(&file_path).map(|file| (name.to_owned(), file))
+                })
+                .collect::<Result<HashMap<_, _>, _>>();
+            if let Err(err) = extra_files_res {
+                eprintln!("Error: {}", err);
+                process::exit(1);
+            }
+            extra_files_res.unwrap()
+        };
 
         let tb = thread::Builder::new()
             .name("LogWriter".to_owned())
             .spawn(move || {
                 enable_ansi_support();
-
-                let file = file.map(|file| {
-                    fs::OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(&file)
-                        .unwrap_or_else(|_| {
-                            panic!("Cannot write to log file given: {:?}", file.as_os_str())
-                        })
-                });
-                let mut extra_files = extra_files
-                    .into_iter()
-                    .map(|(name, file)| {
-                        let file = fs::OpenOptions::new()
-                            .append(true)
-                            .create(true)
-                            .open(&file)
-                            .unwrap_or_else(|_| {
-                                panic!("Cannot write to log file given: {:?}", file.as_os_str())
-                            });
-                        (name, file)
-                    })
-                    .collect::<HashMap<_, _>>();
 
                 loop {
                     match receiver.recv() {
@@ -310,25 +327,29 @@ impl Logger {
                             extras,
                             data,
                         }) => {
-                            let removed_color =
-                                if (is_match && (!color || file.is_some())) || !extras.is_empty() {
-                                    sanitize_color(data.as_ref())
-                                } else {
-                                    "".to_owned()
-                                };
+                            let removed_color = if (is_match
+                                && (!main_logger.color || main_logger.to_file))
+                                || !extras.is_empty()
+                            {
+                                sanitize_color(data.as_ref())
+                            } else {
+                                "".to_owned()
+                            };
                             if is_match {
-                                if log_to_stdout {
-                                    let output = if color {
+                                if main_logger.to_stdout {
+                                    let output = if main_logger.color {
                                         data.as_str()
                                     } else {
                                         removed_color.as_str()
                                     };
                                     println!("{}", output);
                                 }
-                                if let Some(mut file) = file.as_ref() {
-                                    let _ = file.write_all(removed_color.as_bytes());
-                                    let _ = file.write_all(b"\n");
-                                };
+                                if main_logger.to_file {
+                                    if let Some(mut file) = main_logger.file.as_ref() {
+                                        let _ = file.write_all(removed_color.as_bytes());
+                                        let _ = file.write_all(b"\n");
+                                    };
+                                }
                             }
                             for name in extras {
                                 if let Some(mut file) = extra_files.get(&name) {
@@ -338,13 +359,36 @@ impl Logger {
                             }
                             continue;
                         }
-                        Ok(Message::Filter(filter)) => {
-                            *filter_for_update.write() = filter;
+                        Ok(Message::UpdateMainLogger {
+                            filter,
+                            to_stdout,
+                            to_file,
+                            color,
+                        }) => {
+                            if let Some(filter) = filter {
+                                *filter_for_update.write() = filter;
+                            }
+                            if let Some(to_stdout) = to_stdout {
+                                main_logger.to_stdout = to_stdout;
+                            }
+                            if let Some(to_file) = to_file {
+                                main_logger.to_file = to_file;
+                                if main_logger.to_file {
+                                    if main_logger.file.is_none() {
+                                        main_logger.file =
+                                            Self::open_log_file(&main_logger.file_path).ok();
+                                    }
+                                } else {
+                                    main_logger.file = None;
+                                }
+                            }
+                            if let Some(color) = color {
+                                main_logger.color = color;
+                            }
                         }
                         Ok(Message::UpdateExtraLogger(name, filter)) => {
                             let file = log_dir.clone().join(name.clone() + ".log");
-                            let file_res =
-                                fs::OpenOptions::new().append(true).create(true).open(&file);
+                            let file_res = Self::open_log_file(&file);
                             if let Ok(file) = file_res {
                                 extra_files.insert(name.clone(), file);
                                 extra_loggers_for_update
@@ -376,6 +420,20 @@ impl Logger {
             emit_sentry_breadcrumbs: config.emit_sentry_breadcrumbs.unwrap_or_default(),
             extra_loggers,
         }
+    }
+
+    fn open_log_file(file_path: &PathBuf) -> Result<fs::File, String> {
+        fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&file_path)
+            .map_err(|err| {
+                format!(
+                    "Cannot write to log file given: {:?} since {}",
+                    file_path.as_os_str(),
+                    err
+                )
+            })
     }
 
     fn build_filter(filter_str: &str) -> Filter {
@@ -410,6 +468,22 @@ impl Logger {
                     .map_err(|err| format!("failed to send message to logger service: {}", err))
                     .map(|_| ())
             })
+    }
+
+    pub fn update_main_logger(
+        filter_str: Option<String>,
+        to_stdout: Option<bool>,
+        to_file: Option<bool>,
+        color: Option<bool>,
+    ) -> Result<(), String> {
+        let filter = filter_str.map(|s| Self::build_filter(&s));
+        let message = Message::UpdateMainLogger {
+            filter,
+            to_stdout,
+            to_file,
+            color,
+        };
+        Self::send_message(message)
     }
 
     pub fn check_extra_logger_name(name: &str) -> Result<(), String> {
@@ -448,7 +522,8 @@ impl Logger {
 pub struct Config {
     pub filter: Option<String>,
     pub color: bool,
-    pub file: Option<PathBuf>,
+    #[serde(skip)]
+    pub file: PathBuf,
     #[serde(skip)]
     pub log_dir: PathBuf,
     pub log_to_file: bool,
@@ -468,7 +543,7 @@ impl Default for Config {
         Config {
             filter: None,
             color: !cfg!(windows),
-            file: None,
+            file: Default::default(),
             log_dir: Default::default(),
             log_to_file: false,
             log_to_stdout: true,
@@ -624,10 +699,4 @@ pub fn __log_metric(metric: &mut Value, default_target: &str) {
         })
     });
     trace_target!("ckb-metrics", "{}", metric);
-}
-
-pub fn configure_logger_filter(filter_str: &str) {
-    let filter = Logger::build_filter(filter_str);
-    let message = Message::Filter(filter);
-    let _todo_should_return_result = Logger::send_message(message);
 }
