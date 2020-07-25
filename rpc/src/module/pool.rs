@@ -141,9 +141,10 @@ impl PoolRpc for PoolRpcImpl {
     }
 
     fn clear_tx_pool(&self) -> Result<()> {
+        let snapshot = Arc::clone(&self.shared.snapshot());
         let tx_pool = self.shared.tx_pool_controller();
         tx_pool
-            .clear_pool()
+            .clear_pool(snapshot)
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())
