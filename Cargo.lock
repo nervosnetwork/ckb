@@ -604,9 +604,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-librocksdb-sys"
-version = "6.7.3"
+version = "6.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5adffc9a78875e74c158e5e717fca7e292e455ab83519943a5e5e3483ebb6ca6"
+checksum = "995341a6dea5f0d8ff4570bebbde3691349842d2c671472e09ea2ee2e3e0b083"
 dependencies = [
  "cc",
  "glob",
@@ -825,12 +825,13 @@ dependencies = [
 
 [[package]]
 name = "ckb-rocksdb"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f052aeebebfff06901d2d930d8b04181fe79f9fd629972478d2a9d4a62a09247"
+checksum = "809a3a50c82a5fd7429c5141e64d8c4c37451ceb25fe3b51fce7fd5d929ad521"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
+ "tempfile",
 ]
 
 [[package]]
