@@ -11,4 +11,4 @@ ckb-logger = { path = "../util/logger" }
 ckb-error = { path = "../error" }
 tempfile = "3.0"
 libc = "0.2"
-rocksdb = { package = "ckb-rocksdb", version = "=0.13.0", features = ["snappy"] }
+rocksdb = { package = "ckb-rocksdb", version = "=0.14.1", features = ["snappy"] }
