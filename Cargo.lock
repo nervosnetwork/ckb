@@ -305,6 +305,7 @@ dependencies = [
  "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-logger-service",
  "ckb-pow",
  "ckb-resource",
  "ckb-types",
@@ -365,6 +366,7 @@ dependencies = [
  "ckb-instrument",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-logger-service",
  "ckb-memory-tracker",
  "ckb-miner",
  "ckb-network",
@@ -617,6 +619,14 @@ dependencies = [
 name = "ckb-logger"
 version = "0.35.0-pre"
 dependencies = [
+ "log 0.4.11",
+ "serde_json",
+]
+
+[[package]]
+name = "ckb-logger-service"
+version = "0.35.0-pre"
+dependencies = [
  "ansi_term 0.12.1",
  "backtrace",
  "chrono",
@@ -628,7 +638,6 @@ dependencies = [
  "regex",
  "sentry",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -847,6 +856,7 @@ dependencies = [
  "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-logger-service",
  "ckb-memory-tracker",
  "ckb-network",
  "ckb-network-alert",

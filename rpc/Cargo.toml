@@ -16,6 +16,7 @@ ckb-store = { path = "../store" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-logger = { path = "../util/logger"}
+ckb-logger-service = { path = "../util/logger-service"}
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 ckb-app-config = { path = "../util/app-config" }

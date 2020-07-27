@@ -1,5 +1,5 @@
 use ckb_jsonrpc_types::{ExtraLoggerConfig, MainLoggerConfig};
-use ckb_logger::Logger;
+use ckb_logger_service::Logger;
 use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
 use jsonrpc_derive::rpc;
 use std::time;
