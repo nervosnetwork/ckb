@@ -1,4 +1,4 @@
-use crate::util::tx::new_transaction_with_fee_and_size;
+use crate::generic::GetCommitTxIds;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::core::Capacity;
 
@@ -25,8 +25,7 @@ impl Spec for TemplateTxSelect {
             .for_each(|(i, &n)| {
                 let block = node.get_block_by_number(number - i as u64);
                 let cellbase = &block.transactions()[0];
-                let tx = new_transaction_with_fee_and_size(
-                    &node,
+                let tx = node.new_transaction_with_fee_and_size(
                     &cellbase,
                     Capacity::shannons(n as u64),
                     n as usize,
@@ -41,8 +40,8 @@ impl Spec for TemplateTxSelect {
         let new_block = node.new_block(Some(blank_block_size as u64 + 900), None, None);
         // should choose two txs: 501, 300
         assert_eq!(
-            new_block.transactions().len(),
-            3,
+            new_block.get_commit_tx_ids().len(),
+            2,
             "New block should contain txs: 501, 300"
         );
     }

@@ -1,3 +1,4 @@
+use crate::generic::GetProposalTxIds;
 use crate::{Net, Spec};
 use ckb_types::prelude::*;
 
@@ -41,9 +42,9 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
                 .collect::<Vec<_>>()
         );
         assert!(
-            block.data().proposals().is_empty(),
+            block.get_proposal_tx_ids().is_empty(),
             "expect empty proposals, actual: {:?}",
-            block.data().proposals()
+            block.get_proposal_tx_ids()
         );
     }
 }
