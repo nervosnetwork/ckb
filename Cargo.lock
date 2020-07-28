@@ -405,6 +405,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-proposal-table",
+ "ckb-rust-unstable-port",
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",
@@ -891,6 +892,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "ckb-rust-unstable-port"
+version = "0.35.0-pre"
+dependencies = [
+ "is_sorted",
 ]
 
 [[package]]
@@ -2270,6 +2278,12 @@ checksum = "b3d862c86f7867f19b693ec86765e0252d82e53d4240b9b629815675a0714ad1"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "is_sorted"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357376465c37db3372ef6a00585d336ed3d0f11d4345eef77ebcb05865392b21"
 
 [[package]]
 name = "itertools"

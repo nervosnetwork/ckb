@@ -242,6 +242,12 @@ impl<'a> MockChain<'a> {
         self.blocks.push(block);
     }
 
+    pub fn rollback(&mut self, store: &MockStore) {
+        if let Some(block) = self.blocks.pop() {
+            store.remove_block(&block);
+        }
+    }
+
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
@@ -265,6 +271,28 @@ impl<'a> MockChain<'a> {
             .dao(dao)
             .transaction(cellbase)
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
+            .build();
+
+        self.commit_block(store, new_block)
+    }
+
+    pub fn gen_block_with_proposal_ids(
+        &mut self,
+        difficulty: u64,
+        ids: Vec<packed::ProposalShortId>,
+        store: &MockStore,
+    ) {
+        let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash())
+            .number((parent.number() + 1).pack())
+            .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
+            .dao(dao)
+            .transaction(cellbase)
+            .proposals(ids)
             .build();
 
         self.commit_block(store, new_block)
