@@ -49,6 +49,8 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`set_ban`](#set_ban)
     *   [`sync_state`](#sync_state)
     *   [`set_network_active`](#set_network_active)
+    *   [`add_node`](#add_node)
+    *   [`remove_node`](#remove_node)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -2067,6 +2069,72 @@ echo '{
     "method": "set_network_active",
     "params": [
         false
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `add_node`
+
+Attempts to add a node to the peers list and try connecting to it.
+
+#### Parameters
+
+    peer_id - The peer id of node
+    address - The address of node
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "add_node",
+    "params": [
+        "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
+        "/ip4/192.168.2.100/tcp/8114"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `remove_node`
+
+Attempts to remove a node from the peers list and try disconnecting from it.
+
+#### Parameters
+
+    peer_id - The peer id of node
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "remove_node",
+    "params": [
+        "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
     ]
 }' \
 | tr -d '\n' \

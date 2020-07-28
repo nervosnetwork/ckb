@@ -465,12 +465,44 @@
             false
         ],
         "result": null,
+        "skip": true,
         "types": [
             {
                 "state": "true to enable networking, false to disable"
             }
+        ]
+    },
+    {
+        "description": "Attempts to add a node to the peers list and try connecting to it.",
+        "method": "add_node",
+        "module": "net",
+        "params": [
+            "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
+            "/ip4/192.168.2.100/tcp/8114"
         ],
-        "skip": true
+        "result": null,
+        "types": [
+            {
+                "peer_id": "The peer id of node"
+            },
+            {
+                "address": "The address of node"
+            }
+        ]
+    },
+    {
+        "description": "Attempts to remove a node from the peers list and try disconnecting from it.",
+        "method": "remove_node",
+        "module": "net",
+        "params": [
+            "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
+        ],
+        "result": null,
+        "types": [
+            {
+                "peer_id": "The peer id of node"
+            }
+        ]
     },
     {
         "description": "Return state info of blockchain",
