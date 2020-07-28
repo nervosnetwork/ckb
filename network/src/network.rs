@@ -74,8 +74,6 @@ pub struct NetworkState {
     /// Node listened addresses
     pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
-
-    pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
     public_addrs: RwLock<HashMap<Multiaddr, u8>>,
@@ -87,6 +85,9 @@ pub struct NetworkState {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     pub(crate) config: NetworkConfig,
     pub(crate) active: AtomicBool,
+    /// Node supported protocols
+    /// fields: PotocolId, Protocol Name, Supported Versions
+    pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
 }
 
 impl NetworkState {
@@ -129,8 +130,8 @@ impl NetworkState {
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.public_key().peer_id(),
-            protocol_ids: RwLock::new(HashSet::default()),
             active: AtomicBool::new(true),
+            protocols: RwLock::new(Vec::new()),
         })
     }
 
@@ -336,11 +337,10 @@ impl NetworkState {
     }
 
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
-        self.protocol_ids
+        self.protocols
             .read()
             .iter()
-            .filter(|id| filter(**id))
-            .cloned()
+            .filter_map(|&(id, _, _)| if filter(id) { Some(id) } else { None })
             .collect::<Vec<_>>()
     }
 
@@ -928,7 +928,10 @@ impl<T: ExitHandler> NetworkService<T> {
 
         let mut service_builder = ServiceBuilder::default();
         for meta in protocol_metas.into_iter() {
-            network_state.protocol_ids.write().insert(meta.id());
+            network_state
+                .protocols
+                .write()
+                .push((meta.id(), meta.name(), meta.support_versions()));
             service_builder = service_builder.insert_protocol(meta);
         }
         let event_handler = EventHandler {
