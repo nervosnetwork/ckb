@@ -1,53 +1,65 @@
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::assertion::tx_assertion::*;
+use crate::DEFAULT_TX_PROPOSAL_WINDOW;
+use crate::{Net, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_types::{core::BlockView, packed::ProposalShortId, prelude::*};
-use log::info;
+use ckb_types::{core::BlockView, prelude::*};
 use std::convert::Into;
-use std::thread::sleep;
-use std::time::Duration;
 
 pub struct MiningBasic;
 
 impl Spec for MiningBasic {
     crate::name!("mining_basic");
 
+    // Basic life cycle of transactions:
+    //     1. Submit transaction 'tx' into transactions_pool after height i
+    //     2. Expect tx will be included in block[i+1] proposal zone;
+    //     3. Expect tx will be included in block[i + 1 + proposal_window.closest]
+    //        commit zone.
+
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
+        node.generate_blocks_until_contains_valid_cellbase();
 
-        self.test_basic(node);
-        self.test_block_template_cache(node);
+        let transaction = [node.new_transaction_spend_tip_cellbase()];
+        node.submit_transaction(&transaction[0]);
+
+        let block1_hash = node.generate_block();
+        let block1: BlockView = node.rpc_client().get_block(block1_hash).unwrap().into();
+
+        assert_proposed_txs(&block1, &transaction);
+
+        // skip (proposal_window.closest - 1) block
+        (0..DEFAULT_TX_PROPOSAL_WINDOW.0 - 1).for_each(|_| {
+            node.generate_block();
+        });
+
+        let block3_hash = node.generate_block();
+        let block3: BlockView = node.rpc_client().get_block(block3_hash).unwrap().into();
+
+        assert_committed_txs(&block3, &transaction);
     }
 }
 
-impl MiningBasic {
-    pub const BLOCK_TEMPLATE_TIMEOUT: u64 = 3;
+pub struct BlockTemplates;
 
-    pub fn test_basic(&self, node: &Node) {
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        info!("Use generated block's cellbase as tx input");
-        let transaction_hash = node.generate_transaction();
-        let block1_hash = node.generate_block();
-        let _ = node.generate_block(); // skip
-        let block3_hash = node.generate_block();
+impl Spec for BlockTemplates {
+    crate::name!("block_template");
 
-        let block1: BlockView = node.rpc_client().get_block(block1_hash).unwrap().into();
-        let block3: BlockView = node.rpc_client().get_block(block3_hash).unwrap().into();
+    // Block template:
+    //    1. Tip block hash should be parent_hash in block template;
+    //    2. Block template should be updated if tip block updated.
 
-        info!("Generated tx should be included in next block's proposal txs");
-        assert!(block1
-            .union_proposal_ids_iter()
-            .any(|id| ProposalShortId::from_tx_hash(&transaction_hash).eq(&id)));
+    fn run(&self, net: &mut Net) {
+        let node = &net.nodes[0];
+        let rpc_client = node.rpc_client();
 
-        info!("Generated tx should be included in next + n block's commit txs, current n = 2");
-        assert!(block3
-            .transactions()
-            .into_iter()
-            .any(|tx| transaction_hash.eq(&tx.hash())));
-    }
+        let is_block_template_equal = |template1: &BlockTemplate, template2: &BlockTemplate| {
+            let mut temp = template1.clone();
+            temp.current_time = template2.current_time;
+            &temp == template2
+        };
 
-    pub fn test_block_template_cache(&self, node: &Node) {
         let block1 = node.new_block(None, None, None);
-        sleep(Duration::new(Self::BLOCK_TEMPLATE_TIMEOUT + 1, 0)); // Wait block timeout cache timeout
         let block2 = node
             .new_block_builder(None, None, None)
             .header(
@@ -58,36 +70,29 @@ impl MiningBasic {
                     .build(),
             )
             .build();
-        assert_ne!(block1.header().timestamp(), block2.header().timestamp());
+        assert!(block1.header().timestamp() < block2.header().timestamp());
+        assert_eq!(block1.parent_hash(), block2.parent_hash());
 
-        // According to the first-received policy,
-        // the first block is always the best block
-        let rpc_client = node.rpc_client();
-        assert_eq!(block1.hash(), node.submit_block(&block1));
-        assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
-
+        node.submit_block(&block1);
+        node.submit_block(&block2);
+        assert_eq!(
+            block1.hash(),
+            rpc_client.get_tip_header().hash.pack(),
+            "Block1 should be the tip block according first-received policy"
+        );
         let template1 = rpc_client.get_block_template(None, None, None);
-        sleep(Duration::new(0, 200));
-        let template2 = rpc_client.get_block_template(None, None, None);
-        assert_eq!(block1.hash(), template1.parent_hash.pack());
-        assert!(
-            is_block_template_equal(&template1, &template2),
-            "templates keep same since block template cache",
+        assert_eq!(
+            block1.hash(),
+            template1.parent_hash.pack(),
+            "Block1 should be block template's parent block since it's tip block"
         );
 
-        assert_eq!(block2.hash(), node.submit_block(&block2));
-        assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
-        let template3 = rpc_client.get_block_template(None, None, None);
-        assert_eq!(block1.hash(), template3.parent_hash.pack());
+        let block3 = node.new_block(None, None, None);
+        node.submit_block(&block3);
+        let template2 = rpc_client.get_block_template(None, None, None);
         assert!(
-            template3.current_time.value() > template1.current_time.value(),
-            "New tip block, new template",
+            !is_block_template_equal(&template1, &template2),
+            "Template should be updated after tip block updated"
         );
     }
-}
-
-fn is_block_template_equal(template1: &BlockTemplate, template2: &BlockTemplate) -> bool {
-    let mut temp = template1.clone();
-    temp.current_time = template2.current_time;
-    &temp == template2
 }

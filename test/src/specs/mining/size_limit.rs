@@ -7,16 +7,21 @@ pub struct TemplateSizeLimit;
 impl Spec for TemplateSizeLimit {
     crate::name!("template_size_limit");
 
+    // Case: txs number could be contained in new block limit by template size
+    //    1. generate 6 txs;
+    //    2. passing different bytes_limit when generate new block,
+    //       check how many txs will be included.
+
     fn run(&self, net: &mut Net) {
         let node = &net.nodes[0];
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        node.generate_blocks_until_contains_valid_cellbase();
 
-        info!("Generate 1 block");
+        // get blank block size
         let blank_block = node.new_block(None, None, None);
         node.submit_block(&blank_block);
         let blank_block_size = blank_block.data().serialized_size_without_uncle_proposals();
 
-        info!("Generate 6 txs");
+        // Generate 6 txs
         let mut txs_hash = Vec::new();
         let block = node.get_tip_block();
         let cellbase = &block.transactions()[0];
@@ -38,21 +43,17 @@ impl Spec for TemplateSizeLimit {
         });
 
         // skip proposal window
-        node.generate_block();
-        node.generate_block();
-
-        let new_block = node.new_block(None, None, None);
-        assert_eq!(
-            new_block.data().serialized_size_without_uncle_proposals(),
-            blank_block_size + tx_size * 6
-        );
-        // 6 txs + 1 cellbase tx
-        assert_eq!(new_block.transactions().len(), 7);
+        node.generate_blocks(DEFAULT_TX_PROPOSAL_WINDOW.0 as usize);
 
         for bytes_limit in (1000..=2000).step_by(100) {
             let new_block = node.new_block(Some(bytes_limit), None, None);
-            let tx_num = ((bytes_limit as usize) - blank_block_size) / tx_size;
-            assert_eq!(new_block.transactions().len(), tx_num + 1);
+            let tx_num = ((bytes_limit as usize) - blank_block_size) / tx_size + 1;
+            assert_eq!(
+                new_block.transactions().len(),
+                tx_num,
+                "block should contain {} txs",
+                tx_num
+            );
         }
     }
 }
