@@ -34,7 +34,7 @@ pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{
     CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
 };
-pub use self::net::{BannedAddr, LocalNode, NodeAddress, RemoteNode};
+pub use self::net::{BannedAddr, LocalNode, NodeAddress, RemoteNode, SyncState};
 pub use self::pool::{OutputsValidator, TxPoolInfo};
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;

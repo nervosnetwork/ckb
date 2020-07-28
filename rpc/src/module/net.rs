@@ -1,10 +1,11 @@
 use crate::error::RPCError;
-use ckb_jsonrpc_types::{BannedAddr, LocalNode, NodeAddress, RemoteNode, Timestamp};
+use ckb_jsonrpc_types::{BannedAddr, LocalNode, NodeAddress, RemoteNode, SyncState, Timestamp};
 use ckb_network::{MultiaddrExt, NetworkController};
+use ckb_sync::SyncShared;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
@@ -33,10 +34,15 @@ pub trait NetworkRpc {
         absolute: Option<bool>,
         reason: Option<String>,
     ) -> Result<()>;
+
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"sync_state","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "sync_state")]
+    fn sync_state(&self) -> Result<SyncState>;
 }
 
 pub(crate) struct NetworkRpcImpl {
     pub network_controller: NetworkController,
+    pub sync_shared: Arc<SyncShared>,
 }
 
 impl NetworkRpc for NetworkRpcImpl {
@@ -149,5 +155,25 @@ impl NetworkRpc for NetworkRpcImpl {
                 address,
             ))),
         }
+    }
+
+    fn sync_state(&self) -> Result<SyncState> {
+        let chain = self.sync_shared.active_chain();
+        let state = chain.shared().state();
+        let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
+        let best_known = state.shared_best_header();
+        let sync_state = SyncState {
+            ibd: chain.is_initial_block_download(),
+            best_known_block_number: best_known.number().into(),
+            best_known_block_timestamp: best_known.timestamp().into(),
+            orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
+            inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
+                .into(),
+            fast_time: fast_time.into(),
+            normal_time: normal_time.into(),
+            low_time: low_time.into(),
+        };
+
+        Ok(sync_state)
     }
 }

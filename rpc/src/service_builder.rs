@@ -79,8 +79,16 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_net(mut self, network_controller: NetworkController) -> Self {
-        let rpc_method = NetworkRpcImpl { network_controller }.to_delegate();
+    pub fn enable_net(
+        mut self,
+        network_controller: NetworkController,
+        sync_shared: Arc<SyncShared>,
+    ) -> Self {
+        let rpc_method = NetworkRpcImpl {
+            network_controller,
+            sync_shared,
+        }
+        .to_delegate();
         if self.config.net_enable() {
             self.io_handler.extend_with(rpc_method);
         } else {

@@ -126,7 +126,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_chain(shared.clone())
         .enable_pool(
             shared.clone(),
-            sync_shared,
+            Arc::clone(&sync_shared),
             args.config.tx_pool.min_fee_rate,
             args.config.rpc.reject_ill_transactions,
         )
@@ -136,7 +136,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             chain_controller.clone(),
             miner_enable,
         )
-        .enable_net(network_controller.clone())
+        .enable_net(network_controller.clone(), sync_shared)
         .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
