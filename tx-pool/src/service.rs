@@ -49,7 +49,12 @@ impl<A> Notify<A> {
 }
 
 pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
-type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
+type BlockTemplateArgs = (
+    Option<u64>,
+    Option<u64>,
+    Option<Version>,
+    Option<BlockAssemblerConfig>,
+);
 
 pub type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
 type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
@@ -104,9 +109,32 @@ impl TxPoolController {
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplateResult, FailureError> {
+        self.get_block_template_with_block_assembler_config(
+            bytes_limit,
+            proposals_limit,
+            max_version,
+            None,
+        )
+    }
+
+    pub fn get_block_template_with_block_assembler_config(
+        &self,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
+        max_version: Option<Version>,
+        block_assembler_config: Option<BlockAssemblerConfig>,
+    ) -> Result<BlockTemplateResult, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call((bytes_limit, proposals_limit, max_version), responder);
+        let request = Request::call(
+            (
+                bytes_limit,
+                proposals_limit,
+                max_version,
+                block_assembler_config,
+            ),
+            responder,
+        );
         sender
             .try_send(Message::BlockTemplate(request))
             .map_err(|e| {
@@ -365,10 +393,15 @@ async fn process(service: TxPoolService, message: Message) {
         }
         Message::BlockTemplate(Request {
             responder,
-            arguments: (bytes_limit, proposals_limit, max_version),
+            arguments: (bytes_limit, proposals_limit, max_version, block_assembler_config),
         }) => {
             let block_template_result = service
-                .get_block_template(bytes_limit, proposals_limit, max_version)
+                .get_block_template(
+                    bytes_limit,
+                    proposals_limit,
+                    max_version,
+                    block_assembler_config,
+                )
                 .await;
             if let Err(e) = responder.send(block_template_result) {
                 error!("responder send block_template_result failed {:?}", e);
