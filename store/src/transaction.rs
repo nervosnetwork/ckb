@@ -1,9 +1,9 @@
 use crate::cache::StoreCache;
-use crate::store::ChainStore;
+use crate::store::{cell_key_from_out_point, ChainStore};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
-    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
 use ckb_db::{
@@ -210,15 +210,27 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch.pack().as_slice())
     }
 
-    pub fn update_cell_set(
+    pub fn insert_cells(
         &self,
-        tx_hash: &packed::Byte32,
-        meta: &packed::TransactionMeta,
+        cells: impl Iterator<Item = (packed::OutPoint, packed::CellEntry, packed::CellDataEntry)>,
     ) -> Result<(), Error> {
-        self.insert_raw(COLUMN_CELL_SET, tx_hash.as_slice(), meta.as_slice())
+        for (out_point, cell, cell_data) in cells {
+            let key = cell_key_from_out_point(&out_point);
+            self.insert_raw(COLUMN_CELL, &key, cell.as_slice())?;
+            self.insert_raw(COLUMN_CELL_DATA, &key, cell_data.as_slice())?;
+        }
+        Ok(())
     }
 
-    pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
-        self.delete(COLUMN_CELL_SET, tx_hash.as_slice())
+    pub fn delete_cells(
+        &self,
+        out_points: impl Iterator<Item = packed::OutPoint>,
+    ) -> Result<(), Error> {
+        for out_point in out_points {
+            let key = cell_key_from_out_point(&out_point);
+            self.delete(COLUMN_CELL, &key[..])?;
+            self.delete(COLUMN_CELL_DATA, &key[..])?;
+        }
+        Ok(())
     }
 }

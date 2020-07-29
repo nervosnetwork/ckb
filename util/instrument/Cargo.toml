@@ -12,7 +12,7 @@ ckb-chain-iter = { path = "../chain-iter" }
 ckb-shared = { path = "../../shared" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types" }
 serde_json = "1.0"
-indicatif = { version = "0.11", optional = true }
+indicatif = { version = "0.15", optional = true }
 
 [features]
 progress_bar = ["indicatif"]

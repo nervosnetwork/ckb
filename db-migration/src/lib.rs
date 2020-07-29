@@ -1,6 +1,7 @@
 use ckb_db::RocksDB;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info;
+use std::collections::BTreeMap;
 
 pub const VERSION_KEY: &[u8] = b"db-version";
 
@@ -10,16 +11,19 @@ fn internal_error(reason: String) -> Error {
 
 #[derive(Default)]
 pub struct Migrations {
-    migrations: Vec<Box<dyn Migration>>,
+    migrations: BTreeMap<String, Box<dyn Migration>>,
 }
 
 impl Migrations {
     pub fn new() -> Self {
-        Migrations { migrations: vec![] }
+        Migrations {
+            migrations: BTreeMap::new(),
+        }
     }
 
     pub fn add_migration(&mut self, migration: Box<dyn Migration>) {
-        self.migrations.push(migration);
+        self.migrations
+            .insert(migration.version().to_string(), migration);
     }
 
     pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
@@ -33,19 +37,26 @@ impl Migrations {
             });
 
         match db_version {
-            Some(v) => {
-                for m in self.migrations.iter().filter(|m| m.version() > v.as_str()) {
+            Some(ref v) => {
+                info!("Current database version {}", v);
+                for (_, m) in self
+                    .migrations
+                    .iter()
+                    .filter(|(mv, _)| mv.as_str() > v.as_str())
+                {
+                    info!("Run migration {}", m.version());
                     db = m.migrate(db)?;
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
+                    info!("Finish migration {}", m.version());
                 }
                 Ok(db)
             }
             None => {
-                if let Some(m) = self.migrations.last() {
+                if let Some(m) = self.migrations.values().last() {
                     info!("Init database version {}", m.version());
-                    db.put(VERSION_KEY, m.version()).map_err(|err| {
+                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
                 }
@@ -58,7 +69,7 @@ impl Migrations {
 pub trait Migration {
     fn migrate(&self, _db: RocksDB) -> Result<RocksDB, Error>;
 
-    /// returns migration version, use `yyyymmddhhmmss` timestamp format
+    /// returns migration version, use `date +'%Y%m%d%H%M%S'` timestamp format
     fn version(&self) -> &str;
 }
 

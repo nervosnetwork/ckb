@@ -4,7 +4,6 @@ use ckb_types::{
     bytes::Bytes,
     core::HeaderView,
     packed::{Byte32, OutPoint},
-    prelude::*,
 };
 
 pub struct DataLoaderWrapper<'a, T>(&'a T);
@@ -16,8 +15,7 @@ impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
 
 impl<'a, T: ChainStore<'a>> CellDataProvider for DataLoaderWrapper<'a, T> {
     fn get_cell_data(&self, out_point: &OutPoint) -> Option<(Bytes, Byte32)> {
-        self.0
-            .get_cell_data(&out_point.tx_hash(), out_point.index().unpack())
+        self.0.get_cell_data(out_point)
     }
 }
 
