@@ -137,7 +137,7 @@ pub enum CellStatus {
     Live(CellMeta),
     /// Cell exists and has been spent.
     Dead,
-    /// Cell does not exist.
+    /// Cell is out of index.
     Unknown,
 }
 

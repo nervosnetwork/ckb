@@ -140,32 +140,3 @@ impl<'r> Unpack<core::TransactionInfo> for packed::TransactionInfoReader<'r> {
     }
 }
 impl_conversion_for_entity_unpack!(core::TransactionInfo, TransactionInfo);
-
-impl Pack<packed::TransactionMeta> for core::TransactionMeta {
-    fn pack(&self) -> packed::TransactionMeta {
-        let len = self.dead_cell.len();
-        let bits = self.dead_cell.to_bytes();
-        packed::TransactionMeta::new_builder()
-            .block_number(self.block_number.pack())
-            .epoch_number(self.epoch_number.pack())
-            .block_hash(self.block_hash.clone())
-            .cellbase(self.cellbase.pack())
-            .bits(bits.pack())
-            .len(len.pack())
-            .build()
-    }
-}
-
-impl<'r> Unpack<core::TransactionMeta> for packed::TransactionMetaReader<'r> {
-    fn unpack(&self) -> core::TransactionMeta {
-        core::TransactionMetaBuilder::default()
-            .block_number(self.block_number().unpack())
-            .epoch_number(self.epoch_number().unpack())
-            .block_hash(self.block_hash().to_entity())
-            .cellbase(self.cellbase().unpack())
-            .bits(self.bits().unpack())
-            .len(self.len().unpack())
-            .build()
-    }
-}
-impl_conversion_for_entity_unpack!(core::TransactionMeta, TransactionMeta);
