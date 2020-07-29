@@ -1000,6 +1000,7 @@ version = "0.36.0-pre"
 dependencies = [
  "arc-swap",
  "ckb-app-config",
+ "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-migration",
