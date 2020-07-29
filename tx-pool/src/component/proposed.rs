@@ -91,7 +91,7 @@ impl CellProvider for ProposedPool {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         if let Some(x) = self.edges.get_inner(out_point) {
             if x.is_some() {
-                CellStatus::Dead
+                CellStatus::Unknown
             } else {
                 let (output, data) = self.get_output_with_data(out_point).expect("output");
                 let mut cell_meta = CellMetaBuilder::from_cell_output(output, data)
@@ -103,7 +103,7 @@ impl CellProvider for ProposedPool {
                 CellStatus::live_cell(cell_meta)
             }
         } else if self.edges.get_outer(out_point).is_some() {
-            CellStatus::Dead
+            CellStatus::Unknown
         } else {
             CellStatus::Unknown
         }
