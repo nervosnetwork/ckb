@@ -1286,6 +1286,10 @@ impl NetworkController {
     pub fn set_active(&self, active: bool) {
         self.network_state.active.store(active, Ordering::Relaxed);
     }
+
+    pub fn protocols(&self) -> Vec<(ProtocolId, String, Vec<String>)> {
+        self.network_state.protocols.read().clone()
+    }
 }
 
 impl Drop for NetworkController {

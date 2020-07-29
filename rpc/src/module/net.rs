@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
-    BannedAddr, LocalNode, NodeAddress, PeerSyncState, RemoteNode, RemoteNodeProtocol, SyncState,
-    Timestamp,
+    BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
+    RemoteNodeProtocol, SyncState, Timestamp,
 };
 use ckb_network::{MultiaddrExt, NetworkController};
 use ckb_sync::SyncShared;
@@ -65,7 +65,7 @@ impl NetworkRpc for NetworkRpcImpl {
         Ok(LocalNode {
             version: self.network_controller.version().to_owned(),
             node_id: self.network_controller.node_id(),
-            is_active: self.network_controller.is_active(),
+            active: self.network_controller.is_active(),
             addresses: self
                 .network_controller
                 .public_urls(MAX_ADDRS)
@@ -75,6 +75,17 @@ impl NetworkRpc for NetworkRpcImpl {
                     score: u64::from(score).into(),
                 })
                 .collect(),
+            protocols: self
+                .network_controller
+                .protocols()
+                .into_iter()
+                .map(|(protocol_id, name, support_versions)| LocalNodeProtocol {
+                    id: (protocol_id.value() as u64).into(),
+                    name,
+                    support_versions,
+                })
+                .collect::<Vec<_>>(),
+            connections: (self.network_controller.connected_peers().len() as u64).into(),
         })
     }
 

@@ -35,7 +35,8 @@ pub use self::indexer::{
     CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
 };
 pub use self::net::{
-    BannedAddr, LocalNode, NodeAddress, PeerSyncState, RemoteNode, RemoteNodeProtocol, SyncState,
+    BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
+    RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{OutputsValidator, TxPoolInfo};
 pub use self::proposal_short_id::ProposalShortId;

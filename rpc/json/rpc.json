@@ -318,6 +318,7 @@
         "module": "net",
         "params": [],
         "result": {
+            "active": true,
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
@@ -328,10 +329,49 @@
                     "score": "0x1"
                 }
             ],
-            "is_active": true,
+            "connections": "0xb",
             "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-            "version": "0.0.0"
+            "protocols": [
+                {
+                    "id": "0x0",
+                    "name": "/ckb/ping",
+                    "support_versions": [
+                        "0.0.1"
+                    ]
+                },
+                {
+                    "id": "0x1",
+                    "name": "/ckb/discovery",
+                    "support_versions": [
+                        "0.0.1"
+                    ]
+                }
+            ],
+            "version": "0.34.0 (f37f598 2020-07-17)"
         },
+        "returns": [
+            {
+                "active": "Whether p2p networking is enabled"
+            },
+            {
+                "addresses": "The addresses of node listen to"
+            },
+            {
+                "connections": "The number of connections"
+            },
+            {
+                "node_id": "The id of node"
+            },
+            {
+                "protocols::id": "Supported p2p protocol id"
+            },
+            {
+                "protocols::name": "Supported p2p protocol name"
+            },
+            {
+                "protocols::support_versions": "Supported p2p protocol versions"
+            }
+        ],
         "skip": true
     },
     {
