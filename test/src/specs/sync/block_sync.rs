@@ -210,7 +210,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // `node` should send back a corresponding GetBlocks message
         let ctrl = net.controller();
         let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
-        ctrl.0.remove_node(&peer.0);
+        ctrl.0.remove_node(&peer.1.peer_id);
         wait_until(5, || {
             rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
         });

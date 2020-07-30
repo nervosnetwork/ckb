@@ -16,7 +16,9 @@ use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl};
+use crate::{
+    Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
+};
 use ckb_app_config::NetworkConfig;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -1208,14 +1210,13 @@ impl NetworkController {
             .unban_network(address);
     }
 
-    pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
-        let peers = self
-            .network_state
-            .with_peer_registry(|reg| reg.peers().values().cloned().collect::<Vec<_>>());
-        peers
-            .into_iter()
-            .map(|peer| (peer.peer_id.clone(), peer))
-            .collect()
+    pub fn connected_peers(&self) -> Vec<(PeerIndex, Peer)> {
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers()
+                .iter()
+                .map(|(peer_index, peer)| (*peer_index, peer.clone()))
+                .collect::<Vec<_>>()
+        })
     }
 
     fn try_broadcast(

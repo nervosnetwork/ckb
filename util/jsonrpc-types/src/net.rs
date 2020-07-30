@@ -1,4 +1,4 @@
-use crate::{BlockNumber, Timestamp, Uint64};
+use crate::{BlockNumber, Byte32, Timestamp, Uint64};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -15,6 +15,27 @@ pub struct RemoteNode {
     pub node_id: String,
     pub addresses: Vec<NodeAddress>,
     pub is_outbound: bool,
+    pub connected_duration: Uint64,
+    pub last_ping_duration: Option<Uint64>,
+    pub sync_state: Option<PeerSyncState>,
+    pub protocols: Vec<RemoteNodeProtocol>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct RemoteNodeProtocol {
+    pub id: Uint64,
+    pub version: String,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct PeerSyncState {
+    pub best_known_header_hash: Option<Byte32>,
+    pub best_known_header_number: Option<Uint64>,
+    pub last_common_header_hash: Option<Byte32>,
+    pub last_common_header_number: Option<Uint64>,
+    pub unknown_header_list_size: Uint64,
+    pub inflight_count: Uint64,
+    pub can_fetch_count: Uint64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
