@@ -391,14 +391,11 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     }
 }
 
-fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>>(
+fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, Error>>(
     out_point: &OutPoint,
     mut cell_resolver: F,
-) -> Result<Option<(CellMeta, Vec<CellMeta>)>, Error> {
-    let dep_group_cell = match cell_resolver(out_point, true)? {
-        Some(cell_meta) => cell_meta,
-        None => return Ok(None),
-    };
+) -> Result<(CellMeta, Vec<CellMeta>), Error> {
+    let dep_group_cell = cell_resolver(out_point, true)?;
     let data = dep_group_cell
         .mem_cell_data
         .clone()
@@ -409,11 +406,9 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error
         .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
-        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, true)? {
-            resolved_deps.push(sub_cell_meta);
-        }
+        resolved_deps.push(cell_resolver(&sub_out_point, true)?);
     }
-    Ok(Some((dep_group_cell, resolved_deps)))
+    Ok((dep_group_cell, resolved_deps))
 }
 
 pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
@@ -422,35 +417,25 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     cell_provider: &CP,
     header_checker: &HC,
 ) -> Result<ResolvedTransaction, Error> {
-    let (
-        mut unknown_out_points,
-        mut resolved_inputs,
-        mut resolved_cell_deps,
-        mut resolved_dep_groups,
-    ) = (
-        Vec::new(),
+    let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.cell_deps().len()),
         Vec::new(),
     );
     let mut current_inputs = HashSet::new();
 
-    let mut resolve_cell =
-        |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, Error> {
-            if seen_inputs.contains(out_point) {
-                return Err(OutPointError::Dead(out_point.clone()).into());
-            }
+    let mut resolve_cell = |out_point: &OutPoint, with_data: bool| -> Result<CellMeta, Error> {
+        if seen_inputs.contains(out_point) {
+            return Err(OutPointError::Dead(out_point.clone()).into());
+        }
 
-            let cell_status = cell_provider.cell(out_point, with_data);
-            match cell_status {
-                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
-                CellStatus::Unknown => {
-                    unknown_out_points.push(out_point.clone());
-                    Ok(None)
-                }
-                CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
-            }
-        };
+        let cell_status = cell_provider.cell(out_point, with_data);
+        match cell_status {
+            CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
+            CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone()).into()),
+            CellStatus::Live(cell_meta) => Ok(cell_meta),
+        }
+    };
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
@@ -458,9 +443,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
             if !current_inputs.insert(out_point.to_owned()) {
                 return Err(OutPointError::Dead(out_point).into());
             }
-            if let Some(cell_meta) = resolve_cell(&out_point, false)? {
-                resolved_inputs.push(cell_meta);
-            }
+            resolved_inputs.push(resolve_cell(&out_point, false)?);
         }
     }
 
@@ -475,21 +458,17 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
         header_checker.check_valid(&block_hash)?;
     }
 
-    if !unknown_out_points.is_empty() {
-        Err(OutPointError::Unknown(unknown_out_points).into())
-    } else {
-        seen_inputs.extend(current_inputs);
-        Ok(ResolvedTransaction {
-            transaction,
-            resolved_inputs,
-            resolved_cell_deps,
-            resolved_dep_groups,
-        })
-    }
+    seen_inputs.extend(current_inputs);
+    Ok(ResolvedTransaction {
+        transaction,
+        resolved_inputs,
+        resolved_cell_deps,
+        resolved_dep_groups,
+    })
 }
 
 fn resolve_transaction_deps_with_system_cell_cache<
-    F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>,
+    F: FnMut(&OutPoint, bool) -> Result<CellMeta, Error>,
 >(
     transaction: &TransactionView,
     cell_resolver: &mut F,
@@ -529,21 +508,18 @@ fn resolve_transaction_deps_with_system_cell_cache<
     Ok(())
 }
 
-fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>>(
+fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, Error>>(
     cell_dep: &CellDep,
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
 ) -> Result<(), Error> {
     if cell_dep.dep_type() == DepType::DepGroup.into() {
-        if let Some((dep_group, cell_deps)) =
-            resolve_dep_group(&cell_dep.out_point(), cell_resolver)?
-        {
-            resolved_dep_groups.push(dep_group);
-            resolved_cell_deps.extend(cell_deps);
-        }
-    } else if let Some(cell_meta) = cell_resolver(&cell_dep.out_point(), true)? {
-        resolved_cell_deps.push(cell_meta);
+        let (dep_group, cell_deps) = resolve_dep_group(&cell_dep.out_point(), cell_resolver)?;
+        resolved_dep_groups.push(dep_group);
+        resolved_cell_deps.extend(cell_deps);
+    } else {
+        resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), true)?);
     }
     Ok(())
 }
@@ -552,12 +528,12 @@ fn build_cell_meta_from_out_point<CP: CellProvider>(
     cell_provider: &CP,
     out_point: &OutPoint,
     with_data: bool,
-) -> Result<Option<CellMeta>, Error> {
+) -> Result<CellMeta, Error> {
     let cell_status = cell_provider.cell(out_point, with_data);
     match cell_status {
         CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
-        CellStatus::Unknown => Ok(None),
-        CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
+        CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone()).into()),
+        CellStatus::Live(cell_meta) => Ok(cell_meta),
     }
 }
 
@@ -592,33 +568,28 @@ pub fn setup_system_cell_cache<CP: CellProvider>(genesis: &BlockView, cell_provi
     let mut cell_deps = HashMap::new();
     let secp_code_dep_cell =
         build_cell_meta_from_out_point(cell_provider, &secp_code_dep.out_point(), true)
-            .expect("resolve secp_code_dep_cell")
             .expect("resolve secp_code_dep_cell");
     cell_deps.insert(secp_code_dep, ResolvedDep::Cell(secp_code_dep_cell));
 
     let dao_dep_cell = build_cell_meta_from_out_point(cell_provider, &dao_dep.out_point(), true)
-        .expect("resolve dao_dep_cell")
         .expect("resolve dao_dep_cell");
     cell_deps.insert(dao_dep, ResolvedDep::Cell(dao_dep_cell));
 
     let secp_data_dep_cell =
         build_cell_meta_from_out_point(cell_provider, &secp_data_dep.out_point(), true)
-            .expect("resolve secp_data_dep_cell")
             .expect("resolve secp_data_dep_cell");
     cell_deps.insert(secp_data_dep, ResolvedDep::Cell(secp_data_dep_cell));
 
-    let resolve_cell = |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, Error> {
+    let resolve_cell = |out_point: &OutPoint, with_data: bool| -> Result<CellMeta, Error> {
         build_cell_meta_from_out_point(cell_provider, out_point, with_data)
     };
 
     let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell)
-        .expect("resolve secp_group_dep_cell")
         .expect("resolve secp_group_dep_cell");
     cell_deps.insert(secp_group_dep, ResolvedDep::Group(secp_group_dep_cell));
 
     let multi_sign_secp_group_cell =
         resolve_dep_group(&multi_sign_secp_group.out_point(), resolve_cell)
-            .expect("resolve multi_sign_secp_group")
             .expect("resolve multi_sign_secp_group");
     cell_deps.insert(
         multi_sign_secp_group,
@@ -834,7 +805,7 @@ mod tests {
         );
         assert_error_eq!(
             result.unwrap_err(),
-            OutPointError::Unknown(vec![op_unknown]),
+            OutPointError::Unknown(op_unknown),
         );
     }
 

@@ -10,7 +10,7 @@ pub enum OutPointError {
 
     /// The specified cells is unknown in the chain
     #[fail(display = "Unknown({:?})", _0)]
-    Unknown(Vec<OutPoint>),
+    Unknown(OutPoint),
 
     /// Input or dep cell reference to a newer cell in the same block
     // TODO: Maybe replace with `UnknownInputCell`?
