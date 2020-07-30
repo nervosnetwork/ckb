@@ -13,6 +13,7 @@ ckb-db = { path = "../db" }
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }
 ckb-logger = {path = "../util/logger"}
+ckb-metrics = {path = "../util/metrics"}
 ckb-util = { path = "../util" }
 faketime = "0.2.0"
 bitflags = "1.0"
