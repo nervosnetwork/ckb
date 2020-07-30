@@ -608,6 +608,14 @@ impl InflightBlocks {
         self.inflight_states.len()
     }
 
+    pub fn division_point(&self) -> (u64, u64, u64) {
+        (
+            self.time_analyzer.fast_time,
+            self.time_analyzer.normal_time,
+            self.time_analyzer.low_time,
+        )
+    }
+
     pub fn peer_inflight_count(&self, peer: PeerIndex) -> usize {
         self.download_schedulers
             .get(&peer)
@@ -1601,6 +1609,10 @@ impl SyncState {
         });
         shrink_to_fit!(block_status_map, SHRINK_THREHOLD);
         blocks
+    }
+
+    pub fn orphan_pool(&self) -> &OrphanBlockPool {
+        &self.orphan_block_pool
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {

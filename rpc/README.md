@@ -47,6 +47,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_peers`](#get_peers)
     *   [`get_banned_addresses`](#get_banned_addresses)
     *   [`set_ban`](#set_ban)
+    *   [`sync_state`](#sync_state)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -1998,6 +1999,52 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": null
+}
+```
+
+### `sync_state`
+
+Returns sync state of this client
+
+#### Returns
+
+    best_known_block_number - Height of the most difficult header observed across the network
+    best_known_block_timestamp - Timestamp of the most difficult header observed across the network
+    ibd - Whether the node is in IBD status, i.e. whether the local data is within one day of the latest
+    inflight_blocks_count - Number of blocks being requested for download
+    orphan_blocks_count - Number of blocks that have been downloaded but can't find the corresponding parents yet
+    fast_time - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+    normal_time - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+    low_time - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "sync_state",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "best_known_block_number": "0x248623",
+        "best_known_block_timestamp": "0x173943c36e4",
+        "fast_time": "0x3e8",
+        "ibd": false,
+        "inflight_blocks_count": "0x0",
+        "low_time": "0x5dc",
+        "normal_time": "0x4e2",
+        "orphan_blocks_count": "0x0"
+    }
 }
 ```
 

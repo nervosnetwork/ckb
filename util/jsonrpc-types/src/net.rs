@@ -1,4 +1,4 @@
-use crate::{Timestamp, Uint64};
+use crate::{BlockNumber, Timestamp, Uint64};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -28,4 +28,16 @@ pub struct BannedAddr {
     pub ban_until: Timestamp,
     pub ban_reason: String,
     pub created_at: Timestamp,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct SyncState {
+    pub ibd: bool,
+    pub best_known_block_number: BlockNumber,
+    pub best_known_block_timestamp: Timestamp,
+    pub orphan_blocks_count: Uint64,
+    pub inflight_blocks_count: Uint64,
+    pub fast_time: Uint64,
+    pub normal_time: Uint64,
+    pub low_time: Uint64,
 }
