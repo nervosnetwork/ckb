@@ -46,6 +46,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         &shared.store().cell_provider(),
     );
 
+    rayon::ThreadPoolBuilder::new()
+        .thread_name(|i| format!("RayonGlobal-{}", i))
+        .build_global()
+        .expect("Init the global thread pool for rayon failed");
+
     ckb_memory_tracker::track_current_process(
         args.config.memory_tracker.interval,
         Some(shared.store().db().inner()),

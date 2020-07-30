@@ -462,7 +462,7 @@ impl Log for Logger {
             }
 
             let thread = thread::current();
-            let thread_name = thread.name().unwrap_or_default();
+            let thread_name = thread.name().unwrap_or("*unnamed*");
 
             let with_color = {
                 let thread_name = format!("{}", Colour::Blue.bold().paint(thread_name));

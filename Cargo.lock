@@ -324,7 +324,6 @@ dependencies = [
 name = "ckb-async-runtime"
 version = "0.35.0-pre"
 dependencies = [
- "crossbeam-channel",
  "tokio 0.2.22",
 ]
 
@@ -382,6 +381,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "ctrlc",
+ "rayon",
  "serde",
  "serde_plain",
  "tempfile",
