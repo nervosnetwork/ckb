@@ -702,9 +702,9 @@ fn _update_tx_pool_for_reorg(
         .filter_map(|tx| tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx))
         .collect();
 
-    for tx in &attached {
-        tx_pool.try_proposed_orphan_by_ancestor(tx);
-    }
+    // for tx in &attached {
+    //     tx_pool.try_proposed_orphan_by_ancestor(tx);
+    // }
 
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
@@ -771,7 +771,7 @@ fn _update_tx_pool_for_reorg(
 
     for (cycles, size, tx) in entries {
         let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
+        if let Err(e) = tx_pool.proposed_tx(cycles, size, tx) {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
         }
     }
