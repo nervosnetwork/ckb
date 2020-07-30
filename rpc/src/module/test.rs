@@ -111,9 +111,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         // Clear the tx_pool
+        let new_snapshot = Arc::clone(&self.shared.snapshot());
         let tx_pool = self.shared.tx_pool_controller();
         tx_pool
-            .clear_pool()
+            .clear_pool(new_snapshot)
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())

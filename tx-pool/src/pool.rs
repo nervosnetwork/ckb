@@ -10,6 +10,7 @@ use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_logger::{debug, error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
@@ -55,6 +56,8 @@ pub struct TxPool {
 
 #[derive(Clone, Debug)]
 pub struct TxPoolInfo {
+    pub tip_hash: Byte32,
+    pub tip_number: BlockNumber,
     pub pending_size: usize,
     pub proposed_size: usize,
     pub orphan_size: usize,
@@ -96,7 +99,10 @@ impl TxPool {
     }
 
     pub fn info(&self) -> TxPoolInfo {
+        let tip_header = self.snapshot.tip_header();
         TxPoolInfo {
+            tip_hash: tip_header.hash(),
+            tip_number: tip_header.number(),
             pending_size: self.pending.size() + self.gap.size(),
             proposed_size: self.proposed.size(),
             orphan_size: self.orphan.size(),

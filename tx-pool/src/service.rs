@@ -82,7 +82,7 @@ pub enum Message {
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
-    ClearPool(Request<(), ()>),
+    ClearPool(Request<Arc<Snapshot>, ()>),
 }
 
 #[derive(Clone)]
@@ -282,10 +282,10 @@ impl TxPoolController {
         response.recv().map_err(Into::into)
     }
 
-    pub fn clear_pool(&self) -> Result<(), FailureError> {
+    pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = crossbeam_channel::bounded(1);
-        let request = Request::call((), responder);
+        let request = Request::call(new_snapshot, responder);
         sender.try_send(Message::ClearPool(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
@@ -530,8 +530,11 @@ async fn process(service: TxPoolService, message: Message) {
                 error!("responder send plug_entry failed {:?}", e);
             };
         }
-        Message::ClearPool(Request { responder, .. }) => {
-            service.clear_pool().await;
+        Message::ClearPool(Request {
+            responder,
+            arguments: new_snapshot,
+        }) => {
+            service.clear_pool(new_snapshot).await;
             if let Err(e) = responder.send(()) {
                 error!("responder send clear_pool failed {:?}", e)
             };
