@@ -1,11 +1,12 @@
 use std::{sync, thread, time};
 
-use ckb_logger::{debug, error, info};
+use ckb_logger::{error, info};
+use ckb_metrics::metrics;
 use futures::executor::block_on;
 use heim::units::information::byte;
 use jemalloc_ctl::{epoch, stats};
 
-use crate::{rocksdb::TrackRocksDBMemory, utils::HumanReadableSize};
+use crate::rocksdb::TrackRocksDBMemory;
 
 macro_rules! je_mib {
     ($key:ty) => {
@@ -21,7 +22,7 @@ macro_rules! je_mib {
 macro_rules! mib_read {
     ($mib:ident) => {
         if let Ok(value) = $mib.read() {
-            HumanReadableSize::from(value as u64)
+            value as i64
         } else {
             error!("failed to read jemalloc stats for {}", stringify!($mib));
             return;
@@ -58,7 +59,6 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
             .name("MemoryTracker".to_string())
             .spawn(move || {
                 if let Ok(process) = block_on(heim::process::current()) {
-                    let pid = process.pid();
                     loop {
                         if je_epoch.advance().is_err() {
                             error!("failed to refresh the jemalloc stats");
@@ -66,9 +66,12 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                         }
                         if let Ok(memory) = block_on(process.memory()) {
                             // Resident set size, amount of non-swapped physical memory.
-                            let rss: HumanReadableSize = memory.rss().get::<byte>().into();
+                            let rss = memory.rss().get::<byte>() as i64;
                             // Virtual memory size, total amount of memory.
-                            let virt: HumanReadableSize = memory.vms().get::<byte>().into();
+                            let vms = memory.vms().get::<byte>() as i64;
+
+                            metrics!(gauge, "ckb-sys.mem.process", rss, "type" => "rss");
+                            metrics!(gauge, "ckb-sys.mem.process", vms, "type" => "vms");
 
                             let allocated = mib_read!(allocated);
                             let resident = mib_read!(resident);
@@ -77,56 +80,15 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                             let retained = mib_read!(retained);
                             let metadata = mib_read!(metadata);
 
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", allocated, "type" => "allocated");
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", resident, "type" => "resident");
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", active, "type" => "active");
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", mapped, "type" => "mapped");
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", retained, "type" => "retained");
+                            metrics!(gauge, "ckb-sys.mem.jemalloc", metadata, "type" => "metadata");
+
                             if let Some(tracker) = tracker_opt.clone() {
-                                let stats = tracker.gather_memory_stats();
-                                debug!(
-                                    "CurrentProcess {{ \
-                                        pid: {}, rss: {}, virt: {}, \
-                                        Jemalloc: {{ \
-                                            allocated: {}, resident: {}, \
-                                            active: {}, mapped: {}, retained: {}, \
-                                            metadata: {} }}, \
-                                        RocksDB: {{ \
-                                            total: {}, cache: {}, readers: {}, \
-                                            memtables: {}, pinned: {}, \
-                                            cache-capacity: {} \
-                                        }} \
-                                    }}",
-                                    pid,
-                                    rss,
-                                    virt,
-                                    allocated,
-                                    resident,
-                                    active,
-                                    mapped,
-                                    retained,
-                                    metadata,
-                                    stats.total_memory,
-                                    stats.block_cache_usage,
-                                    stats.estimate_table_readers_mem,
-                                    stats.cur_size_all_mem_tables,
-                                    stats.block_cache_pinned_usage,
-                                    stats.block_cache_capacity,
-                                );
-                            } else {
-                                debug!(
-                                    "CurrentProcess {{ \
-                                        pid: {}, rss: {}, virt: {}, \
-                                        Jemalloc: {{ \
-                                            allocated: {}, resident: {}, \
-                                            active: {}, mapped: {}, retained: {}, \
-                                            metadata: {} }} \
-                                    }}",
-                                    pid,
-                                    rss,
-                                    virt,
-                                    allocated,
-                                    resident,
-                                    active,
-                                    mapped,
-                                    retained,
-                                    metadata,
-                                );
+                                let _ignored = tracker.gather_memory_stats();
                             }
                         } else {
                             error!("failed to fetch the memory information about current process");
