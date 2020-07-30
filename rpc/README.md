@@ -48,6 +48,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_banned_addresses`](#get_banned_addresses)
     *   [`set_ban`](#set_ban)
     *   [`sync_state`](#sync_state)
+    *   [`set_network_active`](#set_network_active)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -1868,6 +1869,7 @@ http://localhost:8114
                 "score": "0x1"
             }
         ],
+        "is_active": true,
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
         "version": "0.0.0"
     }
@@ -2004,7 +2006,7 @@ http://localhost:8114
 
 ### `sync_state`
 
-Returns sync state of this client
+Returns sync state of this node
 
 #### Returns
 
@@ -2045,6 +2047,38 @@ http://localhost:8114
         "normal_time": "0x4e2",
         "orphan_blocks_count": "0x0"
     }
+}
+```
+
+### `set_network_active`
+
+Disable/enable all p2p network activity
+
+#### Parameters
+
+    state - true to enable networking, false to disable
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "set_network_active",
+    "params": [
+        false
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
 }
 ```
 

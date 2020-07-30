@@ -328,6 +328,7 @@
                     "score": "0x1"
                 }
             ],
+            "is_active": true,
             "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
             "version": "0.0.0"
         },
@@ -414,7 +415,7 @@
         ]
     },
     {
-        "description": "Returns sync state of this client",
+        "description": "Returns sync state of this node",
         "method": "sync_state",
         "module": "net",
         "params": [],
@@ -452,6 +453,21 @@
             },
             {
                 "low_time": "The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms"
+            }
+        ],
+        "skip": true
+    },
+    {
+        "description": "Disable/enable all p2p network activity",
+        "method": "set_network_active",
+        "module": "net",
+        "params": [
+            false
+        ],
+        "result": null,
+        "types": [
+            {
+                "state": "true to enable networking, false to disable"
             }
         ],
         "skip": true

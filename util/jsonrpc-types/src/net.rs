@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct LocalNode {
     pub version: String,
     pub node_id: String,
+    pub is_active: bool,
     pub addresses: Vec<NodeAddress>,
 }
 
