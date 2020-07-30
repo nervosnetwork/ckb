@@ -38,8 +38,6 @@ pub struct TxPool {
     pub(crate) gap: PendingQueue,
     /// Tx pool that finely for commit
     pub(crate) proposed: ProposedPool,
-    /// Orphans in the pool
-    pub(crate) orphan: OrphanPool,
     /// cache for conflict transaction
     pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
     /// cache for committed transactions hash
@@ -72,11 +70,6 @@ pub struct TxPoolInfo {
     /// The proposed transactions are ready to be commit in the new block after the block
     /// `tip_hash`.
     pub proposed_size: usize,
-    /// Count of orphan transactions.
-    ///
-    /// An orphan transaction has an input cell from the transaction which is neither in the chain
-    /// nor in the transaction pool.
-    pub orphan_size: usize,
     /// Total count of transactions in the pool of all the different kinds of states.
     pub total_tx_size: usize,
     /// Total consumed VM cycles of all the transactions in the pool.
@@ -99,7 +92,6 @@ impl TxPool {
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
-            orphan: OrphanPool::new(),
             conflict: LruCache::new(conflict_cache_size),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
@@ -124,7 +116,6 @@ impl TxPool {
             tip_number: tip_header.number(),
             pending_size: self.pending.size() + self.gap.size(),
             proposed_size: self.proposed.size(),
-            orphan_size: self.orphan.size(),
             total_tx_size: self.total_tx_size,
             total_tx_cycles: self.total_tx_cycles,
             last_txs_updated_at: self.get_last_txs_updated_at(),
@@ -188,18 +179,6 @@ impl TxPool {
         self.proposed.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    pub(crate) fn add_orphan(
-        &mut self,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-        tx: TransactionView,
-        unknowns: Vec<OutPoint>,
-    ) -> Option<DefectEntry> {
-        trace!("add_orphan {}", &tx.hash());
-        self.orphan
-            .add_tx(cache_entry, size, tx, unknowns.into_iter())
-    }
-
     pub(crate) fn touch_last_txs_updated_at(&self) {
         self.last_txs_updated_at
             .store(unix_time_as_millis(), Ordering::SeqCst);
@@ -213,14 +192,12 @@ impl TxPool {
         self.pending.contains_key(id)
             || self.conflict.contains(id)
             || self.proposed.contains_key(id)
-            || self.orphan.contains_key(id)
     }
 
     pub fn contains_tx(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id)
             || self.gap.contains_key(id)
             || self.proposed.contains_key(id)
-            || self.orphan.contains_key(id)
             || self.conflict.contains(id)
     }
 
@@ -245,12 +222,6 @@ impl TxPool {
                     .map(|entry| (entry.transaction, Some(entry.cycles)))
             })
             .or_else(|| {
-                self.orphan
-                    .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, entry.cache_entry.map(|c| c.cycles)))
-            })
-            .or_else(|| {
                 self.conflict
                     .peek(id)
                     .cloned()
@@ -263,7 +234,6 @@ impl TxPool {
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
             .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
@@ -273,7 +243,6 @@ impl TxPool {
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
             .cloned()
     }
 
@@ -286,7 +255,6 @@ impl TxPool {
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.pending.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
             .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
@@ -394,33 +362,6 @@ impl TxPool {
         }
     }
 
-    // remove resolved tx from orphan pool
-    pub(crate) fn try_proposed_orphan_by_ancestor(&mut self, tx: &TransactionView) {
-        let entries = self.orphan.remove_by_ancestor(tx);
-        for entry in entries {
-            let tx_hash = entry.transaction.hash();
-            if self.contains_proposed(&entry.transaction.proposal_short_id()) {
-                let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
-                if ret.is_err() {
-                    self.update_statics_for_remove_tx(
-                        entry.size,
-                        entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
-                    );
-                    trace!("proposed tx {} failed {:?}", tx_hash, ret);
-                }
-            } else {
-                let ret = self.pending_tx(entry.cache_entry, entry.size, entry.transaction);
-                if ret.is_err() {
-                    self.update_statics_for_remove_tx(
-                        entry.size,
-                        entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
-                    );
-                    trace!("pending tx {} failed {:?}", tx_hash, ret);
-                }
-            }
-        }
-    }
-
     pub(crate) fn calculate_transaction_fee(
         &self,
         snapshot: &Snapshot,
@@ -503,15 +444,10 @@ impl TxPool {
                             }
 
                             OutPointError::Unknown(out_points) => {
-                                if self
-                                    .add_orphan(cache_entry, size, tx, out_points.to_owned())
-                                    .is_some()
-                                {
-                                    self.update_statics_for_remove_tx(
-                                        size,
-                                        cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                    );
-                                }
+                                self.update_statics_for_remove_tx(
+                                    size,
+                                    cache_entry.map(|c| c.cycles).unwrap_or(0),
+                                );
                             }
 
                             // The remaining errors represent invalid transactions that should
@@ -638,19 +574,6 @@ impl TxPool {
         )
     }
 
-    pub(crate) fn proposed_tx_and_descendants(
-        &mut self,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-        tx: TransactionView,
-    ) -> Result<CacheEntry, Error> {
-        self.proposed_tx(cache_entry, size, tx.clone())
-            .map(|cache_entry| {
-                self.try_proposed_orphan_by_ancestor(&tx);
-                cache_entry
-            })
-    }
-
     pub(crate) fn readd_dettached_tx(
         &mut self,
         snapshot: &Snapshot,
@@ -663,8 +586,7 @@ impl TxPool {
         let tx_short_id = tx.proposal_short_id();
         let tx_size = tx.data().serialized_size_in_block();
         if snapshot.proposals().contains_proposed(&tx_short_id) {
-            if let Ok(new_cache_entry) = self.proposed_tx_and_descendants(cache_entry, tx_size, tx)
-            {
+            if let Ok(new_cache_entry) = self.proposed_tx(cache_entry, tx_size, tx) {
                 if cache_entry.is_none() {
                     ret = Some((tx_hash, new_cache_entry));
                 }
