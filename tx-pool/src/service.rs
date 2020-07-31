@@ -338,7 +338,7 @@ impl TxPoolServiceBuilder {
                 }
             }
         };
-        let (handle, thread) = new_runtime(server);
+        let (handle, thread) = new_runtime("Global", None, server);
         let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
         TxPoolController {
             sender,
