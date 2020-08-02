@@ -32,7 +32,7 @@ impl Entry {
 }
 
 #[derive(Debug)]
-pub(crate) struct OrphanTxPool {
+pub struct OrphanTxPool {
     pub(crate) inner: RwLock<Inner>,
 }
 
@@ -90,9 +90,19 @@ impl Inner {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.entries, SHRINK_THRESHOLD);
         shrink_to_fit!(self.by_out_point, SHRINK_THRESHOLD);
+    }
+}
+
+impl Default for OrphanTxPool {
+    fn default() -> Self {
+        OrphanTxPool::new()
     }
 }
 
@@ -125,6 +135,10 @@ impl OrphanTxPool {
         guard.entries.get(hash).cloned()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.read().is_empty()
+    }
+
     pub fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
         let guard = self.inner.read();
 
@@ -133,10 +147,17 @@ impl OrphanTxPool {
             .find_map(|out_point| guard.by_out_point.get(out_point).cloned())
     }
 
-    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) -> Option<Entry> {
+    pub fn remove_orphan_txs(&self, hashes: impl Iterator<Item = packed::Byte32>) {
         let mut guard = self.inner.write();
-        let ret = guard.remove_orphan_tx(hash);
+        for hash in hashes {
+            guard.remove_orphan_tx(&hash);
+        }
         guard.shrink_to_fit();
-        ret
+    }
+
+    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) {
+        let mut guard = self.inner.write();
+        guard.remove_orphan_tx(hash);
+        guard.shrink_to_fit();
     }
 }

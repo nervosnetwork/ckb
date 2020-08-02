@@ -112,20 +112,19 @@ impl<'a> TransactionsProcess<'a> {
         orphan.push_back(hash);
 
         while let Some(tx_hash) = orphan.pop_front() {
-            if let Some(entry) = self.relayer.orphan_tx_pool.get(&tx_hash) {
-                let tx = entry.tx;
+            if let Some(tx) = self.relayer.get_orphan_tx(&tx_hash) {
                 match tx_pool.submit_tx(tx.clone()) {
                     Ok(ret) => match ret {
                         Ok(_) => {
-                            self.relayer.orphan_tx_pool.remove_orphan_tx(&tx_hash);
+                            self.relayer.remove_orphan_tx(&tx_hash);
                             self.broadcast_tx(tx_hash);
-                            if let Some(hash) = self.relayer.orphan_tx_pool.find_by_previous(&tx) {
+                            if let Some(hash) = self.relayer.get_orphan_tx_hash_by_previous(&tx) {
                                 orphan.push_back(hash);
                             }
                         }
                         Err(err) => {
                             if !is_missing_input(&err) {
-                                self.relayer.orphan_tx_pool.remove_orphan_tx(&tx_hash);
+                                self.relayer.remove_orphan_tx(&tx_hash);
                             }
                             if is_malformed(&err) {
                                 self.ban_malformed(&err);
@@ -165,7 +164,7 @@ impl<'a> TransactionsProcess<'a> {
                     self.broadcast_tx(tx_hash);
 
                     // Recursively process orphan transactions that depended on this one
-                    if let Some(hash) = self.relayer.orphan_tx_pool.find_by_previous(&tx) {
+                    if let Some(hash) = self.relayer.get_orphan_tx_hash_by_previous(&tx) {
                         self.process_orphan_tx(hash)
                     }
                     Ok(())
@@ -217,7 +216,7 @@ impl<'a> TransactionsProcess<'a> {
 
     fn handle_submit_error(&self, error: &Error, tx: TransactionView) -> Result<(), ()> {
         if is_missing_input(error) {
-            self.relayer.orphan_tx_pool.add_orphan_tx(tx, self.peer);
+            self.relayer.add_orphan_tx(tx, self.peer);
         } else if is_malformed(error) {
             self.ban_malformed(error);
             return Err(());

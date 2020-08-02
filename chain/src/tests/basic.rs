@@ -33,9 +33,10 @@ fn repeat_process_block() {
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
-    assert!(chain_controller
+    assert!(!chain_controller
         .process_block(Arc::clone(&block))
-        .expect("process block ok"));
+        .expect("process block ok")
+        .is_duplicate());
     assert_eq!(
         shared
             .store()
@@ -45,9 +46,10 @@ fn repeat_process_block() {
         Some(true)
     );
 
-    assert!(!chain_controller
+    assert!(chain_controller
         .process_block(Arc::clone(&block))
-        .expect("process block ok"));
+        .expect("process block ok")
+        .is_duplicate());
     assert_eq!(
         shared
             .store()

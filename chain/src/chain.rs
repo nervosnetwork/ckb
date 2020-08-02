@@ -13,7 +13,7 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, HeaderView,
+        BlockExt, BlockNumber, BlockReceived, BlockView, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
     U256,
@@ -27,7 +27,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
+type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<BlockReceived, Error>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 #[derive(Clone)]
@@ -44,7 +44,7 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
+    pub fn process_block(&self, block: Arc<BlockView>) -> Result<BlockReceived, Error> {
         self.internal_process_block(block, Switch::NONE)
     }
 
@@ -52,7 +52,7 @@ impl ChainController {
         &self,
         block: Arc<BlockView>,
         switch: Switch,
-    ) -> Result<bool, Error> {
+    ) -> Result<BlockReceived, Error> {
         Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
                 .reason("Chain service has gone")
@@ -197,7 +197,10 @@ impl ChainService {
         }
     }
 
-    pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
+    pub fn external_process_block(
+        &mut self,
+        block: Arc<BlockView>,
+    ) -> Result<BlockReceived, Error> {
         self.process_block(block, Switch::NONE)
     }
 
@@ -261,7 +264,11 @@ impl ChainService {
 
     // process_block will do block verify
     // but invoker should guarantee block header be verified
-    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
+    pub fn process_block(
+        &mut self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> Result<BlockReceived, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
@@ -295,14 +302,18 @@ impl ChainService {
             .map(|_| ())
     }
 
-    fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
+    fn insert_block(
+        &mut self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> Result<BlockReceived, Error> {
         let db_txn = self.shared.store().begin_transaction();
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
 
         // insert_block are assumed be executed in single thread
         if txn_snapshot.block_exists(&block.header().hash()) {
-            return Ok(false);
+            return Ok(BlockReceived::Duplicate);
         }
         // non-contextual verify
         if !switch.disable_non_contextual() {
@@ -471,7 +482,11 @@ impl ChainService {
             metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "true");
         }
 
-        Ok(true)
+        if new_best_block {
+            Ok(BlockReceived::Attached)
+        } else {
+            Ok(BlockReceived::NonActive)
+        }
     }
 
     pub(crate) fn update_proposal_table(&mut self, fork: &ForkChanges) {

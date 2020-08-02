@@ -388,3 +388,25 @@ impl EpochNumberWithFraction {
         RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
     }
 }
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum BlockReceived {
+    // block attached to an ancestor of the current best block
+    Attached,
+
+    // block received but not active in best chain
+    NonActive,
+
+    // duplicate block received
+    Duplicate,
+}
+
+impl BlockReceived {
+    pub fn is_duplicate(self) -> bool {
+        self == Self::Duplicate
+    }
+
+    pub fn is_attached(self) -> bool {
+        self == Self::Attached
+    }
+}

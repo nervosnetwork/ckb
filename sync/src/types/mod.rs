@@ -1,5 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
+use crate::orphan_tx_pool::OrphanTxPool;
 use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
     HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
@@ -16,7 +17,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
-    core::{self, BlockNumber, EpochExt},
+    core::{self, BlockNumber, BlockReceived, EpochExt},
     packed::{self, Byte32},
     prelude::*,
     U256,
@@ -1217,6 +1218,7 @@ impl SyncShared {
             pending_get_block_proposals: Mutex::new(HashMap::default()),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
+            orphan_tx_pool: OrphanTxPool::new(),
             inflight_proposals: Mutex::new(HashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
@@ -1271,19 +1273,35 @@ impl SyncShared {
         }
 
         // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, Arc::clone(&block));
-        if ret.is_err() {
-            debug!("accept block {:?} {:?}", block, ret);
-            return ret;
-        }
+        let ret = self.accept_block(chain, Arc::clone(&block)).map_err(|e| {
+            debug!("accept block {:?} {:?}", block, e);
+            e
+        })?;
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        self.try_search_orphan_pool(chain, &block.as_ref().hash());
-        ret
+        self.try_search_orphan_block_pool(chain, &block.as_ref().hash());
+
+        // evict orphan tx pool entries based on a newly attached block
+        if ret.is_attached() {
+            self.remove_orphan_tx_by_block_attached(&block);
+        }
+
+        Ok(!ret.is_duplicate())
     }
 
-    pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
+    pub fn remove_orphan_tx_by_block_attached(&self, block: &core::BlockView) {
+        if !self.state.orphan_tx_pool.is_empty() {
+            let txs = block.transactions();
+            let remove_orphan = txs
+                .iter()
+                .filter_map(|tx| self.state.orphan_tx_pool.find_by_previous(&tx));
+
+            self.state.orphan_tx_pool.remove_orphan_txs(remove_orphan);
+        }
+    }
+
+    pub fn try_search_orphan_block_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
         debug!(
             "try accepting {} descendant orphan blocks",
@@ -1318,7 +1336,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<BlockReceived, FailureError> {
         let ret = chain.process_block(Arc::clone(&block));
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
@@ -1453,6 +1471,7 @@ pub struct SyncState {
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
     pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
+    orphan_tx_pool: OrphanTxPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
@@ -1517,6 +1536,10 @@ impl SyncState {
     pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
         let mut map = self.tx_hashes.lock();
         mem::take(&mut *map)
+    }
+
+    pub fn orphan_tx_pool(&self) -> &OrphanTxPool {
+        &self.orphan_tx_pool
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
