@@ -83,7 +83,8 @@ impl MinerRpc for MinerRpcImpl {
         let is_new = self
             .chain
             .process_block(Arc::clone(&block))
-            .map_err(|err| handle_submit_error(&work_id, &err))?;
+            .map_err(|err| handle_submit_error(&work_id, &err))
+            .map(|ret| !ret.is_duplicate())?;
 
         // Announce only new block
         if is_new {
