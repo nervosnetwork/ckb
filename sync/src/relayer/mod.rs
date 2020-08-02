@@ -21,7 +21,6 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::orphan_tx_pool::OrphanTxPool;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
@@ -33,7 +32,7 @@ use ckb_network::{
 };
 use ckb_types::core::BlockView;
 use ckb_types::{
-    core::{self, Cycle},
+    core::{self, Cycle, TransactionView},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
@@ -66,7 +65,6 @@ pub enum ReconstructionResult {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
-    pub(crate) orphan_tx_pool: Arc<OrphanTxPool>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
     rate_limiter: Arc<Mutex<KeyedRateLimiter<(PeerIndex, u32)>>>,
@@ -91,7 +89,6 @@ impl Relayer {
             min_fee_rate,
             max_tx_verify_cycles,
             rate_limiter,
-            orphan_tx_pool: Arc::new(OrphanTxPool::new()),
         }
     }
 
@@ -626,6 +623,26 @@ impl Relayer {
             }
         }
     }
+
+    pub fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
+        self.shared.state().orphan_tx_pool().add_orphan_tx(tx, peer)
+    }
+
+    pub fn get_orphan_tx_hash_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
+        self.shared.state().orphan_tx_pool().find_by_previous(tx)
+    }
+
+    pub fn get_orphan_tx(&self, hash: &packed::Byte32) -> Option<TransactionView> {
+        self.shared
+            .state()
+            .orphan_tx_pool()
+            .get(hash)
+            .map(|entry| entry.tx)
+    }
+
+    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) {
+        self.shared.state().orphan_tx_pool().remove_orphan_tx(hash);
+    }
 }
 
 impl CKBProtocolHandler for Relayer {
@@ -735,7 +752,7 @@ impl CKBProtocolHandler for Relayer {
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
             SEARCH_ORPHAN_POOL_TOKEN => tokio::task::block_in_place(|| {
-                self.shared.try_search_orphan_pool(
+                self.shared.try_search_orphan_block_pool(
                     &self.chain,
                     &self.shared.active_chain().tip_header().hash(),
                 )

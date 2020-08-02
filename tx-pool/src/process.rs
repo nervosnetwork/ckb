@@ -657,10 +657,6 @@ fn _update_tx_pool_for_reorg(
         .filter_map(|tx| tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx))
         .collect();
 
-    // for tx in &attached {
-    //     tx_pool.try_proposed_orphan_by_ancestor(tx);
-    // }
-
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
 
