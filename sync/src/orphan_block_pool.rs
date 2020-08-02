@@ -4,7 +4,7 @@ use ckb_util::RwLock;
 use std::collections::{HashMap, VecDeque};
 
 pub type ParentHash = packed::Byte32;
-const SHRINK_THREHOLD: usize = 100;
+const SHRINK_THRESHOLD: usize = 100;
 
 // NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
@@ -55,8 +55,8 @@ impl OrphanBlockPool {
             }
         }
 
-        shrink_to_fit!(blocks_map, SHRINK_THREHOLD);
-        shrink_to_fit!(parents_map, SHRINK_THREHOLD);
+        shrink_to_fit!(blocks_map, SHRINK_THRESHOLD);
+        shrink_to_fit!(parents_map, SHRINK_THRESHOLD);
         removed
     }
 

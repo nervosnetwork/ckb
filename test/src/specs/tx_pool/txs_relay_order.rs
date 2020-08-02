@@ -44,14 +44,13 @@ impl Spec for TxsRelayOrder {
         }
         let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(COUNT as u64, tx_pool_info.pending.value());
-        assert_eq!(0, tx_pool_info.orphan.value());
 
         // node1 should receive all txs
         sleep(10);
         let tx_pool_info = node1.get_tip_tx_pool_info();
         assert_eq!(
             COUNT as u64,
-            tx_pool_info.pending.value() + tx_pool_info.orphan.value()
+            tx_pool_info.pending.value()
         );
     }
 

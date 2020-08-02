@@ -103,7 +103,7 @@ impl CellProvider for ProposedPool {
                 CellStatus::live_cell(cell_meta)
             }
         } else if self.edges.get_outer(out_point).is_some() {
-            CellStatus::Unknown
+            CellStatus::Dead
         } else {
             CellStatus::Unknown
         }
