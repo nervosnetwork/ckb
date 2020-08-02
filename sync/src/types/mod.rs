@@ -33,6 +33,7 @@ use std::cmp;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+use std::iter;
 use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
@@ -55,7 +56,7 @@ const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
-const SHRINK_THREHOLD: usize = 300;
+const SHRINK_THRESHOLD: usize = 300;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for connections that are outbound, non-manual,
@@ -1544,13 +1545,13 @@ impl SyncState {
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
-        self.mark_as_known_txs(vec![hash]);
+        self.mark_as_known_txs(iter::once(hash));
     }
 
-    pub fn mark_as_known_txs(&self, hashes: Vec<Byte32>) {
+    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.iter() {
+            for hash in hashes.clone() {
                 inflight_transactions.remove(&hash);
             }
         }
@@ -1604,7 +1605,7 @@ impl SyncState {
         blocks.iter().for_each(|block| {
             block_status_map.remove(&block.hash());
         });
-        shrink_to_fit!(block_status_map, SHRINK_THREHOLD);
+        shrink_to_fit!(block_status_map, SHRINK_THRESHOLD);
         blocks
     }
 
@@ -1619,7 +1620,7 @@ impl SyncState {
     pub fn remove_block_status(&self, block_hash: &Byte32) {
         let mut guard = self.block_status_map.lock();
         guard.remove(block_hash);
-        shrink_to_fit!(guard, SHRINK_THREHOLD);
+        shrink_to_fit!(guard, SHRINK_THRESHOLD);
     }
 
     pub fn clear_get_block_proposals(

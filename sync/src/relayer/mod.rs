@@ -21,6 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
+use crate::orphan_tx_pool::OrphanTxPool;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
@@ -64,6 +65,7 @@ pub enum ReconstructionResult {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
+    pub(crate) orphan_tx_pool: Arc<OrphanTxPool>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
     rate_limiter: Arc<Mutex<KeyedRateLimiter<(PeerIndex, u32)>>>,
@@ -87,6 +89,7 @@ impl Relayer {
             min_fee_rate,
             max_tx_verify_cycles,
             rate_limiter,
+            orphan_tx_pool: Arc::new(OrphanTxPool::new()),
         }
     }
 

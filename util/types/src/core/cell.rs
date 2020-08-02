@@ -803,10 +803,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq!(
-            result.unwrap_err(),
-            OutPointError::Unknown(op_unknown),
-        );
+        assert_error_eq!(result.unwrap_err(), OutPointError::Unknown(op_unknown),);
     }
 
     #[test]
