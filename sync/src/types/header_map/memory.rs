@@ -3,7 +3,7 @@ use std::{clone, cmp, default, hash};
 use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashMap;
 
-use crate::types::SHRINK_THREHOLD;
+use crate::types::SHRINK_THRESHOLD;
 
 pub(crate) struct KeyValueMemory<K, V>(LinkedHashMap<K, V>)
 where
@@ -41,13 +41,13 @@ where
 
     pub(crate) fn remove(&mut self, key: &K) -> Option<V> {
         let ret = self.0.remove(key);
-        shrink_to_fit!(self.0, SHRINK_THREHOLD);
+        shrink_to_fit!(self.0, SHRINK_THRESHOLD);
         ret
     }
 
     pub(crate) fn pop_front(&mut self) -> Option<(K, V)> {
         let ret = self.0.pop_front();
-        shrink_to_fit!(self.0, SHRINK_THREHOLD);
+        shrink_to_fit!(self.0, SHRINK_THRESHOLD);
         ret
     }
 }
