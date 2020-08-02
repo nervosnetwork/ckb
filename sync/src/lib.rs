@@ -6,6 +6,7 @@
 mod block_status;
 mod net_time_checker;
 mod orphan_block_pool;
+mod orphan_tx_pool;
 mod relayer;
 mod status;
 mod synchronizer;

@@ -63,8 +63,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
-type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
+pub(crate) type SubmitTxResult = Result<CacheEntry, Error>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -79,8 +78,8 @@ pub(crate) type ChainReorgArgs = (
 
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitTxs(Request<Vec<TransactionView>, SubmitTxsResult>),
-    NotifyTxs(Notify<(Vec<TransactionView>, NotifyTxsCallback)>),
+    SubmitTx(Request<TransactionView, SubmitTxResult>),
+    NotifyTxs(Notify<Vec<TransactionView>>),
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
@@ -90,9 +89,7 @@ pub(crate) enum Message {
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
-    /// TODO(doc): @zhangsoledad
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
-    /// TODO(doc): @zhangsoledad
     GetAllIds(Request<(), TxPoolIds>),
 }
 
@@ -196,16 +193,26 @@ impl TxPoolController {
         })
     }
 
-    /// Submit local txs to tx-pool
-    pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, FailureError> {
+    /// Submit local tx to tx-pool
+    pub fn submit_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
-        let request = Request::call(txs, responder);
-        sender.try_send(Message::SubmitTxs(request)).map_err(|e| {
+        let request = Request::call(tx, responder);
+        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
         self.handle.block_on(response).map_err(Into::into)
+    }
+
+    /// Receive txs from network, try to add txs to tx-pool
+    pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), FailureError> {
+        let mut sender = self.sender.clone();
+        let notify = Notify::notify(txs);
+        sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e.into()
+        })
     }
 
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
@@ -222,20 +229,6 @@ impl TxPoolController {
             e
         })?;
         self.handle.block_on(response).map_err(Into::into)
-    }
-
-    /// Receive txs from network, try to add txs to tx-pool
-    pub fn notify_txs(
-        &self,
-        txs: Vec<TransactionView>,
-        callback: NotifyTxsCallback,
-    ) -> Result<(), FailureError> {
-        let mut sender = self.sender.clone();
-        let notify = Notify::notify((txs, callback));
-        sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
-            let (_m, e) = handle_try_send_error(e);
-            e.into()
-        })
     }
 
     /// Return tx-pool information
@@ -479,22 +472,19 @@ async fn process(service: TxPoolService, message: Message) {
                 error!("responder send block_template_result failed {:?}", e);
             };
         }
-        Message::SubmitTxs(Request {
+        Message::SubmitTx(Request {
             responder,
-            arguments: txs,
+            arguments: tx,
         }) => {
-            let submit_txs_result = service.process_txs(txs).await;
-            if let Err(e) = responder.send(submit_txs_result) {
-                error!("responder send submit_txs_result failed {:?}", e);
+            let submit_tx_result = service.process_tx(tx).await;
+            if let Err(e) = responder.send(submit_tx_result) {
+                error!("responder send submit_tx_result failed {:?}", e);
             };
         }
-        Message::NotifyTxs(Notify {
-            arguments: (txs, callback),
-        }) => {
-            let submit_txs_result = service.process_txs(txs).await;
-            if let Some(call) = callback {
-                call(submit_txs_result)
-            };
+        Message::NotifyTxs(Notify { arguments: txs }) => {
+            for tx in txs {
+                let _ret = service.process_tx(tx).await;
+            }
         }
         Message::FreshProposalsFilter(Request {
             responder,

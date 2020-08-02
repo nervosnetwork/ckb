@@ -1,6 +1,5 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{DefectEntry, TxEntry};
-use crate::component::orphan::OrphanPool;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
 use crate::error::Reject;
@@ -303,10 +302,6 @@ impl TxPool {
         }
     }
 
-    fn contains_proposed(&self, short_id: &ProposalShortId) -> bool {
-        self.snapshot().proposals().contains_proposed(short_id)
-    }
-
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
@@ -457,7 +452,7 @@ impl TxPool {
                                 }
                             }
 
-                            OutPointError::Unknown(out_points) => {
+                            OutPointError::Unknown(_) => {
                                 self.update_statics_for_remove_tx(
                                     size,
                                     cache_entry.map(|c| c.cycles).unwrap_or(0),

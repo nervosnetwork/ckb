@@ -41,3 +41,12 @@ impl From<OutPointError> for Error {
         error.context(ErrorKind::OutPoint).into()
     }
 }
+
+impl OutPointError {
+    pub fn is_unknown(&self) -> bool {
+        match *self {
+            OutPointError::Unknown(_) => true,
+            _ => false,
+        }
+    }
+}
