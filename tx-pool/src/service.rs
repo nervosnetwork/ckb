@@ -5,6 +5,7 @@ use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
@@ -307,12 +308,14 @@ impl TxPoolServiceBuilder {
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
+        let consensus = snapshot.cloned_consensus();
         let tx_pool = TxPool::new(tx_pool_config, snapshot, Arc::clone(&last_txs_updated_at));
         let block_assembler = block_assembler_config.map(BlockAssembler::new);
 
         TxPoolServiceBuilder {
             service: Some(TxPoolService::new(
                 tx_pool,
+                consensus,
                 block_assembler,
                 txs_verify_cache,
                 last_txs_updated_at,
@@ -351,6 +354,7 @@ impl TxPoolServiceBuilder {
 #[derive(Clone)]
 pub struct TxPoolService {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
+    pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
@@ -361,6 +365,7 @@ pub struct TxPoolService {
 impl TxPoolService {
     pub fn new(
         tx_pool: TxPool,
+        consensus: Arc<Consensus>,
         block_assembler: Option<BlockAssembler>,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         last_txs_updated_at: Arc<AtomicU64>,
@@ -369,6 +374,7 @@ impl TxPoolService {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
+            consensus,
             tx_pool_config,
             block_assembler,
             txs_verify_cache,

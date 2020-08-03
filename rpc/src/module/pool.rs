@@ -7,6 +7,7 @@ use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
+use ckb_tx_pool::error::Reject;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
@@ -100,20 +101,31 @@ impl PoolRpc for PoolRpcImpl {
             return Err(RPCError::ckb_internal_error(e));
         }
 
+        let broadcast = |tx_hash: packed::Byte32| {
+            // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
+            let peer_index = PeerIndex::new(usize::max_value());
+            self.sync_shared
+                .state()
+                .tx_hashes()
+                .entry(peer_index)
+                .or_default()
+                .insert(tx_hash);
+        };
+        let tx_hash = tx.hash();
         match submit_txs.unwrap() {
             Ok(_) => {
-                // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
-                let peer_index = PeerIndex::new(usize::max_value());
-                let hash = tx.hash();
-                self.sync_shared
-                    .state()
-                    .tx_hashes()
-                    .entry(peer_index)
-                    .or_default()
-                    .insert(hash.clone());
-                Ok(hash.unpack())
+                broadcast(tx_hash.clone());
+                Ok(tx_hash.unpack())
             }
-            Err(e) => Err(RPCError::from_ckb_error(e)),
+            Err(e) => match RPCError::downcast_submit_transaction_reject(&e) {
+                Some(reject) => {
+                    if let Reject::Duplicated(_) = reject {
+                        broadcast(tx_hash);
+                    }
+                    Err(RPCError::from_submit_transaction_reject(reject))
+                }
+                None => Err(RPCError::from_ckb_error(e)),
+            },
         }
     }
 

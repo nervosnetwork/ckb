@@ -110,6 +110,10 @@ impl Snapshot {
         &self.consensus
     }
 
+    pub fn cloned_consensus(&self) -> Arc<Consensus> {
+        Arc::clone(&self.consensus)
+    }
+
     pub fn proposals(&self) -> &ProposalView {
         &self.proposals
     }

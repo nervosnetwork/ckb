@@ -1,5 +1,5 @@
 use ckb_error::{Error as CKBError, InternalError, InternalErrorKind};
-use ckb_tx_pool::error::SubmitTxError;
+use ckb_tx_pool::error::Reject;
 use jsonrpc_core::{Error, ErrorCode, Value};
 use std::fmt::{Debug, Display};
 
@@ -33,6 +33,7 @@ pub enum RPCError {
     PoolRejectedTransactionByMaxAncestorsCountLimit = -1105,
     PoolIsFull = -1106,
     PoolRejectedDuplicatedTransaction = -1107,
+    PoolRejectedMalformedTransaction = -1108,
 }
 
 impl RPCError {
@@ -72,6 +73,27 @@ impl RPCError {
         }
     }
 
+    pub fn from_submit_transaction_reject(reject: &Reject) -> Error {
+        let code = match reject {
+            Reject::LowFeeRate(_, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
+            Reject::ExceededMaximumAncestorsCount => {
+                RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
+            }
+            Reject::Full(_, _) => RPCError::PoolIsFull,
+            Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
+            Reject::Malformed(_) => RPCError::PoolRejectedMalformedTransaction,
+        };
+        RPCError::custom_with_error(code, reject)
+    }
+
+    pub fn downcast_submit_transaction_reject(err: &CKBError) -> Option<&Reject> {
+        use ckb_error::ErrorKind::SubmitTransaction;
+        match err.kind() {
+            SubmitTransaction => err.downcast_ref::<Reject>(),
+            _ => None,
+        }
+    }
+
     pub fn from_ckb_error(err: CKBError) -> Error {
         use ckb_error::ErrorKind::*;
         match err.kind() {
@@ -81,23 +103,6 @@ impl RPCError {
                 RPCError::TransactionFailedToVerify,
                 err.unwrap_cause_or_self(),
             ),
-            SubmitTransaction => {
-                let submit_tx_err = match err.downcast_ref::<SubmitTxError>() {
-                    Some(err) => err,
-                    None => return Self::ckb_internal_error(err),
-                };
-
-                let kind = match *submit_tx_err {
-                    SubmitTxError::LowFeeRate(_, _) => {
-                        RPCError::PoolRejectedTransactionByMinFeeRate
-                    }
-                    SubmitTxError::ExceededMaximumAncestorsCount => {
-                        RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
-                    }
-                };
-
-                RPCError::custom_with_error(kind, submit_tx_err)
-            }
             Internal => {
                 let internal_err = match err.downcast_ref::<InternalError>() {
                     Some(err) => err,
@@ -106,10 +111,6 @@ impl RPCError {
 
                 let kind = match internal_err.kind() {
                     InternalErrorKind::CapacityOverflow => RPCError::IntegerOverflow,
-                    InternalErrorKind::TransactionPoolFull => RPCError::PoolIsFull,
-                    InternalErrorKind::PoolTransactionDuplicated => {
-                        RPCError::PoolRejectedDuplicatedTransaction
-                    }
                     InternalErrorKind::DataCorrupted => RPCError::DatabaseIsCorrupt,
                     InternalErrorKind::Database => RPCError::DatabaseError,
                     InternalErrorKind::Config => RPCError::ConfigError,
@@ -161,26 +162,41 @@ mod tests {
     }
 
     #[test]
-    fn test_submit_tx_error_from_ckb_error() {
-        let err: CKBError = SubmitTxError::LowFeeRate(100, 50).into();
+    fn test_submit_transaction_error() {
+        let err: CKBError = Reject::LowFeeRate(100, 50).into();
         assert_eq!(
             "PoolRejectedTransactionByMinFeeRate: Transaction fee rate must >= 100 shannons/KB, got: 50",
-            RPCError::from_ckb_error(err).message
+            RPCError::from_submit_transaction_reject(RPCError::downcast_submit_transaction_reject(&err).unwrap()).message
         );
 
-        let err: CKBError = SubmitTxError::ExceededMaximumAncestorsCount.into();
+        let err: CKBError = Reject::ExceededMaximumAncestorsCount.into();
         assert_eq!(
             "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit, try send it later",
-            RPCError::from_ckb_error(err).message
+            RPCError::from_submit_transaction_reject(RPCError::downcast_submit_transaction_reject(&err).unwrap()).message
         );
-    }
 
-    #[test]
-    fn test_internal_error_from_ckb_error() {
-        let err: CKBError = InternalErrorKind::TransactionPoolFull.into();
+        let err: CKBError = Reject::Full("size".to_owned(), 10).into();
         assert_eq!(
-            "PoolIsFull: TransactionPoolFull",
-            RPCError::from_ckb_error(err).message
+            "PoolIsFull: Transaction pool exceeded maximum size limit(10), try send it later",
+            RPCError::from_submit_transaction_reject(
+                RPCError::downcast_submit_transaction_reject(&err).unwrap()
+            )
+            .message
+        );
+
+        let err: CKBError = Reject::Duplicated(Byte32::new([0; 32])).into();
+        assert_eq!(
+            "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exist in transaction_pool",
+            RPCError::from_submit_transaction_reject(RPCError::downcast_submit_transaction_reject(&err).unwrap()).message
+        );
+
+        let err: CKBError = Reject::Malformed("cellbase like".to_owned()).into();
+        assert_eq!(
+            "PoolRejectedMalformedTransaction: Malformed cellbase like transaction",
+            RPCError::from_submit_transaction_reject(
+                RPCError::downcast_submit_transaction_reject(&err).unwrap()
+            )
+            .message
         );
     }
 
