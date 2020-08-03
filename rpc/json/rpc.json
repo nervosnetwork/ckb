@@ -351,9 +351,54 @@
                         "score": "0x64"
                     }
                 ],
+                "connected_duration": "0x2f",
                 "is_outbound": true,
+                "last_ping_duration": "0x1a",
                 "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-                "version": "0.31.0 (4231360 2020-04-20)"
+                "protocols": [
+                    {
+                        "id": "0x4",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x2",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x1",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x64",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x6e",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x66",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x65",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x0",
+                        "version": "0.0.1"
+                    }
+                ],
+                "sync_state": {
+                    "best_known_header_hash": null,
+                    "best_known_header_number": null,
+                    "last_common_header_hash": null,
+                    "last_common_header_number": null,
+                    "unknown_header_list_size": "0x20",
+                    "inflight_count": "0xa",
+                    "can_fetch_count": "0x80"
+                },
+                "version": "0.34.0 (f37f598 2020-07-17)"
             },
             {
                 "addresses": [
@@ -362,9 +407,98 @@
                         "score": "0x1"
                     }
                 ],
-                "is_outbound": false,
-                "node_id": "QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
-                "version": "0.29.0 (a6733e6 2020-02-26)"
+                "connected_duration": "0x95",
+                "is_outbound": true,
+                "last_ping_duration": "0x41",
+                "node_id": "QmSrkzhdBMmfCGx8tQGwgXxzBg8kLtX8qMcqECMuKWsxDV",
+                "protocols": [
+                    {
+                        "id": "0x0",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x2",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x6e",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x66",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x1",
+                        "version": "0.0.1"
+                    },
+                    {
+                        "id": "0x65",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x64",
+                        "version": "1"
+                    },
+                    {
+                        "id": "0x4",
+                        "version": "0.0.1"
+                    }
+                ],
+                "sync_state": {
+                    "best_known_header_hash": "0x2157c72b3eddd41a7a14c361173cd22ef27d7e0a29eda2e511ee0b3598c0b895",
+                    "best_known_header_number": "0xdb835",
+                    "last_common_header_hash": "0xc63026bd881d880bb142c855dc8153187543245f0a94391c831c75df31f263c4",
+                    "last_common_header_number": "0x4dc08",
+                    "unknown_header_list_size": "0x1f",
+                    "inflight_count": "0xa",
+                    "can_fetch_count": "0x80"
+                },
+                "version": "0.30.1 (5cc1b75 2020-03-23)"
+            }
+        ],
+        "returns": [
+            {
+                "addresses": "Observed remote peer listening address"
+            },
+            {
+                "connected_duration": "The connection duration in seconds"
+            },
+            {
+                "is_outbound": "Outbound or inbound peer"
+            },
+            {
+                "last_ping_duration": "Last ping duration in milliseconds"
+            },
+            {
+                "node_id": "The id of remote peer"
+            },
+            {
+                "protocols": "Opened protocols of remote peer"
+            },
+            {
+                "sync_state::best_known_header_hash": "Best known header hash of remote peer"
+            },
+            {
+                "sync_state::best_known_header_number": "Best known header number of remote peer"
+            },
+            {
+                "sync_state::last_common_header_hash": "Last common header hash of remote peer"
+            },
+            {
+                "sync_state::last_common_header_number": "Last common header number of remote peer"
+            },
+            {
+                "sync_state::unknown_header_list_size": "The total size of unknown header list"
+            },
+            {
+                "sync_state::inflight_count": "The count of concurrency downloading blocks"
+            },
+            {
+                "sync_state::can_fetch_count": "The count of blocks are available for concurrency download"
+            },
+            {
+                "version": "The peer version"
             }
         ],
         "skip": true
