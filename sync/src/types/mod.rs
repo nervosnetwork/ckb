@@ -1312,6 +1312,11 @@ impl SyncShared {
         }
     }
 
+    /// Return orphan tx count in memory pool
+    pub fn orphan_tx_count(&self) -> usize {
+        self.state.orphan_tx_pool.len()
+    }
+
     pub(crate) fn try_search_orphan_block_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
         debug!(
