@@ -453,7 +453,7 @@ dependencies = [
  "faster-hex 0.4.1",
  "lazy_static",
  "rand 0.6.5",
- "secp256k1 0.17.2",
+ "secp256k1",
 ]
 
 [[package]]
@@ -710,7 +710,7 @@ dependencies = [
  "proptest",
  "rand 0.6.5",
  "resolve",
- "secp256k1 0.15.5",
+ "secp256k1",
  "sentry",
  "serde",
  "serde_json",
@@ -920,7 +920,7 @@ dependencies = [
  "ckb-vm-definitions",
  "failure",
  "faster-hex 0.4.1",
- "goblin 0.1.3",
+ "goblin",
  "proptest",
  "serde",
  "tiny-keccak",
@@ -1105,7 +1105,7 @@ name = "ckb-util"
 version = "0.35.0-pre"
 dependencies = [
  "ckb-fixed-hash",
- "linked-hash-map 0.5.1",
+ "linked-hash-map",
  "parking_lot 0.7.1",
 ]
 
@@ -1150,7 +1150,7 @@ dependencies = [
  "cc",
  "ckb-vm-definitions",
  "derive_more",
- "goblin 0.2.0",
+ "goblin",
  "libc",
  "memmap",
 ]
@@ -1825,17 +1825,6 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3081214398d39e4bd7f2c1975f0488ed04614ffdd976c6fc7a0708278552c0da"
-dependencies = [
- "log 0.4.11",
- "plain",
- "scroll",
-]
-
-[[package]]
-name = "goblin"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0259546d6aed5dd1f4efc3ae663cae62912ceb927c0e96ae1fc8a22ab1516763"
@@ -2469,11 +2458,6 @@ checksum = "a2f02823cf78b754822df5f7f268fb59822e7296276d3e069d8e8cb26a14bd10"
 
 [[package]]
 name = "linked-hash-map"
-version = "0.5.1"
-source = "git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21#df27f2194df66d3c652b0fb661da707cc167c9d1"
-
-[[package]]
-name = "linked-hash-map"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae91b68aebc4ddb91978b11a1b02ddd8602a05ec19002801c5666000e05e0f83"
@@ -2521,7 +2505,7 @@ version = "0.1.0"
 source = "git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8#a35fdb81a309dd494c8edc02c0ff44e0597a4be4"
 dependencies = [
  "fnv",
- "linked-hash-map 0.5.2",
+ "linked-hash-map",
 ]
 
 [[package]]
@@ -3724,16 +3708,6 @@ dependencies = [
 
 [[package]]
 name = "secp256k1"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d311229f403d64002e9eed9964dfa5a0a0c1ac443344f7546bf48e916c6053a"
-dependencies = [
- "cc",
- "rand 0.6.5",
-]
-
-[[package]]
-name = "secp256k1"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2932dc07acd2066ff2e3921a4419606b220ba6cd03a9935123856cc534877056"
@@ -4094,7 +4068,7 @@ dependencies = [
  "openssl-sys",
  "rand 0.7.0",
  "ring",
- "secp256k1 0.17.2",
+ "secp256k1",
  "tokio 0.2.22",
  "tokio-util",
  "unsigned-varint",
