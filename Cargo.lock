@@ -1421,9 +1421,9 @@ dependencies = [
 
 [[package]]
 name = "ctrlc"
-version = "3.1.5"
+version = "3.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54dedab740bc412d514cfbc4a1d9d5d16fed02c4b14a7be129003c07fdc33b9b"
+checksum = "d0b676fa23f995faf587496dcd1c80fead847ed58d2da52ac1caca9a72790dd2"
 dependencies = [
  "nix",
  "winapi 0.3.8",
