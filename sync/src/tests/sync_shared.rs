@@ -5,7 +5,7 @@ use ckb_chain::chain::ChainService;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
-use ckb_types::core::{BlockBuilder, BlockView, Capacity, TransactionBuilder};
+use ckb_types::core::{BlockBuilder, BlockView, Capacity};
 use ckb_types::prelude::*;
 use std::sync::Arc;
 
@@ -132,73 +132,6 @@ fn test_insert_parent_unknown_block() {
         shared.active_chain().get_block_status(&parent_hash),
         BlockStatus::BLOCK_VALID
     );
-}
-
-#[test]
-fn test_switch_invalid_fork() {
-    let (shared, chain) = build_chain(4);
-    let make_invalid_block = |shared, parent_hash| -> BlockView {
-        let header = inherit_block(shared, &parent_hash).build().header();
-        let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
-        let invalid_transaction = TransactionBuilder::default().build();
-        BlockBuilder::default()
-            .header(header)
-            .transaction(cellbase)
-            .transaction(invalid_transaction)
-            .build()
-    };
-
-    // Insert the invalid fork. The fork blocks would not been verified until the fork switches as
-    // the main chain. So`insert_new_block` is ok even for invalid block. And `block_status_map`
-    // would mark the fork blocks as `BLOCK_STORED`
-    let mut parent_hash = shared.store().get_block_hash(1).unwrap();
-    let mut invalid_fork = Vec::new();
-    for _ in 2..shared.active_chain().tip_number() {
-        let block = make_invalid_block(shared.shared(), parent_hash.clone());
-        assert_eq!(
-            shared
-                .insert_new_block(&chain, Arc::new(block.clone()))
-                .expect("insert fork"),
-            true,
-        );
-
-        parent_hash = block.header().hash();
-        invalid_fork.push(block);
-    }
-    for block in invalid_fork.iter() {
-        assert_eq!(
-            shared
-                .active_chain()
-                .get_block_status(&block.header().hash()),
-            BlockStatus::BLOCK_STORED,
-        );
-    }
-
-    // Try to make the fork switch as the main chain.
-    loop {
-        let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
-        if shared
-            .insert_new_block(&chain, Arc::new(block.clone()))
-            .is_err()
-        {
-            break;
-        }
-        parent_hash = block.header().hash();
-        invalid_fork.push(block);
-    }
-    // TODO Current implementation dose not write the `block_ext.verified = Some(false)` into
-    // database. So we will never see `BLOCK_INVALID` anyway.
-    //    for block in invalid_fork.iter() {
-    //        assert_eq!(
-    //            shared.snapshot().get_block_status(block.header().hash()),
-    //            BlockStatus::BLOCK_INVALID,
-    //        );
-    //    }
-    for block in invalid_fork.iter() {
-        assert!(!shared
-            .active_chain()
-            .contains_block_status(&block.header().hash(), BlockStatus::BLOCK_VALID));
-    }
 }
 
 #[test]
