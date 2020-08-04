@@ -46,10 +46,7 @@ impl Spec for TxsRelayOrder {
         // node1 should receive all txs
         sleep(10);
         let tx_pool_info = node1.get_tip_tx_pool_info();
-        assert_eq!(
-            COUNT as u64,
-            tx_pool_info.pending.value()
-        );
+        assert_eq!(COUNT as u64, tx_pool_info.pending.value());
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {

@@ -8,6 +8,7 @@ pub struct TxPoolInfo {
     pub tip_number: BlockNumber,
     pub pending: Uint64,
     pub proposed: Uint64,
+    pub orphan: Uint64,
     pub total_tx_size: Uint64,
     pub total_tx_cycles: Uint64,
     pub min_fee_rate: Uint64,
