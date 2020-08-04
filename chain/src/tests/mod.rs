@@ -2,6 +2,7 @@ mod basic;
 mod block_assembler;
 mod delay_verify;
 mod find_fork;
+mod non_contextual_block_txs_verify;
 mod reward;
 mod truncate;
 mod uncle;
