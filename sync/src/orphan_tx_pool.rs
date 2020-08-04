@@ -139,6 +139,10 @@ impl OrphanTxPool {
         self.inner.read().is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.inner.read().len()
+    }
+
     pub fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
         let guard = self.inner.read();
 

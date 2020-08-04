@@ -144,6 +144,7 @@ impl PoolRpc for PoolRpcImpl {
             tip_number: tx_pool_info.tip_number.into(),
             pending: (tx_pool_info.pending_size as u64).into(),
             proposed: (tx_pool_info.proposed_size as u64).into(),
+            orphan: (self.sync_shared.orphan_tx_count() as u64).into(),
             total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
             total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
             min_fee_rate: self.min_fee_rate.as_u64().into(),

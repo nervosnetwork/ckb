@@ -735,7 +735,6 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-types",
  "console 0.8.0",
- "crossbeam-channel 0.3.9",
  "eaglesong",
  "failure",
  "futures 0.1.29",
