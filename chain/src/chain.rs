@@ -18,7 +18,9 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::InvalidParentError;
-use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
+use ckb_verification::{
+    BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
+};
 use crossbeam_channel::{self, select, Sender};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
@@ -277,11 +279,22 @@ impl ChainService {
     }
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
-        let block_verifier = BlockVerifier::new(self.shared.consensus());
-        block_verifier.verify(&block).map_err(|e| {
-            debug!("[process_block] verification error {:?}", e);
+        let consensus = self.shared.consensus();
+        BlockVerifier::new(consensus).verify(&block).map_err(|e| {
+            debug!("[process_block] BlockVerifier error {:?}", e);
             e
-        })
+        })?;
+
+        NonContextualBlockTxsVerifier::new(consensus)
+            .verify(&block)
+            .map_err(|e| {
+                debug!(
+                    "[process_block] NonContextualBlockTxsVerifier error {:?}",
+                    e
+                );
+                e
+            })
+            .map(|_| ())
     }
 
     fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
