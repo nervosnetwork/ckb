@@ -121,22 +121,26 @@ fn net_service_start(name: String) -> Node {
     let network_state =
         Arc::new(NetworkState::from_config(config.clone()).expect("Init network state failed"));
 
-    network_state
-        .protocol_ids
-        .write()
-        .insert(SupportProtocols::Ping.protocol_id());
-    network_state
-        .protocol_ids
-        .write()
-        .insert(SupportProtocols::Discovery.protocol_id());
-    network_state
-        .protocol_ids
-        .write()
-        .insert(SupportProtocols::Identify.protocol_id());
-    network_state
-        .protocol_ids
-        .write()
-        .insert(SupportProtocols::Feeler.protocol_id());
+    network_state.protocols.write().push((
+        SupportProtocols::Ping.protocol_id(),
+        SupportProtocols::Ping.name(),
+        SupportProtocols::Ping.support_versions(),
+    ));
+    network_state.protocols.write().push((
+        SupportProtocols::Discovery.protocol_id(),
+        SupportProtocols::Discovery.name(),
+        SupportProtocols::Discovery.support_versions(),
+    ));
+    network_state.protocols.write().push((
+        SupportProtocols::Identify.protocol_id(),
+        SupportProtocols::Identify.name(),
+        SupportProtocols::Identify.support_versions(),
+    ));
+    network_state.protocols.write().push((
+        SupportProtocols::Feeler.protocol_id(),
+        SupportProtocols::Feeler.name(),
+        SupportProtocols::Feeler.support_versions(),
+    ));
 
     // Ping protocol
     let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);

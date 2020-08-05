@@ -5,8 +5,17 @@ use serde::{Deserialize, Serialize};
 pub struct LocalNode {
     pub version: String,
     pub node_id: String,
-    pub is_active: bool,
+    pub active: bool,
     pub addresses: Vec<NodeAddress>,
+    pub protocols: Vec<LocalNodeProtocol>,
+    pub connections: Uint64,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct LocalNodeProtocol {
+    pub id: Uint64,
+    pub name: String,
+    pub support_versions: Vec<String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
