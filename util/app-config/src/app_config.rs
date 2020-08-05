@@ -157,10 +157,10 @@ impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
 
-        self.db.update_path_if_not_set(self.data_dir.join("db"));
+        self.db.adjust(root_dir, &self.data_dir, "db");
         self.indexer
             .db
-            .update_path_if_not_set(self.data_dir.join("indexer_db"));
+            .adjust(root_dir, &self.data_dir, "indexer_db");
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));

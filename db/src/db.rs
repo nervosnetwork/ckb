@@ -5,8 +5,8 @@ use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions};
 use rocksdb::{
-    ffi, ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
-    OptimisticTransactionOptions, Options, WriteOptions,
+    ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
+    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteOptions,
 };
 use std::sync::Arc;
 
@@ -19,50 +19,80 @@ pub struct RocksDB {
 
 impl RocksDB {
     pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
-        let mut opts = Options::default();
+        let cf_names: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
+
+        let (mut opts, cf_descriptors) = if let Some(ref file) = config.options_file {
+            let mut full_opts = FullOptions::load_from_file(file, None, false).map_err(|err| {
+                internal_error(format!("failed to load the options file: {}", err))
+            })?;
+            let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
+            full_opts
+                .complete_column_families(&cf_names_str, false)
+                .map_err(|err| {
+                    internal_error(format!("failed to check all column families: {}", err))
+                })?;
+            let FullOptions {
+                db_opts,
+                cf_descriptors,
+            } = full_opts;
+            (db_opts, cf_descriptors)
+        } else {
+            let opts = Options::default();
+            let cf_descriptors: Vec<_> = cf_names
+                .iter()
+                .map(|ref c| ColumnFamilyDescriptor::new(*c, Options::default()))
+                .collect();
+            (opts, cf_descriptors)
+        };
+
         opts.create_if_missing(false);
         opts.create_missing_column_families(true);
 
-        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
-        let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
-
-        let db =
-            OptimisticTransactionDB::open_cf(&opts, &config.path, &cf_options).or_else(|err| {
-                let err_str = err.as_ref();
-                if err_str.starts_with("Invalid argument:")
-                    && err_str.ends_with("does not exist (create_if_missing is false)")
-                {
-                    info!("Initialize a new database");
-                    opts.create_if_missing(true);
-                    let db = OptimisticTransactionDB::open_cf(&opts, &config.path, &cf_options)
-                        .map_err(|err| {
-                            internal_error(format!(
-                                "failed to open a new created database: {}",
-                                err
-                            ))
-                        })?;
-                    Ok(db)
-                } else if err.as_ref().starts_with("Corruption:") {
-                    warn!("Repairing the rocksdb since {} ...", err);
-                    let mut repair_opts = Options::default();
-                    repair_opts.create_if_missing(false);
-                    repair_opts.create_missing_column_families(false);
-                    OptimisticTransactionDB::repair(repair_opts, &config.path).map_err(|err| {
-                        internal_error(format!("failed to repair the database: {}", err))
-                    })?;
-                    warn!("Opening the repaired rocksdb ...");
-                    OptimisticTransactionDB::open_cf(&opts, &config.path, &cf_options).map_err(
-                        |err| {
-                            internal_error(format!("failed to open the repaired database: {}", err))
-                        },
-                    )
-                } else {
-                    Err(internal_error(format!(
-                        "failed to open the database: {}",
-                        err
-                    )))
-                }
-            })?;
+        let db = OptimisticTransactionDB::open_cf_descriptors(
+            &opts,
+            &config.path,
+            cf_descriptors.clone(),
+        )
+        .or_else(|err| {
+            let err_str = err.as_ref();
+            if err_str.starts_with("Invalid argument:")
+                && err_str.ends_with("does not exist (create_if_missing is false)")
+            {
+                info!("Initialize a new database");
+                opts.create_if_missing(true);
+                let db = OptimisticTransactionDB::open_cf_descriptors(
+                    &opts,
+                    &config.path,
+                    cf_descriptors.clone(),
+                )
+                .map_err(|err| {
+                    internal_error(format!("failed to open a new created database: {}", err))
+                })?;
+                Ok(db)
+            } else if err.as_ref().starts_with("Corruption:") {
+                warn!("Repairing the rocksdb since {} ...", err);
+                let mut repair_opts = Options::default();
+                repair_opts.create_if_missing(false);
+                repair_opts.create_missing_column_families(false);
+                OptimisticTransactionDB::repair(repair_opts, &config.path).map_err(|err| {
+                    internal_error(format!("failed to repair the database: {}", err))
+                })?;
+                warn!("Opening the repaired rocksdb ...");
+                OptimisticTransactionDB::open_cf_descriptors(
+                    &opts,
+                    &config.path,
+                    cf_descriptors.clone(),
+                )
+                .map_err(|err| {
+                    internal_error(format!("failed to open the repaired database: {}", err))
+                })
+            } else {
+                Err(internal_error(format!(
+                    "failed to open the database: {}",
+                    err
+                )))
+            }
+        })?;
 
         if !config.options.is_empty() {
             let rocksdb_options: Vec<(&str, &str)> = config
@@ -185,6 +215,7 @@ mod tests {
                 opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
                 opts
             },
+            options_file: None,
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -198,6 +229,7 @@ mod tests {
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             options: HashMap::new(),
+            options_file: None,
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -216,6 +248,7 @@ mod tests {
                 opts.insert("letsrock".to_owned(), "true".to_owned());
                 opts
             },
+            options_file: None,
         };
         RocksDB::open(&config, 2); // panic
     }

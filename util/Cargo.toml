@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 parking_lot = "=0.7.1"
-linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
+linked-hash-map = "0.5"
 
 [dev-dependencies]
 ckb-fixed-hash = { path = "fixed-hash" }
