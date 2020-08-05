@@ -108,6 +108,7 @@ impl NetworkRpc for NetworkRpcImpl {
                     }
                 }
 
+                let inflight_blocks = self.sync_shared.state().read_inflight_blocks();
                 RemoteNode {
                     is_outbound: peer.is_outbound(),
                     version: peer
@@ -147,18 +148,10 @@ impl NetworkRpc for NetworkRpcImpl {
                                 .map(|header| header.number().into()),
                             unknown_header_list_size: (state.unknown_header_list.len() as u64)
                                 .into(),
-                            inflight_count: (self
-                                .sync_shared
-                                .state()
-                                .read_inflight_blocks()
-                                .peer_inflight_count(*peer_index)
+                            inflight_count: (inflight_blocks.peer_inflight_count(*peer_index)
                                 as u64)
                                 .into(),
-                            can_fetch_count: (self
-                                .sync_shared
-                                .state()
-                                .read_inflight_blocks()
-                                .peer_can_fetch_count(*peer_index)
+                            can_fetch_count: (inflight_blocks.peer_can_fetch_count(*peer_index)
                                 as u64)
                                 .into(),
                         }),
