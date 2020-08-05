@@ -1284,6 +1284,11 @@ impl SyncShared {
 
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
+        debug!(
+            "try accepting {} descendant orphan blocks",
+            descendants.len()
+        );
+
         for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
