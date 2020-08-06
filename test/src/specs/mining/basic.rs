@@ -1,4 +1,4 @@
-use crate::assertion::tx_assertion::*;
+use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Net, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -20,13 +20,16 @@ impl Spec for MiningBasic {
         let node = &net.nodes[0];
         node.generate_blocks_until_contains_valid_cellbase();
 
-        let transaction = [node.new_transaction_spend_tip_cellbase()];
-        node.submit_transaction(&transaction[0]);
+        let transaction = node.new_transaction_spend_tip_cellbase();
+        node.submit_transaction(&transaction);
 
         let block1_hash = node.generate_block();
         let block1: BlockView = node.rpc_client().get_block(block1_hash).unwrap().into();
 
-        assert_proposed_txs(&block1, &transaction);
+        assert_eq!(
+            block1.get_proposal_tx_ids(),
+            transaction.get_proposal_tx_ids(),
+        );
 
         // skip (proposal_window.closest - 1) block
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0 - 1).for_each(|_| {
@@ -36,7 +39,7 @@ impl Spec for MiningBasic {
         let block3_hash = node.generate_block();
         let block3: BlockView = node.rpc_client().get_block(block3_hash).unwrap().into();
 
-        assert_committed_txs(&block3, &transaction);
+        assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());
     }
 }
 

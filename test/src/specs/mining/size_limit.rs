@@ -1,3 +1,4 @@
+use crate::generic::GetCommitTxIds;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::Unpack;
 use log::info;
@@ -47,9 +48,9 @@ impl Spec for TemplateSizeLimit {
 
         for bytes_limit in (1000..=2000).step_by(100) {
             let new_block = node.new_block(Some(bytes_limit), None, None);
-            let tx_num = ((bytes_limit as usize) - blank_block_size) / tx_size + 1;
+            let tx_num = ((bytes_limit as usize) - blank_block_size) / tx_size;
             assert_eq!(
-                new_block.transactions().len(),
+                new_block.get_commit_tx_ids().len(),
                 tx_num,
                 "block should contain {} txs",
                 tx_num

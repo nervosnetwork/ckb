@@ -1,4 +1,5 @@
 use crate::assertion::{reward_assertion::*, tx_assertion::*};
+use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::utils::generate_utxo_set;
 use crate::{Net, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
@@ -30,8 +31,16 @@ impl Spec for FeeOfTransaction {
         let number_to_commit = number_to_propose + closest;
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_proposed_txs(&node.get_block_by_number(number_to_propose), &txs);
-        assert_committed_txs(&node.get_block_by_number(number_to_commit), &txs);
+        assert_eq!(
+            node.get_block_by_number(number_to_propose)
+                .get_proposal_tx_ids(),
+            txs.get_proposal_tx_ids(),
+        );
+        assert_eq!(
+            node.get_block_by_number(number_to_commit)
+                .get_commit_tx_ids(),
+            txs.get_commit_tx_ids()
+        );
 
         assert_chain_rewards(node);
     }
@@ -60,7 +69,12 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
         let number_to_propose = node.get_tip_block_number() + 1;
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_proposed_txs(&node.get_block_by_number(number_to_propose), &txs);
+        assert_eq!(
+            node.get_block_by_number(number_to_propose)
+                .get_proposal_tx_ids()
+                .len(),
+            txs.get_proposal_tx_ids().len()
+        );
         assert_transactions_committed(node, &txs);
 
         assert_chain_rewards(node);
