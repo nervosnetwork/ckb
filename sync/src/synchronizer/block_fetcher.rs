@@ -92,12 +92,7 @@ impl<'a> BlockFetcher<'a> {
             // last_common_header, is expected to provide a more realistic picture. Hence here we
             // specially advance this peer's last_common_header at the case of both us on the same
             // active chain.
-            if self
-                .active_chain
-                .get_block_hash(best_known.number())
-                .map(|block_hash| block_hash == best_known.hash())
-                .unwrap_or(true)
-            {
+            if self.active_chain.is_main_chain(&best_known.hash()) {
                 let last_common = best_known;
                 self.synchronizer
                     .peers()

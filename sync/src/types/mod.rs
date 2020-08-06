@@ -1735,6 +1735,10 @@ impl ActiveChain {
         self.snapshot.epoch_ext().clone()
     }
 
+    pub fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
+        self.snapshot.is_main_chain(hash)
+    }
+
     pub fn is_initial_block_download(&self) -> bool {
         // Once this function has returned false, it must remain false.
         if self.state.ibd_finished.load(Ordering::Relaxed) {
