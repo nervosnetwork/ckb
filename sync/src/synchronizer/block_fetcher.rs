@@ -87,6 +87,23 @@ impl<'a> BlockFetcher<'a> {
         // This peer has nothing interesting.
         let best_known = self.peer_best_known_header()?;
         if !self.is_better_chain(&best_known) {
+            // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
+            // However, RPC `get_peers`, returns peers information which includes
+            // last_common_header, is expected to provide a more realistic picture. Hence here we
+            // specially advance this peer's last_common_header at the case of both us on the same
+            // active chain.
+            if self
+                .active_chain
+                .get_block_hash(best_known.number())
+                .map(|block_hash| block_hash == best_known.hash())
+                .unwrap_or(true)
+            {
+                let last_common = best_known;
+                self.synchronizer
+                    .peers()
+                    .set_last_common_header(self.peer, last_common.into_inner());
+            }
+
             return None;
         }
 
