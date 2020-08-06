@@ -394,6 +394,7 @@ fn all_specs() -> SpecMap {
         Box::new(RpcTruncate),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
+        Box::new(LastCommonHeaderForPeerWithWorseChain),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
