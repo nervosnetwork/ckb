@@ -17,9 +17,9 @@ mod tests;
 pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper};
 pub use crate::contextual_block_verifier::{ContextualBlockVerifier, Switch, VerifyContext};
 pub use crate::error::{
-    BlockError, BlockErrorKind, BlockTransactionsError, CellbaseError, CommitError, EpochError,
-    HeaderError, HeaderErrorKind, InvalidParentError, NumberError, PowError, TimestampError,
-    TransactionError, UnclesError, UnknownParentError,
+    BlockError, BlockErrorKind, BlockTransactionsError, BlockVersionError, CellbaseError,
+    CommitError, EpochError, HeaderError, HeaderErrorKind, InvalidParentError, NumberError,
+    PowError, TimestampError, TransactionError, UnclesError, UnknownParentError,
 };
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};

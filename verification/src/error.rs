@@ -228,7 +228,17 @@ pub enum UnclesError {
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "InvalidParentError(parent_hash: {})gg '", parent_hash)]
+#[fail(
+    display = "BlockVersionError(expected: {}, actual: {})",
+    expected, actual
+)]
+pub struct BlockVersionError {
+    pub expected: Version,
+    pub actual: Version,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[fail(display = "InvalidParentError(parent_hash: {})", parent_hash)]
 pub struct InvalidParentError {
     pub parent_hash: Byte32,
 }
@@ -238,7 +248,9 @@ pub enum PowError {
     #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
     Boundary { expected: Byte32, actual: Byte32 },
 
-    #[fail(display = "InvalidNonce")]
+    #[fail(
+        display = "InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log"
+    )]
     InvalidNonce,
 }
 
@@ -414,6 +426,20 @@ mod tests {
         assert_eq!(
             is_too_new,
             vec![false, false, false, false, false, false, false, true]
+        );
+    }
+
+    #[test]
+    fn test_version_error_display() {
+        let e: Error = BlockVersionError {
+            expected: 0,
+            actual: 1,
+        }
+        .into();
+
+        assert_eq!(
+            "Header(Version(BlockVersionError(expected: 0, actual: 1)))",
+            format!("{}", e)
         );
     }
 }
