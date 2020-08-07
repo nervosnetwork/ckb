@@ -136,14 +136,6 @@ impl Spec for ForkContainsInvalidBlock {
         bad_chain1.iter().for_each(|block| {
             net.send(SupportProtocols::Sync.protocol_id(), pi, build_block(block))
         });
-        let last_hash = bad_chain1.last().map(|b| b.hash()).unwrap();
-        assert!(
-            wait_until(10, || good_node
-                .rpc_client()
-                .get_fork_block(last_hash.clone())
-                .is_some()),
-            "good_node should store the fork blocks even it contains invalid blocks",
-        );
         assert_eq!(good_node.get_tip_block(), tip_block);
 
         // Sync second part of bad fork.
