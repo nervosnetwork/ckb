@@ -1,6 +1,6 @@
 use ckb_logger::debug;
 use p2p::bytes::{BufMut, Bytes, BytesMut};
-use snap::{Decoder as SnapDecoder, Encoder as SnapEncoder};
+use snap::raw::{Decoder as SnapDecoder, Encoder as SnapEncoder};
 
 use std::io;
 
