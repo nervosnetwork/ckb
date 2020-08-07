@@ -76,7 +76,7 @@ function run-integration {
   pushd test
   Set-Env RUST_BACKTRACE 1
   Set-Env RUST_LOG $env:INTEGRATION_RUST_LOG
-  iex "cargo run -- --bin target/debug/ckb $($env:CKB_TEST_ARGS)"
+  iex "& cargo run -- --bin target/debug/ckb $($env:CKB_TEST_ARGS)"
   popd
 }
 
