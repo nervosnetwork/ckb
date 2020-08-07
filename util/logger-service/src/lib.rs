@@ -533,7 +533,6 @@ pub fn flush() {
 // before other register operations.
 fn setup_panic_logger() {
     let panic_logger = |info: &panic::PanicInfo| {
-        let backtrace = Backtrace::new();
         let thread = thread::current();
         let name = thread.name().unwrap_or("unnamed");
         let location = info.location().unwrap(); // The current implementation always returns Some
@@ -545,13 +544,16 @@ fn setup_panic_logger() {
             },
         };
         log::error!(
-            target: "panic", "thread '{}' panicked at '{}': {}:{}{:?}",
+            target: "panic", "thread '{}' panicked at '{}': {}:{}",
             name,
             msg,
             location.file(),
             location.line(),
-            backtrace,
         );
+
+        // Backtrace::new may trigger debug assertion failure in Windows, so print panic
+        // informations first then the backtrace.
+        log::error!(target: "panic", "{:?}", Backtrace::new());
     };
     panic::set_hook(Box::new(panic_logger));
 }
