@@ -324,7 +324,7 @@ impl<'a> TransactionsProvider<'a> {
 }
 
 impl<'a> CellProvider for TransactionsProvider<'a> {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         match self.transactions.get(&out_point.tx_hash()) {
             Some(tx) => tx
                 .outputs()
@@ -335,7 +335,11 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
-                    CellStatus::live_cell(CellMetaBuilder::from_cell_output(cell, data).build())
+                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
+                    if !with_data {
+                        cell_meta.mem_cell_data = None;
+                    }
+                    CellStatus::live_cell(cell_meta)
                 })
                 .unwrap_or(CellStatus::Unknown),
             None => CellStatus::Unknown,
