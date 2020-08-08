@@ -1,3 +1,11 @@
+# [v0.34.2](https://github.com/nervosnetwork/ckb/compare/v0.34.0...v0.34.2) (2020-08-08)
+
+### Bug Fixes
+
+* GHSA-q73f-w3h7-7wcc: Syscall to get data hash has inconsistent behaviors. (@zhangsoledad)
+* GHSA-wjxc-pjx9-4wvm: Upgrade snappy to 1.0. (@quake)
+* GHSA-3gjh-29fv-8hr6: Limit the decompressed size of p2p message. (@quake)
+
 # [v0.34.0](https://github.com/nervosnetwork/ckb/compare/v0.33.1...v0.34.0) (2020-07-17)
 
 ### Features

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain"
-version = "0.34.1"
+version = "0.34.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
