@@ -149,7 +149,7 @@ impl Net {
 
         let ptr = self as *const Self as *mut Self;
         unsafe {
-            ::std::mem::replace(&mut (*ptr).controller, controller);
+            let _ingore_prev_value = ::std::mem::replace(&mut (*ptr).controller, controller);
         }
     }
 

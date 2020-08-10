@@ -48,7 +48,7 @@ impl Spec for ChainFork1 {
     }
 
     // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }

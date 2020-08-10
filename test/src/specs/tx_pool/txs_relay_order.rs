@@ -53,7 +53,7 @@ impl Spec for TxsRelayOrder {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         Box::new(|config| {
             config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
         })

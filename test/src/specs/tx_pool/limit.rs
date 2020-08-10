@@ -58,7 +58,7 @@ impl Spec for SizeLimit {
         node.assert_tx_pool_serialized_size(0);
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         Box::new(|config| {
             config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_SIZE_LIMIT;
             config.tx_pool.max_cycles = MAX_CYCLES_FOR_SIZE_LIMIT;
@@ -121,7 +121,7 @@ impl Spec for CyclesLimit {
         node.assert_tx_pool_cycles(0);
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         Box::new(|config| {
             config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_CYCLE_LIMIT;
             config.tx_pool.max_cycles = MAX_CYCLES_FOR_CYCLE_LIMIT;

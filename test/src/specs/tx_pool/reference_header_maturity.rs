@@ -74,7 +74,7 @@ impl Spec for ReferenceHeaderMaturity {
         }
 
         info!("Tx will be added to pending pool");
-        let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
+        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
         assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
@@ -100,7 +100,7 @@ impl Spec for ReferenceHeaderMaturity {
         );
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
             spec_config.params.epoch_duration_target = 30;

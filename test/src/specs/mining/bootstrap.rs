@@ -62,7 +62,7 @@ impl Spec for BootstrapCellbase {
         )
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         Box::new(|config| {
             config.block_assembler = Some(BlockAssemblerConfig {
                 code_hash: h256!("0xa2"),

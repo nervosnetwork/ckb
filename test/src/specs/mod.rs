@@ -90,11 +90,11 @@ pub trait Spec {
 
     fn run(&self, net: &mut Net);
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|_| ())
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         // disable outbound peer service
         Box::new(|config| {
             config.network.connect_outbound_interval_secs = 0;

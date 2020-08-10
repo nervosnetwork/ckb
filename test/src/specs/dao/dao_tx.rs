@@ -12,7 +12,7 @@ pub struct WithdrawDAO;
 impl Spec for WithdrawDAO {
     crate::name!("withdraw_dao");
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.genesis_epoch_length = 2;
             spec_config.params.epoch_duration_target = 2;
@@ -44,7 +44,7 @@ pub struct WithdrawDAOWithOverflowCapacity;
 impl Spec for WithdrawDAOWithOverflowCapacity {
     crate::name!("withdraw_dao_with_overflow_capacity");
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.genesis_epoch_length = 2;
             spec_config.params.epoch_duration_target = 2;

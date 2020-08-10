@@ -25,7 +25,7 @@ impl Spec for ValidSince {
         // self.test_since_and_proposal(&net.nodes[1]);
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(move |spec_config: &mut ChainSpec| {
             spec_config.params.cellbase_maturity = 0;
         })
@@ -190,7 +190,7 @@ impl ValidSince {
             "Tx will be added to pending pool in N + {} block",
             relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
+        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
         assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
@@ -227,7 +227,7 @@ impl ValidSince {
             "Tx will be added to pending pool in {} block",
             absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
+        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
         assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 

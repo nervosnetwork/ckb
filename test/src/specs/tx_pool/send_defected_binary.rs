@@ -114,7 +114,7 @@ impl Spec for SendDefectedBinary {
         }
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let pubkey_data = self
             .privkey
             .pubkey()
