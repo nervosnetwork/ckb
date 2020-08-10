@@ -1,12 +1,13 @@
 use ckb_logger::debug;
 use p2p::bytes::{BufMut, Bytes, BytesMut};
-use snap::{Decoder as SnapDecoder, Encoder as SnapEncoder};
+use snap::raw::{decompress_len, Decoder as SnapDecoder, Encoder as SnapEncoder};
 
 use std::io;
 
 const COMPRESSION_SIZE_THRESHOLD: usize = 1024;
 const UNCOMPRESS_FLAG: u8 = 0b0000_0000;
 const COMPRESS_FLAG: u8 = 0b1000_0000;
+const MAX_UNCOMPRESSED_LEN: usize = 1 << 23; // 8MB
 
 /// Compressed decompression structure
 ///
@@ -65,10 +66,27 @@ impl Message {
         if self.inner.is_empty() {
             Err(io::ErrorKind::InvalidData.into())
         } else if self.compress_flag() {
-            match SnapDecoder::new().decompress_vec(&self.inner[1..]) {
-                Ok(res) => Ok(Bytes::from(res)),
+            match decompress_len(&self.inner[1..]) {
+                Ok(decompressed_bytes_len) => {
+                    if decompressed_bytes_len > MAX_UNCOMPRESSED_LEN {
+                        debug!(
+                            "the maximum uncompressed bytes len limit is exceeded, limit: {}, len: {}",
+                            MAX_UNCOMPRESSED_LEN, decompressed_bytes_len
+                        );
+                        Err(io::ErrorKind::InvalidData.into())
+                    } else {
+                        let mut buf = vec![0; decompressed_bytes_len];
+                        match SnapDecoder::new().decompress(&self.inner[1..], &mut buf) {
+                            Ok(_) => Ok(buf.into()),
+                            Err(e) => {
+                                debug!("snappy decompress error: {:?}", e);
+                                Err(io::ErrorKind::InvalidData.into())
+                            }
+                        }
+                    }
+                }
                 Err(e) => {
-                    debug!("snappy decompress error: {:?}", e);
+                    debug!("snappy decompress_len error: {:?}", e);
                     Err(io::ErrorKind::InvalidData.into())
                 }
             }

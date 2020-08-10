@@ -120,6 +120,12 @@ impl PoolRpc for PoolRpcImpl {
                                     "transaction exceeded maximum ancestors count limit, try send it later".to_string(),
                             ));
                         }
+                        SubmitTxError::Malformed(ref desc) => {
+                            return Err(RPCError::custom(
+                                RPCError::Invalid,
+                                format!("malformed transaction {}", desc),
+                            ));
+                        }
                     }
                 }
                 Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)))

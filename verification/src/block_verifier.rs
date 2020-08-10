@@ -1,4 +1,5 @@
 use crate::header_verifier::HeaderResolver;
+pub use crate::transaction_verifier::NonContextualTransactionVerifier;
 use crate::{BlockErrorKind, CellbaseError, Verifier};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
@@ -233,5 +234,23 @@ impl BlockBytesVerifier {
         } else {
             Err(BlockErrorKind::ExceededMaximumBlockBytes.into())
         }
+    }
+}
+
+pub struct NonContextualBlockTxsVerifier<'a> {
+    consensus: &'a Consensus,
+}
+
+impl<'a> NonContextualBlockTxsVerifier<'a> {
+    pub fn new(consensus: &'a Consensus) -> Self {
+        NonContextualBlockTxsVerifier { consensus }
+    }
+
+    pub fn verify(&self, block: &BlockView) -> Result<Vec<()>, Error> {
+        block
+            .transactions()
+            .iter()
+            .map(|tx| NonContextualTransactionVerifier::new(tx, self.consensus).verify())
+            .collect()
     }
 }

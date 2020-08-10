@@ -14,7 +14,9 @@ mod uncles_verifier;
 #[cfg(test)]
 mod tests;
 
-pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper};
+pub use crate::block_verifier::{
+    BlockVerifier, HeaderResolverWrapper, NonContextualBlockTxsVerifier,
+};
 pub use crate::contextual_block_verifier::{ContextualBlockVerifier, Switch, VerifyContext};
 pub use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, CellbaseError, CommitError, EpochError,
@@ -24,7 +26,8 @@ pub use crate::error::{
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
 pub use crate::transaction_verifier::{
-    ContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric, TransactionVerifier,
+    ContextualTransactionVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since,
+    SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
 };
 
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second

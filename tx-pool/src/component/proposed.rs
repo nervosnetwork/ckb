@@ -88,17 +88,19 @@ pub struct ProposedPool {
 }
 
 impl CellProvider for ProposedPool {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         if let Some(x) = self.edges.get_inner(out_point) {
             if x.is_some() {
                 CellStatus::Dead
             } else {
                 let (output, data) = self.get_output_with_data(out_point).expect("output");
-                CellStatus::live_cell(
-                    CellMetaBuilder::from_cell_output(output, data)
-                        .out_point(out_point.clone())
-                        .build(),
-                )
+                let mut cell_meta = CellMetaBuilder::from_cell_output(output, data)
+                    .out_point(out_point.to_owned())
+                    .build();
+                if !with_data {
+                    cell_meta.mem_cell_data = None;
+                }
+                CellStatus::live_cell(cell_meta)
             }
         } else if self.edges.get_outer(out_point).is_some() {
             CellStatus::Dead

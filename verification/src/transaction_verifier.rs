@@ -19,12 +19,12 @@ use lru_cache::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-pub struct ContextualTransactionVerifier<'a, M> {
+pub struct TimeRelativeTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub since: SinceVerifier<'a, M>,
 }
 
-impl<'a, M> ContextualTransactionVerifier<'a, M>
+impl<'a, M> TimeRelativeTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -36,7 +36,7 @@ where
         parent_hash: Byte32,
         consensus: &'a Consensus,
     ) -> Self {
-        ContextualTransactionVerifier {
+        TimeRelativeTransactionVerifier {
             maturity: MaturityVerifier::new(
                 &rtx,
                 epoch_number_with_fraction,
@@ -59,17 +59,90 @@ where
     }
 }
 
-pub struct TransactionVerifier<'a, M, CS> {
+pub struct NonContextualTransactionVerifier<'a> {
     pub version: VersionVerifier<'a>,
     pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
-    pub maturity: MaturityVerifier<'a>,
-    pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub outputs_data_verifier: OutputsDataVerifier<'a>,
-    pub script: ScriptVerifier<'a, CS>,
+}
+
+impl<'a> NonContextualTransactionVerifier<'a> {
+    pub fn new(tx: &'a TransactionView, consensus: &'a Consensus) -> Self {
+        NonContextualTransactionVerifier {
+            version: VersionVerifier::new(tx, consensus.tx_version()),
+            size: SizeVerifier::new(tx, consensus.max_block_bytes()),
+            empty: EmptyVerifier::new(tx),
+            duplicate_deps: DuplicateDepsVerifier::new(tx),
+            outputs_data_verifier: OutputsDataVerifier::new(tx),
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        self.version.verify()?;
+        self.size.verify()?;
+        self.empty.verify()?;
+        self.duplicate_deps.verify()?;
+        self.outputs_data_verifier.verify()?;
+        Ok(())
+    }
+}
+
+pub struct ContextualTransactionVerifier<'a, M, CS> {
+    pub maturity: MaturityVerifier<'a>,
     pub since: SinceVerifier<'a, M>,
+    pub capacity: CapacityVerifier<'a>,
+    pub script: ScriptVerifier<'a, CS>,
     pub fee_calculator: FeeCalculator<'a, CS>,
+}
+
+impl<'a, M, CS> ContextualTransactionVerifier<'a, M, CS>
+where
+    M: BlockMedianTimeContext,
+    CS: ChainStore<'a>,
+{
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        median_time_context: &'a M,
+        block_number: BlockNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
+        parent_hash: Byte32,
+        consensus: &'a Consensus,
+        chain_store: &'a CS,
+    ) -> Self {
+        ContextualTransactionVerifier {
+            maturity: MaturityVerifier::new(
+                &rtx,
+                epoch_number_with_fraction,
+                consensus.cellbase_maturity(),
+            ),
+            script: ScriptVerifier::new(rtx, chain_store),
+            capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
+            since: SinceVerifier::new(
+                rtx,
+                median_time_context,
+                block_number,
+                epoch_number_with_fraction,
+                parent_hash,
+            ),
+            fee_calculator: FeeCalculator::new(rtx, &consensus, &chain_store),
+        }
+    }
+
+    pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
+        self.maturity.verify()?;
+        self.capacity.verify()?;
+        self.since.verify()?;
+        let cycles = self.script.verify(max_cycles)?;
+        let fee = self.fee_calculator.transaction_fee()?;
+        Ok(CacheEntry::new(cycles, fee))
+    }
+}
+
+pub struct TransactionVerifier<'a, M, CS> {
+    pub non_contextual: NonContextualTransactionVerifier<'a>,
+    pub contextual: ContextualTransactionVerifier<'a, M, CS>,
 }
 
 impl<'a, M, CS> TransactionVerifier<'a, M, CS>
@@ -88,41 +161,22 @@ where
         chain_store: &'a CS,
     ) -> Self {
         TransactionVerifier {
-            version: VersionVerifier::new(&rtx.transaction, consensus.tx_version()),
-            size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
-            empty: EmptyVerifier::new(&rtx.transaction),
-            maturity: MaturityVerifier::new(
-                &rtx,
-                epoch_number_with_fraction,
-                consensus.cellbase_maturity(),
-            ),
-            duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, chain_store),
-            capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
-            since: SinceVerifier::new(
+            non_contextual: NonContextualTransactionVerifier::new(&rtx.transaction, consensus),
+            contextual: ContextualTransactionVerifier::new(
                 rtx,
                 median_time_context,
                 block_number,
                 epoch_number_with_fraction,
                 parent_hash,
+                consensus,
+                chain_store,
             ),
-            fee_calculator: FeeCalculator::new(rtx, &consensus, &chain_store),
         }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
-        self.version.verify()?;
-        self.size.verify()?;
-        self.empty.verify()?;
-        self.maturity.verify()?;
-        self.capacity.verify()?;
-        self.duplicate_deps.verify()?;
-        self.outputs_data_verifier.verify()?;
-        self.since.verify()?;
-        let cycles = self.script.verify(max_cycles)?;
-        let fee = self.fee_calculator.transaction_fee()?;
-        Ok(CacheEntry::new(cycles, fee))
+        self.non_contextual.verify()?;
+        self.contextual.verify(max_cycles)
     }
 }
 
