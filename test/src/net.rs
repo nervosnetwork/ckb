@@ -33,13 +33,16 @@ impl Net {
         start_port: Arc<AtomicU16>,
         vendor_dir: PathBuf,
         setup: Setup,
+        case_name: &str,
     ) -> Self {
         let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
         let nodes: Vec<Node> = (0..setup.num_nodes)
-            .map(|_| {
+            .enumerate()
+            .map(|(index, _)| {
+                let node_index = "node".to_owned() + &index.to_string();
                 let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
                 let rpc_port = start_port.fetch_add(1, Ordering::SeqCst);
-                Node::new(binary, p2p_port, rpc_port)
+                Node::new(binary, p2p_port, rpc_port, case_name, &node_index)
             })
             .collect();
 
@@ -48,7 +51,7 @@ impl Net {
             controller: None,
             p2p_port,
             setup,
-            working_dir: temp_path(),
+            working_dir: temp_path(case_name, "net"),
             vendor_dir,
         }
     }

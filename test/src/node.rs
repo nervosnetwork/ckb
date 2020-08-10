@@ -50,11 +50,17 @@ impl Drop for ProcessGuard {
 }
 
 impl Node {
-    pub fn new(binary: &str, p2p_port: u16, rpc_port: u16) -> Self {
+    pub fn new(
+        binary: &str,
+        p2p_port: u16,
+        rpc_port: u16,
+        case_name: &str,
+        node_index: &str,
+    ) -> Self {
         let rpc_client = RpcClient::new(&format!("http://127.0.0.1:{}/", rpc_port));
         Self {
             binary: binary.to_string(),
-            working_dir: temp_path(),
+            working_dir: temp_path(case_name, node_index),
             p2p_port,
             rpc_port,
             rpc_client,

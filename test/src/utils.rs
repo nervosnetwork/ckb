@@ -215,9 +215,10 @@ pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
 ///
 /// We use `tempdir` only for generating a random path, and expect the corresponding directory
 /// that `tempdir` creates be deleted when go out of this function.
-pub fn temp_path() -> String {
+pub fn temp_path(case_name: &str, id: &str) -> String {
     let mut builder = tempfile::Builder::new();
-    builder.prefix("ckb-it-");
+    let prefix = ["ckb-it", case_name, id, ""].join("-");
+    builder.prefix(&prefix);
     let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
         builder.tempdir_in(val)
     } else {

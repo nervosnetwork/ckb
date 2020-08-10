@@ -114,7 +114,13 @@ impl Worker {
         let binary = self.binary.clone();
         let vendor = self.vendor.clone();
         let outbox = self.outbox.clone();
-        let mut net = Net::new(&binary, Arc::clone(&self.start_port), vendor, spec.setup());
+        let mut net = Net::new(
+            &binary,
+            Arc::clone(&self.start_port),
+            vendor,
+            spec.setup(),
+            spec.name(),
+        );
         let now = Instant::now();
         let node_dirs: Vec<_> = net
             .nodes
