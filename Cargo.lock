@@ -1831,9 +1831,9 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0259546d6aed5dd1f4efc3ae663cae62912ceb927c0e96ae1fc8a22ab1516763"
+checksum = "d20fd25aa456527ce4f544271ae4fea65d2eda4a6561ea56f39fb3ee4f7e3884"
 dependencies = [
  "log 0.4.11",
  "plain",
