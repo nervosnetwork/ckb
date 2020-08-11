@@ -8,4 +8,3 @@ edition = "2018"
 [dependencies]
 ckb-occupied-capacity-macros = { path = "macros" }
 ckb-occupied-capacity-core = { path = "core" }
-proc-macro-hack = "0.5"

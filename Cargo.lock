@@ -528,8 +528,7 @@ name = "ckb-fixed-hash"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
- "ckb-fixed-hash-hack",
- "proc-macro-hack",
+ "ckb-fixed-hash-macros",
 ]
 
 [[package]]
@@ -542,11 +541,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-fixed-hash-hack"
+name = "ckb-fixed-hash-macros"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
- "proc-macro-hack",
  "proc-macro2 0.4.27",
  "quote 0.6.11",
  "syn 0.15.29",
@@ -757,7 +755,6 @@ version = "0.36.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
- "proc-macro-hack",
 ]
 
 [[package]]
@@ -772,7 +769,6 @@ name = "ckb-occupied-capacity-macros"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
- "proc-macro-hack",
  "quote 0.6.11",
  "syn 0.15.29",
 ]

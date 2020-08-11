@@ -7,5 +7,4 @@ edition = "2018"
 
 [dependencies]
 ckb-fixed-hash-core = { path = "core" }
-ckb-fixed-hash-hack = { path = "hack" }
-proc-macro-hack = "0.5"
+ckb-fixed-hash-macros = { path = "macros" }
