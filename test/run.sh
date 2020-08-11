@@ -9,6 +9,10 @@ set -u
 
 cd "$DIR"
 
+if [ -z "${CI:-}" ]; then
+  exec cargo run "$@"
+fi
+
 set +e
 
 export CKB_INTEGRATION_FAILURE_FILE="$(pwd)/integration.failure"
