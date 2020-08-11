@@ -7,7 +7,7 @@ use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};
 use ckb_types::{
     core::BlockView,
-    packed::{self, Byte32, GetBlocks, SyncMessage},
+    packed::{self, Byte32, SyncMessage},
     prelude::*,
 };
 use log::info;
@@ -186,17 +186,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let block = node.new_block(None, None, None);
         sync_header(&net, peer_id, &block);
 
-        net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
-                    .unwrap_or(false)
-            },
-            &format!(
-                "Node should send back GetBlocks message for the block {}",
-                block.hash()
-            ),
-        );
+        should_receive_get_blocks_message(&net, block.hash());
 
         // Sync duplicated header again, `node` should discard the duplicated one.
         // So we will not receive any response messages
@@ -221,17 +211,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
             .expect("build connection with node");
         sync_header(&net, peer_id, &block);
 
-        net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
-                    .unwrap_or(false)
-            },
-            &format!(
-                "Node should send back GetBlocks message for the block {}",
-                block.hash()
-            ),
-        );
+        should_receive_get_blocks_message(&net, block.hash());
 
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, peer_id, &block);
@@ -278,14 +258,7 @@ impl Spec for BlockSyncOrphanBlocks {
         });
 
         // Wait for block fetch timer
-        net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == GetBlocks::NAME)
-                    .unwrap_or(false)
-            },
-            "Test node should receive GetBlocks message from node0",
-        );
+        should_receive_get_blocks_message(&net, blocks.last().unwrap().hash());
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
@@ -348,14 +321,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         });
 
         // Wait for block fetch timer
-        net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == GetBlocks::NAME)
-                    .unwrap_or(false)
-            },
-            "Test node should receive GetBlocks message from node0",
-        );
+        should_receive_get_blocks_message(&net, blocks.last().unwrap().hash());
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
@@ -579,5 +545,22 @@ fn sync_get_blocks(net: &Net, peer_id: PeerIndex, hashes: &[Byte32]) {
         SupportProtocols::Sync.protocol_id(),
         peer_id,
         build_get_blocks(hashes),
+    );
+}
+
+fn should_receive_get_blocks_message(net: &Net, last_block_hash: Byte32) {
+    net.should_receive(
+        |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| match message.to_enum() {
+                    packed::SyncMessageUnion::GetBlocks(get_blocks) => {
+                        let block_hashes = get_blocks.block_hashes();
+                        block_hashes.get(block_hashes.len() - 1).unwrap() == last_block_hash
+                    }
+                    _ => false,
+                })
+                .unwrap_or(false)
+        },
+        "Test node should receive GetBlocks message from node0",
     );
 }
