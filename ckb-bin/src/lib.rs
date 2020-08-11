@@ -1,10 +1,14 @@
 mod helper;
+mod setup_guard;
 mod subcommand;
 
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_build_info::Version;
 
+use setup_guard::SetupGuard;
+
 pub(crate) const LOG_TARGET_MAIN: &str = "main";
+pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
@@ -31,7 +35,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     }
 
     let setup = Setup::from_matches(&app_matches)?;
-    let _guard = setup.setup_app(&version)?;
+    let _guard = SetupGuard::from_setup(&setup, &version)?;
 
     match app_matches.subcommand() {
         (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version),

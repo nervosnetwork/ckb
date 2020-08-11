@@ -12,7 +12,7 @@ serde_plain = "0.3.0"
 toml = "0.5"
 path-clean = "0.1.0"
 ckb-logger = { path = "../../util/logger" }
-ckb-logger-service = { path = "../../util/logger-service" }
+ckb-logger-config = { path = "../../util/logger-config" }
 sentry = "0.16.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}

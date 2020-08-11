@@ -305,7 +305,7 @@ dependencies = [
  "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
- "ckb-logger-service",
+ "ckb-logger-config",
  "ckb-pow",
  "ckb-resource",
  "ckb-types",
@@ -382,6 +382,7 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "rayon",
+ "sentry",
  "serde",
  "serde_plain",
  "tempfile",
@@ -623,12 +624,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-logger-config"
+version = "0.36.0-pre"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ckb-logger-service"
 version = "0.36.0-pre"
 dependencies = [
  "ansi_term 0.12.1",
  "backtrace",
  "chrono",
+ "ckb-logger-config",
  "ckb-util",
  "crossbeam-channel",
  "env_logger",
@@ -636,7 +645,6 @@ dependencies = [
  "log 0.4.11",
  "regex",
  "sentry",
- "serde",
 ]
 
 [[package]]
@@ -1104,6 +1112,7 @@ dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
  "parking_lot 0.7.1",
+ "regex",
 ]
 
 [[package]]

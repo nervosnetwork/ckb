@@ -1,5 +1,6 @@
 mod linked_hash_set;
 mod shrink_to_fit;
+pub mod strings;
 
 use std::time::Duration;
 
