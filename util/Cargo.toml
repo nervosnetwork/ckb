@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 parking_lot = "=0.7.1"
 linked-hash-map = "0.5"
+regex = "1.1.6"
 
 [dev-dependencies]
 ckb-fixed-hash = { path = "fixed-hash" }

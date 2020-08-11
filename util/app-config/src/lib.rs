@@ -13,27 +13,15 @@ pub use args::{
 pub use configs::*;
 pub use exit_code::ExitCode;
 
-use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_logger::info_target;
-use ckb_logger_service::LoggerInitGuard;
 use clap::{value_t, ArgMatches, ErrorKind};
 use std::path::PathBuf;
-
-pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub struct Setup {
     pub subcommand_name: String,
     pub config: AppConfig,
     pub is_sentry_enabled: bool,
-}
-
-pub struct SetupGuard {
-    #[allow(dead_code)]
-    logger_guard: LoggerInitGuard,
-    #[allow(dead_code)]
-    sentry_guard: Option<sentry::internals::ClientInitGuard>,
 }
 
 impl Setup {
@@ -54,46 +42,6 @@ impl Setup {
             subcommand_name: subcommand_name.to_string(),
             config,
             is_sentry_enabled,
-        })
-    }
-
-    pub fn setup_app(&self, version: &Version) -> Result<SetupGuard, ExitCode> {
-        // Initialization of logger must do before sentry, since `logger::init()` and
-        // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
-        // replaces all hooks previously registered.
-        let mut logger_config = self.config.logger().to_owned();
-        if logger_config.emit_sentry_breadcrumbs.is_none() {
-            logger_config.emit_sentry_breadcrumbs = Some(self.is_sentry_enabled);
-        }
-        let logger_guard = ckb_logger_service::init(logger_config)?;
-
-        let sentry_guard = if self.is_sentry_enabled {
-            let sentry_config = self.config.sentry();
-
-            info_target!(
-                crate::LOG_TARGET_SENTRY,
-                "**Notice**: \
-                 The ckb process will send stack trace to sentry on Rust panics. \
-                 This is enabled by default before mainnet, which can be opted out by setting \
-                 the option `dsn` to empty in the config file. The DSN is now {}",
-                sentry_config.dsn
-            );
-
-            let guard = sentry_config.init(&version);
-
-            sentry::configure_scope(|scope| {
-                scope.set_tag("subcommand", &self.subcommand_name);
-            });
-
-            Some(guard)
-        } else {
-            info_target!(crate::LOG_TARGET_SENTRY, "sentry is disabled");
-            None
-        };
-
-        Ok(SetupGuard {
-            logger_guard,
-            sentry_guard,
         })
     }
 

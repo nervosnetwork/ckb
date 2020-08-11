@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
-use ckb_logger_service::Config as LogConfig;
+use ckb_logger_config::Config as LogConfig;
 use ckb_resource::Resource;
 
 use super::configs::*;
