@@ -1,7 +1,5 @@
-use crate::tests::util::{
-    calculate_reward, create_always_success_out_point, create_always_success_tx, start_chain,
-    MockStore,
-};
+use crate::cell::{attach_block_cell, detach_block_cell};
+use crate::tests::util::{calculate_reward, create_always_success_tx, start_chain, MockStore};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::shared::Shared;
@@ -11,13 +9,14 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView,
-        TransactionBuilder, TransactionView,
+        capacity_bytes,
+        cell::{CellProvider, CellStatus},
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
+        TransactionView,
     },
-    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{CellInput, CellOutputBuilder, OutPoint},
     utilities::DIFF_TWO,
 };
-use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 
@@ -27,13 +26,9 @@ pub(crate) fn create_cellbase(
     store: &MockStore,
     consensus: &Consensus,
 ) -> TransactionView {
-    let (_, _, always_success_script) = always_success_cell();
-
     let number = parent.number() + 1;
     let capacity = calculate_reward(store, consensus, parent);
-    let builder = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
-        .witness(always_success_script.clone().into_witness());
+    let builder = TransactionBuilder::default().input(CellInput::new_cellbase_input(number));
 
     if (parent.number() + 1) <= consensus.finalization_delay_length() {
         builder.build()
@@ -42,7 +37,6 @@ pub(crate) fn create_cellbase(
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity.pack())
-                    .lock(always_success_script.clone())
                     .build(),
             )
             .output_data(Bytes::new().pack())
@@ -86,14 +80,7 @@ pub(crate) fn gen_block(
     block
 }
 
-pub(crate) fn create_transaction(
-    parent: &TransactionView,
-    index: u32,
-    missing_output_data: bool,
-) -> TransactionView {
-    let (_, _, always_success_script) = always_success_cell();
-    let always_success_out_point = create_always_success_out_point();
-
+pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> TransactionView {
     let input_cap: Capacity = parent
         .outputs()
         .get(0)
@@ -101,29 +88,19 @@ pub(crate) fn create_transaction(
         .capacity()
         .unpack();
 
-    let mut builder = TransactionBuilder::default()
+    TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
                 .capacity(input_cap.safe_sub(TX_FEE).unwrap().pack())
-                .lock(always_success_script.clone())
                 .build(),
         )
         .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(always_success_out_point)
-                .build(),
-        );
-
-    if !missing_output_data {
-        builder = builder.output_data(Bytes::new().pack())
-    }
-    builder.build()
+        .output_data(Bytes::new().pack())
+        .build()
 }
 
-// Ensure block txs syntactic correctness checked before resolve
 #[test]
-fn non_contextual_block_txs_verify() {
+fn test_block_cells_update() {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_tx = create_always_success_tx();
     let issue_tx = TransactionBuilder::default()
@@ -151,18 +128,53 @@ fn non_contextual_block_txs_verify() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, parent) = start_chain(Some(consensus));
+    let (_chain_controller, shared, parent) = start_chain(Some(consensus));
     let mock_store = MockStore::new(&parent, shared.store());
 
-    let tx0 = create_transaction(&issue_tx, 0, true);
-    let tx1 = create_transaction(&tx0, 0, false);
+    let tx0 = create_transaction(&issue_tx, 0);
+    let tx1 = create_transaction(&tx0, 0);
+    let tx2 = create_transaction(&tx1, 0);
+    let tx3 = create_transaction(&tx2, 0);
 
-    let block = gen_block(&parent, vec![tx0, tx1], &shared, &mock_store);
+    let block = gen_block(&parent, vec![tx0, tx1, tx2, tx3], &shared, &mock_store);
 
-    let ret = chain_controller.process_block(Arc::new(block));
-    assert!(ret.is_err());
+    let db_txn = shared.store().begin_transaction();
+    db_txn.insert_block(&block).unwrap();
+    db_txn.attach_block(&block).unwrap();
+
+    attach_block_cell(&db_txn, &block).unwrap();
+    let txn_cell_provider = db_txn.cell_provider();
+
+    // ensure tx0-2 outputs is spent after attach_block_cell
+    for tx in block.transactions()[1..4].iter() {
+        for pt in tx.output_pts() {
+            // full spent
+            assert_eq!(txn_cell_provider.cell(&pt, false), CellStatus::Unknown);
+        }
+    }
+
+    // ensure tx3 outputs is unspent after attach_block_cell
+    for pt in block.transactions()[4].output_pts() {
+        assert!(txn_cell_provider.cell(&pt, false).is_live());
+    }
+
+    // ensure issue_tx outputs is spent after attach_block_cell
     assert_eq!(
-        format!("{}", ret.err().unwrap()),
-        "Transaction(OutputsDataLengthMismatch: expected outputs data length (0) = outputs length (1))"
+        txn_cell_provider.cell(&issue_tx.output_pts()[0], false),
+        CellStatus::Unknown
     );
+
+    detach_block_cell(&db_txn, &block).unwrap();
+
+    // ensure tx0-3 outputs is unknown after detach_block_cell
+    for tx in block.transactions()[1..=4].iter() {
+        for pt in tx.output_pts() {
+            assert_eq!(txn_cell_provider.cell(&pt, false), CellStatus::Unknown);
+        }
+    }
+
+    // ensure issue_tx outputs is back to live after detach_block_cell
+    assert!(txn_cell_provider
+        .cell(&issue_tx.output_pts()[0], false)
+        .is_live());
 }

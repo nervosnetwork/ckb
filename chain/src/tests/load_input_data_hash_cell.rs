@@ -49,6 +49,7 @@ pub(crate) fn create_load_input_data_hash_transaction(
         .build()
 }
 
+// Ensure tx-pool reject tx which calls syscall load_cell_data_hash from input
 #[test]
 fn test_load_input_data_hash_cell() {
     let (_, _, load_input_data_hash_script) = load_input_data_hash_cell();
@@ -93,6 +94,7 @@ fn test_load_input_data_hash_cell() {
     let entry0 = vec![TxEntry::new(tx0, 0, Capacity::shannons(0), 100, vec![])];
     tx_pool.plug_entry(entry0, PlugTarget::Proposed).unwrap();
 
+    // Ensure tx which calls syscall load_cell_data_hash will got reject even previous tx is already in tx-pool
     let ret = tx_pool.submit_txs(vec![tx1]).unwrap();
     assert!(ret.is_err());
     assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
