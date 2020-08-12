@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_logger_config::Config as LogConfig;
+use ckb_metrics_config::Config as MetricsConfig;
 use ckb_resource::Resource;
 
 use super::configs::*;
@@ -30,6 +31,8 @@ pub struct CKBAppConfig {
     pub tmp_dir: Option<PathBuf>,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
     pub chain: ChainConfig,
@@ -56,6 +59,8 @@ pub struct MinerAppConfig {
     pub chain: ChainConfig,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
 
@@ -102,6 +107,13 @@ impl AppConfig {
         match self {
             AppConfig::CKB(config) => &config.sentry,
             AppConfig::Miner(config) => &config.sentry,
+        }
+    }
+
+    pub fn metrics(&self) -> &MetricsConfig {
+        match self {
+            AppConfig::CKB(config) => &config.metrics,
+            AppConfig::Miner(config) => &config.metrics,
         }
     }
 
