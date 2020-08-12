@@ -1,8 +1,6 @@
-use p2p::{
-    multiaddr::{Multiaddr, Protocol},
-    secio::{self, PeerId},
-};
+use multiaddr::{Multiaddr, Protocol};
 use rand::Rng;
+use secio::{self, PeerId};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Error, ErrorKind, Read, Write};
