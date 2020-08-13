@@ -648,7 +648,10 @@ fn _update_tx_pool_for_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
 ) -> HashMap<Byte32, CacheEntry> {
-    tx_pool.snapshot = Arc::clone(&snapshot);
+    // swap snapshot
+    let mut replaced_snapshot = Arc::clone(&snapshot);
+    ::std::mem::swap(&mut tx_pool.snapshot, &mut replaced_snapshot);
+
     let mut detached = LinkedHashSet::default();
     let mut attached = LinkedHashSet::default();
 
@@ -679,6 +682,10 @@ fn _update_tx_pool_for_reorg(
     // that involves `remove_committed_txs_from_proposed` before `remove_expired`.
     tx_pool.remove_committed_txs_from_proposed(txs_iter);
     tx_pool.remove_expired(detached_proposal_id.iter());
+
+    if is_time_reversed(&replaced_snapshot, &snapshot) {
+        tx_pool.remove_proposed_entries_by_time_reversed();
+    }
 
     let to_update_cache = retain
         .into_iter()
@@ -761,4 +768,14 @@ fn _update_tx_pool_for_reorg(
     }
 
     to_update_cache
+}
+
+fn is_time_reversed(replaced_snapshot: &Snapshot, new_snapshot: &Snapshot) -> bool {
+    let replaced_tip = replaced_snapshot.tip_number();
+    let new_tip = new_snapshot.tip_number();
+    new_tip < replaced_tip
+        || new_snapshot.epoch_ext().number_with_fraction(new_tip)
+            < replaced_snapshot
+                .epoch_ext()
+                .number_with_fraction(replaced_tip)
 }

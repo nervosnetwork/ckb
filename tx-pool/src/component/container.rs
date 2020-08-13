@@ -149,6 +149,10 @@ impl SortedTxMap {
         self.entries.len()
     }
 
+    pub fn entries_iter(&self) -> impl Iterator<Item = (&ProposalShortId, &TxEntry)> {
+        self.entries.iter()
+    }
+
     /// update entry ancestor prefix fields
     fn update_ancestors_stat_for_entry(
         &self,

@@ -334,6 +334,23 @@ impl TxPool {
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot)
     }
 
+    pub(crate) fn time_relative_verify_rtx(&self, rtx: &ResolvedTransaction) -> Result<(), Error> {
+        let snapshot = self.snapshot();
+        let tip_header = snapshot.tip_header();
+        let tip_number = tip_header.number();
+        let epoch_number = tip_header.epoch();
+        let consensus = snapshot.consensus();
+        TimeRelativeTransactionVerifier::new(
+            &rtx,
+            snapshot,
+            tip_number + 1,
+            epoch_number,
+            tip_header.hash(),
+            consensus,
+        )
+        .verify()
+    }
+
     pub(crate) fn verify_rtx(
         &self,
         rtx: &ResolvedTransaction,
@@ -692,5 +709,22 @@ impl TxPool {
                     .get(proposal_id)
                     .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
             })
+    }
+
+    pub fn remove_proposed_entries_by_time_reversed(&mut self) {
+        let mut removed = Vec::new();
+        for (id, entry) in self.proposed.entries_iter() {
+            if self
+                .resolve_tx_from_pending_and_proposed(entry.transaction.clone())
+                .and_then(|rtx| self.time_relative_verify_rtx(&rtx))
+                .is_err()
+            {
+                removed.push(id.clone());
+            }
+        }
+
+        for id in removed {
+            self.proposed.remove_entry_and_descendants(&id);
+        }
     }
 }
