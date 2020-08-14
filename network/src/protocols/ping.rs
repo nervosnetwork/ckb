@@ -12,7 +12,6 @@ use ckb_types::{packed, prelude::*};
 use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
-    secio::PeerId,
     service::TargetSession,
     traits::ServiceProtocol,
     SessionId,
@@ -45,11 +44,22 @@ impl PingHandler {
             network_state,
         }
     }
+
     // received ping
-    fn ping(&mut self, id: SessionId) {
-        if let Some(status) = self.connected_session_ids.get(&id) {
-            trace!("get ping from: {:?}, {:?}", id, status.peer_id)
-        }
+    fn ping(&self, id: SessionId) {
+        trace!("get ping from: {:?}", id);
+        self.mark_time(id, None);
+    }
+
+    fn mark_time(&self, id: SessionId, ping_time: Option<Duration>) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(mut peer) = reg.get_peer_mut(id) {
+                if ping_time.is_some() {
+                    peer.ping = ping_time;
+                }
+                peer.last_message_time = Some(Instant::now());
+            }
+        });
     }
 }
 
@@ -66,8 +76,6 @@ struct PingStatus {
     processing: bool,
     /// The time we last send ping to this peer.
     last_ping: SystemTime,
-    peer_id: PeerId,
-    version: String,
 }
 
 impl PingStatus {
@@ -103,15 +111,12 @@ impl ServiceProtocol for PingHandler {
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
         match session.remote_pubkey {
-            Some(ref pubkey) => {
-                let peer_id = pubkey.peer_id();
+            Some(_) => {
                 self.connected_session_ids
                     .entry(session.id)
                     .or_insert_with(|| PingStatus {
                         last_ping: SystemTime::now(),
                         processing: false,
-                        peer_id,
-                        version: version.to_owned(),
                     });
                 debug!(
                     "proto id [{}] open on session [{}], address: [{}], type: [{:?}], version: {}",
@@ -175,12 +180,8 @@ impl ServiceProtocol for PingHandler {
                         if let Some(status) = self.connected_session_ids.get_mut(&session.id) {
                             if (true, nonce) == (status.processing, status.nonce()) {
                                 status.processing = false;
-                                self.network_state.with_peer_registry_mut(|reg| {
-                                    if let Some(mut peer) = reg.get_peer_mut(session.id) {
-                                        peer.ping = Some(status.elapsed());
-                                        peer.last_ping_time = Some(Instant::now());
-                                    }
-                                });
+                                let ping_time = status.elapsed();
+                                self.mark_time(session.id, Some(ping_time));
                                 return;
                             }
                         }
@@ -227,11 +228,10 @@ impl ServiceProtocol for PingHandler {
             }
             CHECK_TIMEOUT_TOKEN => {
                 let timeout = self.timeout;
-                for id in self
+                for (id, _ps) in self
                     .connected_session_ids
                     .iter()
-                    .filter(|(_, ps)| ps.processing && ps.elapsed() >= timeout)
-                    .map(|(id, _)| id)
+                    .filter(|(_id, ps)| ps.processing && ps.elapsed() >= timeout)
                 {
                     debug!("ping timeout, {:?}", id);
                     if let Err(err) =
