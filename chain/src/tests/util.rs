@@ -5,8 +5,8 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::always_success_cell;
 pub use ckb_test_chain_utils::MockStore;
+use ckb_test_chain_utils::{always_success_cell, load_input_data_hash_cell};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -32,6 +32,21 @@ pub(crate) fn create_always_success_tx() -> TransactionView {
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.pack())
         .build()
+}
+
+pub(crate) fn create_load_input_data_hash_cell_tx() -> TransactionView {
+    let (ref load_input_data_hash_cell_cell, ref load_input_data_hash_cell_data, ref script) =
+        load_input_data_hash_cell();
+    TransactionBuilder::default()
+        .witness(script.clone().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .output(load_input_data_hash_cell_cell.clone())
+        .output_data(load_input_data_hash_cell_data.pack())
+        .build()
+}
+
+pub(crate) fn create_load_input_data_hash_cell_out_point() -> OutPoint {
+    OutPoint::new(create_load_input_data_hash_cell_tx().hash(), 0)
 }
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
