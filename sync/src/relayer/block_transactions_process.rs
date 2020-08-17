@@ -159,7 +159,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                         return StatusCode::Network
                             .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
                     }
-                    crate::relayer::log_sent_metric(message.to_enum().item_name());
+                    crate::relayer::metrics_counter_send(message.to_enum().item_name());
                 }
 
                 let _ignore_prev_value =

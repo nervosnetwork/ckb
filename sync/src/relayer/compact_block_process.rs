@@ -3,7 +3,8 @@ use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{self, debug_target, metric};
+use ckb_logger::{self, debug_target};
+use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
@@ -259,18 +260,10 @@ impl<'a> CompactBlockProcess<'a> {
             StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
         };
         if !missing_transactions.is_empty() {
-            metric!({
-                "topic": "relay",
-                "tags": { "status": format!("{:?}", status.code()), },
-                "fields": { "fresh_transactions": missing_transactions.len(), },
-            });
+            metrics!(value, "ckb-net.fresh", missing_transactions.len() as u64, "type" => "transactions", "status" => status.tag());
         }
         if !missing_uncles.is_empty() {
-            metric!({
-                "topic": "relay",
-                "tags": { "status": format!("{:?}", status.code()), },
-                "fields": { "fresh_uncles": missing_uncles.len(), },
-            });
+            metrics!(value, "ckb-net.fresh", missing_uncles.len() as u64, "type" => "uncles", "status" => status.tag());
         }
 
         let content = packed::GetBlockTransactions::new_builder()
@@ -284,7 +277,7 @@ impl<'a> CompactBlockProcess<'a> {
             return StatusCode::Network
                 .with_context(format!("Send GetBlockTransactions error: {:?}", err));
         }
-        crate::relayer::log_sent_metric(message.to_enum().item_name());
+        crate::relayer::metrics_counter_send(message.to_enum().item_name());
 
         status
     }

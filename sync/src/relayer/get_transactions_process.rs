@@ -112,7 +112,7 @@ impl<'a> GetTransactionsProcess<'a> {
             return StatusCode::Network
                 .with_context(format!("Send RelayTransactions error: {:?}", err));
         }
-        crate::relayer::log_sent_metric(message.to_enum().item_name());
+        crate::relayer::metrics_counter_send(message.to_enum().item_name());
         Status::ok()
     }
 }

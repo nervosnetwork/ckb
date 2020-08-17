@@ -13,6 +13,7 @@ toml = "0.5"
 path-clean = "0.1.0"
 ckb-logger = { path = "../../util/logger" }
 ckb-logger-config = { path = "../../util/logger-config" }
+ckb-metrics-config = { path = "../../util/metrics-config" }
 sentry = "0.16.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}
@@ -21,7 +22,8 @@ ckb-resource = { path = "../../resource"}
 ckb-build-info = { path = "../build-info" }
 ckb-types = { path = "../types" }
 ckb-fee-estimator = { path = "../fee-estimator" }
-p2p = { version="0.3.0-alpha.4", package="tentacle", features = ["molc"] }
+secio = { version="0.4.0", features = ["molc"], package="tentacle-secio" }
+multiaddr = { version="0.1.0", package="tentacle-multiaddr" }
 rand = "0.6"
 
 [dev-dependencies]

@@ -2,10 +2,12 @@ use ckb_app_config::{ExitCode, Setup};
 use ckb_build_info::Version;
 use ckb_logger::info_target;
 use ckb_logger_service::{self, LoggerInitGuard};
+use ckb_metrics_service::{self, Guard as MetricsInitGuard};
 
 pub struct SetupGuard {
     _logger_guard: LoggerInitGuard,
     _sentry_guard: Option<sentry::internals::ClientInitGuard>,
+    _metrics_guard: MetricsInitGuard,
 }
 
 impl SetupGuard {
@@ -43,9 +45,16 @@ impl SetupGuard {
             None
         };
 
+        let metrics_config = setup.config.metrics().to_owned();
+        let metrics_guard = ckb_metrics_service::init(metrics_config).map_err(|err| {
+            eprintln!("Config Error: {:?}", err);
+            ExitCode::Config
+        })?;
+
         Ok(Self {
             _logger_guard: logger_guard,
             _sentry_guard: sentry_guard,
+            _metrics_guard: metrics_guard,
         })
     }
 }

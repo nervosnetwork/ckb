@@ -18,7 +18,8 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
 };
 use ckb_chain::chain::ChainController;
-use ckb_logger::{debug, error, info, metric, trace, warn};
+use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::metrics;
 use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
     SupportProtocols,
@@ -84,7 +85,7 @@ impl BlockFetchCMD {
         ) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -145,15 +146,9 @@ impl Synchronizer {
         let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
 
-        metric!({
-            "topic": "received",
-            "fields": { item_name: 1 }
-        });
+        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
         if !status.is_ok() {
-            metric!({
-                "topic": "status",
-                "fields": { format!("{:?}", status.code()): 1 }
-            });
+            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
         }
 
         if let Some(ban_time) = status.should_ban() {
@@ -522,7 +517,7 @@ impl Synchronizer {
         if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -1706,9 +1701,6 @@ mod tests {
     }
 }
 
-pub(self) fn log_sent_metric(item_name: &str) {
-    metric!({
-        "topic": "sent",
-        "fields": { item_name: 1 }
-    });
+pub(self) fn metrics_counter_send(item_name: &str) {
+    metrics!(counter, "ckb-net.sent", 1, "action" => "sync", "item" => item_name.to_owned());
 }

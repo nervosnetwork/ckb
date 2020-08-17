@@ -95,8 +95,10 @@ pub trait CKBProtocolHandler: Sync + Send {
     }
     /// Called when the Service receives the notify task
     fn notify(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _token: u64) {}
-    /// Behave like `Stream::poll`, but nothing output
-    fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    /// Behave like `Stream::poll`
+    fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) -> Poll<Option<()>> {
+        Poll::Ready(None)
+    }
 }
 
 pub struct CKBProtocol {
@@ -312,14 +314,18 @@ impl ServiceProtocol for CKBHandler {
         }
     }
 
-    fn poll(mut self: Pin<&mut Self>, _nc: &mut Context, context: &mut ProtocolContext) {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        _nc: &mut Context,
+        context: &mut ProtocolContext,
+    ) -> Poll<Option<()>> {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
             send_paused: false,
         };
-        self.handler.poll(Arc::new(nc));
+        self.handler.poll(Arc::new(nc))
     }
 }
 

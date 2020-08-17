@@ -1,9 +1,9 @@
 [package]
-name = "ckb-logger"
+name = "ckb-metrics"
 version = "0.36.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4"
+metrics = "~0.12.1"
