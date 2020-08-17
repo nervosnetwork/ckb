@@ -9,7 +9,8 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{debug, debug_target, error, metric, trace};
+use ckb_logger::{debug, debug_target, error, trace};
+use ckb_metrics::{metrics, Timer};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -750,15 +751,11 @@ impl InflightBlocks {
         });
 
         if prev_count == 0 {
-            metric!({
-                "topic": "blocks_in_flight",
-                "fields": { "total": 0, "elapsed": 0 }
-            });
+            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "total");
+            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "elapsed_ms");
         } else if prev_count != self.total_inflight_count() {
-            metric!({
-                "topic": "blocks_in_flight",
-                "fields": { "total": self.total_inflight_count(), "elapsed": BLOCK_DOWNLOAD_TIMEOUT }
-            });
+            metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
+            metrics!(value, "ckb-net.blocks_in_flight", BLOCK_DOWNLOAD_TIMEOUT, "type" => "elapsed_ms");
         }
 
         disconnect_list
@@ -847,10 +844,8 @@ impl InflightBlocks {
                 elapsed
             })
             .map(|elapsed| {
-                metric!({
-                    "topic": "blocks_in_flight",
-                    "fields": { "total": self.total_inflight_count(), "elapsed": elapsed }
-                });
+                metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
+                metrics!(value, "ckb-net.blocks_in_flight", elapsed, "type" => "elapsed_ms");
             })
             .is_some()
     }
@@ -1041,7 +1036,7 @@ impl HeaderView {
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let timestamp = unix_time_as_millis();
+        let timer = Timer::start();
         let mut current = self;
         if number > current.number() {
             return None;
@@ -1076,16 +1071,11 @@ impl HeaderView {
                 break;
             }
         }
-        metric!({
-            "topic": "get_ancestor",
-            "fields": {
-                "steps": steps,
-                "elapsed": unix_time_as_millis().saturating_sub(timestamp),
-                "base_number": base_number,
-                "target_number": number,
-                "ancestor_number": current.number()
-            },
-        });
+        metrics!(timing, "ckb-net.get_ancestor", timer.stop(), "type" => "elapsed");
+        metrics!(value, "ckb-net.get_ancestor", steps, "type" => "steps");
+        metrics!(value, "ckb-net.get_ancestor", base_number, "type" => "base_number");
+        metrics!(value, "ckb-net.get_ancestor", number, "type" => "target_number");
+        metrics!(value, "ckb-net.get_ancestor", current.number(), "type" => "ancestor_number");
         Some(current).map(HeaderView::into_inner)
     }
 
@@ -1531,10 +1521,7 @@ impl SyncState {
             self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
-        metric!({
-            "topic": "chain",
-            "fields": { "header_chain_tip": header.number(), }
-        });
+        metrics!(gauge, "ckb-chain.tip_number", header.number() as i64, "type" => "best_header");
         *self.shared_best_header.write() = header;
     }
 
