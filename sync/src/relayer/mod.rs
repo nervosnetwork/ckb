@@ -25,7 +25,8 @@ use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_fee_estimator::FeeRate;
-use ckb_logger::{debug_target, error_target, info_target, metric, trace_target, warn_target};
+use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
+use ckb_metrics::metrics;
 use ckb_network::{
     bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
 };
@@ -162,17 +163,9 @@ impl Relayer {
         let item_name = message.item_name();
         let status = self.try_process(Arc::clone(&nc), peer, message);
 
-        metric!({
-            "topic": "received",
-            "tags": { "target": crate::LOG_TARGET_RELAY },
-            "fields": { item_name: 1 }
-        });
+        metrics!(counter, "ckb-net.received", 1, "action" => "relay", "item" => item_name.to_owned());
         if !status.is_ok() {
-            metric!({
-                "topic": "status",
-                "tags": { "target": crate::LOG_TARGET_RELAY },
-                "fields": { format!("{:?}", status.code()): 1 }
-            });
+            metrics!(counter, "ckb-net.status", 1, "action" => "relay", "status" => status.tag());
         }
 
         if let Some(ban_time) = status.should_ban() {
@@ -250,7 +243,7 @@ impl Relayer {
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
             }
-            crate::relayer::log_sent_metric(message.to_enum().item_name());
+            crate::relayer::metrics_counter_send(message.to_enum().item_name());
         }
     }
 
@@ -529,7 +522,7 @@ impl Relayer {
                     err,
                 );
             }
-            crate::relayer::log_sent_metric(message.to_enum().item_name());
+            crate::relayer::metrics_counter_send(message.to_enum().item_name());
         }
     }
 
@@ -570,7 +563,7 @@ impl Relayer {
                         err,
                     );
                 }
-                crate::relayer::log_sent_metric(message.to_enum().item_name());
+                crate::relayer::metrics_counter_send(message.to_enum().item_name());
             }
         }
     }
@@ -744,10 +737,6 @@ impl CKBProtocolHandler for Relayer {
     }
 }
 
-pub(self) fn log_sent_metric(item_name: &str) {
-    metric!({
-        "topic": "sent",
-        "tags": { "target": crate::LOG_TARGET_RELAY },
-        "fields": { item_name: 1 }
-    });
+pub(self) fn metrics_counter_send(item_name: &str) {
+    metrics!(counter, "ckb-net.sent", 1, "action" => "relay", "item" => item_name.to_owned());
 }

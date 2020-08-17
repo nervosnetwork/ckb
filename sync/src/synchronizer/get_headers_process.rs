@@ -88,7 +88,7 @@ impl<'a> GetHeadersProcess<'a> {
                 return StatusCode::Network
                     .with_context(format!("Send SendHeaders error: {:?}", err,));
             }
-            crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+            crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{:#x?}", block_locator_hashes,));
