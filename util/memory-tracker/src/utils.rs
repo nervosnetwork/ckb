@@ -36,6 +36,16 @@ pub enum PropertyValue<T> {
     Error(String),
 }
 
+impl PropertyValue<u64> {
+    pub(crate) fn as_i64(&self) -> i64 {
+        match self {
+            Self::Value(v) => *v as i64,
+            Self::Null => -1,
+            Self::Error(_) => -2,
+        }
+    }
+}
+
 impl fmt::Display for PropertyValue<u64> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
