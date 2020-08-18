@@ -731,7 +731,7 @@ dependencies = [
  "eaglesong",
  "failure",
  "futures 0.1.29",
- "hyper 0.12.35",
+ "hyper 0.13.7",
  "hyper-tls",
  "indicatif",
  "lru-cache",
