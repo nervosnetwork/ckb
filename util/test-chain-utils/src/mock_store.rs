@@ -54,9 +54,7 @@ impl MockStore {
 
     pub fn remove_block(&self, block: &BlockView) {
         let db_txn = self.0.begin_transaction();
-        db_txn
-            .delete_block(&block.header().hash(), block.transactions().len())
-            .unwrap();
+        db_txn.delete_block(&block).unwrap();
         db_txn.detach_block(&block).unwrap();
         db_txn.commit().unwrap();
     }

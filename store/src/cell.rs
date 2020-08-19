@@ -61,9 +61,6 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
         }
     }
 
-    let undo_cells = transactions.iter().map(|tx| tx.output_pts_iter()).flatten();
-    txn.delete_cells(undo_cells)?;
-
     let undo_deads = input_pts
         .iter()
         .filter_map(|(tx_hash, indexes)| {
@@ -103,5 +100,8 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
         })
         .flatten();
     txn.insert_cells(undo_deads)?;
+
+    let undo_cells = transactions.iter().map(|tx| tx.output_pts_iter()).flatten();
+    txn.delete_cells(undo_cells)?;
     Ok(())
 }
