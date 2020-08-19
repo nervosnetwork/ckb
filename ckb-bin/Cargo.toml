@@ -10,7 +10,7 @@ clap = { version = "2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_plain = "0.3.0"
 toml = "0.5"
-crossbeam-channel = "0.3"
+crossbeam-channel = "0.4"
 ckb-app-config = { path = "../util/app-config" }
 ckb-logger = { path = "../util/logger" }
 ckb-logger-service = { path = "../util/logger-service" }
