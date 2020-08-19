@@ -689,6 +689,7 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-error",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-types",
  "ckb-util",
  "fail",
