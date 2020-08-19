@@ -157,6 +157,7 @@ fn try_repair_dangling_index() {
 
     {
         let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+            .enable_compression(false)
             .max_file_size(50)
             .build()
             .unwrap();
@@ -177,6 +178,7 @@ fn try_repair_dangling_index() {
     }
 
     let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+        .enable_compression(false)
         .max_file_size(50)
         .build()
         .unwrap();
@@ -196,6 +198,7 @@ fn truncate() {
     let tempdir = tempfile::Builder::new().tempdir().unwrap();
     {
         let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+            .enable_compression(false)
             .max_file_size(50)
             .build()
             .unwrap();
@@ -218,6 +221,7 @@ fn truncate() {
 
     {
         let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+            .enable_compression(false)
             .max_file_size(50)
             .build()
             .unwrap();
@@ -237,6 +241,7 @@ fn truncate() {
     }
 
     let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+        .enable_compression(false)
         .max_file_size(50)
         .build()
         .unwrap();
