@@ -28,7 +28,7 @@ macro_rules! fail {
 
                     freezer.preopen().unwrap();
 
-                    for i in 1..10 {
+                    for i in 1..20 {
                         let data = make_bytes(15, i);
                         freezer.append(i.into(), &data).unwrap();
                     }
@@ -49,12 +49,12 @@ macro_rules! fail {
                 .unwrap();
             freezer.preopen().unwrap();
 
-            for i in 10..20 {
+            for i in 20..30 {
                 let data = make_bytes(15, i);
                 freezer.append(i.into(), &data).unwrap();
             }
 
-            for i in 1..20 {
+            for i in 1..30 {
                 let expect = make_bytes(15, i);
                 let actual = freezer.retrieve(i.into()).unwrap();
                 assert_eq!(Some(expect), actual);

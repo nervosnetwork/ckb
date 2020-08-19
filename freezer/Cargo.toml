@@ -14,6 +14,7 @@ ckb-logger = { path = "../util/logger", version = "= 0.39.0-pre" }
 ckb-util = { path = "../util", version = "= 0.39.0-pre" }
 fs2 = "0.4.3"
 fail = "0.4"
+snap = "1"
 
 [dev-dependencies]
 tempfile = "3.0"

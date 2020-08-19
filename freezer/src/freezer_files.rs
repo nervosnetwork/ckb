@@ -1,6 +1,7 @@
 use crate::internal_error;
 use ckb_error::Error;
 use fail::fail_point;
+use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::{self, File};
@@ -54,6 +55,8 @@ pub struct FreezerFiles {
     file_path: PathBuf,
     // index for freezer files
     pub(crate) index: File,
+    // enable compression
+    pub(crate) enable_compression: bool,
 }
 
 pub struct IndexEntry {
@@ -101,7 +104,7 @@ impl FreezerFiles {
         self.number.load(Ordering::SeqCst)
     }
 
-    pub fn append(&mut self, number: u64, data: &[u8]) -> Result<(), Error> {
+    pub fn append(&mut self, number: u64, input: &[u8]) -> Result<(), Error> {
         let expected = self.number.load(Ordering::SeqCst);
         fail_point!("append-unexpected-number");
         if expected != number {
@@ -110,6 +113,17 @@ impl FreezerFiles {
                 expected, number
             )));
         }
+
+        // https://github.com/rust-lang/rust/issues/49171
+        #[allow(unused_mut)]
+        let mut compressed_data;
+        let mut data = input;
+        if self.enable_compression {
+            compressed_data = SnappyEncoder::new()
+                .compress_vec(data)
+                .map_err(|e| internal_error(format!("compress error {}", e)))?;
+            data = &compressed_data;
+        };
 
         let data_size = data.len();
         // open a new file
@@ -154,12 +168,20 @@ impl FreezerFiles {
                 .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
 
             let size = (end_offset - start_offset) as usize;
-            let mut ret = vec![0u8; size];
+            let mut data = vec![0u8; size];
             file.seek(SeekFrom::Start(start_offset))
                 .map_err(internal_error)?;
-            file.read_exact(&mut ret).map_err(internal_error)?;
+            file.read_exact(&mut data).map_err(internal_error)?;
 
-            Ok(Some(ret))
+            if self.enable_compression {
+                data = SnappyDecoder::new().decompress_vec(&data).map_err(|e| {
+                    internal_error(format!(
+                        "decompress file-id-{} offset-{} size-{}: error {}",
+                        file_id, start_offset, size, e
+                    ))
+                })?;
+            }
+            Ok(Some(data))
         } else {
             Ok(None)
         }
@@ -320,6 +342,7 @@ impl FreezerFiles {
 pub struct FreezerFilesBuilder {
     file_path: PathBuf,
     max_file_size: u64,
+    enable_compression: bool,
 }
 
 impl FreezerFilesBuilder {
@@ -327,6 +350,7 @@ impl FreezerFilesBuilder {
         FreezerFilesBuilder {
             file_path,
             max_file_size: MAX_FILE_SIZE,
+            enable_compression: true,
         }
     }
 
@@ -334,6 +358,12 @@ impl FreezerFilesBuilder {
     #[allow(dead_code)]
     pub fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn enable_compression(mut self, enable_compression: bool) -> Self {
+        self.enable_compression = enable_compression;
         self
     }
 
@@ -416,6 +446,7 @@ impl FreezerFilesBuilder {
             head_id: head_index.file_id,
             file_path: self.file_path,
             index,
+            enable_compression: self.enable_compression,
         })
     }
 
