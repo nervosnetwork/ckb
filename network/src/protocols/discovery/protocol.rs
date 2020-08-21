@@ -28,15 +28,11 @@ impl Decoder for DiscoveryCodec {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.inner.decode(src) {
-            Ok(Some(frame)) => {
-                // TODO: more error information
-                DiscoveryMessage::decode(&frame).map(Some).ok_or_else(|| {
-                    debug!("deserialize error");
-                    io::ErrorKind::InvalidData.into()
-                })
-            }
+            Ok(Some(frame)) => DiscoveryMessage::decode(&frame).map(Some).ok_or_else(|| {
+                debug!("deserialize error");
+                io::ErrorKind::InvalidData.into()
+            }),
             Ok(None) => Ok(None),
-            // TODO: more error information
             Err(err) => {
                 debug!("decode error: {:?}", err);
                 Err(io::ErrorKind::InvalidData.into())
@@ -214,5 +210,45 @@ impl std::fmt::Display for DiscoveryMessage {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DiscoveryCodec, DiscoveryMessage};
+    use ckb_types::bytes::BytesMut;
+    use tokio_util::codec::{Decoder, Encoder};
+
+    #[test]
+    fn test_codec() {
+        let msg1 = DiscoveryMessage::GetNodes {
+            version: 0,
+            count: 1,
+            listen_port: Some(1),
+        };
+
+        let msg2 = DiscoveryMessage::GetNodes {
+            version: 0,
+            count: 1,
+            listen_port: Some(2),
+        };
+
+        let mut codec = DiscoveryCodec::default();
+
+        let mut b1 = BytesMut::new();
+        codec
+            .encode(msg1.clone(), &mut b1)
+            .expect("encode must be success");
+
+        let decode1 = codec.decode(&mut b1).unwrap().unwrap();
+        assert_eq!(decode1, msg1);
+
+        let mut b2 = BytesMut::new();
+        codec
+            .encode(msg2.clone(), &mut b2)
+            .expect("encode must be success");
+
+        let decode2 = codec.decode(&mut b2).unwrap().unwrap();
+        assert_eq!(decode2, msg2);
     }
 }

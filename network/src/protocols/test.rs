@@ -1,5 +1,5 @@
 use super::{
-    discovery::DiscoveryProtocol,
+    discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
     ping::{PingHandler, PingService},
@@ -157,9 +157,12 @@ fn net_service_start(name: String) -> Node {
     });
 
     // Discovery protocol
-    let disc_network_state = Arc::clone(&network_state);
+    let addr_mgr = DiscoveryAddressManager {
+        network_state: Arc::clone(&network_state),
+        discovery_local_address: config.discovery_local_address,
+    };
     let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-        ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(disc_network_state, true)))
+        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr)))
     });
 
     // Identify protocol

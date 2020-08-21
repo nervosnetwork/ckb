@@ -1,12 +1,11 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::HashSet,
     convert::TryFrom,
     io,
     net::{IpAddr, SocketAddr},
-    time::Instant,
 };
 
-use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr, SessionId};
+use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr, ProtocolId, SessionId};
 
 // See: bitcoin/netaddress.cpp pchIPv4[12]
 pub(crate) const PCH_IPV4: [u8; 18] = [
@@ -25,6 +24,8 @@ pub enum Misbehavior {
     TooManyItems { announce: bool, length: usize },
     // Too many address in one item
     TooManyAddresses(usize),
+    // Decode message error
+    InvalidData,
 }
 
 /// Misbehavior report result
@@ -44,6 +45,9 @@ impl MisbehaveResult {
 
 // FIXME: Should be peer store?
 pub trait AddressManager {
+    fn register(&self, id: SessionId, pid: ProtocolId, version: &str);
+    fn unregister(&self, id: SessionId, pid: ProtocolId);
+    fn is_valid_addr(&self, addr: &Multiaddr) -> bool;
     fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr);
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>);
     fn misbehave(&mut self, session_id: SessionId, kind: Misbehavior) -> MisbehaveResult;
@@ -51,56 +55,77 @@ pub trait AddressManager {
 }
 
 // bitcoin: bloom.h, bloom.cpp => CRollingBloomFilter
-pub struct AddrKnown {
+pub struct AddrKnown<T> {
     max_known: usize,
-    addrs: HashSet<RawAddr>,
-    addr_times: HashMap<RawAddr, Instant>,
-    time_addrs: BTreeMap<Instant, RawAddr>,
+    addrs: HashSet<T>,
+    order_addrs: Vec<T>,
 }
 
-impl AddrKnown {
-    pub(crate) fn new(max_known: usize) -> AddrKnown {
+impl<T> AddrKnown<T>
+where
+    T: Eq + ::std::hash::Hash + Copy,
+{
+    pub(crate) fn new(max_known: usize) -> AddrKnown<T> {
         AddrKnown {
             max_known,
             addrs: HashSet::default(),
-            addr_times: HashMap::default(),
-            time_addrs: BTreeMap::default(),
+            order_addrs: Vec::default(),
         }
     }
 
-    pub(crate) fn insert(&mut self, key: RawAddr) {
-        let now = Instant::now();
-        self.addrs.insert(key);
-        self.time_addrs.insert(now, key);
-        self.addr_times.insert(key, now);
+    pub(crate) fn insert(&mut self, key: T) {
+        if self.addrs.insert(key) {
+            self.order_addrs.push(key);
+        } else {
+            return;
+        }
 
         if self.addrs.len() > self.max_known {
-            let first_time = {
-                let (first_time, first_key) = self.time_addrs.iter().next().unwrap();
-                self.addrs.remove(&first_key);
-                self.addr_times.remove(&first_key);
-                *first_time
-            };
-            self.time_addrs.remove(&first_time);
+            let addr = self.order_addrs.remove(0);
+            self.addrs.remove(&addr);
         }
     }
 
-    pub(crate) fn contains(&self, addr: &RawAddr) -> bool {
+    pub(crate) fn extend(&mut self, mut keys: HashSet<T>) {
+        if keys.len() + self.addrs.len() > self.max_known {
+            self.addrs.clear();
+            self.order_addrs.clear();
+            let index = if keys.len() > self.max_known {
+                keys.len() - self.max_known
+            } else {
+                0
+            };
+            self.order_addrs.extend(keys.iter().skip(index));
+            self.addrs = keys.into_iter().skip(index).collect();
+        } else {
+            let common: HashSet<_> = self.addrs.intersection(&keys).copied().collect();
+
+            if !common.is_empty() {
+                for i in common {
+                    keys.remove(&i);
+                }
+            }
+
+            self.order_addrs.extend(keys.iter());
+            self.addrs.extend(keys);
+        }
+    }
+
+    pub(crate) fn contains(&self, addr: &T) -> bool {
         self.addrs.contains(addr)
     }
 
-    pub(crate) fn remove<'a>(&mut self, addrs: impl Iterator<Item = &'a RawAddr>) {
-        addrs.for_each(|addr| {
-            self.addrs.remove(addr);
-            if let Some(time) = self.addr_times.remove(addr) {
-                self.time_addrs.remove(&time);
-            }
-        })
+    pub(crate) fn remove(&mut self, addr: &T) {
+        self.order_addrs.retain(|key| key != addr);
+        self.addrs.remove(addr);
     }
 }
 
-impl Default for AddrKnown {
-    fn default() -> AddrKnown {
+impl<T> Default for AddrKnown<T>
+where
+    T: Eq + ::std::hash::Hash + Copy,
+{
+    fn default() -> AddrKnown<T> {
         AddrKnown::new(DEFAULT_MAX_KNOWN)
     }
 }
@@ -144,5 +169,81 @@ impl From<SocketAddr> for RawAddr {
         data[16] = (port / 0x100) as u8;
         data[17] = (port & 0x0FF) as u8;
         RawAddr(data)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::AddrKnown;
+    use std::{collections::HashSet, iter::FromIterator};
+
+    #[test]
+    fn test_addr_known_behavior() {
+        let mut k = AddrKnown::new(10);
+
+        for i in 1..=10 {
+            k.insert(i);
+        }
+
+        assert_eq!(k.order_addrs, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(
+            k.addrs,
+            HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        );
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.insert(0);
+
+        assert_eq!(k.order_addrs, vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 0]);
+        assert_eq!(
+            k.addrs,
+            HashSet::from_iter(vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 0])
+        );
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.order_addrs.clear();
+        k.addrs.clear();
+
+        k.insert(1);
+        k.insert(2);
+
+        k.extend(HashSet::from_iter(vec![3, 4, 5, 6, 7, 8]));
+
+        assert_eq!(k.order_addrs.len(), 8);
+        assert_eq!(k.addrs, HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8]));
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.remove(&1);
+
+        assert_eq!(k.order_addrs.len(), 7);
+        assert_eq!(k.addrs, HashSet::from_iter(vec![2, 3, 4, 5, 6, 7, 8]));
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.extend(HashSet::from_iter(vec![9, 10, 11, 12]));
+
+        assert_eq!(k.order_addrs.len(), 4);
+        assert_eq!(k.addrs, HashSet::from_iter(vec![9, 10, 11, 12]));
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.extend(HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 0]));
+
+        assert_eq!(k.order_addrs.len(), 10);
+        assert_eq!(
+            k.addrs,
+            HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
+        );
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.extend(HashSet::from_iter(vec![1, 2, 3, 4]));
+
+        assert_eq!(k.order_addrs.len(), 4);
+        assert_eq!(k.addrs, HashSet::from_iter(vec![1, 2, 3, 4]));
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
+
+        k.extend(HashSet::from_iter(vec![4, 5, 6, 7]));
+
+        assert_eq!(k.order_addrs.len(), 7);
+        assert_eq!(k.addrs, HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7]));
+        assert_eq!(k.addrs, HashSet::from_iter(k.order_addrs.iter().copied()));
     }
 }
