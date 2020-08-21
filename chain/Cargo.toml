@@ -14,7 +14,7 @@ ckb-chain-spec = { path = "../spec" }
 ckb-store = { path = "../store" }
 ckb-verification = { path = "../verification" }
 faketime = "0.2.0"
-crossbeam-channel = "0.3"
+crossbeam-channel = "0.4"
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }

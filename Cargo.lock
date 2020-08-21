@@ -400,7 +400,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "clap",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "ctrlc",
  "rayon",
  "sentry",
@@ -436,7 +436,7 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "faketime",
  "lazy_static",
 ]
@@ -660,7 +660,7 @@ dependencies = [
  "chrono",
  "ckb-logger-config",
  "ckb-util",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "env_logger",
  "lazy_static",
  "log 0.4.11",
@@ -727,7 +727,7 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-types",
  "console",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "eaglesong",
  "failure",
  "futures 0.1.29",
@@ -762,7 +762,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "criterion",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "faketime",
  "faster-hex 0.4.1",
  "futures 0.3.4",
@@ -810,7 +810,7 @@ dependencies = [
  "ckb-logger",
  "ckb-stop-handler",
  "ckb-types",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
 ]
 
 [[package]]
@@ -935,7 +935,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "failure",
  "faketime",
  "futures 0.1.29",
@@ -1026,7 +1026,7 @@ name = "ckb-stop-handler"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-logger",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "futures 0.1.29",
  "parking_lot 0.7.1",
  "tokio 0.2.22",
@@ -1069,7 +1069,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "failure",
  "faketime",
  "futures 0.3.4",
@@ -1135,7 +1135,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "failure",
  "faketime",
  "lru-cache",
@@ -1153,7 +1153,7 @@ dependencies = [
  "ckb-hash",
  "ckb-occupied-capacity",
  "ckb-rational",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "failure",
  "merkle-cbt",
  "molecule",
@@ -1192,7 +1192,7 @@ dependencies = [
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
- "crossbeam-channel 0.3.9",
+ "crossbeam-channel",
  "enum-display-derive",
  "failure",
  "faketime",
@@ -1399,20 +1399,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69323bff1fb41c635347b8ead484a5ca6c3f11914d784170b158d8449ab07f8e"
 dependencies = [
  "cfg-if",
- "crossbeam-channel 0.4.3",
+ "crossbeam-channel",
  "crossbeam-deque",
  "crossbeam-epoch 0.8.2",
  "crossbeam-queue 0.2.3",
  "crossbeam-utils 0.7.2",
-]
-
-[[package]]
-name = "crossbeam-channel"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8ec7fcd21571dc78f96cc96243cab8d8f035247c3efd16c687be154c3fa9efa"
-dependencies = [
- "crossbeam-utils 0.6.5",
 ]
 
 [[package]]
