@@ -23,7 +23,7 @@ failure = "0.1.5"
 ckb-error = { path = "../error" }
 enum-display-derive = "0.1.0"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
-crossbeam-channel = "0.4"
+crossbeam-channel = "0.3"
 ckb-async-runtime = { path = "../util/runtime" }
 
 [dev-dependencies]

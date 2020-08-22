@@ -10,6 +10,6 @@ ckb-logger = { path = "../util/logger" }
 ckb-app-config  = { path = "../util/app-config" }
 ckb-types = { path = "../util/types" }
 ckb-stop-handler = { path = "../util/stop-handler" }
-crossbeam-channel = "0.4"
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
