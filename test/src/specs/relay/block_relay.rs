@@ -1,5 +1,5 @@
 use crate::{
-    utils::{now_ms, sleep, wait_until},
+    utils::{now_ms, sleep},
     TestProtocol,
 };
 use crate::{Net, Spec};
@@ -21,15 +21,16 @@ impl Spec for BlockRelayBasic {
         let node2 = &net.nodes[2];
 
         info!("Generate new block on node1");
-        let hash = node1.generate_block();
+        node1.generate_block();
 
-        let rpc_client = node0.rpc_client();
-        let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
-        assert!(ret, "Block should be relayed to node0");
-
-        let rpc_client = node2.rpc_client();
-        let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
-        assert!(ret, "Block should be relayed to node2");
+        assert!(
+            node0.log_monitor("accept_block", 10).try_recv().is_ok(),
+            "Block should be relayed to node0"
+        );
+        assert!(
+            node2.log_monitor("accept_block", 10).try_recv().is_ok(),
+            "Block should be relayed to node2"
+        );
     }
 }
 
@@ -66,12 +67,9 @@ impl Spec for RelayTooNewBlock {
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
         node0.generate_block();
-        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        let ret = wait_until(20, || {
-            let header0 = rpc_client0.get_tip_header();
-            let header1 = rpc_client1.get_tip_header();
-            header0 == header1 && header1.inner.number.value() == 4
-        });
-        assert!(ret, "Node1 should not ban Node0",);
+        assert!(
+            node1.log_monitor("block: 4", 30).try_recv().is_ok(),
+            "Node1 should not ban Node0"
+        );
     }
 }

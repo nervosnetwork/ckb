@@ -1,5 +1,5 @@
 use crate::rpc::RpcClient;
-use crate::utils::{temp_path, wait_until};
+use crate::utils::{node_log, sleep, temp_path, tweaked_duration, wait_until};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
@@ -14,13 +14,15 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
+use crossbeam_channel::{bounded, Receiver};
 use failure::Error;
 use failure::_core::time::Duration;
 use std::convert::Into;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 pub struct Node {
     binary: String,
@@ -92,6 +94,43 @@ impl Node {
 
     pub fn working_dir(&self) -> &str {
         &self.working_dir
+    }
+
+    pub fn log_file(&self) -> String {
+        node_log(&self.working_dir()).display().to_string()
+    }
+
+    pub fn log_monitor(&self, expected: &str, timeout: u64) -> Receiver<String> {
+        let (log_sender, log_notifier) = bounded(1);
+        let timeout = tweaked_duration(timeout);
+        let start = Instant::now();
+        let filename = &self.log_file();
+        let mut skip_lines = 0;
+        let mut modified = SystemTime::now();
+        loop {
+            let filename = fs::File::open(&filename).unwrap();
+            let new_modified = filename.metadata().unwrap().modified().unwrap();
+            if modified != new_modified {
+                let lines = BufReader::new(filename).lines();
+                let mut line_length = 0;
+                for line in lines.skip(skip_lines) {
+                    let line = line.unwrap();
+                    if line.contains(expected) {
+                        let _ = log_sender.send(line);
+                        return log_notifier;
+                    } else {
+                        line_length += 1;
+                    }
+                }
+                skip_lines += line_length;
+                modified = new_modified;
+            } else if Instant::now().duration_since(start) > timeout {
+                break;
+            } else {
+                sleep(1)
+            }
+        }
+        log_notifier
     }
 
     pub fn dep_group_tx_hash(&self) -> Byte32 {

@@ -150,7 +150,7 @@ pub fn sleep(secs: u64) {
     thread::sleep(tweaked_duration(secs));
 }
 
-fn tweaked_duration(secs: u64) -> Duration {
+pub fn tweaked_duration(secs: u64) -> Duration {
     let sec_coefficient = env::var("CKB_TEST_SEC_COEFFICIENT")
         .unwrap_or_default()
         .parse()
