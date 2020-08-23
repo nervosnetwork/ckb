@@ -1,5 +1,6 @@
 pub mod chain;
 pub mod check;
+pub mod message;
 pub mod mine;
 pub mod sugar;
 

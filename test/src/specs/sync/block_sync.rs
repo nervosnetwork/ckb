@@ -1,7 +1,5 @@
-use crate::utils::{
-    build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
-    now_ms, sleep, wait_until,
-};
+use crate::util::message::{build_block, build_compact_block, build_get_blocks, build_header};
+use crate::utils::{new_block_with_template, now_ms, sleep, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};

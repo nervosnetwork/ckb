@@ -1,4 +1,5 @@
-use crate::utils::{build_compact_block, wait_until};
+use crate::util::message::build_compact_block;
+use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
 use ckb_network::SupportProtocols;
 

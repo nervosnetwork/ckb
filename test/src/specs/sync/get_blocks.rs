@@ -1,5 +1,6 @@
 use super::utils::wait_get_blocks;
-use crate::utils::{build_headers, wait_until};
+use crate::util::message::build_headers;
+use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
 use ckb_network::SupportProtocols;
 use ckb_sync::BLOCK_DOWNLOAD_TIMEOUT;
