@@ -151,7 +151,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .expect("processing block should be ok");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(shared));
+    let sync_shared = Arc::new(SyncShared::new(shared, Default::default()));
     (
         Relayer::new(
             chain_controller,

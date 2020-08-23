@@ -10,6 +10,7 @@ ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
+ckb-app-config = {path = "../util/app-config"}
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }
 ckb-logger = {path = "../util/logger"}

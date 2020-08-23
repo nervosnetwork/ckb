@@ -114,6 +114,7 @@ impl Net {
             upnp: false,
             bootnode_mode: false,
             max_send_buffer: None,
+            sync: None,
         };
 
         let network_state =

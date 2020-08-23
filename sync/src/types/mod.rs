@@ -7,6 +7,7 @@ use crate::{
     MAX_TIP_AGE, NORMAL_INDEX, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
     TIME_TRACE_SIZE,
 };
+use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error, trace};
@@ -1174,11 +1175,11 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
-    pub fn new(shared: Shared) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, None)
+    pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
     }
 
-    pub fn with_tmpdir<P>(shared: Shared, tmpdir: Option<P>) -> SyncShared
+    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1190,7 +1191,11 @@ impl SyncShared {
             )
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
-        let header_map = HeaderMap::new(tmpdir, 300_000, 20_000);
+        let header_map = HeaderMap::new(
+            tmpdir,
+            sync_config.header_map.primary_limit,
+            sync_config.header_map.backend_close_threshold,
+        );
 
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),

@@ -180,7 +180,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .start(Some("rpc-test-network"))
         .expect("Start network service failed")
     };
-    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
     let indexer_store = {
         let mut indexer_config = IndexerConfig::default();

@@ -1050,6 +1050,7 @@ name = "ckb-sync"
 version = "0.36.0-pre"
 dependencies = [
  "bitflags",
+ "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",
