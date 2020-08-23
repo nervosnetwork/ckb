@@ -22,13 +22,6 @@ pub const FLAG_SINCE_EPOCH_NUMBER: u64 =
 pub const FLAG_SINCE_TIMESTAMP: u64 =
     0b100_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
-pub fn new_block_with_template(template: BlockTemplate) -> BlockView {
-    packed::Block::from(template)
-        .as_advanced_builder()
-        .nonce(rand::random::<u128>().pack())
-        .build()
-}
-
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool
 where
     F: FnMut() -> bool,

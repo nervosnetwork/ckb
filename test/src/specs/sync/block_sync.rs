@@ -1,5 +1,5 @@
 use crate::util::message::{build_block, build_compact_block, build_get_blocks, build_header};
-use crate::utils::{new_block_with_template, now_ms, sleep, wait_until};
+use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};
@@ -514,7 +514,10 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
         template.current_time = (template.current_time.value() + offset).into();
-        let block = new_block_with_template(template);
+        let block = packed::Block::from(template)
+            .as_advanced_builder()
+            .nonce(rand::random::<u128>().pack())
+            .build();
         node.submit_block(&block);
 
         blocks.push(block);
