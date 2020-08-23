@@ -1,5 +1,5 @@
 use super::utils::wait_get_blocks;
-use crate::util::message::build_headers;
+use crate::utils::message::build_headers;
 use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
 use ckb_network::SupportProtocols;

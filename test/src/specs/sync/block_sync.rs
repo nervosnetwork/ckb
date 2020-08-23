@@ -1,4 +1,4 @@
-use crate::util::message::{build_block, build_compact_block, build_get_blocks, build_header};
+use crate::utils::message::{build_block, build_compact_block, build_get_blocks, build_header};
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::ChainInfo;

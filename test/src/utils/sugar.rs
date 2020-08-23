@@ -1,4 +1,4 @@
-use crate::util::mine::mine_until_bool;
+use crate::utils::mine::mine_until_bool;
 use crate::Node;
 
 pub fn out_ibd_mode(nodes: &[Node]) {

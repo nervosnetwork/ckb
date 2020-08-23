@@ -1,4 +1,4 @@
-use crate::util::message::{
+use crate::utils::message::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers,
 };

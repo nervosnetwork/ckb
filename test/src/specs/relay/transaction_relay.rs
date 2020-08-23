@@ -1,4 +1,4 @@
-use crate::util::message::{build_relay_tx_hashes, build_relay_txs};
+use crate::utils::message::{build_relay_tx_hashes, build_relay_txs};
 use crate::utils::{sleep, wait_until};
 use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_network::SupportProtocols;

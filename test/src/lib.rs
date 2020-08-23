@@ -5,7 +5,6 @@ mod node;
 mod rpc;
 pub mod specs;
 mod txo;
-pub mod util;
 pub mod utils;
 pub mod worker;
 
