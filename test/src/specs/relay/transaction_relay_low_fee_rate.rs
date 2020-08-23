@@ -16,9 +16,9 @@ impl Spec for TransactionRelayLowFeeRate {
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate new transaction on node1");
         node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);

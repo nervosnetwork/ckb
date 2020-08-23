@@ -21,7 +21,7 @@ impl Spec for WithdrawDAO {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let utxos = generate_utxo_set(node, 21);
         let mut user = DAOUser::new(node, utxos);
 
@@ -53,7 +53,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let utxos = generate_utxo_set(node, 21);
         let mut user = DAOUser::new(node, utxos);
 

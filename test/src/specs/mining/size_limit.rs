@@ -14,7 +14,7 @@ impl Spec for TemplateSizeLimit {
     //       check how many txs will be included.
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         node.generate_blocks_until_contains_valid_cellbase();
 
         // get blank block size

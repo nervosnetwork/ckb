@@ -25,11 +25,11 @@ impl Spec for WhitelistOnSessionLimit {
         info!("Running whitelist on session limit");
 
         // with no whitelist
-        let node4 = net.nodes.pop().unwrap();
-        let node3 = net.nodes.pop().unwrap();
-        let node2 = net.nodes.pop().unwrap();
-        let node1 = net.nodes.pop().unwrap();
-        let mut node0 = net.nodes.pop().unwrap();
+        let node4 = net.node(4);
+        let node3 = net.node(3);
+        let node2 = net.node(2);
+        let node1 = net.node(1);
+        let node0 = net.node(0);
 
         let mut id_set = HashSet::new();
         id_set.insert(node1.node_id());
@@ -48,10 +48,7 @@ impl Spec for WhitelistOnSessionLimit {
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_2 = wait_until(10, || {
             let peers = rpc_client0.get_peers();
-            peers.len() == 2
-                && peers
-                    .into_iter()
-                    .all(|node| id_set.contains(&node.node_id.as_str()))
+            peers.len() == 2 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_2 {
@@ -89,10 +86,7 @@ impl Spec for WhitelistOnSessionLimit {
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_3 = wait_until(10, || {
             let peers = rpc_client0.get_peers();
-            peers.len() == 3
-                && peers
-                    .into_iter()
-                    .all(|node| id_set.contains(&node.node_id.as_str()))
+            peers.len() == 3 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_3 {

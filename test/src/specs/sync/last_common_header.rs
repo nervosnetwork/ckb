@@ -13,7 +13,7 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
     // As for the peers of which main chain is worse than ours, we should ensure the
     // last_common_header updating as well.
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
 
         // Node0's main chain tip is 5
         node0.generate_blocks(5);

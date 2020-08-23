@@ -81,7 +81,7 @@ pub trait Spec {
     }
 
     fn init_config(&self, net: &mut Net) {
-        net.nodes.iter_mut().for_each(|node| {
+        net.nodes().iter().for_each(|node| {
             node.edit_config_file(self.modify_chain_spec(), self.modify_ckb_config());
         });
     }
@@ -105,7 +105,7 @@ pub trait Spec {
 
     fn start_node(&self, net: &mut Net) {
         // start all nodes
-        net.nodes.iter_mut().for_each(|node| {
+        net.nodes().iter().for_each(|node| {
             node.start();
         });
 

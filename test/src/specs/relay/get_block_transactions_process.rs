@@ -16,7 +16,7 @@ impl Spec for MissingUncleRequest {
     // Case: Send to node GetBlockTransactions with missing uncle index, node should response BlockTransactions with uncles
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 

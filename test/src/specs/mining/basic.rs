@@ -17,7 +17,7 @@ impl Spec for MiningBasic {
     //        commit zone.
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         node.generate_blocks_until_contains_valid_cellbase();
 
         let transaction = node.new_transaction_spend_tip_cellbase();
@@ -53,7 +53,7 @@ impl Spec for BlockTemplates {
     //    2. Block template should be updated if tip block updated.
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let rpc_client = node.rpc_client();
 
         let is_block_template_equal = |template1: &BlockTemplate, template2: &BlockTemplate| {

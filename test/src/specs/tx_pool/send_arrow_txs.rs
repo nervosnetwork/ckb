@@ -14,7 +14,7 @@ impl Spec for SendArrowTxs {
     crate::name!("send_arrow_txs");
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // build arrow txs

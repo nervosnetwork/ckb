@@ -36,7 +36,7 @@ impl Spec for SendDefectedBinary {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate 20 blocks to work around initial blocks without rewards");
         node.generate_blocks(20);

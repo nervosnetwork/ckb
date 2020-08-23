@@ -18,7 +18,7 @@ impl Spec for HandlingDescendantsOfProposed {
     //       txpool, but only propose `tx_family.a`. We expect that after proposing
     //       `tx_family.a`, miner is able to propose `tx_family.b` in the next blocks.
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 
@@ -69,7 +69,7 @@ impl Spec for HandlingDescendantsOfCommitted {
     //       txpool, but only propose and commit `tx_family.a`. We expect that after proposing
     //       `tx_family.a`, miner is able to propose `tx_family.b` in the next blocks.
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 
@@ -108,7 +108,7 @@ impl Spec for ProposeOutOfOrder {
     //   2. Propose `[tx_family.b, tx_family.a]`, then continuously submit blank blocks.
     //   3. Expect committing `[tx_family.a, tx_family.b]`.
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 
@@ -140,7 +140,7 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
 
     // Case: This case intends to test that submit a transaction which its parent is in gap-pool
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 
@@ -170,7 +170,7 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
 
     // Case: This case intends to test that submit a transaction which its parent is in proposed-pool
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 
@@ -203,7 +203,7 @@ impl Spec for ProposeTransactionButParentNot {
 
     // Case: A proposed transaction cannot be committed if its parent has not been committed
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks((window.farthest() + 2) as usize);
 

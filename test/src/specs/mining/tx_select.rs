@@ -8,7 +8,7 @@ impl Spec for TemplateTxSelect {
     crate::name!("template_tx_select");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         // prepare blocks
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 6) as usize);
         let number = node.get_tip_block_number();

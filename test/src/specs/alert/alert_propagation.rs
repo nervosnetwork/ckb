@@ -33,7 +33,7 @@ impl Spec for AlertPropagation {
     //    3. resend the first alert, all nodes should ignore the alert.
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         let notice_until = faketime::unix_time_as_millis() + 100_000;
 
         // create and relay alert
@@ -47,12 +47,12 @@ impl Spec for AlertPropagation {
         let alert = create_alert(raw_alert, &self.privkeys);
         node0.rpc_client().send_alert(alert.clone().into());
         let ret = wait_until(20, || {
-            net.nodes
+            net.nodes()
                 .iter()
                 .all(|node| !node.rpc_client().get_blockchain_info().alerts.is_empty())
         });
         assert!(ret, "Alert should be relayed, but not");
-        for node in net.nodes.iter() {
+        for node in net.nodes().iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
             assert_eq!(
                 alerts.len(),
@@ -78,7 +78,7 @@ impl Spec for AlertPropagation {
         let alert2 = create_alert(raw_alert2, &self.privkeys);
         node0.rpc_client().send_alert(alert2.into());
         let ret = wait_until(20, || {
-            net.nodes.iter().all(|node| {
+            net.nodes().iter().all(|node| {
                 node.rpc_client()
                     .get_blockchain_info()
                     .alerts
@@ -87,7 +87,7 @@ impl Spec for AlertPropagation {
             })
         });
         assert!(ret, "Alert should be relayed, but not");
-        for node in net.nodes.iter() {
+        for node in net.nodes().iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
             assert_eq!(
                 alerts.len(),
@@ -104,7 +104,7 @@ impl Spec for AlertPropagation {
         // send canceled alert again, should ignore by all nodes
         node0.rpc_client().send_alert(alert.into());
         let ret = wait_until(20, || {
-            net.nodes.iter().all(|node| {
+            net.nodes().iter().all(|node| {
                 node.rpc_client()
                     .get_blockchain_info()
                     .alerts

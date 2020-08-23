@@ -16,9 +16,9 @@ impl Spec for BlockRelayBasic {
 
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate new block on node1");
         let hash = node1.generate_block();
@@ -46,9 +46,9 @@ impl Spec for RelayTooNewBlock {
 
     fn run(&self, net: &mut Net) {
         info!("run relay too new block");
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
         net.exit_ibd_mode();
 
         node1.connect(node0);

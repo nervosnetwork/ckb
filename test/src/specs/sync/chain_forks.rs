@@ -25,8 +25,8 @@ impl Spec for ChainFork1 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
 
         info!("Generate 2 blocks (A, B) on node0");
         node0.generate_blocks(2);
@@ -66,9 +66,9 @@ impl Spec for ChainFork2 {
     // node1                 \ -> D -> E
     // node2                 \ -> C -> F -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate 2 blocks (A, B) on node0");
         node0.generate_blocks(2);
@@ -115,9 +115,9 @@ impl Spec for ChainFork3 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW.1 + 2 blocks (A, B) on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -186,9 +186,9 @@ impl Spec for ChainFork4 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate 2 blocks (A, B) on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -255,9 +255,9 @@ impl Spec for ChainFork5 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW +2 block (A) on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -328,9 +328,9 @@ impl Spec for ChainFork6 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate 2 blocks (A, B) on node0");
         node0.generate_blocks(2);
@@ -387,9 +387,9 @@ impl Spec for ChainFork7 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate 12 blocks (A, B) on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -457,9 +457,9 @@ impl Spec for LongForks {
         const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
         net.exit_ibd_mode();
-        let test_node = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let test_node = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         // test_node == node1 == chain1, height = 139 = PER_FETCH_BLOCK_LIMIT + 10 + 1
         node1.generate_blocks(PER_FETCH_BLOCK_LIMIT + 10);
@@ -494,10 +494,10 @@ impl Spec for ForksContainSameTransactions {
     //      `chain1`. We expect `get_transaction(tx)` returns successfully.
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        let target_node = &net.nodes[3];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
+        let target_node = net.node(3);
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
@@ -579,8 +579,8 @@ impl Spec for ForksContainSameUncle {
     //              \-> U
     //
     fn run(&self, net: &mut Net) {
-        let node_a = &net.nodes[0];
-        let node_b = &net.nodes[1];
+        let node_a = net.node(0);
+        let node_b = net.node(1);
         net.exit_ibd_mode();
 
         info!("(1) Construct an uncle before fork point");
@@ -621,8 +621,8 @@ impl Spec for ForkedTransaction {
 
     // Case: Check TxStatus of transaction on main-fork, verified-fork and unverified-fork
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         let finalization_delay_length = node0.consensus().finalization_delay_length();
         (0..=finalization_delay_length).for_each(|_| {
             let block = node0.new_block(None, None, None);

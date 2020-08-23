@@ -17,7 +17,7 @@ impl Spec for MalformedMessage {
     fn run(&self, net: &mut Net) {
         info!("Run malformed message");
         info!("Connect node0");
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         net.exit_ibd_mode();
         net.connect(node0);
 
@@ -42,7 +42,7 @@ impl Spec for MalformedMessage {
             peer_id,
             vec![0, 1, 2, 3].into(),
         );
-        let rpc_client = net.nodes[0].rpc_client();
+        let rpc_client = net.node(0).rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
         let ret = wait_until(10, || {
@@ -64,9 +64,9 @@ impl Spec for MalformedMessageWithWhitelist {
 
     fn run(&self, net: &mut Net) {
         info!("Run malformed message with whitelist");
-        let node1 = net.nodes.pop().unwrap();
+        let node1 = net.node(1);
         net.exit_ibd_mode();
-        let mut node0 = net.nodes.pop().unwrap();
+        let node0 = net.node(0);
         net.connect(&node0);
 
         info!("Test node should receive GetHeaders message from node0");

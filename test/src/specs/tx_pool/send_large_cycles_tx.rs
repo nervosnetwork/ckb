@@ -38,9 +38,9 @@ impl Spec for SendLargeCyclesTxInBlock {
 
     fn run(&self, net: &mut Net) {
         // high cycle limit node
-        let mut node0 = net.nodes.remove(0);
+        let node0 = net.node(0);
         // low cycle limit node
-        let node1 = &net.nodes[0];
+        let node1 = net.node(1);
         node0.stop();
         node0.edit_config_file(
             Box::new(|_| ()),
@@ -113,9 +113,9 @@ impl Spec for SendLargeCyclesTxToRelay {
 
     fn run(&self, net: &mut Net) {
         // high cycle limit node
-        let mut node0 = net.nodes.remove(0);
+        let node0 = net.node(0);
         // low cycle limit node
-        let node1 = &net.nodes[0];
+        let node1 = net.node(1);
         node0.stop();
         node0.edit_config_file(
             Box::new(|_| ()),

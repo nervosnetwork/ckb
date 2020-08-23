@@ -123,7 +123,7 @@ impl Worker {
         );
         let now = Instant::now();
         let node_dirs: Vec<_> = net
-            .nodes
+            .nodes()
             .iter()
             .map(|node| node.working_dir().to_owned())
             .collect();

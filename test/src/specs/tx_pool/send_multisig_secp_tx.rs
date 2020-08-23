@@ -40,7 +40,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);

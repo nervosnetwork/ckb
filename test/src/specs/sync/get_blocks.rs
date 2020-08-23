@@ -20,8 +20,8 @@ impl Spec for GetBlocksTimeout {
     );
 
     fn run(&self, net: &mut Net) {
-        let node1 = net.nodes.pop().unwrap();
-        let node2 = net.nodes.pop().unwrap();
+        let node1 = net.node(0);
+        let node2 = net.node(1);
         node1.generate_blocks(1);
         node2.generate_blocks(20);
 

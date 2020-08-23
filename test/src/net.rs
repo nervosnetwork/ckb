@@ -19,7 +19,7 @@ use std::time::Duration;
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
 pub struct Net {
-    pub nodes: Vec<Node>,
+    nodes: Vec<Node>,
     controller: Option<(NetworkController, Receiver<NetMessage>)>,
     p2p_port: u16,
     setup: Setup,
@@ -54,6 +54,14 @@ impl Net {
             working_dir: temp_path(case_name, "net"),
             vendor_dir,
         }
+    }
+
+    pub fn node(&self, index: usize) -> &Node {
+        &self.nodes[index]
+    }
+
+    pub fn nodes(&self) -> &Vec<Node> {
+        &self.nodes
     }
 
     pub fn working_dir(&self) -> &str {
@@ -171,14 +179,14 @@ impl Net {
     }
 
     pub fn connect_all(&self) {
-        self.nodes
+        self.nodes()
             .windows(2)
             .for_each(|nodes| nodes[0].connect(&nodes[1]));
     }
 
     pub fn disconnect_all(&self) {
-        self.nodes.iter().for_each(|node_a| {
-            self.nodes.iter().for_each(|node_b| {
+        self.nodes().iter().for_each(|node_a| {
+            self.nodes().iter().for_each(|node_b| {
                 if node_a.node_id() != node_b.node_id() {
                     node_a.disconnect(node_b)
                 }
@@ -188,16 +196,16 @@ impl Net {
 
     // generate a same block on all nodes, exit IBD mode and return the tip block
     pub fn exit_ibd_mode(&self) -> BlockView {
-        let block = self.nodes[0].new_block(None, None, None);
-        self.nodes.iter().for_each(|node| {
+        let block = self.node(0).new_block(None, None, None);
+        self.nodes().iter().for_each(|node| {
             node.submit_block(&block);
         });
         block
     }
 
     pub fn waiting_for_sync(&self, target: BlockNumber) {
-        let rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
-        let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
+        let rpc_clients: Vec<_> = self.nodes().iter().map(Node::rpc_client).collect();
+        let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes().len());
         // 60 seconds is a reasonable timeout to sync, even for poor CI server
         let result = wait_until(60, || {
             tip_numbers = rpc_clients

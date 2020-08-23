@@ -30,9 +30,9 @@ impl Spec for ChainContainsInvalidBlock {
     //   4. `fresh_node` synchronizes from `bad_node` and `good_node`. We expect
     //      that `fresh_node` synchronizes the valid chain.
     fn run(&self, net: &mut Net) {
-        let bad_node = net.nodes.pop().unwrap();
-        let good_node = net.nodes.pop().unwrap();
-        let fresh_node = net.nodes.pop().unwrap();
+        let bad_node = net.node(0);
+        let good_node = net.node(1);
+        let fresh_node = net.node(2);
 
         // Build invalid chain on bad_node
         bad_node.generate_blocks(3);
@@ -96,7 +96,7 @@ impl Spec for ForkContainsInvalidBlock {
         let invalid_number = 4;
         let bad_chain: Vec<BlockView> = {
             let tip_number = invalid_number * 2;
-            let bad_node = net.nodes.pop().unwrap();
+            let bad_node = net.node(0);
             bad_node.generate_blocks(invalid_number - 1);
             let invalid_block = bad_node
                 .new_block_builder(None, None, None)
@@ -115,7 +115,7 @@ impl Spec for ForkContainsInvalidBlock {
             .collect();
 
         // Sync headers of bad forks
-        let good_node = net.nodes.pop().unwrap();
+        let good_node = net.node(1);
         good_node.generate_block();
         net.connect(&good_node);
         let (pi, _, _) = net.receive();

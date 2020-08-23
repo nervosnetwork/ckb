@@ -31,7 +31,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
     // it and send us back a `GetHeaders` message
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -75,7 +75,7 @@ impl Spec for CompactBlockEmpty {
 
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
@@ -100,7 +100,7 @@ impl Spec for CompactBlockPrefilled {
 
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
@@ -145,7 +145,7 @@ impl Spec for CompactBlockMissingFreshTxs {
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
@@ -209,7 +209,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     // 2. Relay target block which contains the target transaction as committed transaction. Expect
     //    successful to reconstruct the target block and grow up.
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
@@ -259,10 +259,10 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         net.connect(node0);
         let (peer_id0, _, _) = net.receive();
-        let node1 = &net.nodes[1];
+        let node1 = net.node(1);
         net.connect(node1);
         let _ = net.receive();
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -332,7 +332,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
     // orphan_block_pool now
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         net.exit_ibd_mode();
 
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -488,8 +488,8 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         net.exit_ibd_mode();
         net.connect(node0);
         let (peer_id, _, _) = net.receive();

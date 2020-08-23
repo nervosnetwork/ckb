@@ -21,9 +21,9 @@ impl Spec for TransactionRelayBasic {
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
 
         info!("Generate new transaction on node1");
         node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -62,7 +62,7 @@ impl Spec for TransactionRelayMultiple {
     crate::setup!(num_nodes: 5);
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         (0..node0.consensus().tx_proposal_window().farthest() + 2).for_each(|_| {
             net.exit_ibd_mode();
         });
@@ -137,7 +137,7 @@ impl Spec for TransactionRelayMultiple {
         info!("All transactions should be relayed and mined");
         node0.assert_tx_pool_size(0, 0);
 
-        net.nodes.iter().for_each(|node| {
+        net.nodes().iter().for_each(|node| {
             assert_eq!(
                 node.get_tip_block().transactions().len() as u64,
                 txs_num + 1
@@ -158,7 +158,7 @@ impl Spec for TransactionRelayTimeout {
     );
 
     fn run(&self, net: &mut Net) {
-        let node = net.nodes.pop().unwrap();
+        let node = net.node(0);
         node.generate_blocks(4);
         net.connect(&node);
         let (pi, _, _) = net.receive();
@@ -200,7 +200,7 @@ impl Spec for RelayInvalidTransaction {
     );
 
     fn run(&self, net: &mut Net) {
-        let node = net.nodes.pop().unwrap();
+        let node = net.node(0);
         node.generate_blocks(4);
         net.connect(&node);
         let (pi, _, _) = net.receive();
@@ -260,8 +260,8 @@ impl Spec for TransactionRelayEmptyPeers {
     fn run(&self, net: &mut Net) {
         net.exit_ibd_mode();
 
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);

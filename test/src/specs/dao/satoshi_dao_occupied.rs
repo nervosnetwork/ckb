@@ -27,7 +27,7 @@ impl Spec for DAOWithSatoshiCellOccupied {
     crate::name!("dao_with_satoshi_cell_occupied");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let utxos = generate_utxo_set(node, 10);
         let mut user = DAOUser::new(node, utxos);
 
@@ -83,7 +83,7 @@ impl Spec for SpendSatoshiCell {
     crate::name!("spend_satoshi_cell");
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         let satoshi_cell_occupied = SATOSHI_CELL_CAPACITY
             .safe_mul_ratio(node0.consensus().satoshi_cell_occupied_ratio)
             .unwrap();

@@ -16,7 +16,7 @@ impl Spec for InsufficientReward {
     //    2. submit block with empty reward should success.
 
     fn before_run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let data_path = net
             .vendor_dir()
             .join("consensus")
@@ -27,7 +27,7 @@ impl Spec for InsufficientReward {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let new_block_builder = node.new_block_builder(None, None, None);
 
         // build a block with insufficient reward
@@ -74,7 +74,7 @@ impl Spec for InsufficientReward {
 
     // export data
     // fn run(&self, net: &mut Net) {
-    //     let node = &mut net.nodes[0];
+    //     let node = &mut net.node(0);
     //     let hashes = node.generate_blocks(100);
 
     //     for hash in hashes {

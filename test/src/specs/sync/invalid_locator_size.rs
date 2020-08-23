@@ -20,7 +20,7 @@ impl Spec for InvalidLocatorSize {
     fn run(&self, net: &mut Net) {
         info!("Connect node0");
         net.exit_ibd_mode();
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
         net.connect(node0);
         // get peer_id from GetHeaders message
         let (peer_id, _, _) = net.receive();
@@ -40,7 +40,7 @@ impl Spec for InvalidLocatorSize {
 
         net.send(SupportProtocols::Sync.protocol_id(), peer_id, message);
 
-        let rpc_client = net.nodes[0].rpc_client();
+        let rpc_client = net.node(0).rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
 

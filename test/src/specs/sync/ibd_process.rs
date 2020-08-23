@@ -12,13 +12,13 @@ impl Spec for IBDProcess {
     fn run(&self, net: &mut Net) {
         info!("Running IBD process");
 
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        let node3 = &net.nodes[3];
-        let node4 = &net.nodes[4];
-        let node5 = &net.nodes[5];
-        let node6 = &net.nodes[6];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
+        let node3 = net.node(3);
+        let node4 = net.node(4);
+        let node5 = net.node(5);
+        let node6 = net.node(6);
 
         node0.connect(node1);
         node0.connect(node2);
@@ -94,29 +94,29 @@ impl Spec for IBDProcessWithWhiteList {
         {
             let node6_listen = format!(
                 "/ip4/127.0.0.1/tcp/{}/p2p/{}",
-                net.nodes[6].p2p_port(),
-                net.nodes[6].node_id()
+                net.node(6).p2p_port(),
+                net.node(6).node_id()
             );
 
-            net.nodes[0].stop();
+            net.node(0).stop();
 
             // whitelist will be connected on outbound on node start
-            net.nodes[0].edit_config_file(
+            net.node(0).edit_config_file(
                 Box::new(|_| ()),
                 Box::new(move |config| {
                     config.network.whitelist_peers = vec![node6_listen.parse().unwrap()]
                 }),
             );
-            net.nodes[0].start();
+            net.node(0).start();
         }
 
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        let node3 = &net.nodes[3];
-        let node4 = &net.nodes[4];
-        let node5 = &net.nodes[5];
-        let node6 = &net.nodes[6];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
+        let node3 = net.node(3);
+        let node4 = net.node(4);
+        let node5 = net.node(5);
+        let node6 = net.node(6);
 
         node0.connect(node1);
         node0.connect(node2);
@@ -142,7 +142,7 @@ impl Spec for IBDProcessWithWhiteList {
         // it must be in the connected state, and then disconnected.
         node6.generate_blocks(2);
 
-        let generate_res = wait_until(10, || net.nodes[6].get_tip_block_number() == 2);
+        let generate_res = wait_until(10, || net.node(6).get_tip_block_number() == 2);
 
         if !generate_res {
             panic!("node6 can't generate blocks to 2");

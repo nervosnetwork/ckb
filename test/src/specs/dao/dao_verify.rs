@@ -14,7 +14,7 @@ impl Spec for DAOVerify {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let genesis_epoch_length = node.consensus().genesis_epoch_ext().length();
         node.generate_blocks(genesis_epoch_length as usize * 5);
         DAOVerifier::init(node).verify();

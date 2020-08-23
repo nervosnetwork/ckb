@@ -21,7 +21,7 @@ impl Spec for FeeOfTransaction {
     //      `block[i + 1 + PROPOSAL_WINDOW_CLOSEST + FINALIZATION_DELAY_LENGTH]`
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
 
         let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
@@ -58,7 +58,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
     //      `block[i + 1 + FINALIZATION_DELAY_LENGTH]`
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
         let txs = generate_utxo_set(node, max_block_proposals_limit as usize)
             .bang_random_fee(vec![node.always_success_cell_dep()]);
@@ -93,7 +93,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
     //      contains `MAX_BLOCK_PROPOSALS_LIMIT` transactions
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
 
         let multiple = 3;
@@ -133,8 +133,8 @@ impl Spec for ProposeButNotCommit {
     //        since its trasactions_pool does not have 'tx'
 
     fn run(&self, net: &mut Net) {
-        let target_node = &net.nodes[0];
-        let feed_node = &net.nodes[1];
+        let target_node = net.node(0);
+        let feed_node = net.node(1);
 
         let txs = generate_utxo_set(feed_node, 1)
             .bang_random_fee(vec![feed_node.always_success_cell_dep()]);
@@ -162,7 +162,7 @@ impl Spec for ProposeDuplicated {
     // Case: Uncle contains a proposal, and the new block contains the same one.
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
         let tx = &txs[0];
 

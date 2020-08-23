@@ -12,7 +12,7 @@ impl Spec for CellbaseMaturity {
     crate::name!("cellbase_maturity");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW.1 + 2 block");
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);

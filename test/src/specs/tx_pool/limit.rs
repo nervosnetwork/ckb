@@ -13,7 +13,7 @@ impl Spec for SizeLimit {
     crate::name!("size_limit");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -76,7 +76,7 @@ impl Spec for CyclesLimit {
     crate::name!("cycles_limit");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);

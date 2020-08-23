@@ -24,8 +24,8 @@ impl Spec for BlockSyncFromOne {
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
@@ -61,8 +61,8 @@ impl Spec for BlockSyncWithUncle {
 
     // Case: Sync a block with uncle
     fn run(&self, net: &mut Net) {
-        let target = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let target = net.node(0);
+        let node1 = net.node(1);
         net.exit_ibd_mode();
 
         let new_builder = node1.new_block_builder(None, None, None);
@@ -103,9 +103,9 @@ impl Spec for BlockSyncForks {
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
         let (rpc_client0, rpc_client1, rpc_client2) =
             (node0.rpc_client(), node1.rpc_client(), node2.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
@@ -172,7 +172,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let rpc_client = node.rpc_client();
         net.exit_ibd_mode();
         net.connect(node);
@@ -230,8 +230,8 @@ impl Spec for BlockSyncOrphanBlocks {
     );
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         net.exit_ibd_mode();
 
         // Generate some blocks from node1
@@ -291,8 +291,8 @@ impl Spec for BlockSyncRelayerCollaboration {
     );
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         net.exit_ibd_mode();
 
         // Generate some blocks from node1
@@ -355,8 +355,8 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
     );
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
         net.exit_ibd_mode();
 
         // By picking blocks this way, we ensure that block a and b has
@@ -410,9 +410,9 @@ impl Spec for RequestUnverifiedBlocks {
     //      fork(referred to as fork-blocks), `target_node` should discard the request because
     //     these fork-blocks are unverified yet or verified failed.
     fn run(&self, net: &mut Net) {
-        let target_node = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let target_node = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
         net.exit_ibd_mode();
 
         let main_chain = build_forks(node1, &[0; 6]);
@@ -471,9 +471,9 @@ impl Spec for SyncTooNewBlock {
 
     fn run(&self, net: &mut Net) {
         info!("run sync too new block");
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
         net.exit_ibd_mode();
 
         let future = Duration::from_secs(6_000).as_millis() as u64;

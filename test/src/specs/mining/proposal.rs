@@ -14,7 +14,7 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
     //    2. Get block template, expect empty proposals cause we already proposed `tx` within `uncle`
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         node.generate_blocks_until_contains_valid_cellbase();
 
         let tx = node.new_transaction_spend_tip_cellbase();

@@ -20,6 +20,7 @@ use std::convert::Into;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub struct Node {
@@ -28,13 +29,8 @@ pub struct Node {
     p2p_port: u16,
     rpc_port: u16,
     rpc_client: RpcClient,
-    node_id: Option<String>,
-    genesis_cellbase_hash: Byte32,
-    dep_group_tx_hash: Byte32,
-    always_success_code_hash: Byte32,
-    guard: Option<ProcessGuard>,
-    consensus: Option<Consensus>,
-    spec: Option<ChainSpec>,
+    guard: Arc<Mutex<Option<ProcessGuard>>>,
+    consensus: Arc<Mutex<Option<Consensus>>>,
 }
 
 struct ProcessGuard(pub Child);
@@ -64,26 +60,22 @@ impl Node {
             p2p_port,
             rpc_port,
             rpc_client,
-            node_id: None,
-            guard: None,
-            genesis_cellbase_hash: Default::default(),
-            dep_group_tx_hash: Default::default(),
-            always_success_code_hash: Default::default(),
-            consensus: None,
-            spec: None,
+            guard: Arc::new(Mutex::new(None)),
+            consensus: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn node_id(&self) -> &str {
-        self.node_id.as_ref().expect("uninitialized node_id")
+    pub fn node_id(&self) -> String {
+        let local_node_info = self.rpc_client().local_node_info();
+        local_node_info.node_id
     }
 
-    pub fn consensus(&self) -> &Consensus {
-        self.consensus.as_ref().expect("uninitialized consensus")
-    }
-
-    pub fn spec(&self) -> &ChainSpec {
-        self.spec.as_ref().expect("uninitialized spec")
+    pub fn consensus(&self) -> Consensus {
+        self.consensus
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("uninitialized consensus")
     }
 
     pub fn p2p_port(&self) -> u16 {
@@ -92,10 +84,6 @@ impl Node {
 
     pub fn working_dir(&self) -> &str {
         &self.working_dir
-    }
-
-    pub fn dep_group_tx_hash(&self) -> Byte32 {
-        self.dep_group_tx_hash.clone()
     }
 
     pub fn export(&self, target: String) {
@@ -118,7 +106,7 @@ impl Node {
             .expect("failed to execute process");
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&self) {
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
             .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
@@ -127,15 +115,14 @@ impl Node {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
-        self.guard = Some(ProcessGuard(child_process));
+        *self.guard.lock().unwrap() = Some(ProcessGuard(child_process));
 
         loop {
             let result = { self.rpc_client().inner().local_node_info() };
-            if let Ok(local_node_info) = result {
-                self.node_id = Some(local_node_info.node_id);
+            if let Ok(_local_node_info) = result {
                 let _ = self.rpc_client().tx_pool_info();
                 break;
-            } else if let Some(ref mut child) = self.guard {
+            } else if let Some(ref mut child) = *self.guard.lock().unwrap() {
                 match child.0.try_wait() {
                     Ok(Some(exit)) => {
                         log::error!("Error: node crashed, {}", exit);
@@ -153,8 +140,8 @@ impl Node {
         }
     }
 
-    pub fn stop(&mut self) {
-        drop(self.guard.take())
+    pub fn stop(&self) {
+        *self.guard.lock().unwrap() = None;
     }
 
     pub fn connect(&self, outbound_peer: &Node) {
@@ -473,7 +460,7 @@ impl Node {
 
     pub fn always_success_script(&self) -> Script {
         Script::new_builder()
-            .code_hash(self.always_success_code_hash.clone())
+            .code_hash(self.always_success_code_hash())
             .hash_type(ScriptHashType::Data.into())
             .build()
     }
@@ -481,14 +468,43 @@ impl Node {
     pub fn always_success_cell_dep(&self) -> CellDep {
         CellDep::new_builder()
             .out_point(OutPoint::new(
-                self.genesis_cellbase_hash.clone(),
+                self.genesis_cellbase_hash(),
                 SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
             ))
             .build()
     }
 
+    pub fn always_success_code_hash(&self) -> Byte32 {
+        let cell_output_data = self
+            .consensus()
+            .genesis_block()
+            .transaction(0)
+            .unwrap()
+            .outputs_data()
+            .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
+            .unwrap()
+            .raw_data();
+        CellOutput::calc_data_hash(&cell_output_data)
+    }
+
+    pub fn genesis_cellbase_hash(&self) -> Byte32 {
+        self.consensus()
+            .genesis_block()
+            .transaction(0)
+            .unwrap()
+            .hash()
+    }
+
+    pub fn dep_group_tx_hash(&self) -> Byte32 {
+        self.consensus()
+            .genesis_block()
+            .transaction(1)
+            .unwrap()
+            .hash()
+    }
+
     fn prepare_chain_spec(
-        &mut self,
+        &self,
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
@@ -507,20 +523,7 @@ impl Node {
         modify_chain_spec(&mut spec);
 
         let consensus = spec.build_consensus().expect("build consensus");
-        self.genesis_cellbase_hash
-            .clone_from(&consensus.genesis_block().transactions()[0].hash());
-        self.dep_group_tx_hash
-            .clone_from(&consensus.genesis_block().transactions()[1].hash());
-        self.always_success_code_hash = CellOutput::calc_data_hash(
-            &consensus.genesis_block().transactions()[0]
-                .outputs_data()
-                .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
-                .unwrap()
-                .raw_data(),
-        );
-
-        self.consensus = Some(consensus);
-        self.spec = Some(spec.clone());
+        *self.consensus.lock().unwrap() = Some(consensus);
 
         // write to dir
         fs::write(
@@ -536,7 +539,7 @@ impl Node {
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
-            code_hash: self.always_success_code_hash.unpack(),
+            code_hash: self.always_success_code_hash().unpack(),
             args: Default::default(),
             hash_type: ScriptHashType::Data.into(),
             message: Default::default(),
@@ -551,7 +554,7 @@ impl Node {
     }
 
     pub fn edit_config_file(
-        &mut self,
+        &self,
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>,
     ) {

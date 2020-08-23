@@ -25,8 +25,8 @@ impl Spec for ReorgHandleProposals {
     // and `tx.family.a` becomes proposed and able to be committed.
     fn run(&self, net: &mut Net) {
         // 1. At the beginning, `node_a` maintains fork-A, `node_b` maintains fork-B
-        let node_a = &net.nodes[0];
-        let node_b = &net.nodes[1];
+        let node_a = net.node(0);
+        let node_b = net.node(1);
         let window = node_a.consensus().tx_proposal_window();
 
         node_a.generate_blocks(window.farthest() as usize + 2);

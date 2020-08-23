@@ -18,7 +18,7 @@ impl Spec for BootstrapCellbase {
     //    cellbase's outputs is empty, which called as bootstrap_cellbase
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         let blk_hashes = node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 1) as usize);
 

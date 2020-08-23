@@ -37,7 +37,7 @@ impl Spec for SendSecpTxUseDepGroup {
     }
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);
@@ -144,7 +144,7 @@ impl Spec for CheckTypical2In2OutTx {
     crate::name!("check_typical_2_in_2_out_tx");
 
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);

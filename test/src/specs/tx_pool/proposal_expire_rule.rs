@@ -11,7 +11,7 @@ impl Spec for ProposalExpireRuleForCommittingAndExpiredAtOneTime {
     //       committed and expired. A transaction be committed at the end of its commit-window is
     //       committed and expired.
     fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+        let node = net.node(0);
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks(window.farthest() as usize + 2);
 

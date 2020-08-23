@@ -9,8 +9,8 @@ impl Spec for PoolReconcile {
     crate::setup!(connect_all: false, num_nodes: 2);
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);

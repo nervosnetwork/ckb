@@ -9,11 +9,11 @@ impl Spec for SyncTimeout {
     crate::setup!(num_nodes: 5, connect_all: false);
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        let node3 = &net.nodes[3];
-        let node4 = &net.nodes[4];
+        let node0 = net.node(0);
+        let node1 = net.node(1);
+        let node2 = net.node(2);
+        let node3 = net.node(3);
+        let node4 = net.node(4);
 
         info!("Generate 2 blocks on node0");
         node0.generate_blocks(2);

@@ -8,7 +8,7 @@ impl Spec for DepentTxInSameBlock {
     crate::name!("depent_tx_in_same_block");
 
     fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = net.node(0);
 
         info!("Generate 2 tx in same block");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
