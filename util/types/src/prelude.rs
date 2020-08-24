@@ -30,6 +30,7 @@ impl<'r, R> FromSliceShouldBeOk<'r> for R
 where
     R: Reader<'r>,
 {
+    #[cfg(debug_assertions)]
     fn from_slice_should_be_ok(slice: &'r [u8]) -> Self {
         match Self::from_slice(slice) {
             Ok(ret) => ret,
@@ -39,6 +40,11 @@ where
                 hex_string(slice)
             ),
         }
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn from_slice_should_be_ok(slice: &'r [u8]) -> Self {
+        Self::new_unchecked(slice)
     }
 }
 
