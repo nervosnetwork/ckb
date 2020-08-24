@@ -30,7 +30,7 @@ impl Spec for TransactionHashCollisionDifferentWitnessHashes {
             .err()
             .unwrap()
             .to_string()
-            .contains("PoolTransactionDuplicated"));
+            .contains("PoolRejectedDuplicatedTransaction"));
     }
 }
 
@@ -54,7 +54,7 @@ impl Spec for DuplicatedTransaction {
             .err()
             .unwrap()
             .to_string()
-            .contains("PoolTransactionDuplicated"));
+            .contains("PoolRejectedDuplicatedTransaction"));
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.34.2"
+version = "0.35.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -16,6 +16,7 @@ ckb-store = { path = "../store" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-logger = { path = "../util/logger"}
+ckb-logger-service = { path = "../util/logger-service"}
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 ckb-app-config = { path = "../util/app-config" }
@@ -43,6 +44,7 @@ ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-tx-pool = { path = "../tx-pool" }
 ckb-script = { path = "../script" }
 ckb-memory-tracker = { path = "../util/memory-tracker" }
+failure = "0.1.5"
 
 [dev-dependencies]
 reqwest = "0.9.16"

@@ -69,6 +69,10 @@ impl OrphanBlockPool {
                 .and_then(|value| value.get(hash).cloned())
         })
     }
+
+    pub fn len(&self) -> usize {
+        self.parents.read().len()
+    }
 }
 
 #[cfg(test)]

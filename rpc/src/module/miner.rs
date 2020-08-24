@@ -54,17 +54,16 @@ impl MinerRpc for MinerRpcImpl {
 
         let tx_pool = self.shared.tx_pool_controller();
 
-        let get_block_template =
-            tx_pool.get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into));
-        if let Err(e) = get_block_template {
-            error!("send get_block_template request error {}", e);
-            return Err(Error::internal_error());
-        };
-
-        get_block_template.unwrap().map_err(|err| {
-            error!("get_block_template result error {}", err);
-            Error::internal_error()
-        })
+        tx_pool
+            .get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into))
+            .map_err(|err| {
+                error!("send get_block_template request error {}", err);
+                RPCError::ckb_internal_error(err)
+            })?
+            .map_err(|err| {
+                error!("get_block_template result error {}", err);
+                RPCError::from_failure_error(err)
+            })
     }
 
     fn submit_block(&self, work_id: String, data: Block) -> Result<H256> {
@@ -114,10 +113,10 @@ impl MinerRpc for MinerRpcImpl {
     }
 }
 
-fn handle_submit_error<E: Debug + ToString>(work_id: &str, err: &E) -> Error {
+fn handle_submit_error<E: std::fmt::Display + Debug>(work_id: &str, err: &E) -> Error {
     error!("[{}] submit_block error: {:?}", work_id, err);
     capture_submit_error(err);
-    RPCError::custom(RPCError::Invalid, err.to_string())
+    RPCError::custom_with_error(RPCError::Invalid, err)
 }
 
 fn capture_submit_error<D: Debug>(err: &D) {

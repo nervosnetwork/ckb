@@ -1,14 +1,14 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
-use crate::error::{BlockAssemblerError, SubmitTxError};
+use crate::error::{BlockAssemblerError, Reject};
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug_target, info};
+use ckb_logger::{debug, info};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -261,13 +261,16 @@ impl TxPoolService {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplate, FailureError> {
-        if self.block_assembler.is_none() {
-            Err(InternalErrorKind::System
+        if self.block_assembler.is_none() && block_assembler_config.is_none() {
+            Err(InternalErrorKind::Config
                 .reason("BlockAssembler disabled")
                 .into())
         } else {
-            let block_assembler = self.block_assembler.clone().unwrap();
+            let block_assembler = block_assembler_config
+                .map(BlockAssembler::new)
+                .unwrap_or_else(|| self.block_assembler.clone().unwrap());
             let snapshot = self.snapshot();
             let consensus = snapshot.consensus();
             let cycles_limit = consensus.max_block_cycles();
@@ -398,13 +401,13 @@ impl TxPoolService {
         for ((rtx, cache_entry), (tx_size, fee, status)) in txs.into_iter().zip(status.into_iter())
         {
             if tx_pool.reach_cycles_limit(cache_entry.cycles) {
-                return Err(InternalErrorKind::TransactionPoolFull.into());
+                return Err(Reject::Full("cycles".to_owned(), tx_pool.config.max_cycles).into());
             }
 
             let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
             // reject txs which fee lower than min fee rate
             if fee < min_fee {
-                return Err(SubmitTxError::LowFeeRate(min_fee.as_u64()).into());
+                return Err(Reject::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
@@ -433,7 +436,7 @@ impl TxPoolService {
 
             // cellbase is only valid in a block, not as a loose transaction
             if tx.is_cellbase() {
-                return Err(SubmitTxError::Malformed("cellbase like".to_owned()).into());
+                return Err(Reject::Malformed("cellbase like".to_owned()).into());
             }
         }
         Ok(())
@@ -510,12 +513,11 @@ impl TxPoolService {
         });
     }
 
-    pub(crate) async fn clear_pool(&self) {
+    pub(crate) async fn clear_pool(&self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
         let config = tx_pool.config;
-        let snapshot = Arc::clone(&tx_pool.snapshot);
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        *tx_pool = TxPool::new(config, snapshot, last_txs_updated_at);
+        *tx_pool = TxPool::new(config, new_snapshot, last_txs_updated_at);
     }
 }
 
@@ -535,7 +537,7 @@ fn check_transaction_hash_collision(
     for tx in txs {
         let short_id = tx.proposal_short_id();
         if tx_pool.contains_proposal_id(&short_id) {
-            return Err(InternalErrorKind::PoolTransactionDuplicated.into());
+            return Err(Reject::Duplicated(tx.hash()).into());
         }
     }
     Ok(())
@@ -549,7 +551,7 @@ fn resolve_tx<'a>(
 ) -> ResolveResult {
     let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
-        return Err(InternalErrorKind::TransactionPoolFull.into());
+        return Err(Reject::Full("size".to_owned(), tx_pool.config.max_mem_size as u64).into());
     }
 
     let short_id = tx.proposal_short_id();
@@ -746,29 +748,15 @@ fn _update_tx_pool_for_reorg(
     for (cycles, size, tx) in entries {
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
-            debug_target!(
-                crate::LOG_TARGET_TX_POOL,
-                "Failed to add proposed tx {}, reason: {}",
-                tx_hash,
-                e
-            );
+            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
         }
     }
 
     for (cycles, size, tx) in gaps {
-        debug_target!(
-            crate::LOG_TARGET_TX_POOL,
-            "tx proposed, add to gap {}",
-            tx.hash()
-        );
+        debug!("tx proposed, add to gap {}", tx.hash());
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
-            debug_target!(
-                crate::LOG_TARGET_TX_POOL,
-                "Failed to add tx to gap {}, reason: {}",
-                tx_hash,
-                e
-            );
+            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
         }
     }
 

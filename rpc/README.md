@@ -47,6 +47,10 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`get_peers`](#get_peers)
     *   [`get_banned_addresses`](#get_banned_addresses)
     *   [`set_ban`](#set_ban)
+    *   [`sync_state`](#sync_state)
+    *   [`set_network_active`](#set_network_active)
+    *   [`add_node`](#add_node)
+    *   [`remove_node`](#remove_node)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -1837,6 +1841,15 @@ http://localhost:8114
 
 Returns the local node information.
 
+#### Returns
+
+    active - Whether p2p networking is enabled
+    addresses - The addresses of node listen to
+    connections - The number of connections
+    node_id - The id of node
+    protocols::id - Supported p2p protocol id
+    protocols::name - Supported p2p protocol name
+    protocols::support_versions - Supported p2p protocol versions
 
 #### Examples
 
@@ -1857,6 +1870,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
+        "active": true,
         "addresses": [
             {
                 "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
@@ -1867,8 +1881,25 @@ http://localhost:8114
                 "score": "0x1"
             }
         ],
+        "connections": "0xb",
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-        "version": "0.0.0"
+        "protocols": [
+            {
+                "id": "0x0",
+                "name": "/ckb/ping",
+                "support_versions": [
+                    "0.0.1"
+                ]
+            },
+            {
+                "id": "0x1",
+                "name": "/ckb/discovery",
+                "support_versions": [
+                    "0.0.1"
+                ]
+            }
+        ],
+        "version": "0.34.0 (f37f598 2020-07-17)"
     }
 }
 ```
@@ -1877,6 +1908,22 @@ http://localhost:8114
 
 Returns the connected peers information.
 
+#### Returns
+
+    addresses - Observed remote peer listening address
+    connected_duration - The connection duration in seconds
+    is_outbound - Outbound or inbound peer
+    last_ping_duration - Last ping duration in milliseconds
+    node_id - The id of remote peer
+    protocols - Opened protocols of remote peer
+    sync_state::best_known_header_hash - Best known header hash of remote peer
+    sync_state::best_known_header_number - Best known header number of remote peer
+    sync_state::last_common_header_hash - Last common header hash of remote peer
+    sync_state::last_common_header_number - Last common header number of remote peer
+    sync_state::unknown_header_list_size - The total size of unknown header list
+    sync_state::inflight_count - The count of concurrency downloading blocks
+    sync_state::can_fetch_count - The count of blocks are available for concurrency download
+    version - The peer version
 
 #### Examples
 
@@ -1908,9 +1955,54 @@ http://localhost:8114
                     "score": "0x64"
                 }
             ],
+            "connected_duration": "0x2f",
             "is_outbound": true,
+            "last_ping_duration": "0x1a",
             "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-            "version": "0.31.0 (4231360 2020-04-20)"
+            "protocols": [
+                {
+                    "id": "0x4",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x2",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x1",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x64",
+                    "version": "1"
+                },
+                {
+                    "id": "0x6e",
+                    "version": "1"
+                },
+                {
+                    "id": "0x66",
+                    "version": "1"
+                },
+                {
+                    "id": "0x65",
+                    "version": "1"
+                },
+                {
+                    "id": "0x0",
+                    "version": "0.0.1"
+                }
+            ],
+            "sync_state": {
+                "best_known_header_hash": null,
+                "best_known_header_number": null,
+                "can_fetch_count": "0x80",
+                "inflight_count": "0xa",
+                "last_common_header_hash": null,
+                "last_common_header_number": null,
+                "unknown_header_list_size": "0x20"
+            },
+            "version": "0.34.0 (f37f598 2020-07-17)"
         },
         {
             "addresses": [
@@ -1919,9 +2011,54 @@ http://localhost:8114
                     "score": "0x1"
                 }
             ],
-            "is_outbound": false,
-            "node_id": "QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
-            "version": "0.29.0 (a6733e6 2020-02-26)"
+            "connected_duration": "0x95",
+            "is_outbound": true,
+            "last_ping_duration": "0x41",
+            "node_id": "QmSrkzhdBMmfCGx8tQGwgXxzBg8kLtX8qMcqECMuKWsxDV",
+            "protocols": [
+                {
+                    "id": "0x0",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x2",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x6e",
+                    "version": "1"
+                },
+                {
+                    "id": "0x66",
+                    "version": "1"
+                },
+                {
+                    "id": "0x1",
+                    "version": "0.0.1"
+                },
+                {
+                    "id": "0x65",
+                    "version": "1"
+                },
+                {
+                    "id": "0x64",
+                    "version": "1"
+                },
+                {
+                    "id": "0x4",
+                    "version": "0.0.1"
+                }
+            ],
+            "sync_state": {
+                "best_known_header_hash": "0x2157c72b3eddd41a7a14c361173cd22ef27d7e0a29eda2e511ee0b3598c0b895",
+                "best_known_header_number": "0xdb835",
+                "can_fetch_count": "0x80",
+                "inflight_count": "0xa",
+                "last_common_header_hash": "0xc63026bd881d880bb142c855dc8153187543245f0a94391c831c75df31f263c4",
+                "last_common_header_number": "0x4dc08",
+                "unknown_header_list_size": "0x1f"
+            },
+            "version": "0.30.1 (5cc1b75 2020-03-23)"
         }
     ]
 }
@@ -1986,6 +2123,150 @@ echo '{
         "0x1ac89236180",
         true,
         "set_ban example"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `sync_state`
+
+Returns sync state of this node
+
+#### Returns
+
+    best_known_block_number - Height of the most difficult header observed across the network
+    best_known_block_timestamp - Timestamp of the most difficult header observed across the network
+    ibd - Whether the node is in IBD status, i.e. whether the local data is within one day of the latest
+    inflight_blocks_count - Number of blocks being requested for download
+    orphan_blocks_count - Number of blocks that have been downloaded but can't find the corresponding parents yet
+    fast_time - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+    normal_time - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+    low_time - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "sync_state",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "best_known_block_number": "0x248623",
+        "best_known_block_timestamp": "0x173943c36e4",
+        "fast_time": "0x3e8",
+        "ibd": false,
+        "inflight_blocks_count": "0x0",
+        "low_time": "0x5dc",
+        "normal_time": "0x4e2",
+        "orphan_blocks_count": "0x0"
+    }
+}
+```
+
+### `set_network_active`
+
+Disable/enable all p2p network activity
+
+#### Parameters
+
+    state - true to enable networking, false to disable
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "set_network_active",
+    "params": [
+        false
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `add_node`
+
+Attempts to add a node to the peers list and try connecting to it.
+
+#### Parameters
+
+    peer_id - The peer id of node
+    address - The address of node
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "add_node",
+    "params": [
+        "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
+        "/ip4/192.168.2.100/tcp/8114"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `remove_node`
+
+Attempts to remove a node from the peers list and try disconnecting from it.
+
+#### Parameters
+
+    peer_id - The peer id of node
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "remove_node",
+    "params": [
+        "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
     ]
 }' \
 | tr -d '\n' \
@@ -2104,6 +2385,8 @@ http://localhost:8114
         "orphan": "0x0",
         "pending": "0x1",
         "proposed": "0x0",
+        "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+        "tip_number": "0x400",
         "total_tx_cycles": "0x219",
         "total_tx_size": "0x112"
     }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.34.2"
+version = "0.35.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,6 +9,7 @@ edition = "2018"
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
+ckb-db = { path = "../db" }
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }
 ckb-logger = {path = "../util/logger"}
@@ -27,9 +28,14 @@ ckb-tx-pool = { path = "../tx-pool" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
 crossbeam-channel = "0.3"
 ratelimit_meter = "5.0"
+tempfile = "3.0"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"
 ckb-dao = { path = "../util/dao" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+
+[features]
+default = []
+stats = []

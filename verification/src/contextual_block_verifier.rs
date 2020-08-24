@@ -12,7 +12,7 @@ use ckb_error::Error;
 use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{
     core::error::OutPointError,
     core::{
@@ -68,17 +68,11 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
     fn median_block_count(&self) -> u64 {
         self.consensus.median_time_block_count() as u64
     }
+}
 
-    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
-        let header = self
-            .store
-            .get_block_header(block_hash)
-            .expect("[ForkContext] blocks used for median time exist");
-        (
-            header.timestamp(),
-            header.number(),
-            header.data().raw().parent_hash(),
-        )
+impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
+    fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
+        self.store.get_block_header(hash)
     }
 }
 

@@ -31,7 +31,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     }
 
     let setup = Setup::from_matches(&app_matches)?;
-    let _guard = setup.setup_app(&version);
+    let _guard = setup.setup_app(&version)?;
 
     match app_matches.subcommand() {
         (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version),

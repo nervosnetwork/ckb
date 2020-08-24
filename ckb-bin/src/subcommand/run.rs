@@ -46,6 +46,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         &shared.store().cell_provider(),
     );
 
+    rayon::ThreadPoolBuilder::new()
+        .thread_name(|i| format!("RayonGlobal-{}", i))
+        .build_global()
+        .expect("Init the global thread pool for rayon failed");
+
     ckb_memory_tracker::track_current_process(
         args.config.memory_tracker.interval,
         Some(shared.store().db().inner()),
@@ -60,7 +65,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         shared.genesis_hash()
     );
 
-    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::with_tmpdir(
+        shared.clone(),
+        args.config.tmp_dir.as_ref(),
+    ));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
@@ -123,7 +131,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_chain(shared.clone())
         .enable_pool(
             shared.clone(),
-            sync_shared,
+            Arc::clone(&sync_shared),
             args.config.tx_pool.min_fee_rate,
             args.config.rpc.reject_ill_transactions,
         )
@@ -133,7 +141,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             chain_controller.clone(),
             miner_enable,
         )
-        .enable_net(network_controller.clone())
+        .enable_net(network_controller.clone(), sync_shared)
         .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)

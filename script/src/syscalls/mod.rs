@@ -175,21 +175,20 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DataLoader;
     use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
     use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
+    use ckb_traits::{CellDataProvider, HeaderProvider};
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView,
+            cell::CellMeta, Capacity, EpochNumberWithFraction, HeaderBuilder, HeaderView,
             ScriptHashType, TransactionBuilder,
         },
         packed::{Byte32, CellOutput, OutPoint, Script, ScriptBuilder},
         prelude::*,
-        utilities::DIFF_TWO,
-        H256, U256,
+        H256,
     };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
@@ -560,21 +559,17 @@ mod tests {
 
     struct MockDataLoader {
         headers: HashMap<Byte32, HeaderView>,
-        epochs: HashMap<Byte32, EpochExt>,
     }
 
-    impl DataLoader for MockDataLoader {
-        fn load_cell_data(&self, _cell: &CellMeta) -> Option<(Bytes, Byte32)> {
+    impl CellDataProvider for MockDataLoader {
+        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<(Bytes, Byte32)> {
             None
         }
-        fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
-            None
-        }
+    }
+
+    impl HeaderProvider for MockDataLoader {
         fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
             self.headers.get(block_hash).cloned()
-        }
-        fn get_block_epoch(&self, block_hash: &Byte32) -> Option<EpochExt> {
-            self.epochs.get(block_hash).cloned()
         }
     }
 
@@ -600,10 +595,7 @@ mod tests {
 
         let mut headers = HashMap::default();
         headers.insert(header.hash(), header.clone());
-        let data_loader = MockDataLoader {
-            headers,
-            epochs: HashMap::default(),
-        };
+        let data_loader = MockDataLoader { headers };
         let header_deps = vec![header.hash()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
@@ -655,32 +647,22 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
+        machine.set_register(A5, HeaderField::EpochNumber as u64);
         machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let data_hash: H256 = blake2b_256(&data).into();
         let header = HeaderBuilder::default()
             .transactions_root(data_hash.pack())
-            .build();
-
-        let epoch = EpochExt::new_builder()
-            .number(u64::from(data[0]))
-            .base_block_reward(Capacity::bytes(100).unwrap())
-            .remainder_reward(Capacity::bytes(100).unwrap())
-            .previous_epoch_hash_rate(U256::one())
-            .last_block_hash_in_previous_epoch(Byte32::default())
-            .start_number(1234)
-            .length(1000)
-            .compact_target(DIFF_TWO)
+            .number(2000.pack())
+            .epoch(EpochNumberWithFraction::new(1, 40, 1000).pack())
             .build();
 
         let mut correct_data = [0u8; 8];
-        LittleEndian::write_u64(&mut correct_data, epoch.number());
+        LittleEndian::write_u64(&mut correct_data, 1);
 
         let mut headers = HashMap::default();
         headers.insert(header.hash(), header.clone());
-        let mut epochs = HashMap::default();
-        epochs.insert(header.hash(), epoch);
-        let data_loader = MockDataLoader { headers, epochs };
+        let data_loader = MockDataLoader { headers };
         let header_deps = vec![header.hash()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
@@ -706,12 +688,6 @@ mod tests {
             Ok(correct_data.len() as u64)
         );
 
-        for (i, addr) in (addr..addr + correct_data.len() as u64).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(correct_data[i]))
-            );
-        }
         Ok(())
     }
 

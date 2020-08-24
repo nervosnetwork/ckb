@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.34.2"
+version = "0.35.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -20,10 +20,12 @@ members = [
     # Members are ordered by dependencies. Crates at top has fewer dependencies.
     "util/build-info",
     "util/logger",
+    "util/logger-service",
     "util/memory-tracker",
     "util",
     "util/hash",
     "util/fixed-hash",
+    "util/chain-iter",
     "util/crypto",
     "util/rational",
     "util/multisig",
@@ -33,8 +35,9 @@ members = [
     "util/runtime",
     "util/jsonrpc-types",
     "util/fee-estimator",
-    "script/data-loader",
+    "util/rust-unstable-port",
     "db",
+    "db-migration",
     "resource",
     "pow",
     "network",

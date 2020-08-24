@@ -1,4 +1,4 @@
-use crate::iter::ChainIterator;
+use ckb_chain_iter::ChainIterator;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::shared::Shared;
 #[cfg(feature = "progress_bar")]
@@ -21,11 +21,6 @@ impl Export {
         Export { shared, target }
     }
 
-    /// Returning ChainIterator dealing with blocks iterate.
-    pub fn iter(&self) -> ChainIterator {
-        ChainIterator::new(&self.shared)
-    }
-
     /// export file name
     fn file_name(&self) -> String {
         format!("{}.{}", self.shared.consensus().id, "json")
@@ -44,8 +39,9 @@ impl Export {
             .write(true)
             .open(&self.target.join(self.file_name()))?;
         let mut writer = io::BufWriter::new(f);
+        let snapshot = self.shared.snapshot();
 
-        for block in self.iter() {
+        for block in ChainIterator::new(snapshot.as_ref()) {
             let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
@@ -61,10 +57,11 @@ impl Export {
             .read(true)
             .write(true)
             .open(&self.target.join(self.file_name()))?;
-        let mut writer = io::BufWriter::new(f);
 
-        let blocks_iter = self.iter();
-        let progress_bar = ProgressBar::new(blocks_iter.size());
+        let mut writer = io::BufWriter::new(f);
+        let snapshot = self.shared.snapshot();
+        let blocks_iter = ChainIterator::new(snapshot.as_ref());
+        let progress_bar = ProgressBar::new(blocks_iter.len());
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {pos:>6}/{len:6} {msg}")

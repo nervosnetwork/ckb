@@ -24,7 +24,7 @@ impl Spec for SizeLimit {
         let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         let one_tx_size = tx_pool_info.total_tx_size.value();
         let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
 
@@ -48,7 +48,7 @@ impl Spec for SizeLimit {
 
         info!("The next tx reach size limit");
         let tx = node.new_transaction(hash);
-        assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
+        assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum size limit");
 
         node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
@@ -87,7 +87,7 @@ impl Spec for CyclesLimit {
         let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
         let one_tx_size = tx.data().serialized_size_in_block();
 
@@ -111,7 +111,7 @@ impl Spec for CyclesLimit {
 
         info!("The next tx reach cycles limit");
         let tx = node.new_transaction(hash);
-        assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
+        assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum cycles limit");
 
         node.assert_tx_pool_cycles(max_tx_num * one_tx_cycles);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {

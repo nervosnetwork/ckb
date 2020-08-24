@@ -16,7 +16,8 @@ pub use exit_code::ExitCode;
 use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_logger::{info_target, LoggerInitGuard};
+use ckb_logger::info_target;
+use ckb_logger_service::LoggerInitGuard;
 use clap::{value_t, ArgMatches, ErrorKind};
 use std::path::PathBuf;
 
@@ -64,7 +65,7 @@ impl Setup {
         if logger_config.emit_sentry_breadcrumbs.is_none() {
             logger_config.emit_sentry_breadcrumbs = Some(self.is_sentry_enabled);
         }
-        let logger_guard = ckb_logger::init(logger_config)?;
+        let logger_guard = ckb_logger_service::init(logger_config)?;
 
         let sentry_guard = if self.is_sentry_enabled {
             let sentry_config = self.config.sentry();
@@ -263,10 +264,7 @@ impl Setup {
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();
         let network_secret_key_path = network_config.secret_key_path();
-        let logs_dir = config
-            .logger
-            .file
-            .and_then(|path| path.parent().map(|dir| dir.to_path_buf()));
+        let logs_dir = Some(config.logger.log_dir);
 
         let force = matches.is_present(cli::ARG_FORCE);
         let all = matches.is_present(cli::ARG_ALL);

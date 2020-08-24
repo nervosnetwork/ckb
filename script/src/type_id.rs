@@ -1,5 +1,4 @@
 use crate::{ScriptError, ScriptGroup};
-use ckb_error::Error;
 use ckb_hash::new_blake2b;
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
@@ -27,21 +26,21 @@ pub struct TypeIdSystemScript<'a> {
 }
 
 impl<'a> TypeIdSystemScript<'a> {
-    pub fn verify(&self) -> Result<Cycle, Error> {
+    pub fn verify(&self) -> Result<Cycle, ScriptError> {
         if self.max_cycles < TYPE_ID_CYCLES {
-            return Err(ScriptError::ExceededMaximumCycles.into());
+            return Err(ScriptError::ExceededMaximumCycles(self.max_cycles));
         }
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating
         // the cell.
         if self.script_group.script.args().len() != 32 {
-            return Err(ScriptError::ValidationFailure(ERROR_ARGS).into());
+            return Err(ScriptError::ValidationFailure(ERROR_ARGS));
         }
 
         // There could be at most one input cell and one
         // output cell with current TYPE_ID script.
         if self.script_group.input_indices.len() > 1 || self.script_group.output_indices.len() > 1 {
-            return Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS).into());
+            return Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS));
         }
 
         // If there's only one output cell with current
@@ -72,7 +71,7 @@ impl<'a> TypeIdSystemScript<'a> {
             blake2b.finalize(&mut ret);
 
             if ret[..] != self.script_group.script.args().raw_data()[..] {
-                return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH).into());
+                return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH));
             }
         }
         Ok(TYPE_ID_CYCLES)

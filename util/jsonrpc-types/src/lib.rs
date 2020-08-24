@@ -4,6 +4,7 @@ mod blockchain;
 mod bytes;
 mod cell;
 mod chain_info;
+mod debug;
 mod experiment;
 mod fixed_bytes;
 mod indexer;
@@ -27,12 +28,16 @@ pub use self::blockchain::{
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
+pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{
     CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
 };
-pub use self::net::{BannedAddr, LocalNode, NodeAddress, RemoteNode};
+pub use self::net::{
+    BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
+    RemoteNodeProtocol, SyncState,
+};
 pub use self::pool::{OutputsValidator, TxPoolInfo};
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;

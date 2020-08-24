@@ -40,13 +40,13 @@ impl Spec for TxsRelayOrder {
         for tx in txs.iter() {
             node0.rpc_client().send_transaction(tx.data().into());
         }
-        let tx_pool_info = node0.rpc_client().tx_pool_info();
+        let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(COUNT as u64, tx_pool_info.pending.value());
         assert_eq!(0, tx_pool_info.orphan.value());
 
         // node1 should receive all txs
         sleep(10);
-        let tx_pool_info = node1.rpc_client().tx_pool_info();
+        let tx_pool_info = node1.get_tip_tx_pool_info();
         assert_eq!(
             COUNT as u64,
             tx_pool_info.pending.value() + tx_pool_info.orphan.value()

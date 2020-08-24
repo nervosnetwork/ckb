@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.34.2"
+version = "0.35.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -12,6 +12,7 @@ serde_plain = "0.3.0"
 toml = "0.5"
 path-clean = "0.1.0"
 ckb-logger = { path = "../../util/logger" }
+ckb-logger-service = { path = "../../util/logger-service" }
 sentry = "0.16.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}

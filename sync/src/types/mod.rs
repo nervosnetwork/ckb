@@ -1,13 +1,15 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX,
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_TIP_AGE, NORMAL_INDEX,
-    RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME, TIME_TRACE_SIZE,
+    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
+    HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
+    MAX_TIP_AGE, NORMAL_INDEX, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
+    TIME_TRACE_SIZE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::{debug, debug_target, error, metric};
+use ckb_logger::{debug, debug_target, error, metric, trace};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -31,9 +33,14 @@ use std::fmt;
 use std::hash::Hash;
 use std::mem;
 use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+mod header_map;
+
+pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 50000;
@@ -78,11 +85,134 @@ pub struct PeerFlags {
     pub is_whitelist: bool,
 }
 
+#[derive(Clone, Default, Debug, Copy)]
+pub struct HeadersSyncController {
+    // The timestamp when sync started
+    pub(crate) started_ts: u64,
+    // The timestamp of better tip header when sync started
+    pub(crate) started_tip_ts: u64,
+
+    // The timestamp when the process last updated
+    pub(crate) last_updated_ts: u64,
+    // The timestamp of better tip header when the process last updated
+    pub(crate) last_updated_tip_ts: u64,
+
+    pub(crate) is_close_to_the_end: bool,
+}
+
+impl HeadersSyncController {
+    #[cfg(test)]
+    pub(crate) fn new(
+        started_ts: u64,
+        started_tip_ts: u64,
+        last_updated_ts: u64,
+        last_updated_tip_ts: u64,
+        is_close_to_the_end: bool,
+    ) -> Self {
+        Self {
+            started_ts,
+            started_tip_ts,
+            last_updated_ts,
+            last_updated_tip_ts,
+            is_close_to_the_end,
+        }
+    }
+
+    pub(crate) fn from_header(better_tip_header: &core::HeaderView) -> Self {
+        let started_ts = unix_time_as_millis();
+        let started_tip_ts = better_tip_header.timestamp();
+        Self {
+            started_ts,
+            started_tip_ts,
+            last_updated_ts: started_ts,
+            last_updated_tip_ts: started_tip_ts,
+            is_close_to_the_end: false,
+        }
+    }
+
+    pub(crate) fn is_timeout(&mut self, now_tip_ts: u64, now: u64) -> Option<bool> {
+        let inspect_window = HEADERS_DOWNLOAD_INSPECT_WINDOW;
+        let expected_headers_per_sec = HEADERS_DOWNLOAD_HEADERS_PER_SECOND;
+        let tolerable_bias = HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE;
+
+        let expected_before_finished = now.saturating_sub(now_tip_ts);
+
+        trace!("headers-sync: better tip ts {}; now {}", now_tip_ts, now);
+
+        if self.is_close_to_the_end {
+            let expected_in_base_time =
+                expected_headers_per_sec * inspect_window * POW_INTERVAL / 1000;
+            if expected_before_finished > expected_in_base_time {
+                self.started_ts = now;
+                self.started_tip_ts = now_tip_ts;
+                self.last_updated_ts = now;
+                self.last_updated_tip_ts = now_tip_ts;
+                self.is_close_to_the_end = false;
+                // if the node is behind the estimated tip header too much, sync again;
+                trace!("headers-sync: send GetHeaders again since we behind the tip too much");
+                None
+            } else {
+                // ignore timeout because the tip already almost reach the real time;
+                // we can sync to the estimated tip in 1 inspect window by the slowest speed that we can accept.
+                Some(false)
+            }
+        } else if expected_before_finished < inspect_window {
+            self.is_close_to_the_end = true;
+            trace!("headers-sync: ignore timeout because the tip almost reach the real time");
+            Some(false)
+        } else {
+            let spent_since_last_updated = now.saturating_sub(self.last_updated_ts);
+
+            if spent_since_last_updated < inspect_window {
+                // ignore timeout because the time spent since last updated is not enough as a sample
+                Some(false)
+            } else {
+                let synced_since_last_updated = now_tip_ts.saturating_sub(self.last_updated_tip_ts);
+                let expected_since_last_updated =
+                    expected_headers_per_sec * spent_since_last_updated * POW_INTERVAL / 1000;
+
+                if synced_since_last_updated < expected_since_last_updated / tolerable_bias {
+                    // if instantaneous speed is too slow, we don't care the global average speed
+                    trace!("headers-sync: the instantaneous speed is too slow");
+                    Some(true)
+                } else {
+                    self.last_updated_ts = now;
+                    self.last_updated_tip_ts = now_tip_ts;
+
+                    if synced_since_last_updated > expected_since_last_updated {
+                        trace!("headers-sync: the instantaneous speed is acceptable");
+                        Some(false)
+                    } else {
+                        // tolerate more bias for instantaneous speed, we will check the global average speed
+                        let spent_since_started = now.saturating_sub(self.started_ts);
+                        let synced_since_started = now_tip_ts.saturating_sub(self.started_tip_ts);
+
+                        let expected_since_started =
+                            expected_headers_per_sec * spent_since_started * POW_INTERVAL / 1000;
+
+                        if synced_since_started < expected_since_started {
+                            // the global average speed is too slow
+                            trace!(
+                                "headers-sync: both the global average speed and the instantaneous speed \
+                                is slow than expected"
+                            );
+                            Some(true)
+                        } else {
+                            trace!("headers-sync: the global average speed is acceptable");
+                            Some(false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct PeerState {
     // only use on header sync
     pub sync_started: bool,
-    pub headers_sync_timeout: Option<u64>,
+    pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
@@ -103,7 +233,7 @@ impl PeerState {
     pub fn new(peer_flags: PeerFlags) -> PeerState {
         PeerState {
             sync_started: false,
-            headers_sync_timeout: None,
+            headers_sync_controller: None,
             peer_flags,
             disconnect: false,
             chain_sync: ChainSyncState::default(),
@@ -126,22 +256,21 @@ impl PeerState {
                 .unwrap_or(true)
     }
 
-    pub fn start_sync(&mut self, headers_sync_timeout: u64) {
+    pub fn start_sync(&mut self, headers_sync_controller: HeadersSyncController) {
         self.sync_started = true;
         self.chain_sync.not_sync_until = None;
-        self.headers_sync_timeout = Some(headers_sync_timeout);
+        self.headers_sync_controller = Some(headers_sync_controller);
     }
 
     pub fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
         self.sync_started = false;
         self.chain_sync.not_sync_until = Some(now + suspend_time);
-        self.headers_sync_timeout = None;
+        self.stop_headers_sync();
     }
 
-    // Not use yet
-    pub fn caught_up_sync(&mut self) {
-        self.headers_sync_timeout = Some(std::u64::MAX);
+    pub(crate) fn stop_headers_sync(&mut self) {
+        self.headers_sync_controller = None;
     }
 
     pub fn add_ask_for_tx(
@@ -479,6 +608,14 @@ impl InflightBlocks {
         self.inflight_states.len()
     }
 
+    pub fn division_point(&self) -> (u64, u64, u64) {
+        (
+            self.time_analyzer.fast_time,
+            self.time_analyzer.normal_time,
+            self.time_analyzer.low_time,
+        )
+    }
+
     pub fn peer_inflight_count(&self, peer: PeerIndex) -> usize {
         self.download_schedulers
             .get(&peer)
@@ -737,14 +874,14 @@ impl Peers {
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: &HeaderView) {
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
         if let Some(peer_state) = self.state.write().get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.is_better_than(&hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view.clone());
+                    peer_state.best_known_header = Some(header_view);
                 }
             } else {
-                peer_state.best_known_header = Some(header_view.clone());
+                peer_state.best_known_header = Some(header_view);
             }
         }
     }
@@ -870,14 +1007,20 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F, G>(&mut self, mut get_header_view: F, fast_scanner: G)
-    where
-        F: FnMut(&Byte32) -> Option<HeaderView>,
+    pub fn build_skip<F, G>(
+        &mut self,
+        tip_number: BlockNumber,
+        mut get_header_view: F,
+        fast_scanner: G,
+    ) where
+        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        self.skip_hash = get_header_view(&self.parent_hash())
+        let store_first = self.number() <= tip_number;
+        self.skip_hash = get_header_view(&self.parent_hash(), Some(store_first))
             .and_then(|parent| {
                 parent.get_ancestor(
+                    tip_number,
                     get_skip_height(self.number()),
                     get_header_view,
                     fast_scanner,
@@ -889,12 +1032,13 @@ impl HeaderView {
     // NOTE: get_header_view may change source state, for cache or for tests
     pub fn get_ancestor<F, G>(
         self,
+        tip_number: BlockNumber,
         number: BlockNumber,
         mut get_header_view: F,
         fast_scanner: G,
     ) -> Option<core::HeaderView>
     where
-        F: FnMut(&Byte32) -> Option<HeaderView>,
+        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         let timestamp = unix_time_as_millis();
@@ -910,6 +1054,7 @@ impl HeaderView {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
             steps += 1;
+            let store_first = current.number() <= tip_number;
             match current.skip_hash {
                 Some(ref hash)
                     if number_skip == number
@@ -918,11 +1063,11 @@ impl HeaderView {
                                 && number_skip_prev >= number)) =>
                 {
                     // Only follow skip if parent->skip isn't better than skip->parent
-                    current = get_header_view(hash)?;
+                    current = get_header_view(hash, Some(store_first))?;
                     number_walk = number_skip;
                 }
                 _ => {
-                    current = get_header_view(&current.parent_hash())?;
+                    current = get_header_view(&current.parent_hash(), Some(store_first))?;
                     number_walk -= 1;
                 }
             }
@@ -946,6 +1091,59 @@ impl HeaderView {
 
     pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
         self.total_difficulty() > total_difficulty
+    }
+
+    fn from_slice_should_be_ok(slice: &[u8]) -> Self {
+        let len_size = packed::Uint32Reader::TOTAL_SIZE;
+        if slice.len() < len_size {
+            panic!("failed to unpack item in header map: header part is broken");
+        }
+        let mut idx = 0;
+        let inner_len = {
+            let reader = packed::Uint32Reader::from_slice_should_be_ok(&slice[idx..idx + len_size]);
+            Unpack::<u32>::unpack(&reader) as usize
+        };
+        idx += len_size;
+        let total_difficulty_len = packed::Uint256Reader::TOTAL_SIZE;
+        if slice.len() < len_size + inner_len + total_difficulty_len {
+            panic!("failed to unpack item in header map: body part is broken");
+        }
+        let inner = {
+            let reader =
+                packed::HeaderViewReader::from_slice_should_be_ok(&slice[idx..idx + inner_len]);
+            Unpack::<core::HeaderView>::unpack(&reader)
+        };
+        idx += inner_len;
+        let total_difficulty = {
+            let reader = packed::Uint256Reader::from_slice_should_be_ok(
+                &slice[idx..idx + total_difficulty_len],
+            );
+            Unpack::<U256>::unpack(&reader)
+        };
+        idx += total_difficulty_len;
+        let skip_hash = {
+            packed::Byte32OptReader::from_slice_should_be_ok(&slice[idx..])
+                .to_entity()
+                .to_opt()
+        };
+        Self {
+            inner,
+            total_difficulty,
+            skip_hash,
+        }
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        let inner: packed::HeaderView = self.inner.pack();
+        let total_difficulty: packed::Uint256 = self.total_difficulty.pack();
+        let skip_hash: packed::Byte32Opt = Pack::pack(&self.skip_hash);
+        let inner_len: packed::Uint32 = (inner.as_slice().len() as u32).pack();
+        v.extend_from_slice(inner_len.as_slice());
+        v.extend_from_slice(inner.as_slice());
+        v.extend_from_slice(total_difficulty.as_slice());
+        v.extend_from_slice(skip_hash.as_slice());
+        v
     }
 }
 
@@ -987,6 +1185,13 @@ pub struct SyncShared {
 
 impl SyncShared {
     pub fn new(shared: Shared) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, None)
+    }
+
+    pub fn with_tmpdir<P>(shared: Shared, tmpdir: Option<P>) -> SyncShared
+    where
+        P: AsRef<Path>,
+    {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
             (
@@ -995,13 +1200,14 @@ impl SyncShared {
             )
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
+        let header_map = HeaderMap::new(tmpdir, 300_000, 20_000);
 
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
             ibd_finished: AtomicBool::new(false),
             shared_best_header,
-            header_map: RwLock::new(HashMap::new()),
+            header_map,
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
@@ -1078,6 +1284,11 @@ impl SyncShared {
 
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
+        debug!(
+            "try accepting {} descendant orphan blocks",
+            descendants.len()
+        );
+
         for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as an invalid block as well.
@@ -1131,8 +1342,10 @@ impl SyncShared {
     // Update the shared_best_header if need
     // Update the peer's best_known_header
     pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
+        let tip_number = self.active_chain().tip_number();
+        let store_first = tip_number >= header.number();
         let parent_view = self
-            .get_header_view(&header.data().raw().parent_hash())
+            .get_header_view(&header.data().raw().parent_hash(), Some(store_first))
             .expect("parent should be verified");
         let mut header_view = {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -1141,7 +1354,8 @@ impl SyncShared {
 
         let snapshot = Arc::clone(&self.shared.snapshot());
         header_view.build_skip(
-            |hash| self.get_header_view(hash),
+            tip_number,
+            |hash, store_first_opt| self.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number() <= snapshot.tip_number()
@@ -1149,42 +1363,52 @@ impl SyncShared {
                 {
                     snapshot
                         .get_block_hash(number)
-                        .and_then(|hash| self.get_header_view(&hash))
+                        .and_then(|hash| self.get_header_view(&hash, Some(true)))
                 } else {
                     None
                 }
             },
         );
-        self.state
-            .header_map
-            .write()
-            .insert(header.hash(), header_view.clone());
+        self.state.header_map.insert(header_view.clone());
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
         self.state
             .peers()
-            .may_set_best_known_header(peer, &header_view);
+            .may_set_best_known_header(peer, header_view.clone());
         self.state.may_set_shared_best_header(header_view);
     }
 
-    pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
+    pub fn get_header_view(
+        &self,
+        hash: &Byte32,
+        store_first_opt: Option<bool>,
+    ) -> Option<HeaderView> {
         let store = self.store();
-        self.state.header_map.read().get(hash).cloned().or_else(|| {
-            store.get_block_header(hash).and_then(|header| {
-                store
-                    .get_block_ext(&hash)
-                    .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+        if store_first_opt.unwrap_or(false) {
+            store
+                .get_block_header(hash)
+                .and_then(|header| {
+                    store
+                        .get_block_ext(&hash)
+                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                })
+                .or_else(|| self.state.header_map.get(hash))
+        } else {
+            self.state.header_map.get(hash).or_else(|| {
+                store.get_block_header(hash).and_then(|header| {
+                    store
+                        .get_block_ext(&hash)
+                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                })
             })
-        })
+        }
     }
 
     pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
         self.state
             .header_map
-            .read()
             .get(hash)
-            .map(HeaderView::inner)
-            .cloned()
+            .map(HeaderView::into_inner)
             .or_else(|| self.store().get_block_header(hash))
     }
 
@@ -1214,7 +1438,7 @@ pub struct SyncState {
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
-    header_map: RwLock<HashMap<Byte32, HeaderView>>,
+    header_map: HeaderMap,
     block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
     tx_filter: Mutex<Filter<Byte32>>,
 
@@ -1294,10 +1518,6 @@ impl SyncState {
         mem::take(&mut *map)
     }
 
-    pub fn is_initial_header_sync(&self) -> bool {
-        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp()) > MAX_TIP_AGE
-    }
-
     pub fn shared_best_header(&self) -> HeaderView {
         self.shared_best_header.read().to_owned()
     }
@@ -1308,7 +1528,7 @@ impl SyncState {
         }
 
         assert!(
-            self.header_map.read().contains_key(&header.hash()),
+            self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
         metric!({
@@ -1319,10 +1539,7 @@ impl SyncState {
     }
 
     pub fn remove_header_view(&self, hash: &Byte32) {
-        let mut guard = self.header_map.write();
-        guard.remove(hash);
-
-        shrink_to_fit!(guard, SHRINK_THREHOLD);
+        self.header_map.remove(hash);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -1399,6 +1616,10 @@ impl SyncState {
         blocks
     }
 
+    pub fn orphan_pool(&self) -> &OrphanBlockPool {
+        &self.orphan_block_pool
+    }
+
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
         self.block_status_map.lock().insert(block_hash, status);
     }
@@ -1442,7 +1663,7 @@ impl SyncState {
             // header list is an ordered list, sorted from highest to lowest,
             // so here you discard and exit early
             for hash in header_list {
-                if let Some(header) = self.header_map.read().get(&hash) {
+                if let Some(header) = self.header_map.get(&hash) {
                     self.peers.may_set_best_known_header(pi, header);
                     break;
                 } else {
@@ -1456,7 +1677,7 @@ impl SyncState {
         // header list is an ordered list, sorted from highest to lowest,
         // when header hash unknown, break loop is ok
         while let Some(hash) = self.peers().take_unknown_last(pi) {
-            if let Some(header) = self.header_map.read().get(&hash) {
+            if let Some(header) = self.header_map.get(&hash) {
                 self.peers.may_set_best_known_header(pi, header);
             } else {
                 self.peers.insert_unknown_header_hash(pi, hash);
@@ -1534,15 +1755,16 @@ impl ActiveChain {
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
         let tip_number = self.tip_number();
-        self.shared.get_header_view(base)?.get_ancestor(
+        self.shared.get_header_view(base, None)?.get_ancestor(
+            tip_number,
             number,
-            |hash| self.shared.get_header_view(hash),
+            |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
                 {
                     self.get_block_hash(number)
-                        .and_then(|hash| self.shared.get_header_view(&hash))
+                        .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
                 } else {
                     None
                 }
@@ -1814,7 +2036,7 @@ mod tests {
             parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero());
-            view.build_skip(|hash| header_map.get(hash).cloned(), |_, _| None);
+            view.build_skip(0, |hash, _| header_map.get(hash).cloned(), |_, _| None);
             header_map.insert(view.hash(), view);
         }
 
@@ -1842,8 +2064,9 @@ mod tests {
                 .cloned()
                 .unwrap()
                 .get_ancestor(
+                    0,
                     b,
-                    |hash| {
+                    |hash, _| {
                         count += 1;
                         header_map.get(hash).cloned()
                     },

@@ -1,3 +1,101 @@
+# [v0.35.0](https://github.com/nervosnetwork/ckb/compare/v0.34.2...v0.35.0) (2020-08-24)
+
+### Features
+
+* #2038 **rpc:** Re-organize RPC errors (@doitian)
+
+    This is a breaking change: b:rpc
+
+    This PR reworks on the RPC errors:
+
+    * Use JSONRPC error code to differentiate different errors. Also prefix the error code in the message to be search engine friendly.
+    * Make error message simple and easy to understand. The dump of the error is added as the data instead.
+    * Avoid reusing the same error message for different reasons.
+
+    **Breaking Changes**
+
+    * The error object `data` field is always absent before, now it can be a string which contains the detailed error information.
+    * The `code` in error object is always -3 for all the CKB internal errors, now it can have different values to differentiate different errors. Check the file `rpc/src/error.rs`.
+    * The error messages have been updated to improve readability.
+
+* #2049 **rpc:** Improve error messages from send transaction RPC (@doitian)
+
+* #2178 **rpc:** Add `generate_block` RPC to IntegrationTest module (@quake)
+
+    It allows user to generate block through RPC, it's a convenient feature for dApp integration test (like `truncate` RPC)
+
+* #2188 **rpc:** Add sync state RPC (@driftluo)
+
+    Wallet can fetch the best known block header the node gets from the P2P network.
+
+* #2184 **rpc:** `tx_pool_info` include tip hash (@keroro520)
+
+* #2144 **rpc:** Add `set_network_active` RPC (@quake)
+
+    Allows user to pause and restart p2p network message processing through RPC.
+
+* #2190 **rpc:** Move `add_node` / `remove_node` RPC to `Net` module (@quake)
+* #2196 **rpc:** Add more fields to RPC `get_peers` (@quake)
+
+    Added `connected_duration`, `last_ping_duration`, `protocols` and `sync_state` to `get_peers` RPC.
+
+* #2195 **rpc:** Add more fields to `local_node_info` RPC (@quake)
+
+    Added `active`, `connections` and `protocols` fields to `local_node_info`.
+
+* #2159: Load db options from a file; support configuring column families (@yangby-cryptape)
+* #2175: Support multiple file loggers in `ckb.toml` (@yangby-cryptape)
+* #2182: Take full control of main logger filter via RPC (@yangby-cryptape)
+
+### Bug Fixes
+
+* #2158: Panic if db options is empty (@yangby-cryptape)
+* #2157: The option of db path doesn't work (@yangby-cryptape)
+* #2177: Fix the lenient logger filter parser (@yangby-cryptape)
+* #2134: Update proposal table after chain reorg (@zhangsoledad)
+
+    Previously, proposal-table update not considered in chain rollback, it's almost impossible to happen in hashrate-based chain. But can be triggered by `truncate` RPC.
+
+* #2197: Should exit with error code when setup failed (@yangby-cryptape)
+
+    Issue: if the config was malformed and an error was thrown in `setup_app`, the process wouldn't exit.
+
+### Improvements
+
+* #2152: Change storage molecule table to struct (@quake)
+
+    This is a breaking change: b:database
+
+    Storage structs `HeaderView`, `EpochExt` and `TransactionInfo` are fixed size, we should use molecule `struct` instead of `table`, it reduces storage size and improves the performance a little bit.
+
+* #2150: Don't query store twice in method chaining (@yangby-cryptape)
+* #2151: Reduce times of querying header map (@yangby-cryptape)
+* #2147: Don't cache all data of header map in memory during IBD (@yangby-cryptape)
+* #2154: Split chain iter (@zhangsoledad)
+* #2153: Decoupling migration from db (@zhangsoledad)
+
+    Previously, migration coupling with DB, this sacrifice flexibility. In a case like this, opening a read-only DB will be trouble.
+    This PR proposal split migration.
+
+* #2163: Add HeaderProvider trait and split DataLoader to smaller trait (@quake)
+* #1988: Use a new method to detect headers sync timeout (@yangby-cryptape)
+
+    To avoid possible performance issues on headers synchronization.
+
+* #2180: Add case description and some assertion for `alert_propagation` integration test (@chuijiaolianying)
+* #2179: Refactor about integration service mining relate cases. (@chuijiaolianying)
+* #2189: Add case description and update case assertions for consensus related cases. (@chuijiaolianying)
+* #2204: Add some trait for integration cases (@chuijiaolianying)
+* #2164: Improve script error (@doitian)
+* #2168: Improve error when submitting block (@doitian)
+* #2169: Small tx-pool refactoring (@zhangsoledad)
+
+    * rename ContextualTransactionVerifier -> TimeRelativeTransactionVerifier
+    * split NonContextualTransactionVerifier from TransactionVerifier
+    * check syntactic correctness first before
+    * refactory tx-pool rejection error
+    * re-broadcast when duplicated tx submit
+
 # [v0.34.2](https://github.com/nervosnetwork/ckb/compare/v0.34.0...v0.34.2) (2020-08-08)
 
 ### Bug Fixes

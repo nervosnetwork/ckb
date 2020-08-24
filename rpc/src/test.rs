@@ -226,11 +226,18 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(
-        PoolRpcImpl::new(shared.clone(), sync_shared, FeeRate::zero(), true).to_delegate(),
+        PoolRpcImpl::new(
+            shared.clone(),
+            Arc::clone(&sync_shared),
+            FeeRate::zero(),
+            true,
+        )
+        .to_delegate(),
     );
     io.extend_with(
         NetworkRpcImpl {
             network_controller: network_controller.clone(),
+            sync_shared,
         }
         .to_delegate(),
     );
@@ -403,6 +410,11 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             json!(true),
             json!("set_ban example"),
         ],
+        "add_node" => vec![
+            json!("QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"),
+            json!("/ip4/192.168.2.100/tcp/8114"),
+        ],
+        "remove_node" => vec![json!("QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS")],
         "send_transaction" => vec![transaction, json!("passthrough")],
         "dry_run_transaction" | "_compute_transaction_hash" => vec![transaction],
         "get_transaction" => vec![transaction_hash],

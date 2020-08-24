@@ -1,6 +1,6 @@
 [package]
 name = "ckb-dao"
-version = "0.34.2"
+version = "0.35.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,7 +12,7 @@ ckb-chain-spec = { path = "../../spec" }
 ckb-store = { path = "../../store" }
 ckb-dao-utils = { path = "./utils" }
 ckb-error = { path = "../../error" }
-ckb-script-data-loader = { path = "../../script/data-loader" }
+ckb-traits = { path = "../../traits" }
 
 [dev-dependencies]
 ckb-db = { path = "../../db" }

@@ -7,10 +7,10 @@ use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_tx_pool::error::SubmitTxError;
+use ckb_tx_pool::error::Reject;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -72,12 +72,24 @@ impl PoolRpc for PoolRpcImpl {
             }
             Some(OutputsValidator::Passthrough) | None => Ok(()),
         } {
-            return Err(RPCError::custom(RPCError::Invalid, e));
+            return Err(RPCError::custom_with_data(
+                RPCError::PoolRejectedTransactionByOutputsValidator,
+                format!(
+                    "The transction is rejected by OutputsValidator set in params[1]: {}. \
+                    Please set it to passthrough if you really want to send transactions with advanced scripts.",
+                    outputs_validator.unwrap_or(OutputsValidator::Default).json_display()
+                ),
+                e,
+            ));
         }
 
         if self.reject_ill_transactions {
             if let Err(e) = IllTransactionChecker::new(&tx).check() {
-                return Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)));
+                return Err(RPCError::custom_with_data(
+                    RPCError::PoolRejectedTransactionByIllTransactionChecker,
+                    "The transaction is rejected by IllTransactionChecker",
+                    e,
+                ));
             }
         }
 
@@ -86,50 +98,34 @@ impl PoolRpc for PoolRpcImpl {
 
         if let Err(e) = submit_txs {
             error!("send submit_txs request error {}", e);
-            return Err(Error::internal_error());
+            return Err(RPCError::ckb_internal_error(e));
         }
 
+        let broadcast = |tx_hash: packed::Byte32| {
+            // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
+            let peer_index = PeerIndex::new(usize::max_value());
+            self.sync_shared
+                .state()
+                .tx_hashes()
+                .entry(peer_index)
+                .or_default()
+                .insert(tx_hash);
+        };
+        let tx_hash = tx.hash();
         match submit_txs.unwrap() {
             Ok(_) => {
-                // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
-                let peer_index = PeerIndex::new(usize::max_value());
-                let hash = tx.hash();
-                self.sync_shared
-                    .state()
-                    .tx_hashes()
-                    .entry(peer_index)
-                    .or_default()
-                    .insert(hash.clone());
-                Ok(hash.unpack())
+                broadcast(tx_hash.clone());
+                Ok(tx_hash.unpack())
             }
-            Err(e) => {
-                if let Some(e) = e.downcast_ref::<SubmitTxError>() {
-                    match *e {
-                        SubmitTxError::LowFeeRate(min_fee) => {
-                            return Err(RPCError::custom(
-                                RPCError::Invalid,
-                                format!(
-                                    "transaction fee rate lower than min_fee_rate: {} shannons/KB, min fee for current tx: {}",
-                                    self.min_fee_rate, min_fee,
-                                ),
-                            ));
-                        }
-                        SubmitTxError::ExceededMaximumAncestorsCount => {
-                            return Err(RPCError::custom(
-                                RPCError::Invalid,
-                                    "transaction exceeded maximum ancestors count limit, try send it later".to_string(),
-                            ));
-                        }
-                        SubmitTxError::Malformed(ref desc) => {
-                            return Err(RPCError::custom(
-                                RPCError::Invalid,
-                                format!("malformed transaction {}", desc),
-                            ));
-                        }
+            Err(e) => match RPCError::downcast_submit_transaction_reject(&e) {
+                Some(reject) => {
+                    if let Reject::Duplicated(_) = reject {
+                        broadcast(tx_hash);
                     }
+                    Err(RPCError::from_submit_transaction_reject(reject))
                 }
-                Err(RPCError::custom(RPCError::Invalid, format!("{:#}", e)))
-            }
+                None => Err(RPCError::from_ckb_error(e)),
+            },
         }
     }
 
@@ -138,12 +134,14 @@ impl PoolRpc for PoolRpcImpl {
         let get_tx_pool_info = tx_pool.get_tx_pool_info();
         if let Err(e) = get_tx_pool_info {
             error!("send get_tx_pool_info request error {}", e);
-            return Err(Error::internal_error());
+            return Err(RPCError::ckb_internal_error(e));
         };
 
         let tx_pool_info = get_tx_pool_info.unwrap();
 
         Ok(TxPoolInfo {
+            tip_hash: tx_pool_info.tip_hash.unpack(),
+            tip_number: tx_pool_info.tip_number.into(),
             pending: (tx_pool_info.pending_size as u64).into(),
             proposed: (tx_pool_info.proposed_size as u64).into(),
             orphan: (tx_pool_info.orphan_size as u64).into(),
@@ -155,9 +153,10 @@ impl PoolRpc for PoolRpcImpl {
     }
 
     fn clear_tx_pool(&self) -> Result<()> {
+        let snapshot = Arc::clone(&self.shared.snapshot());
         let tx_pool = self.shared.tx_pool_controller();
         tx_pool
-            .clear_pool()
+            .clear_pool(snapshot)
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())

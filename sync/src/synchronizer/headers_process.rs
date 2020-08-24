@@ -5,12 +5,8 @@ use crate::{Status, StatusCode, MAX_HEADERS_LEN};
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed::{self, Byte32},
-    prelude::*,
-};
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier, Verifier};
 
 pub struct HeadersProcess<'a> {
@@ -55,17 +51,11 @@ impl<'a> BlockMedianTimeContext for VerifierResolver<'a> {
     fn median_block_count(&self) -> u64 {
         self.shared.consensus().median_time_block_count() as u64
     }
+}
 
-    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
-        let header = self
-            .shared
-            .get_header(&block_hash)
-            .expect("[VerifierResolver] blocks used for median time exist");
-        (
-            header.timestamp(),
-            header.number(),
-            header.data().raw().parent_hash(),
-        )
+impl<'a> HeaderProvider for VerifierResolver<'a> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
+        self.shared.get_header(hash)
     }
 }
 
@@ -127,6 +117,37 @@ impl<'a> HeadersProcess<'a> {
         acceptor.accept()
     }
 
+    fn debug(&self) {
+        if log_enabled!(Level::Debug) {
+            // Regain the updated best known
+            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
+            debug!(
+                "chain: num={}, diff={:#x};",
+                self.active_chain.tip_number(),
+                self.active_chain.total_difficulty()
+            );
+            debug!(
+                "shared best_known_header: num={}, diff={:#x}, hash={};",
+                shared_best_known.number(),
+                shared_best_known.total_difficulty(),
+                shared_best_known.hash(),
+            );
+            if let Some(header) = peer_best_known {
+                debug!(
+                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
+                    self.peer,
+                    header.number(),
+                    header.total_difficulty(),
+                    header.hash()
+                );
+            } else {
+                debug!("state: null;");
+            }
+            debug!("peer: {}", self.peer);
+        }
+    }
+
     pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
         let shared = self.synchronizer.shared();
@@ -145,15 +166,15 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if headers.is_empty() {
-            // Reset headers sync timeout
-            self.synchronizer
-                .peers()
-                .state
-                .write()
-                .get_mut(&self.peer)
-                .expect("Peer must exists")
-                .headers_sync_timeout = None;
             debug!("HeadersProcess is_empty (synchronized)");
+            let ibd = self.active_chain.is_initial_block_download();
+            if !ibd {
+                if let Some(ref mut peer_state) =
+                    self.synchronizer.peers().state.write().get_mut(&self.peer)
+                {
+                    peer_state.stop_headers_sync();
+                }
+            }
             return Status::ok();
         }
 
@@ -198,34 +219,7 @@ impl<'a> HeadersProcess<'a> {
             }
         }
 
-        if log_enabled!(Level::Debug) {
-            // Regain the updated best known
-            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
-            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
-            debug!(
-                "chain: num={}, diff={:#x};",
-                self.active_chain.tip_number(),
-                self.active_chain.total_difficulty()
-            );
-            debug!(
-                "shared best_known_header: num={}, diff={:#x}, hash={};",
-                shared_best_known.number(),
-                shared_best_known.total_difficulty(),
-                shared_best_known.hash(),
-            );
-            if let Some(header) = peer_best_known {
-                debug!(
-                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={};",
-                    self.peer,
-                    header.number(),
-                    header.total_difficulty(),
-                    header.hash()
-                );
-            } else {
-                debug!("state: null;");
-            }
-            debug!("peer: {}", self.peer);
-        }
+        self.debug();
 
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
@@ -339,16 +333,17 @@ where
 
         // FIXME If status == BLOCK_INVALID then return early. But which error
         // type should we return?
-        if self
-            .active_chain
-            .contains_block_status(&self.header.hash(), BlockStatus::HEADER_VALID)
-        {
+        let status = self.active_chain.get_block_status(&self.header.hash());
+        if status.contains(BlockStatus::HEADER_VALID) {
             let header_view = shared
-                .get_header_view(&self.header.hash())
+                .get_header_view(
+                    &self.header.hash(),
+                    Some(status.contains(BlockStatus::BLOCK_STORED)),
+                )
                 .expect("header with HEADER_VALID should exist");
             state
                 .peers()
-                .may_set_best_known_header(self.peer, &header_view);
+                .may_set_best_known_header(self.peer, header_view);
             return result;
         }
 

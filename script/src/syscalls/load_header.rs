@@ -1,4 +1,3 @@
-use crate::DataLoader;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
@@ -7,6 +6,7 @@ use crate::{
         LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
     },
 };
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{cell::CellMeta, HeaderView},
     packed::Byte32Vec,
@@ -27,7 +27,7 @@ pub struct LoadHeader<'a, DL> {
     group_inputs: &'a [usize],
 }
 
-impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
+impl<'a, DL: HeaderProvider + 'a> LoadHeader<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         header_deps: Byte32Vec,
@@ -114,24 +114,22 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
         header: &HeaderView,
     ) -> Result<(u8, u64), VMError> {
         let field = HeaderField::parse_from_u64(machine.registers()[A5].to_u64())?;
-        let epoch = match self.data_loader.get_block_epoch(&header.hash()) {
-            Some(epoch) => epoch,
-            None => return Ok((ITEM_MISSING, 0)),
-        };
+        let epoch = header.epoch();
 
         let result = match field {
-            HeaderField::EpochNumber => (SUCCESS, store_u64(machine, epoch.number())?),
-            HeaderField::EpochStartBlockNumber => {
-                (SUCCESS, store_u64(machine, epoch.start_number())?)
-            }
-            HeaderField::EpochLength => (SUCCESS, store_u64(machine, epoch.length())?),
+            HeaderField::EpochNumber => epoch.number(),
+            HeaderField::EpochStartBlockNumber => header
+                .number()
+                .checked_sub(epoch.index())
+                .ok_or(VMError::Unexpected)?,
+            HeaderField::EpochLength => epoch.length(),
         };
 
-        Ok(result)
+        Ok((SUCCESS, store_u64(machine, result)?))
     }
 }
 
-impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a, DL> {
+impl<'a, DL: HeaderProvider + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a, DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

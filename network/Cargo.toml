@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.34.2"
+version = "0.35.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -23,7 +23,7 @@ bs58 = "0.3.0"
 sentry = "0.16.0"
 faster-hex = "0.4"
 ckb-hash = {path = "../util/hash"}
-secp256k1 = {version = "0.15.0", features = ["recovery"] }
+secp256k1 = {version = "0.17", features = ["recovery"] }
 resolve = "0.2.0"
 num_cpus = "1.10"
 snap = "1"

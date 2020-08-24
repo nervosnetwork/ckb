@@ -29,7 +29,7 @@ impl Spec for RpcTruncate {
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);
         assert_eq!(cell1.status, "unknown", "cell1 was spent within tx1");
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         assert!(tx_pool_info.total_tx_size.value() > 0, "tx-pool holds tx2");
 
         // Truncate from `to_truncate`
@@ -56,7 +56,7 @@ impl Spec for RpcTruncate {
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);
         assert_eq!(cell1.status, "live", "cell1 is alive after roll-backing");
 
-        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let tx_pool_info = node.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.orphan.value(), 0, "tx-pool was cleared");
         assert_eq!(tx_pool_info.pending.value(), 0, "tx-pool was cleared");
         assert_eq!(tx_pool_info.proposed.value(), 0, "tx-pool was cleared");

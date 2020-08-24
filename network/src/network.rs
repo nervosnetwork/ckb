@@ -16,7 +16,9 @@ use crate::services::{
     dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
     outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, ProtocolId, ProtocolVersion, PublicKey, ServiceControl};
+use crate::{
+    Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
+};
 use ckb_app_config::NetworkConfig;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -45,7 +47,10 @@ use std::{
     cmp::max,
     collections::{HashMap, HashSet},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant},
     usize,
@@ -69,8 +74,6 @@ pub struct NetworkState {
     /// Node listened addresses
     pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
-
-    pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
     public_addrs: RwLock<HashMap<Multiaddr, u8>>,
@@ -81,6 +84,10 @@ pub struct NetworkState {
     local_peer_id: PeerId,
     bootnodes: Vec<(PeerId, Multiaddr)>,
     pub(crate) config: NetworkConfig,
+    pub(crate) active: AtomicBool,
+    /// Node supported protocols
+    /// fields: PotocolId, Protocol Name, Supported Versions
+    pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
 }
 
 impl NetworkState {
@@ -123,7 +130,8 @@ impl NetworkState {
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.public_key().peer_id(),
-            protocol_ids: RwLock::new(HashSet::default()),
+            active: AtomicBool::new(true),
+            protocols: RwLock::new(Vec::new()),
         })
     }
 
@@ -329,11 +337,10 @@ impl NetworkState {
     }
 
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
-        self.protocol_ids
+        self.protocols
             .read()
             .iter()
-            .filter(|id| filter(**id))
-            .cloned()
+            .filter_map(|&(id, _, _)| if filter(id) { Some(id) } else { None })
             .collect::<Vec<_>>()
     }
 
@@ -494,6 +501,10 @@ impl NetworkState {
                 pending_observed_addrs.insert(addr);
             }
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
 }
 
@@ -917,7 +928,10 @@ impl<T: ExitHandler> NetworkService<T> {
 
         let mut service_builder = ServiceBuilder::default();
         for meta in protocol_metas.into_iter() {
-            network_state.protocol_ids.write().insert(meta.id());
+            network_state
+                .protocols
+                .write()
+                .push((meta.id(), meta.name(), meta.support_versions()));
             service_builder = service_builder.insert_protocol(meta);
         }
         let event_handler = EventHandler {
@@ -1199,14 +1213,13 @@ impl NetworkController {
             .unban_network(address);
     }
 
-    pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
-        let peers = self
-            .network_state
-            .with_peer_registry(|reg| reg.peers().values().cloned().collect::<Vec<_>>());
-        peers
-            .into_iter()
-            .map(|peer| (peer.peer_id.clone(), peer))
-            .collect()
+    pub fn connected_peers(&self) -> Vec<(PeerIndex, Peer)> {
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers()
+                .iter()
+                .map(|(peer_index, peer)| (*peer_index, peer.clone()))
+                .collect::<Vec<_>>()
+        })
     }
 
     fn try_broadcast(
@@ -1264,6 +1277,18 @@ impl NetworkController {
     ) -> Result<(), SendErrorKind> {
         let target = TargetSession::Single(session_id);
         self.try_broadcast(false, target, proto_id, data)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.network_state.is_active()
+    }
+
+    pub fn set_active(&self, active: bool) {
+        self.network_state.active.store(active, Ordering::Relaxed);
+    }
+
+    pub fn protocols(&self) -> Vec<(ProtocolId, String, Vec<String>)> {
+        self.network_state.protocols.read().clone()
     }
 }
 

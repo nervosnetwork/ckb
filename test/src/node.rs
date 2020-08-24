@@ -1,10 +1,12 @@
 use crate::rpc::RpcClient;
 use crate::utils::{temp_path, wait_until};
-use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
+use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_types::{
+    bytes::Bytes,
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
         ScriptHashType, TransactionView,
@@ -13,10 +15,12 @@ use ckb_types::{
     prelude::*,
 };
 use failure::Error;
+use failure::_core::time::Duration;
 use std::convert::Into;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
+use std::time::Instant;
 
 pub struct Node {
     binary: String,
@@ -279,9 +283,13 @@ impl Node {
         (0..blocks_num).map(|_| self.generate_block()).collect()
     }
 
+    pub fn generate_blocks_until_contains_valid_cellbase(&self) -> Vec<Byte32> {
+        self.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize)
+    }
+
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> Byte32 {
-        self.submit_block(&self.new_block(None, None, None))
+        self.rpc_client().generate_block()
     }
 
     // Convenient way to construct an uncle block
@@ -361,6 +369,27 @@ impl Node {
             .into()
     }
 
+    /// The states of chain and txpool are updated asynchronously. Which means that the chain has
+    /// updated to the newest tip but txpool not.
+    /// get_tip_tx_pool_info wait to ensure the txpool update to the newest tip as well.
+    pub fn get_tip_tx_pool_info(&self) -> TxPoolInfo {
+        let tip_header = self.rpc_client().get_tip_header();
+        let tip_hash = &tip_header.hash;
+        let instant = Instant::now();
+        let mut recent = TxPoolInfo::default();
+        while instant.elapsed() < Duration::from_secs(10) {
+            let tx_pool_info = self.rpc_client().tx_pool_info();
+            if &tx_pool_info.tip_hash == tip_hash {
+                return tx_pool_info;
+            }
+            recent = tx_pool_info;
+        }
+        panic!(
+            "timeout to get_tip_tx_pool_info, tip_header={:?}, tx_pool_info: {:?}",
+            tip_header, recent
+        );
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
@@ -411,6 +440,28 @@ impl Node {
             )
             .output_data(Default::default())
             .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .build()
+    }
+
+    pub fn new_transaction_with_fee_and_size(
+        &self,
+        parent_tx: &TransactionView,
+        fee: Capacity,
+        tx_size: usize,
+    ) -> TransactionView {
+        let input_capacity: Capacity = parent_tx
+            .outputs()
+            .get(0)
+            .expect("parent output")
+            .capacity()
+            .unpack();
+        let capacity = input_capacity.safe_sub(fee).unwrap();
+        let tx = self.new_transaction_with_since_capacity(parent_tx.hash(), 0, capacity);
+        let original_tx_size = tx.data().serialized_size_in_block();
+        tx.as_advanced_builder()
+            .set_outputs_data(vec![
+                Bytes::from(vec![0u8; tx_size - original_tx_size]).pack()
+            ])
             .build()
     }
 
@@ -552,24 +603,24 @@ impl Node {
     }
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), pending_size);
         assert_eq!(tx_pool_info.proposed.value(), proposed_size);
     }
 
     pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_serialized_size(&self, total_tx_size: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
     }
 }

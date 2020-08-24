@@ -24,7 +24,7 @@ vector OutPointVec <OutPoint>;
 
 /* Types for Storage */
 
-table HeaderView {
+struct HeaderView {
     hash:               Byte32,
     data:               Header,
 }
@@ -48,7 +48,7 @@ table BlockExt {
     verified:           BoolOpt,
 }
 
-table EpochExt {
+struct EpochExt {
     previous_epoch_hash_rate:           Uint256,
     last_block_hash_in_previous_epoch:  Byte32,
     compact_target:                     Uint32,
@@ -64,7 +64,7 @@ struct TransactionKey {
     index:          BeUint32,
 }
 
-table TransactionInfo {
+struct TransactionInfo {
     block_number:   Uint64,
     block_epoch:    Uint64,
     key:            TransactionKey,

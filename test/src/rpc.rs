@@ -6,8 +6,8 @@ mod error;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
     BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
-    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, LiveCell, LocalNode,
-    LockHashIndexState, OutPoint, PeerState, RemoteNode, Timestamp, Transaction,
+    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, JsonBytes, LiveCell,
+    LocalNode, LockHashIndexState, OutPoint, PeerState, RemoteNode, Script, Timestamp, Transaction,
     TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
@@ -233,6 +233,13 @@ impl RpcClient {
             .expect("rpc call truncate")
     }
 
+    pub fn generate_block(&self) -> Byte32 {
+        self.inner()
+            .generate_block(None, None)
+            .expect("rpc call generate_block")
+            .pack()
+    }
+
     pub fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: Byte32,
@@ -371,6 +378,7 @@ jsonrpc!(pub struct Inner {
     pub fn remove_node(&self, peer_id: String) -> ();
     pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
     pub fn truncate(&self, target_tip_hash: H256) -> ();
+    pub fn generate_block(&self, block_assembler_script: Option<Script>, block_assembler_message: Option<JsonBytes>) -> H256;
 
     pub fn get_live_cells_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<LiveCell>;
     pub fn get_transactions_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<CellTransaction>;

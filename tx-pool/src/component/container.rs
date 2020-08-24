@@ -1,7 +1,7 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use crate::{component::entry::TxEntry, error::SubmitTxError};
+use crate::{component::entry::TxEntry, error::Reject};
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -161,7 +161,7 @@ impl SortedTxMap {
         }
     }
 
-    pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<Option<TxEntry>, SubmitTxError> {
+    pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
         let short_id = entry.transaction.proposal_short_id();
 
         // find in pool parents
@@ -185,7 +185,7 @@ impl SortedTxMap {
         self.update_ancestors_stat_for_entry(&mut entry, &parents);
 
         if entry.ancestors_count > self.max_ancestors_count {
-            return Err(SubmitTxError::ExceededMaximumAncestorsCount);
+            return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
         // check duplicate tx

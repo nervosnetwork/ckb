@@ -1,6 +1,5 @@
 use crate::ScriptError;
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_error::Error;
 use ckb_types::core::TransactionView;
 use ckb_vm::{
     instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
@@ -20,7 +19,7 @@ impl<'a> IllTransactionChecker<'a> {
         IllTransactionChecker { tx }
     }
 
-    pub fn check(&self) -> Result<(), Error> {
+    pub fn check(&self) -> Result<(), ScriptError> {
         for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
             IllScriptChecker::new(&data.raw_data(), i).check()?;
         }
@@ -38,7 +37,7 @@ impl<'a> IllScriptChecker<'a> {
         IllScriptChecker { data, index }
     }
 
-    pub fn check(&self) -> Result<(), Error> {
+    pub fn check(&self) -> Result<(), ScriptError> {
         if self.data.is_empty() {
             return Ok(());
         }
@@ -63,8 +62,7 @@ impl<'a> IllScriptChecker<'a> {
                                         return Err(ScriptError::EncounteredKnownBugs(
                                             CKB_VM_ISSUE_92.to_string(),
                                             self.index,
-                                        )
-                                        .into());
+                                        ));
                                     }
                                 }
                                 insts::OP_RVC_JALR => {
@@ -73,8 +71,7 @@ impl<'a> IllScriptChecker<'a> {
                                         return Err(ScriptError::EncounteredKnownBugs(
                                             CKB_VM_ISSUE_92.to_string(),
                                             self.index,
-                                        )
-                                        .into());
+                                        ));
                                     }
                                 }
                                 _ => (),
@@ -116,7 +113,6 @@ impl<'a> IllScriptChecker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_error::assert_error_eq;
     use std::fs::read;
     use std::path::Path;
 
@@ -132,7 +128,7 @@ mod tests {
         let data =
             read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/defected_binary"))
                 .unwrap();
-        assert_error_eq!(
+        assert_eq!(
             IllScriptChecker::new(&data, 13).check().unwrap_err(),
             ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string(), 13),
         );

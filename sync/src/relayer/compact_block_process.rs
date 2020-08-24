@@ -5,13 +5,8 @@ use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target, metric};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_store::{ChainDB, ChainStore};
-use ckb_traits::BlockMedianTimeContext;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed,
-    prelude::*,
-};
+use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier, Verifier};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,7 +83,7 @@ impl<'a> CompactBlockProcess<'a> {
         if status.contains(BlockStatus::BLOCK_STORED) {
             // update last common header and best known
             let parent = shared
-                .get_header_view(&header.data().raw().parent_hash())
+                .get_header_view(&header.data().raw().parent_hash(), Some(true))
                 .expect("parent block must exist");
             let header_view = {
                 let total_difficulty = parent.total_difficulty() + header.difficulty();
@@ -96,14 +91,15 @@ impl<'a> CompactBlockProcess<'a> {
             };
 
             let state = shared.state().peers();
-            state.may_set_best_known_header(self.peer, &header_view);
+            state.may_set_best_known_header(self.peer, header_view);
 
             return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
             return StatusCode::BlockIsInvalid.with_context(block_hash);
         }
 
-        let parent = shared.get_header_view(&header.data().raw().parent_hash());
+        let store_first = tip.number() + 1 >= header.number();
+        let parent = shared.get_header_view(&header.data().raw().parent_hash(), Some(store_first));
         if parent.is_none() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -157,7 +153,7 @@ impl<'a> CompactBlockProcess<'a> {
                             .map(|(compact_block, _)| compact_block.header().into_view())
                             .or_else(|| {
                                 shared
-                                    .get_header_view(&block_hash)
+                                    .get_header_view(&block_hash, None)
                                     .map(|header_view| header_view.into_inner())
                             })
                     }
@@ -166,7 +162,6 @@ impl<'a> CompactBlockProcess<'a> {
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
                     consensus: shared.consensus(),
-                    store: shared.store(),
                 };
                 let header_verifier =
                     HeaderVerifier::new(&median_time_context, &shared.consensus());
@@ -297,32 +292,18 @@ impl<'a> CompactBlockProcess<'a> {
 
 struct CompactBlockMedianTimeView<'a> {
     fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
-    store: &'a ChainDB,
     consensus: &'a Consensus,
-}
-
-impl<'a> CompactBlockMedianTimeView<'a> {
-    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
-        (self.fn_get_pending_header)(hash.to_owned()).or_else(|| self.store.get_block_header(hash))
-    }
 }
 
 impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
     fn median_block_count(&self) -> u64 {
         self.consensus.median_time_block_count() as u64
     }
+}
 
-    fn timestamp_and_parent(
-        &self,
-        block_hash: &packed::Byte32,
-    ) -> (u64, BlockNumber, packed::Byte32) {
-        let header = self
-            .get_header(&block_hash)
-            .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
-        (
-            header.timestamp(),
-            header.number(),
-            header.data().raw().parent_hash(),
-        )
+impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
+        // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
+        (self.fn_get_pending_header)(hash.to_owned())
     }
 }

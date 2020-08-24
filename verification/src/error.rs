@@ -1,42 +1,98 @@
 use ckb_error::Error;
-use ckb_types::packed::Byte32;
+use ckb_types::{
+    core::{Capacity, Version},
+    packed::{Byte32, OutPoint},
+};
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
-#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
+pub enum TransactionErrorSource {
+    CellDeps,
+    HeaderDeps,
+    Inputs,
+    Outputs,
+    OutputsData,
+    Witnesses,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
     /// output.occupied_capacity() > output.capacity()
-    InsufficientCellCapacity,
+    #[fail(
+        display = "InsufficientCellCapacity({}[{}]): expected occupied capacity ({:#x}) <= capacity ({:#x})",
+        source, index, occupied_capacity, capacity
+    )]
+    InsufficientCellCapacity {
+        source: TransactionErrorSource,
+        index: usize,
+        occupied_capacity: Capacity,
+        capacity: Capacity,
+    },
 
     /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
-    OutputsSumOverflow,
+    #[fail(
+        display = "OutputsSumOverflow: expected outputs capacity ({:#x}) <= inputs capacity ({:#x})",
+        outputs_sum, inputs_sum
+    )]
+    OutputsSumOverflow {
+        inputs_sum: Capacity,
+        outputs_sum: Capacity,
+    },
 
     /// inputs.is_empty() || outputs.is_empty()
-    Empty,
+    #[fail(display = "Empty({})", source)]
+    Empty { source: TransactionErrorSource },
 
-    /// Duplicated dep-out-points within the same one transaction
-    DuplicateDeps,
+    /// Duplicated dep-out-points within the same transaction
+    #[fail(display = "DuplicateCellDeps({})", out_point)]
+    DuplicateCellDeps { out_point: OutPoint },
+
+    /// Duplicated headers deps without within the same transaction
+    #[fail(display = "DuplicateHeaderDeps({})", hash)]
+    DuplicateHeaderDeps { hash: Byte32 },
 
     /// outputs.len() != outputs_data.len()
-    OutputsDataLengthMismatch,
-
-    /// ANY([o.data_hash != d.data_hash() for (o, d) in ZIP(outputs, outputs_data)])
-    OutputDataHashMismatch,
+    #[fail(
+        display = "OutputsDataLengthMismatch: expected outputs data length ({}) = outputs length ({})",
+        outputs_data_len, outputs_len
+    )]
+    OutputsDataLengthMismatch {
+        outputs_len: usize,
+        outputs_data_len: usize,
+    },
 
     /// The format of `transaction.since` is invalid
-    InvalidSince,
+    #[fail(
+        display = "InvalidSince(Inputs[{}]): the field since is invalid",
+        index
+    )]
+    InvalidSince { index: usize },
 
     /// The transaction is not mature which is required by `transaction.since`
-    Immature,
+    #[fail(
+        display = "Immature(Inputs[{}]): the transaction is immature because of the since requirement",
+        index
+    )]
+    Immature { index: usize },
 
     /// The transaction is not mature which is required by cellbase maturity rule
-    CellbaseImmaturity,
+    #[fail(display = "CellbaseImmaturity({}[{}])", source, index)]
+    CellbaseImmaturity {
+        source: TransactionErrorSource,
+        index: usize,
+    },
 
     /// The transaction version is mismatched with the system can hold
-    MismatchedVersion,
+    #[fail(display = "MismatchedVersion: expected {}, got {}", expected, actual)]
+    MismatchedVersion { expected: Version, actual: Version },
 
     /// The transaction size is too large
-    ExceededMaximumBlockBytes,
+    #[fail(
+        display = "ExceededMaximumBlockBytes: expected transaction serialized size ({}) < block size limit ({})",
+        actual, limit
+    )]
+    ExceededMaximumBlockBytes { limit: u64, actual: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
@@ -172,7 +228,17 @@ pub enum UnclesError {
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "InvalidParentError(parent_hash: {})gg '", parent_hash)]
+#[fail(
+    display = "BlockVersionError(expected: {}, actual: {})",
+    expected, actual
+)]
+pub struct BlockVersionError {
+    pub expected: Version,
+    pub actual: Version,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[fail(display = "InvalidParentError(parent_hash: {})", parent_hash)]
 pub struct InvalidParentError {
     pub parent_hash: Byte32,
 }
@@ -182,7 +248,9 @@ pub enum PowError {
     #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
     Boundary { expected: Byte32, actual: Byte32 },
 
-    #[fail(display = "InvalidNonce")]
+    #[fail(
+        display = "InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log"
+    )]
     InvalidNonce,
 }
 
@@ -226,18 +294,18 @@ pub enum EpochError {
 impl TransactionError {
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            TransactionError::OutputsSumOverflow
-            | TransactionError::DuplicateDeps
-            | TransactionError::Empty
-            | TransactionError::InsufficientCellCapacity
-            | TransactionError::InvalidSince
-            | TransactionError::ExceededMaximumBlockBytes
-            | TransactionError::OutputsDataLengthMismatch
-            | TransactionError::OutputDataHashMismatch => true,
+            TransactionError::OutputsSumOverflow { .. }
+            | TransactionError::DuplicateCellDeps { .. }
+            | TransactionError::DuplicateHeaderDeps { .. }
+            | TransactionError::Empty { .. }
+            | TransactionError::InsufficientCellCapacity { .. }
+            | TransactionError::InvalidSince { .. }
+            | TransactionError::ExceededMaximumBlockBytes { .. }
+            | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
-            TransactionError::Immature
-            | TransactionError::CellbaseImmaturity
-            | TransactionError::MismatchedVersion => false,
+            TransactionError::Immature { .. }
+            | TransactionError::CellbaseImmaturity { .. }
+            | TransactionError::MismatchedVersion { .. } => false,
         }
     }
 }
@@ -358,6 +426,20 @@ mod tests {
         assert_eq!(
             is_too_new,
             vec![false, false, false, false, false, false, false, true]
+        );
+    }
+
+    #[test]
+    fn test_version_error_display() {
+        let e: Error = BlockVersionError {
+            expected: 0,
+            actual: 1,
+        }
+        .into();
+
+        assert_eq!(
+            "Header(Version(BlockVersionError(expected: 0, actual: 1)))",
+            format!("{}", e)
         );
     }
 }

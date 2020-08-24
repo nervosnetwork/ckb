@@ -79,8 +79,16 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_net(mut self, network_controller: NetworkController) -> Self {
-        let rpc_method = NetworkRpcImpl { network_controller }.to_delegate();
+    pub fn enable_net(
+        mut self,
+        network_controller: NetworkController,
+        sync_shared: Arc<SyncShared>,
+    ) -> Self {
+        let rpc_method = NetworkRpcImpl {
+            network_controller,
+            sync_shared,
+        }
+        .to_delegate();
         if self.config.net_enable() {
             self.io_handler.extend_with(rpc_method);
         } else {
@@ -183,22 +191,13 @@ impl<'a> ServiceBuilder<'a> {
     {
         use crate::error::RPCError;
 
-        let error = |method: &str| {
-            RPCError::custom(
-                RPCError::Invalid,
-                format!(
-                    "You need to enable `{module}` module to invoke `{method}` rpc, \
-                        please modify `rpc.modules` {miner_info} of configuration file ckb.toml and restart the ckb node",
-                    method = method, module = module, miner_info = if module == "Miner" {"and `block_assembler`"} else {""}
-                ))
-        };
         rpc_method
             .into_iter()
             .map(|(method, _)| method)
             .for_each(|method| {
-                let error = error(&method);
+                let error = Err(RPCError::rpc_module_is_disabled(module));
                 self.io_handler
-                    .add_method(&method, move |_param| Err(error.clone()))
+                    .add_method(&method, move |_param| error.clone())
             });
     }
 

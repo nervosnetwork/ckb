@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
-use ckb_logger::Config as LogConfig;
+use ckb_logger_service::Config as LogConfig;
 use ckb_resource::Resource;
 
 use super::configs::*;
@@ -27,6 +27,7 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     pub data_dir: PathBuf,
+    pub tmp_dir: Option<PathBuf>,
     pub logger: LogConfig,
     pub sentry: SentryConfig,
     #[serde(default)]
@@ -156,28 +157,35 @@ impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
 
-        if subcommand_name == cli::CMD_RESET_DATA {
-            self.db.path = self.data_dir.join("db");
-            self.indexer.db.path = self.data_dir.join("indexer_db");
-            self.network.path = self.data_dir.join("network");
-            self.logger.file = Some(
-                self.data_dir
-                    .join("logs")
-                    .join(subcommand_name.to_string() + ".log"),
-            );
+        self.db.adjust(root_dir, &self.data_dir, "db");
+        self.indexer
+            .db
+            .adjust(root_dir, &self.data_dir, "indexer_db");
+        self.network.path = self.data_dir.join("network");
+        if self.tmp_dir.is_none() {
+            self.tmp_dir = Some(self.data_dir.join("tmp"));
+        }
+        self.logger.log_dir = self.data_dir.join("logs");
+        self.logger.file = self
+            .logger
+            .log_dir
+            .join(subcommand_name.to_string() + ".log");
 
+        if subcommand_name == cli::CMD_RESET_DATA {
             return Ok(self);
         }
 
         self.data_dir = mkdir(self.data_dir)?;
-        if self.logger.log_to_file {
-            self.logger.file = Some(touch(
-                mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
-            )?);
+        self.db.path = mkdir(self.db.path)?;
+        self.indexer.db.path = mkdir(self.indexer.db.path)?;
+        self.network.path = mkdir(self.network.path)?;
+        if let Some(tmp_dir) = self.tmp_dir {
+            self.tmp_dir = Some(mkdir(tmp_dir)?);
         }
-        self.db.path = mkdir(self.data_dir.join("db"))?;
-        self.indexer.db.path = mkdir(self.data_dir.join("indexer_db"))?;
-        self.network.path = mkdir(self.data_dir.join("network"))?;
+        if self.logger.log_to_file {
+            mkdir(self.logger.log_dir.clone())?;
+            self.logger.file = touch(self.logger.file)?;
+        }
         self.chain.spec.absolutize(root_dir);
 
         Ok(self)
@@ -187,8 +195,11 @@ impl CKBAppConfig {
 impl MinerAppConfig {
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
         self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir)?)?;
+        self.logger.log_dir = self.data_dir.join("logs");
+        self.logger.file = self.logger.log_dir.join("miner.log");
         if self.logger.log_to_file {
-            self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
+            mkdir(self.logger.log_dir.clone())?;
+            self.logger.file = touch(self.logger.file)?;
         }
         self.chain.spec.absolutize(root_dir);
 
@@ -323,7 +334,6 @@ mod tests {
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
-            assert_eq!(ckb_config.logger.file, None);
             assert_eq!(ckb_config.logger.log_to_file, false);
             assert_eq!(ckb_config.logger.log_to_stdout, true);
         }
@@ -334,7 +344,6 @@ mod tests {
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
-            assert_eq!(miner_config.logger.file, None);
             assert_eq!(miner_config.logger.log_to_file, false);
             assert_eq!(miner_config.logger.log_to_stdout, true);
         }

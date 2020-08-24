@@ -12,11 +12,10 @@ use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, IBDState, PeerFlags, Peers, SyncShared};
+use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, error, info, metric, trace, warn};
@@ -27,7 +26,6 @@ use ckb_network::{
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -175,13 +173,21 @@ impl Synchronizer {
         self.shared().state().peers()
     }
 
-    pub fn predict_headers_sync_time(&self, header: &core::HeaderView) -> u64 {
-        let now = unix_time_as_millis();
-        let expected_headers = min(
-            MAX_HEADERS_LEN as u64,
-            now.saturating_sub(header.timestamp()) / POW_SPACE,
-        );
-        now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
+    fn better_tip_header(&self) -> core::HeaderView {
+        let (header, total_difficulty) = {
+            let active_chain = self.shared.active_chain();
+            (
+                active_chain.tip_header(),
+                active_chain.total_difficulty().to_owned(),
+            )
+        };
+        let best_known = self.shared.state().shared_best_header();
+        // is_better_chain
+        if total_difficulty > *best_known.total_difficulty() {
+            header
+        } else {
+            best_known.into_inner()
+        }
     }
 
     //TODO: process block which we don't request
@@ -253,21 +259,21 @@ impl Synchronizer {
     pub fn eviction(&self, nc: &dyn CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let active_chain = self.shared.active_chain();
-        let is_initial_header_sync = self.shared.state().is_initial_header_sync();
         let mut eviction = Vec::new();
+        let better_tip_header = self.better_tip_header();
         for (peer, state) in peer_states.iter_mut() {
             let now = unix_time_as_millis();
 
-            // headers_sync_timeout
-            if let Some(timeout) = state.headers_sync_timeout {
-                if is_initial_header_sync {
-                    if now > timeout && !state.disconnect {
+            if let Some(ref mut controller) = state.headers_sync_controller {
+                let better_tip_ts = better_tip_header.timestamp();
+                if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
+                    if is_timeout && !state.disconnect {
                         eviction.push(*peer);
                         state.disconnect = true;
                         continue;
                     }
                 } else {
-                    state.headers_sync_timeout = None
+                    active_chain.send_getheaders_to_peer(nc, *peer, &better_tip_header);
                 }
             }
 
@@ -356,21 +362,7 @@ impl Synchronizer {
             return;
         }
 
-        let tip = {
-            let (header, total_difficulty) = {
-                (
-                    active_chain.tip_header(),
-                    active_chain.total_difficulty().to_owned(),
-                )
-            };
-            let best_known = self.shared.state().shared_best_header();
-            // is_better_chain
-            if total_difficulty > *best_known.total_difficulty() {
-                header
-            } else {
-                best_known.into_inner()
-            }
-        };
+        let tip = self.better_tip_header();
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
@@ -388,8 +380,7 @@ impl Synchronizer {
                 let mut state = self.peers().state.write();
                 if let Some(peer_state) = state.get_mut(&peer) {
                     if !peer_state.sync_started {
-                        let headers_sync_timeout = self.predict_headers_sync_time(&tip);
-                        peer_state.start_sync(headers_sync_timeout);
+                        peer_state.start_sync(HeadersSyncController::from_header(&tip));
                         self.shared()
                             .state()
                             .n_sync_started()
@@ -675,7 +666,10 @@ mod tests {
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;
-    use crate::{types::HeaderView, types::PeerState, SyncShared, MAX_TIP_AGE};
+    use crate::{
+        types::{HeaderView, HeadersSyncController, PeerState},
+        SyncShared, MAX_TIP_AGE,
+    };
     use ckb_chain::{chain::ChainService, switch::Switch};
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
@@ -1331,24 +1325,28 @@ mod tests {
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
         {
+            let timeout = HeadersSyncController::new(0, 0, 0, 0, false);
+            let not_timeout =
+                HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
+
             let mut state = peers.state.write();
             let mut state_0 = PeerState::default();
             state_0.peer_flags.is_protect = true;
             state_0.peer_flags.is_outbound = true;
-            state_0.headers_sync_timeout = Some(0);
+            state_0.headers_sync_controller = Some(timeout);
 
             let mut state_1 = PeerState::default();
             state_1.peer_flags.is_outbound = true;
-            state_1.headers_sync_timeout = Some(0);
+            state_1.headers_sync_controller = Some(timeout);
 
             let mut state_2 = PeerState::default();
             state_2.peer_flags.is_whitelist = true;
             state_2.peer_flags.is_outbound = true;
-            state_2.headers_sync_timeout = Some(0);
+            state_2.headers_sync_controller = Some(timeout);
 
             let mut state_3 = PeerState::default();
             state_3.peer_flags.is_outbound = true;
-            state_3.headers_sync_timeout = Some(MAX_TIP_AGE * 2);
+            state_3.headers_sync_controller = Some(not_timeout);
 
             state.insert(0.into(), state_0);
             state.insert(1.into(), state_1);
@@ -1386,41 +1384,41 @@ mod tests {
         let network_context = mock_network_context(7);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
-        let headers_sync_timeout = MAX_TIP_AGE * 2;
+        let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
         let sync_protected_peer = 0.into();
         {
             let mut state = peers.state.write();
             let mut state_0 = PeerState::default();
             state_0.peer_flags.is_protect = true;
             state_0.peer_flags.is_outbound = true;
-            state_0.headers_sync_timeout = Some(headers_sync_timeout);
+            state_0.headers_sync_controller = Some(not_timeout);
 
             let mut state_1 = PeerState::default();
             state_1.peer_flags.is_protect = true;
             state_1.peer_flags.is_outbound = true;
-            state_1.headers_sync_timeout = Some(headers_sync_timeout);
+            state_1.headers_sync_controller = Some(not_timeout);
 
             let mut state_2 = PeerState::default();
             state_2.peer_flags.is_protect = true;
             state_2.peer_flags.is_outbound = true;
-            state_2.headers_sync_timeout = Some(headers_sync_timeout);
+            state_2.headers_sync_controller = Some(not_timeout);
 
             let mut state_3 = PeerState::default();
             state_3.peer_flags.is_outbound = true;
-            state_3.headers_sync_timeout = Some(headers_sync_timeout);
+            state_3.headers_sync_controller = Some(not_timeout);
 
             let mut state_4 = PeerState::default();
             state_4.peer_flags.is_outbound = true;
-            state_4.headers_sync_timeout = Some(headers_sync_timeout);
+            state_4.headers_sync_controller = Some(not_timeout);
 
             let mut state_5 = PeerState::default();
             state_5.peer_flags.is_outbound = true;
-            state_5.headers_sync_timeout = Some(headers_sync_timeout);
+            state_5.headers_sync_controller = Some(not_timeout);
 
             let mut state_6 = PeerState::default();
             state_6.peer_flags.is_whitelist = true;
             state_6.peer_flags.is_outbound = true;
-            state_6.headers_sync_timeout = Some(headers_sync_timeout);
+            state_6.headers_sync_controller = Some(not_timeout);
 
             state.insert(0.into(), state_0);
             state.insert(1.into(), state_1);
@@ -1430,10 +1428,10 @@ mod tests {
             state.insert(5.into(), state_5);
             state.insert(6.into(), state_6);
         }
-        peers.may_set_best_known_header(0.into(), &mock_header_view(1));
-        peers.may_set_best_known_header(2.into(), &mock_header_view(3));
-        peers.may_set_best_known_header(3.into(), &mock_header_view(1));
-        peers.may_set_best_known_header(5.into(), &mock_header_view(3));
+        peers.may_set_best_known_header(0.into(), mock_header_view(1));
+        peers.may_set_best_known_header(2.into(), mock_header_view(3));
+        peers.may_set_best_known_header(3.into(), mock_header_view(1));
+        peers.may_set_best_known_header(5.into(), mock_header_view(3));
         {
             // Protected peer 0 start sync
             peers
@@ -1441,7 +1439,7 @@ mod tests {
                 .write()
                 .get_mut(&sync_protected_peer)
                 .unwrap()
-                .start_sync(headers_sync_timeout);
+                .start_sync(not_timeout);
             synchronizer
                 .shared()
                 .state()
