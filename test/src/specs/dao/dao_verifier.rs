@@ -27,7 +27,7 @@ pub struct DAOVerifier {
 
 impl DAOVerifier {
     pub fn init(node: &Node) -> Self {
-        let consensus = node.consensus().clone();
+        let consensus = node.consensus();
         let mut blocks = Vec::new();
         let mut transactions = HashMap::new();
         let mut epochs = Vec::new();
