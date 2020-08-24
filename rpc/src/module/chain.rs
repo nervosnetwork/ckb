@@ -1,7 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint,
-    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus,
+    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, ResponseFormat,
+    TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -9,7 +10,7 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, cell::CellProvider},
-    packed,
+    packed::{self, Block, Header},
     prelude::*,
     H256,
 };
@@ -21,16 +22,32 @@ pub const PAGE_SIZE: u64 = 100;
 #[rpc(server)]
 pub trait ChainRpc {
     #[rpc(name = "get_block")]
-    fn get_block(&self, _hash: H256) -> Result<Option<BlockView>>;
+    fn get_block(
+        &self,
+        hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
 
     #[rpc(name = "get_block_by_number")]
-    fn get_block_by_number(&self, _number: BlockNumber) -> Result<Option<BlockView>>;
+    fn get_block_by_number(
+        &self,
+        number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
 
     #[rpc(name = "get_header")]
-    fn get_header(&self, _hash: H256) -> Result<Option<HeaderView>>;
+    fn get_header(
+        &self,
+        hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>>;
 
     #[rpc(name = "get_header_by_number")]
-    fn get_header_by_number(&self, _number: BlockNumber) -> Result<Option<HeaderView>>;
+    fn get_header_by_number(
+        &self,
+        number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>>;
 
     #[rpc(name = "get_transaction")]
     fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
@@ -39,7 +56,10 @@ pub trait ChainRpc {
     fn get_block_hash(&self, _number: BlockNumber) -> Result<Option<H256>>;
 
     #[rpc(name = "get_tip_header")]
-    fn get_tip_header(&self) -> Result<HeaderView>;
+    fn get_tip_header(
+        &self,
+        verbosity: Option<Uint32>,
+    ) -> Result<ResponseFormat<HeaderView, Header>>;
 
     #[rpc(name = "get_cells_by_lock_hash")]
     fn get_cells_by_lock_hash(
@@ -73,66 +93,110 @@ pub(crate) struct ChainRpcImpl {
 }
 
 impl ChainRpc for ChainRpcImpl {
-    fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
+    fn get_block(
+        &self,
+        hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
         let snapshot = self.shared.snapshot();
-        if !snapshot.is_main_chain(&hash.pack()) {
+        let block_hash = hash.pack();
+        if !snapshot.is_main_chain(&block_hash) {
             return Ok(None);
         }
 
-        Ok(snapshot.get_block(&hash.pack()).map(Into::into))
-    }
-
-    fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
-        let snapshot = self.shared.snapshot();
-
-        let block_hash = match snapshot.get_block_hash(number.into()) {
-            Some(block_hash) => block_hash,
-            None => return Ok(None),
-        };
-
-        snapshot
-            .get_block(&block_hash)
-            .ok_or_else(|| {
-                let message = format!(
-                    "Chain Index says block #{} is {:#x}, but that block is not in the database",
-                    number, block_hash
-                );
-                error!("{}", message);
-                RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
-            })
-            .map(|block| Some(block.into()))
-    }
-
-    fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
-        let snapshot = self.shared.snapshot();
-
-        if !snapshot.is_main_chain(&hash.pack()) {
-            return Ok(None);
+        if u32::from(verbosity.unwrap_or_default()) == 0 {
+            Ok(snapshot
+                .get_block(&block_hash)
+                .map(|block| ResponseFormat::Json(block.into())))
+        } else {
+            Ok(snapshot
+                .get_packed_block(&block_hash)
+                .map(ResponseFormat::Hex))
         }
-
-        Ok(snapshot.get_block_header(&hash.pack()).map(Into::into))
     }
 
-    fn get_header_by_number(&self, number: BlockNumber) -> Result<Option<HeaderView>> {
+    fn get_block_by_number(
+        &self,
+        number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = match snapshot.get_block_hash(number.into()) {
             Some(block_hash) => block_hash,
             None => return Ok(None),
         };
 
-        Ok(Some(
+        let result = if u32::from(verbosity.unwrap_or_default()) == 0 {
+            snapshot
+                .get_block(&block_hash)
+                .map(|block| Some(ResponseFormat::Json(block.into())))
+        } else {
+            snapshot
+                .get_packed_block(&block_hash)
+                .map(|block| Some(ResponseFormat::Hex(block)))
+        };
+
+        result.ok_or_else(|| {
+            let message = format!(
+                "Chain Index says block #{} is {:#x}, but that block is not in the database",
+                number, block_hash
+            );
+            error!("{}", message);
+            RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
+        })
+    }
+
+    fn get_header(
+        &self,
+        hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+        let snapshot = self.shared.snapshot();
+        let block_hash = hash.pack();
+        if !snapshot.is_main_chain(&block_hash) {
+            return Ok(None);
+        }
+
+        if u32::from(verbosity.unwrap_or_default()) == 0 {
+            Ok(snapshot
+                .get_block_header(&block_hash)
+                .map(|header| ResponseFormat::Json(header.into())))
+        } else {
+            Ok(snapshot
+                .get_packed_block_header(&block_hash)
+                .map(ResponseFormat::Hex))
+        }
+    }
+
+    fn get_header_by_number(
+        &self,
+        number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+        let snapshot = self.shared.snapshot();
+        let block_hash = match snapshot.get_block_hash(number.into()) {
+            Some(block_hash) => block_hash,
+            None => return Ok(None),
+        };
+
+        let result = if u32::from(verbosity.unwrap_or_default()) == 0 {
             snapshot
                 .get_block_header(&block_hash)
-                .ok_or_else(|| {
-                    let message = format!(
-                    "Chain Index says block #{} is {:#x}, but that block is not in the database",
-                    number, block_hash
-                );
-                    error!("{}", message);
-                    RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
-                })?
-                .into(),
-        ))
+                .map(|header| Some(ResponseFormat::Json(header.into())))
+        } else {
+            snapshot
+                .get_packed_block_header(&block_hash)
+                .map(|header| Some(ResponseFormat::Hex(header)))
+        };
+
+        result.ok_or_else(|| {
+            let message = format!(
+                "Chain Index says block #{} is {:#x}, but that block is not in the database",
+                number, block_hash
+            );
+            error!("{}", message);
+            RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
+        })
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
@@ -174,8 +238,19 @@ impl ChainRpc for ChainRpcImpl {
             .map(|h| h.unpack()))
     }
 
-    fn get_tip_header(&self) -> Result<HeaderView> {
-        Ok(self.shared.snapshot().tip_header().clone().into())
+    fn get_tip_header(
+        &self,
+        verbosity: Option<Uint32>,
+    ) -> Result<ResponseFormat<HeaderView, Header>> {
+        if u32::from(verbosity.unwrap_or_default()) == 0 {
+            Ok(ResponseFormat::Json(
+                self.shared.snapshot().tip_header().clone().into(),
+            ))
+        } else {
+            Ok(ResponseFormat::Hex(
+                self.shared.snapshot().tip_header().data(),
+            ))
+        }
     }
 
     fn get_current_epoch(&self) -> Result<EpochView> {
@@ -272,7 +347,7 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
-        self.get_tip_header().map(|h| h.inner.number)
+        Ok(self.shared.snapshot().tip_header().number().into())
     }
 
     fn get_cellbase_output_capacity_details(&self, hash: H256) -> Result<Option<BlockReward>> {
