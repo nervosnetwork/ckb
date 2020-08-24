@@ -67,12 +67,6 @@ impl MinerRpc for MinerRpcImpl {
     }
 
     fn submit_block(&self, work_id: String, data: Block) -> Result<H256> {
-        // TODO: this API is intended to be used in a trusted environment, thus it should pass the
-        // verifier. We use sentry to capture errors found here to discovery issues early, which
-        // should be removed later.
-        let _scope_guard = sentry::Hub::current().push_scope();
-        sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
-
         debug!("[{}] submit block", work_id);
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
@@ -115,14 +109,5 @@ impl MinerRpc for MinerRpcImpl {
 
 fn handle_submit_error<E: std::fmt::Display + Debug>(work_id: &str, err: &E) -> Error {
     error!("[{}] submit_block error: {:?}", work_id, err);
-    capture_submit_error(err);
     RPCError::custom_with_error(RPCError::Invalid, err)
-}
-
-fn capture_submit_error<D: Debug>(err: &D) {
-    use sentry::{capture_message, with_scope, Level};
-    with_scope(
-        |scope| scope.set_fingerprint(Some(&["ckb-rpc", "miner", "submit_block"])),
-        || capture_message(&format!("submit_block {:?}", err), Level::Error),
-    );
 }

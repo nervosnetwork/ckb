@@ -100,28 +100,7 @@ impl ChainRpc for ChainRpcImpl {
                 error!("{}", message);
                 RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
             })
-            .and_then(|block| {
-                if !block.transactions().is_empty() {
-                    Ok(Some(block.into()))
-                } else {
-                    let tip_header_hash = snapshot.tip_header().hash();
-                    let message = format!(
-                        "get_block_by_number transactions is empty {} {} tip_header {}",
-                        block.number(),
-                        block.hash(),
-                        tip_header_hash,
-                    );
-
-                    use sentry::{capture_message, with_scope, Level};
-                    with_scope(
-                        |scope| scope.set_fingerprint(Some(&["ckb-rpc", "get_block_by_number"])),
-                        || capture_message(&message, Level::Warning),
-                    );
-
-                    error!("{}", message);
-                    Err(RPCError::custom(RPCError::DatabaseIsCorrupt, message))
-                }
-            })
+            .map(|block| Some(block.into()))
     }
 
     fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
