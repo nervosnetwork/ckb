@@ -11,7 +11,7 @@ use p2p::{
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
     utils::{is_reachable, multiaddr_to_socketaddr},
-    SessionId,
+    ProtocolId, SessionId,
 };
 
 mod protocol;
@@ -60,6 +60,10 @@ impl MisbehaveResult {
 
 /// The trait to communicate with underlying peer storage
 pub trait Callback: Clone + Send {
+    // Register open protocol
+    fn register(&self, id: SessionId, pid: ProtocolId, version: &str);
+    // remove registered identify protocol
+    fn unregister(&self, id: SessionId, pid: ProtocolId);
     /// Received custom message
     fn received_identify(
         &mut self,
@@ -218,7 +222,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
         }
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, _version: &str) {
+    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
         if session.remote_pubkey.is_none() {
             error!("IdentifyProtocol require secio enabled!");
@@ -226,6 +230,9 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             self.secio_enabled = false;
             return;
         }
+
+        self.callback
+            .register(session.id, context.proto_id, version);
 
         let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
         trace!("IdentifyProtocol sconnected from {:?}", remote_info.peer_id);
@@ -265,6 +272,8 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .remove(&context.session.id)
                 .expect("RemoteInfo must exists");
             trace!("IdentifyProtocol disconnected from {:?}", info.peer_id);
+            self.callback
+                .unregister(context.session.id, context.proto_id)
         }
     }
 
@@ -365,6 +374,22 @@ impl IdentifyCallback {
 }
 
 impl Callback for IdentifyCallback {
+    fn register(&self, id: SessionId, pid: ProtocolId, version: &str) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            reg.get_peer_mut(id).map(|peer| {
+                peer.protocols.insert(pid, version.to_owned());
+            })
+        });
+    }
+
+    fn unregister(&self, id: SessionId, pid: ProtocolId) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            let _ = reg.get_peer_mut(id).map(|peer| {
+                peer.protocols.remove(&pid);
+            });
+        });
+    }
+
     fn identify(&mut self) -> &[u8] {
         self.identify.encode()
     }
