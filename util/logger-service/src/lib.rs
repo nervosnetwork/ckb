@@ -1,7 +1,7 @@
 use ansi_term::Colour;
 use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
-use crossbeam_channel::unbounded;
+use ckb_channel::{self, unbounded};
 use env_logger::filter::{Builder, Filter};
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 use once_cell::sync::OnceCell;
@@ -14,7 +14,7 @@ use std::{fs, panic, process, sync, thread};
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
 
-static CONTROL_HANDLE: OnceCell<crossbeam_channel::Sender<Message>> = OnceCell::new();
+static CONTROL_HANDLE: OnceCell<ckb_channel::Sender<Message>> = OnceCell::new();
 static RE: OnceCell<regex::Regex> = OnceCell::new();
 
 enum Message {
@@ -36,7 +36,7 @@ enum Message {
 
 #[derive(Debug)]
 pub struct Logger {
-    sender: crossbeam_channel::Sender<Message>,
+    sender: ckb_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
     filter: sync::Arc<RwLock<Filter>>,
     emit_sentry_breadcrumbs: bool,

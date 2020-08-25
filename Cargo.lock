@@ -382,6 +382,7 @@ dependencies = [
  "ckb-chain",
  "ckb-chain-iter",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-instrument",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -400,7 +401,6 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "clap",
- "crossbeam-channel 0.3.9",
  "ctrlc",
  "rayon",
  "sentry",
@@ -421,6 +421,7 @@ dependencies = [
  "bitflags",
  "ckb-app-config",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
@@ -436,7 +437,6 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
  "faketime",
  "lazy_static",
 ]
@@ -465,6 +465,13 @@ dependencies = [
  "failure",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "ckb-channel"
+version = "0.36.0-pre"
+dependencies = [
+ "crossbeam-channel 0.3.9",
 ]
 
 [[package]]
@@ -658,9 +665,9 @@ dependencies = [
  "ansi_term 0.12.1",
  "backtrace",
  "chrono",
+ "ckb-channel",
  "ckb-logger-config",
  "ckb-util",
- "crossbeam-channel 0.3.9",
  "env_logger",
  "log 0.4.11",
  "once_cell",
@@ -720,6 +727,7 @@ name = "ckb-miner"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-channel",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -727,7 +735,6 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-types",
  "console",
- "crossbeam-channel 0.3.9",
  "eaglesong",
  "failure",
  "futures 0.1.29",
@@ -762,7 +769,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "criterion",
- "crossbeam-channel 0.3.9",
  "faketime",
  "faster-hex 0.4.1",
  "futures 0.3.4",
@@ -807,10 +813,10 @@ name = "ckb-notify"
 version = "0.36.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-channel",
  "ckb-logger",
  "ckb-stop-handler",
  "ckb-types",
- "crossbeam-channel 0.3.9",
 ]
 
 [[package]]
@@ -912,6 +918,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
@@ -935,7 +942,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
  "failure",
  "faketime",
  "futures 0.1.29",
@@ -1024,8 +1030,8 @@ dependencies = [
 name = "ckb-stop-handler"
 version = "0.36.0-pre"
 dependencies = [
+ "ckb-channel",
  "ckb-logger",
- "crossbeam-channel 0.3.9",
  "futures 0.1.29",
  "parking_lot 0.7.1",
  "tokio 0.2.22",
@@ -1053,6 +1059,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-db",
@@ -1069,7 +1076,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
  "failure",
  "faketime",
  "futures 0.3.4",
@@ -1147,12 +1153,12 @@ version = "0.36.0-pre"
 dependencies = [
  "bit-vec",
  "bytes 0.5.6",
+ "ckb-channel",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
  "ckb-occupied-capacity",
  "ckb-rational",
- "crossbeam-channel 0.3.9",
  "failure",
  "merkle-cbt",
  "molecule",
@@ -1191,7 +1197,6 @@ dependencies = [
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
- "crossbeam-channel 0.3.9",
  "enum-display-derive",
  "failure",
  "faketime",

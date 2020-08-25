@@ -1,8 +1,8 @@
 use super::{Worker, WorkerMessage};
 use ckb_app_config::DummyConfig;
+use ckb_channel::{Receiver, Sender};
 use ckb_logger::error;
 use ckb_types::packed::Byte32;
-use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
 use rand::{
     distributions::{self as dist, Distribution as _},

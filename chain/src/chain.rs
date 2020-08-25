@@ -1,5 +1,6 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use crate::switch::Switch;
+use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_metrics::{metrics, Timer};
@@ -22,7 +23,6 @@ use ckb_verification::InvalidParentError;
 use ckb_verification::{
     BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
 };
-use crossbeam_channel::{self, select, Sender};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -152,11 +152,9 @@ impl ChainService {
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
-        let (signal_sender, signal_receiver) =
-            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
-        let (process_block_sender, process_block_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (truncate_sender, truncate_receiver) = crossbeam_channel::bounded(1);
+        let (signal_sender, signal_receiver) = channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (truncate_sender, truncate_receiver) = channel::bounded(1);
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();

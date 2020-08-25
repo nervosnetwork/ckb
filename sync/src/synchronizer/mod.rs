@@ -18,6 +18,7 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
 };
 use ckb_chain::chain::ChainController;
+use ckb_channel as channel;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
 use ckb_network::{
@@ -49,7 +50,7 @@ enum FetchCMD {
 struct BlockFetchCMD {
     sync: Synchronizer,
     p2p_control: ServiceControl,
-    recv: crossbeam_channel::Receiver<FetchCMD>,
+    recv: channel::Receiver<FetchCMD>,
 }
 
 impl BlockFetchCMD {
@@ -93,7 +94,7 @@ impl BlockFetchCMD {
 pub struct Synchronizer {
     chain: ChainController,
     pub shared: Arc<SyncShared>,
-    fetch_channel: Option<crossbeam_channel::Sender<FetchCMD>>,
+    fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
@@ -476,7 +477,7 @@ impl Synchronizer {
                 None => {
                     let p2p_control = raw.clone();
                     let sync = self.clone();
-                    let (sender, recv) = crossbeam_channel::bounded(2);
+                    let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);

@@ -2,12 +2,12 @@ use crate::specs::TestProtocol;
 use crate::utils::{temp_path, wait_until};
 use crate::{Node, Setup};
 use ckb_app_config::NetworkConfig;
+use ckb_channel::{self as channel, Receiver, RecvTimeoutError, Sender};
 use ckb_network::{
     bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
     NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
 use ckb_types::core::{BlockNumber, BlockView};
-use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{
@@ -94,7 +94,7 @@ impl Net {
         );
         assert!(self.controller.is_none());
 
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let (tx, rx) = channel::unbounded();
         let config = NetworkConfig {
             listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.p2p_port())
                 .parse()

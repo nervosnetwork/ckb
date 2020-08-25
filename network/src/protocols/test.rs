@@ -199,7 +199,7 @@ fn net_service_start(name: String) -> Node {
     let peer_id = network_state.local_peer_id().clone();
 
     let control = p2p_service.control().clone();
-    let (addr_sender, addr_receiver) = crossbeam_channel::bounded(1);
+    let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
     thread::spawn(move || {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);

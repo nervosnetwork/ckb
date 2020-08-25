@@ -26,7 +26,7 @@ use ckb_types::{
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{oneshot, RwLock};
 
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
@@ -357,7 +357,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         keys: K,
         handle: &Handle,
     ) -> HashMap<Byte32, CacheEntry> {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (sender, receiver) = oneshot::channel();
         handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
             let ret = keys
@@ -369,7 +369,9 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
             };
         });
-        receiver.recv().expect("fetched cache no exception")
+        handle
+            .block_on(receiver)
+            .expect("fetched cache no exception")
     }
 
     pub fn verify(

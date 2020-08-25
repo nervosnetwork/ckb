@@ -16,6 +16,7 @@ ckb-store = { path = "../store" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-logger = { path = "../util/logger"}
+ckb-channel = { path = "../util/channel" }
 ckb-logger-service = { path = "../util/logger-service"}
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-fee-estimator = { path = "../util/fee-estimator" }
@@ -27,7 +28,6 @@ jsonrpc-tcp-server = "~14.1"
 jsonrpc-ws-server = "~14.1"
 jsonrpc-server-utils = "~14.1"
 jsonrpc-pubsub = "~14.1"
-crossbeam-channel = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 num_cpus = "1.10"

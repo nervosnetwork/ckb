@@ -1,5 +1,6 @@
 use crate::Work;
 use ckb_app_config::MinerClientConfig;
+use ckb_channel::Sender;
 use ckb_jsonrpc_types::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
@@ -7,7 +8,6 @@ use ckb_jsonrpc_types::{
 use ckb_logger::{debug, error, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{packed::Block, H256};
-use crossbeam_channel::Sender;
 use failure::Error;
 use futures::sync::{mpsc, oneshot};
 use hyper::error::Error as HyperError;
