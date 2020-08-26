@@ -201,6 +201,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bloom-filters"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8f839ff06ae3857c2ea753094186de8d54d9b88a782eeba06b10bb714bc03ef"
+dependencies = [
+ "rand 0.6.5",
+]
+
+[[package]]
 name = "bs58"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -754,6 +763,7 @@ dependencies = [
 name = "ckb-network"
 version = "0.36.0-pre"
 dependencies = [
+ "bloom-filters",
  "bs58",
  "ckb-app-config",
  "ckb-hash",

@@ -17,7 +17,7 @@ use p2p::{
 use rand::seq::SliceRandom;
 
 pub use self::{
-    addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior, RawAddr},
+    addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior},
     protocol::{DiscoveryMessage, Node, Nodes},
     state::SessionState,
 };
@@ -89,15 +89,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
         let session = context.session;
-        if let Some(remove_state) = self.sessions.remove(&session.id) {
-            if let RemoteAddress::Listen(maddr) = remove_state.remote_addr {
-                if let Some(addr) = multiaddr_to_socketaddr(&maddr) {
-                    self.sessions
-                        .values_mut()
-                        .for_each(|state| state.addr_known.remove(&addr.into()))
-                }
-            }
-        }
+        self.sessions.remove(&session.id);
         self.addr_mgr.unregister(session.id, context.proto_id);
         debug!("protocol [discovery] close on session [{}]", session.id);
     }
@@ -132,33 +124,21 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                             debug!("listen port: {:?}", listen_port);
                             if let Some(port) = listen_port {
                                 state.remote_addr.update_port(port);
-                                if let Some(raw_addr) = state.remote_raw_addr() {
-                                    state.addr_known.insert(raw_addr);
-                                }
+                                state.addr_known.insert(state.remote_addr.to_inner());
                                 // add client listen address to manager
                                 if let RemoteAddress::Listen(ref addr) = state.remote_addr {
                                     self.addr_mgr.add_new_addr(session.id, addr.clone());
                                 }
                             }
 
-                            while items.len() > 1000 {
-                                if let Some(last_item) = items.pop() {
-                                    let idx = rand::random::<usize>() % 1000;
-                                    items[idx] = last_item;
-                                }
+                            if items.len() > 1000 {
+                                items = items
+                                    .choose_multiple(&mut rand::thread_rng(), 1000)
+                                    .cloned()
+                                    .collect();
                             }
 
-                            let items_clone = items
-                                .iter()
-                                .filter_map(|addr| {
-                                    if let Some(addr) = multiaddr_to_socketaddr(addr) {
-                                        Some(RawAddr::from(addr))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            state.addr_known.extend(items_clone);
+                            state.addr_known.extend(items.iter());
 
                             let items = items
                                 .into_iter()
@@ -222,17 +202,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                     .flat_map(|node| node.addresses.into_iter())
                                     .collect::<Vec<_>>();
 
-                                let items_clone = addrs
-                                    .iter()
-                                    .filter_map(|addr| {
-                                        if let Some(addr) = multiaddr_to_socketaddr(addr) {
-                                            Some(RawAddr::from(addr))
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-                                state.addr_known.extend(items_clone);
+                                state.addr_known.extend(addrs.iter());
 
                                 self.addr_mgr.add_new_addrs(session.id, addrs);
                                 return;
@@ -280,17 +250,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 .flat_map(|node| node.addresses.into_iter())
                                 .collect::<Vec<_>>();
 
-                            let items_clone = addrs
-                                .iter()
-                                .filter_map(|addr| {
-                                    if let Some(addr) = multiaddr_to_socketaddr(addr) {
-                                        Some(RawAddr::from(addr))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            state.addr_known.extend(items_clone);
+                            state.addr_known.extend(addrs.iter());
                             state.received_nodes = true;
 
                             self.addr_mgr.add_new_addrs(session.id, addrs);
@@ -349,11 +309,6 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             let mut rng = rand::thread_rng();
             let mut remain_keys = self.sessions.keys().cloned().collect::<Vec<_>>();
             for announce_multiaddr in announce_list {
-                let raw_addr = if let Some(addr) = multiaddr_to_socketaddr(&announce_multiaddr) {
-                    RawAddr::from(addr)
-                } else {
-                    continue;
-                };
                 remain_keys.shuffle(&mut rng);
                 for i in 0..2 {
                     if let Some(key) = remain_keys.get(i) {
@@ -362,13 +317,13 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 ">> send {} to: {:?}, contains: {}",
                                 announce_multiaddr,
                                 value.remote_addr,
-                                value.addr_known.contains(&raw_addr)
+                                value.addr_known.contains(&announce_multiaddr)
                             );
                             if value.announce_multiaddrs.len() < 10
-                                && !value.addr_known.contains(&raw_addr)
+                                && !value.addr_known.contains(&announce_multiaddr)
                             {
                                 value.announce_multiaddrs.push(announce_multiaddr.clone());
-                                value.addr_known.insert(raw_addr);
+                                value.addr_known.insert(&announce_multiaddr);
                             }
                         }
                     } else {

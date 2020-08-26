@@ -9,7 +9,7 @@ use p2p::{
 };
 
 use super::{
-    addr::{AddrKnown, RawAddr, DEFAULT_MAX_KNOWN},
+    addr::{AddrKnown, DEFAULT_MAX_KNOWN},
     protocol::{encode, DiscoveryMessage, Node, Nodes},
     MAX_ADDR_TO_SEND,
 };
@@ -20,7 +20,7 @@ const VERSION: u32 = 0;
 
 pub struct SessionState {
     // received pending messages
-    pub(crate) addr_known: AddrKnown<RawAddr>,
+    pub(crate) addr_known: AddrKnown,
     // FIXME: Remote listen address, resolved by id protocol
     pub(crate) remote_addr: RemoteAddress,
     pub(crate) announce: bool,
@@ -51,9 +51,7 @@ impl SessionState {
                 debug!("{:?} send discovery msg GetNode fail", context.session.id)
             }
 
-            if let Some(addr) = multiaddr_to_socketaddr(&context.session.address) {
-                addr_known.insert(RawAddr::from(addr));
-            }
+            addr_known.insert(&context.session.address);
 
             RemoteAddress::Listen(context.session.address.clone())
         } else {
@@ -69,10 +67,6 @@ impl SessionState {
             received_get_nodes: false,
             received_nodes: false,
         }
-    }
-
-    pub(crate) fn remote_raw_addr(&self) -> Option<RawAddr> {
-        multiaddr_to_socketaddr(self.remote_addr.to_inner()).map(RawAddr::from)
     }
 
     pub(crate) fn check_timer(&mut self, now: Instant, interval: Duration) {
@@ -115,7 +109,7 @@ pub(crate) enum RemoteAddress {
 }
 
 impl RemoteAddress {
-    fn to_inner(&self) -> &Multiaddr {
+    pub(crate) fn to_inner(&self) -> &Multiaddr {
         match self {
             RemoteAddress::Init(ref addr) | RemoteAddress::Listen(ref addr) => addr,
         }
