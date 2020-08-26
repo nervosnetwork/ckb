@@ -1134,7 +1134,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "crossbeam-channel 0.3.9",
  "failure",
  "faketime",
  "lru-cache",
