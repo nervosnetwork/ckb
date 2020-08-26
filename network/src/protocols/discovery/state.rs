@@ -2,18 +2,15 @@ use std::time::{Duration, Instant};
 
 use ckb_logger::debug;
 use p2p::{
-    bytes::BytesMut,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::{Multiaddr, Protocol},
     utils::multiaddr_to_socketaddr,
     SessionId,
 };
 
-use tokio_util::codec::Encoder;
-
 use super::{
     addr::{AddrKnown, RawAddr, DEFAULT_MAX_KNOWN},
-    protocol::{DiscoveryCodec, DiscoveryMessage, Node, Nodes},
+    protocol::{encode, DiscoveryMessage, Node, Nodes},
     MAX_ADDR_TO_SEND,
 };
 
@@ -34,7 +31,7 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub(crate) fn new(context: ProtocolContextMutRef, codec: &mut DiscoveryCodec) -> SessionState {
+    pub(crate) fn new(context: ProtocolContextMutRef) -> SessionState {
         let mut addr_known = AddrKnown::new(DEFAULT_MAX_KNOWN);
         let remote_addr = if context.session.ty.is_outbound() {
             let port = context
@@ -44,19 +41,13 @@ impl SessionState {
                 .map(|addr| addr.port())
                 .next();
 
-            let mut msg = BytesMut::new();
-            codec
-                .encode(
-                    DiscoveryMessage::GetNodes {
-                        version: VERSION,
-                        count: MAX_ADDR_TO_SEND as u32,
-                        listen_port: port,
-                    },
-                    &mut msg,
-                )
-                .expect("encode must be success");
+            let msg = encode(DiscoveryMessage::GetNodes {
+                version: VERSION,
+                count: MAX_ADDR_TO_SEND as u32,
+                listen_port: port,
+            });
 
-            if context.send_message(msg.freeze()).is_err() {
+            if context.send_message(msg).is_err() {
                 debug!("{:?} send discovery msg GetNode fail", context.session.id)
             }
 
@@ -94,12 +85,7 @@ impl SessionState {
         }
     }
 
-    pub(crate) fn send_messages(
-        &mut self,
-        cx: &mut ProtocolContext,
-        id: SessionId,
-        codec: &mut DiscoveryCodec,
-    ) {
+    pub(crate) fn send_messages(&mut self, cx: &mut ProtocolContext, id: SessionId) {
         if !self.announce_multiaddrs.is_empty() {
             let items = self
                 .announce_multiaddrs
@@ -112,11 +98,8 @@ impl SessionState {
                 announce: true,
                 items,
             };
-            let mut msg = BytesMut::new();
-            codec
-                .encode(DiscoveryMessage::Nodes(nodes), &mut msg)
-                .expect("encode must be success");
-            if cx.send_message_to(id, cx.proto_id, msg.freeze()).is_err() {
+            let msg = encode(DiscoveryMessage::Nodes(nodes));
+            if cx.send_message_to(id, cx.proto_id, msg).is_err() {
                 debug!("{:?} send discovery msg Nodes fail", id)
             }
         }

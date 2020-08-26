@@ -15,14 +15,16 @@ use p2p::{
     SessionId,
 };
 use rand::seq::SliceRandom;
-use tokio_util::codec::{Decoder, Encoder};
 
 pub use self::{
     addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior, RawAddr},
     protocol::{DiscoveryMessage, Node, Nodes},
     state::SessionState,
 };
-use self::{protocol::DiscoveryCodec, state::RemoteAddress};
+use self::{
+    protocol::{decode, encode},
+    state::RemoteAddress,
+};
 use crate::{NetworkState, ProtocolId};
 
 mod addr;
@@ -39,7 +41,6 @@ const MAX_ADDRS: usize = 3;
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3600 * 24);
 
 pub struct DiscoveryProtocol<M> {
-    codec: DiscoveryCodec,
     sessions: HashMap<SessionId, SessionState>,
     dynamic_query_cycle: Option<Duration>,
     addr_mgr: M,
@@ -50,7 +51,6 @@ pub struct DiscoveryProtocol<M> {
 impl<M: AddressManager> DiscoveryProtocol<M> {
     pub fn new(addr_mgr: M) -> DiscoveryProtocol<M> {
         DiscoveryProtocol {
-            codec: DiscoveryCodec::default(),
             sessions: HashMap::default(),
             dynamic_query_cycle: Some(Duration::from_secs(7)),
             check_interval: None,
@@ -84,8 +84,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions
-            .insert(session.id, SessionState::new(context, &mut self.codec));
+        self.sessions.insert(session.id, SessionState::new(context));
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -107,8 +106,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         let session = context.session;
         trace!("[received message]: length={}", data.len());
 
-        match self.codec.decode(&mut BytesMut::from(data.as_ref())) {
-            Ok(Some(item)) => {
+        match decode(&mut BytesMut::from(data.as_ref())) {
+            Some(item) => {
                 match item {
                     DiscoveryMessage::GetNodes { listen_port, .. } => {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
@@ -173,11 +172,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 items,
                             };
 
-                            let mut msg = BytesMut::new();
-                            self.codec
-                                .encode(DiscoveryMessage::Nodes(nodes), &mut msg)
-                                .expect("encode must be success");
-                            if context.send_message(msg.freeze()).is_err() {
+                            let msg = encode(DiscoveryMessage::Nodes(nodes));
+                            if context.send_message(msg).is_err() {
                                 debug!("{:?} send discovery msg Nodes fail", session.id)
                             }
                         }
@@ -302,8 +298,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                     }
                 }
             }
-            Ok(None) => (),
-            Err(_) => {
+            None => {
                 if self
                     .addr_mgr
                     .misbehave(session.id, Misbehavior::InvalidData)
@@ -319,7 +314,6 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
     fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         let now = Instant::now();
 
-        let codec = &mut self.codec;
         let dynamic_query_cycle = self.dynamic_query_cycle.unwrap_or(ANNOUNCE_INTERVAL);
         let addr_mgr = &self.addr_mgr;
 
@@ -329,7 +323,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             .iter_mut()
             .filter_map(|(id, state)| {
                 // send all announce addr to remote
-                state.send_messages(context, *id, codec);
+                state.send_messages(context, *id);
                 // check timer
                 state.check_timer(now, dynamic_query_cycle);
 
