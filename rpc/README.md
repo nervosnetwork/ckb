@@ -399,7 +399,8 @@ http://localhost:8114
 }
 ```
 
-### `get_cells_by_lock_hash`
+### ~~`get_cells_by_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Returns the information about live cells collection by the hash of lock script.
 
@@ -1067,7 +1068,8 @@ http://localhost:8114
 
 ## Indexer
 
-### `index_lock_hash`
+### ~~`index_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Create index for live cells and transactions by the hash of lock script.
 
@@ -1105,7 +1107,8 @@ http://localhost:8114
 }
 ```
 
-### `get_lock_hash_index_states`
+### ~~`get_lock_hash_index_states`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Get lock hash index states
 
@@ -1138,7 +1141,8 @@ http://localhost:8114
 }
 ```
 
-### `get_live_cells_by_lock_hash`
+### ~~`get_live_cells_by_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Returns the live cells collection by the hash of lock script.
 
@@ -1434,7 +1438,8 @@ http://localhost:8114
 }
 ```
 
-### `get_transactions_by_lock_hash`
+### ~~`get_transactions_by_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` has not been indexed yet.
 
@@ -1584,7 +1589,8 @@ http://localhost:8114
 }
 ```
 
-### `get_capacity_by_lock_hash`
+### ~~`get_capacity_by_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Returns the total capacity by the hash of lock script.
 
@@ -1625,7 +1631,8 @@ http://localhost:8114
 }
 ```
 
-### `deindex_lock_hash`
+### ~~`deindex_lock_hash`~~
+**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 Remove index for live cells and transactions by the hash of lock script.
 

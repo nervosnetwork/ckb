@@ -14,7 +14,11 @@ def sort_cases_by_module(cases):
 
 
 def print_title(case):
-    print("### `{}`".format(case["method"]))
+    if case.get("deprecated") is None:
+        print("### `{}`".format(case["method"]))
+    else:
+        print("### ~~`{}`~~".format(case["method"]))
+        print("**DEPRECATED** {}".format(case["deprecated"]))
     newline(1)
 
 
