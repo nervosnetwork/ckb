@@ -3,8 +3,8 @@ use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
-use lazy_static::lazy_static;
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
+use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::Write;
@@ -14,10 +14,8 @@ use std::{fs, panic, process, sync, thread};
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
 
-lazy_static! {
-    static ref CONTROL_HANDLE: sync::Arc<RwLock<Option<crossbeam_channel::Sender<Message>>>> =
-        sync::Arc::new(RwLock::new(None));
-}
+static CONTROL_HANDLE: OnceCell<crossbeam_channel::Sender<Message>> = OnceCell::new();
+static RE: OnceCell<regex::Regex> = OnceCell::new();
 
 enum Message {
     Record {
@@ -120,7 +118,9 @@ impl Logger {
         }
 
         let (sender, receiver) = unbounded();
-        CONTROL_HANDLE.write().replace(sender.clone());
+        CONTROL_HANDLE
+            .set(sender.clone())
+            .expect("CONTROL_HANDLE init once");
 
         let Config {
             color,
@@ -337,8 +337,7 @@ impl Logger {
 
     fn send_message(message: Message) -> Result<(), String> {
         CONTROL_HANDLE
-            .read()
-            .as_ref()
+            .get()
             .ok_or_else(|| "no sender for logger service".to_owned())
             .and_then(|sender| {
                 sender
@@ -443,10 +442,8 @@ impl Log for Logger {
 }
 
 fn sanitize_color(s: &str) -> String {
-    lazy_static! {
-        static ref RE: Regex = Regex::new("\x1b\\[[^m]+m").expect("Regex compile success");
-    }
-    RE.replace_all(s, "").to_string()
+    let re = RE.get_or_init(|| Regex::new("\x1b\\[[^m]+m").expect("Regex compile success"));
+    re.replace_all(s, "").to_string()
 }
 
 /// Flush the logger when dropped

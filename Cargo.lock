@@ -662,8 +662,8 @@ dependencies = [
  "ckb-util",
  "crossbeam-channel 0.3.9",
  "env_logger",
- "lazy_static",
  "log 0.4.11",
+ "once_cell",
  "regex",
  "sentry",
 ]
