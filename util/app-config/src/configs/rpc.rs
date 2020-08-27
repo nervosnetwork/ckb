@@ -28,6 +28,8 @@ pub struct Config {
     // Rejects txs with scripts that might trigger known bugs
     #[serde(default)]
     pub reject_ill_transactions: bool,
+    #[serde(default)]
+    pub enable_deprecated_rpc: bool,
 }
 
 impl Config {

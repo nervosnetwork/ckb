@@ -1,3 +1,5 @@
+use crate::error::RPCError;
+use crate::module::SubscriptionSession;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
     ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
@@ -16,7 +18,10 @@ use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_sync::Synchronizer;
 use ckb_util::Mutex;
+use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
+
+const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 
 pub struct ServiceBuilder<'a> {
     config: &'a RpcConfig,
@@ -31,11 +36,11 @@ impl<'a> ServiceBuilder<'a> {
         }
     }
     pub fn enable_chain(mut self, shared: Shared) -> Self {
-        let rpc_method = ChainRpcImpl { shared }.to_delegate();
+        let rpc_methods = ChainRpcImpl { shared }.to_delegate();
         if self.config.chain_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Chain", rpc_method);
+            self.update_disabled_methods("Chain", rpc_methods);
         }
         self
     }
@@ -185,20 +190,39 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    fn update_disabled_methods<I, M>(&mut self, module: &str, rpc_method: I)
+    fn update_disabled_methods<I, M>(&mut self, module: &str, rpc_methods: I)
     where
         I: IntoIterator<Item = (String, M)>,
     {
-        use crate::error::RPCError;
+        rpc_methods.into_iter().for_each(|(name, _method)| {
+            let error = Err(RPCError::rpc_module_is_disabled(module));
+            self.io_handler
+                .add_method(&name, move |_param| error.clone())
+        });
+    }
 
-        rpc_method
-            .into_iter()
-            .map(|(method, _)| method)
-            .for_each(|method| {
-                let error = Err(RPCError::rpc_module_is_disabled(module));
-                self.io_handler
-                    .add_method(&method, move |_param| error.clone())
-            });
+    fn add_methods<I>(&mut self, rpc_methods: I)
+    where
+        I: IntoIterator<Item = (String, RemoteProcedure<Option<SubscriptionSession>>)>,
+    {
+        let enable_deprecated_rpc = self.config.enable_deprecated_rpc;
+        self.io_handler
+            .extend_with(rpc_methods.into_iter().map(|(name, method)| {
+                if let Some(deprecated_method_name) = name.strip_prefix(DEPRECATED_RPC_PREFIX) {
+                    (
+                        deprecated_method_name.to_owned(),
+                        if enable_deprecated_rpc {
+                            method
+                        } else {
+                            RemoteProcedure::Method(Arc::new(|_param, _meta| {
+                                Err(RPCError::rpc_method_is_deprecated())
+                            }))
+                        },
+                    )
+                } else {
+                    (name, method)
+                }
+            }));
     }
 
     pub fn build(self) -> IoHandler {
