@@ -52,13 +52,13 @@ impl<'a> ServiceBuilder<'a> {
         min_fee_rate: FeeRate,
         reject_ill_transactions: bool,
     ) -> Self {
-        let rpc_method =
+        let rpc_methods =
             PoolRpcImpl::new(shared, sync_shared, min_fee_rate, reject_ill_transactions)
                 .to_delegate();
         if self.config.pool_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Pool", rpc_method);
+            self.update_disabled_methods("Pool", rpc_methods);
         }
         self
     }
@@ -70,16 +70,16 @@ impl<'a> ServiceBuilder<'a> {
         chain: ChainController,
         enable: bool,
     ) -> Self {
-        let rpc_method = MinerRpcImpl {
+        let rpc_methods = MinerRpcImpl {
             shared,
             chain,
             network_controller,
         }
         .to_delegate();
         if enable && self.config.miner_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Miner", rpc_method);
+            self.update_disabled_methods("Miner", rpc_methods);
         }
         self
     }
@@ -89,15 +89,15 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
     ) -> Self {
-        let rpc_method = NetworkRpcImpl {
+        let rpc_methods = NetworkRpcImpl {
             network_controller,
             sync_shared,
         }
         .to_delegate();
         if self.config.net_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Net", rpc_method);
+            self.update_disabled_methods("Net", rpc_methods);
         }
         self
     }
@@ -108,26 +108,26 @@ impl<'a> ServiceBuilder<'a> {
         synchronizer: Synchronizer,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
     ) -> Self {
-        let rpc_method = StatsRpcImpl {
+        let rpc_methods = StatsRpcImpl {
             shared,
             synchronizer,
             alert_notifier,
         }
         .to_delegate();
         if self.config.stats_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Stats", rpc_method);
+            self.update_disabled_methods("Stats", rpc_methods);
         }
         self
     }
 
     pub fn enable_experiment(mut self, shared: Shared) -> Self {
-        let rpc_method = ExperimentRpcImpl { shared }.to_delegate();
+        let rpc_methods = ExperimentRpcImpl { shared }.to_delegate();
         if self.config.experiment_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Experiment", rpc_method);
+            self.update_disabled_methods("Experiment", rpc_methods);
         }
         self
     }
@@ -138,16 +138,16 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         chain: ChainController,
     ) -> Self {
-        let rpc_method = IntegrationTestRpcImpl {
+        let rpc_methods = IntegrationTestRpcImpl {
             shared,
             network_controller,
             chain,
         }
         .to_delegate();
         if self.config.integration_test_enable() {
-            self.io_handler.extend_with(rpc_method);
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("IntegrationTest", rpc_method);
+            self.update_disabled_methods("IntegrationTest", rpc_methods);
         }
         self
     }
@@ -158,27 +158,27 @@ impl<'a> ServiceBuilder<'a> {
         alert_notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
     ) -> Self {
-        let rpc_method =
+        let rpc_methods =
             AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller).to_delegate();
         if self.config.alert_enable() {
-            self.io_handler.extend_with(rpc_method)
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Alert", rpc_method);
+            self.update_disabled_methods("Alert", rpc_methods);
         }
         self
     }
 
     pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
         let store = DefaultIndexerStore::new(indexer_config, shared);
-        let rpc_method = IndexerRpcImpl {
+        let rpc_methods = IndexerRpcImpl {
             store: store.clone(),
         }
         .to_delegate();
         if self.config.indexer_enable() {
             store.start(Some("IndexerStore"));
-            self.io_handler.extend_with(rpc_method)
+            self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Indexer", rpc_method);
+            self.update_disabled_methods("Indexer", rpc_methods);
         }
         self
     }

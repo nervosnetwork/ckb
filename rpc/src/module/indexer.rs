@@ -8,7 +8,7 @@ use jsonrpc_derive::rpc;
 
 #[rpc(server)]
 pub trait IndexerRpc {
-    #[rpc(name = "get_live_cells_by_lock_hash")]
+    #[rpc(name = "deprecated.get_live_cells_by_lock_hash")]
     fn get_live_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
@@ -17,7 +17,7 @@ pub trait IndexerRpc {
         _reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>>;
 
-    #[rpc(name = "get_transactions_by_lock_hash")]
+    #[rpc(name = "deprecated.get_transactions_by_lock_hash")]
     fn get_transactions_by_lock_hash(
         &self,
         _lock_hash: H256,
@@ -26,20 +26,20 @@ pub trait IndexerRpc {
         _reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>>;
 
-    #[rpc(name = "index_lock_hash")]
+    #[rpc(name = "deprecated.index_lock_hash")]
     fn index_lock_hash(
         &self,
         _lock_hash: H256,
         _index_from: Option<BlockNumber>,
     ) -> Result<LockHashIndexState>;
 
-    #[rpc(name = "deindex_lock_hash")]
+    #[rpc(name = "deprecated.deindex_lock_hash")]
     fn deindex_lock_hash(&self, _lock_hash: H256) -> Result<()>;
 
-    #[rpc(name = "get_lock_hash_index_states")]
+    #[rpc(name = "deprecated.get_lock_hash_index_states")]
     fn get_lock_hash_index_states(&self) -> Result<Vec<LockHashIndexState>>;
 
-    #[rpc(name = "get_capacity_by_lock_hash")]
+    #[rpc(name = "deprecated.get_capacity_by_lock_hash")]
     fn get_capacity_by_lock_hash(&self, _lock_hash: H256) -> Result<Option<LockHashCapacity>>;
 }
 

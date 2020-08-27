@@ -41,7 +41,7 @@ pub trait ChainRpc {
     #[rpc(name = "get_tip_header")]
     fn get_tip_header(&self) -> Result<HeaderView>;
 
-    #[rpc(name = "get_cells_by_lock_hash")]
+    #[rpc(name = "deprecated.get_cells_by_lock_hash")]
     fn get_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
