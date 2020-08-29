@@ -2,7 +2,7 @@ use std::path;
 
 use ckb_db::internal::{
     ops::{Delete as _, GetPinned as _, Open as _, Put as _},
-    DB,
+    BlockBasedOptions, Options, DB,
 };
 use ckb_logger::{debug, warn};
 use ckb_types::{packed::Byte32, prelude::*};
@@ -47,7 +47,20 @@ impl KeyValueBackend for RocksDBBackend {
                 builder.tempdir()
             };
             if let Ok(cache_dir) = cache_dir_res {
-                if let Ok(db) = DB::open_default(cache_dir.path()) {
+                // We minimize memory usage at all costs here.
+                // If we want to use more memory, we should increase the limit of KeyValueMemory.
+                let opts = {
+                    let mut block_opts = BlockBasedOptions::default();
+                    block_opts.disable_cache();
+                    let mut opts = Options::default();
+                    opts.create_if_missing(true);
+                    opts.set_block_based_table_factory(&block_opts);
+                    opts.set_write_buffer_size(4 * 1024 * 1024);
+                    opts.set_max_write_buffer_number(2);
+                    opts.set_min_write_buffer_number_to_merge(1);
+                    opts
+                };
+                if let Ok(db) = DB::open(&opts, cache_dir.path()) {
                     debug!(
                         "open a key-value database({}) to save header map into disk",
                         cache_dir.path().to_str().unwrap_or("")

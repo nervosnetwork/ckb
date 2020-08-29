@@ -739,7 +739,7 @@ mod tests {
     }
 
     fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {
-        let shared = Arc::new(SyncShared::new(shared));
+        let shared = Arc::new(SyncShared::new(shared, Default::default()));
         Synchronizer::new(chain_controller, shared)
     }
 

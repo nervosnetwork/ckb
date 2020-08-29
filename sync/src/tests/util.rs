@@ -29,7 +29,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);
-    let sync_shared = SyncShared::new(shared);
+    let sync_shared = SyncShared::new(shared, Default::default());
     (sync_shared, chain_controller)
 }
 

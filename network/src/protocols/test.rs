@@ -116,6 +116,7 @@ fn net_service_start(name: String) -> Node {
         upnp: false,
         bootnode_mode: true,
         max_send_buffer: None,
+        sync: None,
     };
 
     let network_state =

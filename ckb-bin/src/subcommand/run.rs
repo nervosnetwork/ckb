@@ -67,6 +67,12 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let sync_shared = Arc::new(SyncShared::with_tmpdir(
         shared.clone(),
+        args.config
+            .network
+            .sync
+            .as_ref()
+            .cloned()
+            .unwrap_or_default(),
         args.config.tmp_dir.as_ref(),
     ));
     let network_state = Arc::new(

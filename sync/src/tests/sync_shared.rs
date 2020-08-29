@@ -64,7 +64,10 @@ fn test_insert_parent_unknown_block() {
             let chain_service = ChainService::new(shared.clone(), table);
             chain_service.start::<&str>(None)
         };
-        (SyncShared::new(shared), chain_controller)
+        (
+            SyncShared::new(shared, Default::default()),
+            chain_controller,
+        )
     };
 
     let block = shared1
