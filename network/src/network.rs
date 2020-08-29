@@ -774,7 +774,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
-        // For special protocols: ping/discovery/identify/disconnect_message
+        // For special protocols: disconnect_message
         match event {
             ProtocolEvent::Connected {
                 session_context,
@@ -901,7 +901,7 @@ impl<T: ExitHandler> NetworkService<T> {
         let identify_callback =
             IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
         });
 
         // Feeler protocol

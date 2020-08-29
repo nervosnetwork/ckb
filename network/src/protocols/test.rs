@@ -165,7 +165,7 @@ fn net_service_start(name: String) -> Node {
     let identify_callback =
         IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
     let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-        ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+        ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
     });
 
     // Feeler protocol
