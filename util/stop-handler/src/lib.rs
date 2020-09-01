@@ -1,7 +1,7 @@
 use ckb_logger::error;
-use crossbeam_channel::Sender;
 use futures::sync::oneshot;
 use parking_lot::Mutex;
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::sync::oneshot as tokio_oneshot;
@@ -9,7 +9,8 @@ use tokio::sync::oneshot as tokio_oneshot;
 #[derive(Debug)]
 pub enum SignalSender {
     Future(oneshot::Sender<()>),
-    Crossbeam(Sender<()>),
+    Crossbeam(ckb_channel::Sender<()>),
+    Std(mpsc::Sender<()>),
     Tokio(tokio_oneshot::Sender<()>),
 }
 
@@ -17,6 +18,11 @@ impl SignalSender {
     pub fn send(self) {
         match self {
             SignalSender::Crossbeam(tx) => {
+                if let Err(e) = tx.send(()) {
+                    error!("handler signal send error {:?}", e);
+                };
+            }
+            SignalSender::Std(tx) => {
                 if let Err(e) = tx.send(()) {
                     error!("handler signal send error {:?}", e);
                 };

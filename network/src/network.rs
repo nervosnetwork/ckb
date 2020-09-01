@@ -46,7 +46,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc as std_mpsc, Arc,
     },
     thread,
     time::{Duration, Instant},
@@ -1021,8 +1021,8 @@ impl<T: ExitHandler> NetworkService<T> {
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        let (start_sender, start_receiver) = crossbeam_channel::bounded(1);
+        let (sender, receiver) = std_mpsc::channel();
+        let (start_sender, start_receiver) = std_mpsc::channel();
         let network_state_1 = Arc::clone(&network_state);
         // Main network thread
         let thread = thread_builder
@@ -1113,7 +1113,7 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
+        let stop = StopHandler::new(SignalSender::Std(sender), thread);
         Ok(NetworkController {
             version,
             network_state,

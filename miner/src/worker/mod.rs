@@ -2,10 +2,10 @@ mod dummy;
 mod eaglesong_simple;
 
 use ckb_app_config::MinerWorkerConfig;
+use ckb_channel::{unbounded, Sender};
 use ckb_logger::error;
 use ckb_pow::{DummyPowEngine, EaglesongBlake2bPowEngine, EaglesongPowEngine, PowEngine};
 use ckb_types::{packed::Byte32, U256};
-use crossbeam_channel::{unbounded, Sender};
 use dummy::Dummy;
 use eaglesong_simple::EaglesongSimple;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};

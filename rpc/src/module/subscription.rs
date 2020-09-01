@@ -1,6 +1,6 @@
+use ckb_channel::select;
 use ckb_logger::error;
 use ckb_notify::NotifyController;
-use crossbeam_channel::select;
 use jsonrpc_core::{futures::Future, Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{

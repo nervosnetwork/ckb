@@ -1,6 +1,6 @@
 use crate::{utils::nodes_panicked, Net, Spec};
+use ckb_channel::{unbounded, Receiver, Sender};
 use ckb_util::Mutex;
-use crossbeam_channel::{unbounded, Receiver, Sender};
 use log::{error, info};
 use std::any::Any;
 use std::panic;

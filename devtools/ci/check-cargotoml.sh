@@ -73,12 +73,12 @@ function search_crate() {
     local depcnt=0
     local grepopts="-rh"
     tmpcnt=$({\
-        ${GREP} ${grepopts} "\(^\| \)extern crate ${crate}\(::\|;\)" "${source}" \
+        ${GREP} ${grepopts} "\(^\| \)extern crate ${crate}\(::\|;\| as \)" "${source}" \
             || true; }\
         | wc -l)
     depcnt=$((depcnt + tmpcnt))
     tmpcnt=$({\
-        ${GREP} ${grepopts} "\(^\| \)use ${crate}\(::\|;\)" "${source}" \
+        ${GREP} ${grepopts} "\(^\| \)use ${crate}\(::\|;\| as \)" "${source}" \
             || true; }\
         | wc -l)
     depcnt=$((depcnt + tmpcnt))
