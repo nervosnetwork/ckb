@@ -1,7 +1,6 @@
 # Quick Start
 
-Following steps will assume that the shell can find the executable `ckb`, see
-how to [get CKB](get-ckb.md).
+Following steps will assume that the shell can find the executable `ckb`.
 
 First creates a directory to run CKB
 

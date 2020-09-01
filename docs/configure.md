@@ -41,7 +41,7 @@ Then edit the generated config files according to the in-line comments.
 
 ## Chain Spec
 
-The option `ckb.chain` configures the chain spec, which controls which kind of chain to run.
+The option `chain.spec` configures the chain spec, which controls which kind of chain to run.
 This option is set to a chain used for development by default.
 
 The subcommand `init` supports exporting the default options for different
@@ -58,6 +58,51 @@ ckb init --chain testnet
 ```
 
 Nodes running different chain specs cannot synchronize with each other, so be carefully when editing this option.
+
+The dev chain reads the chain spec from file `specs/dev.toml`, developers can edit to switch between different PoW engines.
+
+CKB now supports following PoW Engines.
+
+### Eaglesong
+
+```
+[pow]
+func = "Eaglesong"
+```
+
+### Eaglesong with an extra Blake2b Hash
+
+Used for testnet.
+
+```
+[pow]
+func = "EaglesongBlake2b"
+```
+
+and the miner workers section in `ckb-miner.toml` should be:
+
+```
+[[miner.workers]]
+worker_type = "EaglesongSimple"
+threads     = 1
+extra_hash_function = "Blake2b"
+```
+
+### Dummy
+
+```
+[pow]
+func = "Dummy"
+```
+
+and don't forget to modify `ckb-miner.toml` miner workers section:
+
+```
+[[miner.workers]]
+worker_type = "Dummy"
+delay_type  = "Constant"
+value       = 5000
+```
 
 ## How to Run Multiple Nodes
 
