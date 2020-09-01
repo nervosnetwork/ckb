@@ -97,7 +97,9 @@ pub const ARG_PROFILE: &str = "profile";
 /// TODO(doc): @doitian
 pub const ARG_SANITY_CHECK: &str = "sanity-check";
 /// TODO(doc): @doitian
-pub const ARG_FULL_VERFICATION: &str = "full-verfication";
+pub const ARG_FULL_VERIFICATION: &str = "full-verification";
+/// Present `skip-spec-check` arg to `run` skip spec check on setup
+pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
 
 /// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
@@ -139,11 +141,18 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN).about("Runs ckb node").arg(
-        Arg::with_name(ARG_BA_ADVANCED)
-            .long(ARG_BA_ADVANCED)
-            .help("Allows any block assembler code hash and args"),
-    )
+    SubCommand::with_name(CMD_RUN)
+        .about("Runs ckb node")
+        .arg(
+            Arg::with_name(ARG_BA_ADVANCED)
+                .long(ARG_BA_ADVANCED)
+                .help("Allows any block assembler code hash and args"),
+        )
+        .arg(
+            Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
+                .long(ARG_SKIP_CHAIN_SPEC_CHECK)
+                .help("Enforce consistency check on chain-spec and storage"),
+        )
 }
 
 fn miner() -> App<'static, 'static> {
@@ -257,7 +266,7 @@ fn replay() -> App<'static, 'static> {
             Arg::with_name(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).help("Enable sanity check")
         )
         .arg(
-            Arg::with_name(ARG_FULL_VERFICATION).long(ARG_FULL_VERFICATION).help("Enable sanity check")
+            Arg::with_name(ARG_FULL_VERIFICATION).long(ARG_FULL_VERIFICATION).help("Enable sanity check")
         )
         .group(
             ArgGroup::with_name("mode")

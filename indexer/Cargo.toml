@@ -18,6 +18,7 @@ ckb-logger = { path = "../util/logger", version = "= 0.38.0-pre" }
 ckb-util = { path = "../util", version = "= 0.38.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.38.0-pre" }
 ckb-db-migration = { path = "../db-migration", version = "= 0.38.0-pre" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.38.0-pre" }
 
 [dev-dependencies]
 tempfile = "3.0"

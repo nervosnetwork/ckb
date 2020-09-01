@@ -4,8 +4,9 @@ use crate::types::{
     LockHashIndexState, TransactionPoint,
 };
 use ckb_app_config::IndexerConfig;
-use ckb_db::{db::RocksDB, Col, DBIterator, Direction, IteratorMode, RocksDBTransaction};
+use ckb_db::{db::RocksDB, DBIterator, Direction, IteratorMode, RocksDBTransaction};
 use ckb_db_migration::{DefaultMigration, Migrations};
+use ckb_db_schema::Col;
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;

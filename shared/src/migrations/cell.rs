@@ -1,9 +1,9 @@
 use ckb_app_config::StoreConfig;
 use ckb_db::RocksDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
+use ckb_db_schema::COLUMN_CELL;
 use ckb_error::Error;
-use ckb_store::ChainStore;
-use ckb_store::{ChainDB, StoreWriteBatch, COLUMN_CELL};
+use ckb_store::{ChainDB, ChainStore, StoreWriteBatch};
 use ckb_types::{
     core::{BlockView, TransactionView},
     packed,

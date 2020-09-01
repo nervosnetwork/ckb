@@ -1,14 +1,11 @@
 use crate::cache::StoreCache;
-use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
+use ckb_chain_spec::consensus::Consensus;
+use ckb_db::iter::{DBIter, Direction, IteratorMode};
+use ckb_db_schema::{
+    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
     COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
-};
-use ckb_chain_spec::consensus::Consensus;
-use ckb_db::{
-    iter::{DBIter, Direction, IteratorMode},
-    Col,
 };
 use ckb_types::{
     bytes::Bytes,

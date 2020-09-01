@@ -68,6 +68,9 @@ pub struct ChainSpec {
     pub params: Params,
     /// TODO(doc): @zhangsoledad
     pub pow: Pow,
+    #[serde(skip)]
+    /// Hash of blake2b_256 spec content bytes, used for check consistency between database and config
+    pub hash: packed::Byte32,
 }
 
 /// TODO(doc): @zhangsoledad
@@ -325,6 +328,8 @@ impl ChainSpec {
             }
         }
 
+        // leverage serialize for sanitizing
+        spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
         Ok(spec)
     }
 

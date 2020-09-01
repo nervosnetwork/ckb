@@ -2,8 +2,9 @@ use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
-    Col, DBPinnableSlice, RocksDBSnapshot,
+    DBPinnableSlice, RocksDBSnapshot,
 };
+use ckb_db_schema::Col;
 use std::sync::Arc;
 
 /// TODO(doc): @quake

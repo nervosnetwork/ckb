@@ -3,8 +3,9 @@ use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, IteratorMode},
-    Col, DBPinnableSlice,
+    DBPinnableSlice,
 };
+use ckb_db_schema::Col;
 use ckb_error::Error;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;

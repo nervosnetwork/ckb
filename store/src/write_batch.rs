@@ -1,6 +1,5 @@
-use crate::{COLUMN_CELL, COLUMN_CELL_DATA};
-use ckb_db::Col;
 use ckb_db::RocksDBWriteBatch;
+use ckb_db_schema::{Col, COLUMN_CELL, COLUMN_CELL_DATA};
 use ckb_error::Error;
 use ckb_types::{packed, prelude::*};
 

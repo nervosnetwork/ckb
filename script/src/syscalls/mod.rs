@@ -177,8 +177,9 @@ mod tests {
     use super::*;
     use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
     use ckb_db::RocksDB;
+    use ckb_db_schema::COLUMNS;
     use ckb_hash::blake2b_256;
-    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
+    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB};
     use ckb_traits::{CellDataProvider, HeaderProvider};
     use ckb_types::{
         bytes::Bytes,
