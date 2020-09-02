@@ -27,7 +27,7 @@
         },
         "types": [
             {
-                "verbosity": "0 for a json object, 1 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 0"
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
             }
         ]
     },
@@ -140,7 +140,7 @@
                 "hash": "Hash of a block"
             },
             {
-                "verbosity": "0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0"
+                "verbosity": "2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2"
             }
         ]
     },
@@ -170,7 +170,7 @@
                 "hash": "Hash of a block"
             },
             {
-                "verbosity": "0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0"
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
             }
         ]
     },
@@ -200,7 +200,7 @@
                 "block_number": "Number of a block"
             },
             {
-                "verbosity": "0 for a json object, 1 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 0"
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
             }
         ]
     },
@@ -1166,7 +1166,7 @@
                 "block_number": "Number of a block"
             },
             {
-                "verbosity": "0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0"
+                "verbosity": "2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2"
             }
         ]
     },

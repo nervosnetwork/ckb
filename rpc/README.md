@@ -97,7 +97,7 @@ Returns the information about the tip header of the longest.
 
 #### Parameters
 
-* verbosity - 0 for a json object, 1 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 0
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -242,7 +242,7 @@ Returns the information about a block by hash.
 #### Parameters
 
 * hash - Hash of a block
-* verbosity - 0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0
+* verbosity - 2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2
 
 #### Examples
 
@@ -326,7 +326,7 @@ Returns the information about a block header by hash.
 #### Parameters
 
 * hash - Hash of a block
-* verbosity - 0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -372,7 +372,7 @@ Returns the information about a block header by block number.
 #### Parameters
 
 * block_number - Number of a block
-* verbosity - 0 for a json object, 1 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 0
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -736,7 +736,7 @@ Get block by number
 #### Parameters
 
 * block_number - Number of a block
-* verbosity - 0 for a json object, 1 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 0
+* verbosity - 2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2
 
 #### Examples
 

@@ -92,6 +92,9 @@ pub(crate) struct ChainRpcImpl {
     pub shared: Shared,
 }
 
+const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
+const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
+
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
         &self,
@@ -104,14 +107,20 @@ impl ChainRpc for ChainRpcImpl {
             return Ok(None);
         }
 
-        if u32::from(verbosity.unwrap_or_default()) == 0 {
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
+        // TODO: verbosity level == 1, output block only contains tx_hash in json format
+        if verbosity == 2 {
             Ok(snapshot
                 .get_block(&block_hash)
                 .map(|block| ResponseFormat::Json(block.into())))
-        } else {
+        } else if verbosity == 0 {
             Ok(snapshot
                 .get_packed_block(&block_hash)
                 .map(ResponseFormat::Hex))
+        } else {
+            Err(RPCError::invalid_params("invalid verbosity level"))
         }
     }
 
@@ -126,14 +135,20 @@ impl ChainRpc for ChainRpcImpl {
             None => return Ok(None),
         };
 
-        let result = if u32::from(verbosity.unwrap_or_default()) == 0 {
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
+        // TODO: verbosity level == 1, output block only contains tx_hash in json format
+        let result = if verbosity == 2 {
             snapshot
                 .get_block(&block_hash)
                 .map(|block| Some(ResponseFormat::Json(block.into())))
-        } else {
+        } else if verbosity == 0 {
             snapshot
                 .get_packed_block(&block_hash)
                 .map(|block| Some(ResponseFormat::Hex(block)))
+        } else {
+            return Err(RPCError::invalid_params("invalid verbosity level"));
         };
 
         result.ok_or_else(|| {
@@ -157,14 +172,19 @@ impl ChainRpc for ChainRpcImpl {
             return Ok(None);
         }
 
-        if u32::from(verbosity.unwrap_or_default()) == 0 {
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
+        if verbosity == 1 {
             Ok(snapshot
                 .get_block_header(&block_hash)
                 .map(|header| ResponseFormat::Json(header.into())))
-        } else {
+        } else if verbosity == 0 {
             Ok(snapshot
                 .get_packed_block_header(&block_hash)
                 .map(ResponseFormat::Hex))
+        } else {
+            Err(RPCError::invalid_params("invalid verbosity level"))
         }
     }
 
@@ -179,14 +199,19 @@ impl ChainRpc for ChainRpcImpl {
             None => return Ok(None),
         };
 
-        let result = if u32::from(verbosity.unwrap_or_default()) == 0 {
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
+        let result = if verbosity == 1 {
             snapshot
                 .get_block_header(&block_hash)
                 .map(|header| Some(ResponseFormat::Json(header.into())))
-        } else {
+        } else if verbosity == 0 {
             snapshot
                 .get_packed_block_header(&block_hash)
                 .map(|header| Some(ResponseFormat::Hex(header)))
+        } else {
+            return Err(RPCError::invalid_params("invalid verbosity level"));
         };
 
         result.ok_or_else(|| {
@@ -242,14 +267,19 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         verbosity: Option<Uint32>,
     ) -> Result<ResponseFormat<HeaderView, Header>> {
-        if u32::from(verbosity.unwrap_or_default()) == 0 {
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
+        if verbosity == 1 {
             Ok(ResponseFormat::Json(
                 self.shared.snapshot().tip_header().clone().into(),
             ))
-        } else {
+        } else if verbosity == 0 {
             Ok(ResponseFormat::Hex(
                 self.shared.snapshot().tip_header().data(),
             ))
+        } else {
+            Err(RPCError::invalid_params("invalid verbosity level"))
         }
     }
 
