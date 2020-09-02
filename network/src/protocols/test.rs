@@ -148,13 +148,10 @@ fn net_service_start(name: String) -> Node {
     let ping_timeout = Duration::from_secs(10);
 
     let ping_network_state = Arc::clone(&network_state);
-    let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(PingHandler::new(
-            ping_interval,
-            ping_timeout,
-            ping_network_state,
-        )))
-    });
+    let (ping_handler, _ping_controller) =
+        PingHandler::new(ping_interval, ping_timeout, ping_network_state);
+    let ping_meta = SupportProtocols::Ping
+        .build_meta_with_service_handle(move || ProtocolHandle::Callback(Box::new(ping_handler)));
 
     // Discovery protocol
     let addr_mgr = DiscoveryAddressManager {
