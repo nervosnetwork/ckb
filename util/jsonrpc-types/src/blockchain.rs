@@ -782,6 +782,19 @@ impl From<BlockEconomicState> for core::BlockEconomicState {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TransactionProof {
+    pub block_hash: H256,
+    pub witnesses_root: H256,
+    pub proof: MerkleProof,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct MerkleProof {
+    pub indices: Vec<Uint32>,
+    pub lemmas: Vec<H256>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

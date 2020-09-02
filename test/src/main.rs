@@ -397,6 +397,7 @@ fn all_specs() -> SpecMap {
         Box::new(TemplateTxSelect),
         Box::new(BlockSyncRelayerCollaboration),
         Box::new(RpcTruncate),
+        Box::new(RpcTransactionProof),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
         Box::new(LastCommonHeaderForPeerWithWorseChain),
