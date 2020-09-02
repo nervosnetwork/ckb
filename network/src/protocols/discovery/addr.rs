@@ -3,7 +3,7 @@ use std::collections::hash_map::RandomState;
 use bloom_filters::{BloomFilter, DefaultBuildHashKernels, StableBloomFilter};
 use p2p::{multiaddr::Multiaddr, ProtocolId, SessionId};
 
-pub(crate) const DEFAULT_MAX_KNOWN: usize = 5000;
+pub(crate) const DEFAULT_BUCKETS_NUM: usize = 5000;
 
 pub enum Misbehavior {
     // Already received GetNodes message
@@ -50,10 +50,10 @@ pub struct AddrKnown {
 }
 
 impl AddrKnown {
-    pub(crate) fn new(max_known: usize) -> AddrKnown {
+    pub(crate) fn new(buckets_num: usize) -> AddrKnown {
         AddrKnown {
             filters: StableBloomFilter::new(
-                max_known,
+                buckets_num,
                 3,
                 0.03,
                 DefaultBuildHashKernels::new(rand::random(), RandomState::default()),
@@ -81,6 +81,6 @@ impl AddrKnown {
 
 impl Default for AddrKnown {
     fn default() -> AddrKnown {
-        AddrKnown::new(DEFAULT_MAX_KNOWN)
+        AddrKnown::new(DEFAULT_BUCKETS_NUM)
     }
 }

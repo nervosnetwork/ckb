@@ -9,7 +9,7 @@ use p2p::{
 };
 
 use super::{
-    addr::{AddrKnown, DEFAULT_MAX_KNOWN},
+    addr::AddrKnown,
     protocol::{encode, DiscoveryMessage, Node, Nodes},
     MAX_ADDR_TO_SEND,
 };
@@ -23,8 +23,7 @@ pub struct SessionState {
     pub(crate) addr_known: AddrKnown,
     // FIXME: Remote listen address, resolved by id protocol
     pub(crate) remote_addr: RemoteAddress,
-    pub(crate) announce: bool,
-    pub(crate) last_announce: Option<Instant>,
+    last_announce: Option<Instant>,
     pub(crate) announce_multiaddrs: Vec<Multiaddr>,
     pub(crate) received_get_nodes: bool,
     pub(crate) received_nodes: bool,
@@ -32,7 +31,7 @@ pub struct SessionState {
 
 impl SessionState {
     pub(crate) fn new(context: ProtocolContextMutRef) -> SessionState {
-        let mut addr_known = AddrKnown::new(DEFAULT_MAX_KNOWN);
+        let mut addr_known = AddrKnown::default();
         let remote_addr = if context.session.ty.is_outbound() {
             let port = context
                 .listens()
@@ -62,20 +61,26 @@ impl SessionState {
             last_announce: None,
             addr_known,
             remote_addr,
-            announce: false,
             announce_multiaddrs: Vec::new(),
             received_get_nodes: false,
             received_nodes: false,
         }
     }
 
-    pub(crate) fn check_timer(&mut self, now: Instant, interval: Duration) {
+    pub(crate) fn check_timer(&mut self, now: Instant, interval: Duration) -> Option<&Multiaddr> {
         if self
             .last_announce
             .map(|time| now - time > interval)
             .unwrap_or(true)
         {
-            self.announce = true;
+            self.last_announce = Some(now);
+            if let RemoteAddress::Listen(addr) = &self.remote_addr {
+                Some(addr)
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 

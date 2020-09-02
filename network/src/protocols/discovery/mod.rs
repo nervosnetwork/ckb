@@ -35,7 +35,7 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(3);
 const ANNOUNCE_THRESHOLD: usize = 10;
 // The maximum number of new addresses to accumulate before announcing.
 const MAX_ADDR_TO_SEND: usize = 1000;
-// The maximum number addresses in on Nodes item
+// The maximum number addresses in one Nodes item
 const MAX_ADDRS: usize = 3;
 // Every 24 hours send announce nodes message
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3600 * 24);
@@ -62,16 +62,13 @@ impl<M: AddressManager> DiscoveryProtocol<M> {
 impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
     fn init(&mut self, context: &mut ProtocolContext) {
         debug!("protocol [discovery({})]: init", context.proto_id);
-        if context
+        context
             .set_service_notify(
                 context.proto_id,
                 self.check_interval.unwrap_or(CHECK_INTERVAL),
                 0,
             )
-            .is_err()
-        {
-            debug!("set discovery notify fail")
-        }
+            .expect("set discovery notify fail")
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
@@ -98,20 +95,26 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         let session = context.session;
         trace!("[received message]: length={}", data.len());
 
+        let mgr = &mut self.addr_mgr;
+        let mut check = |behavior| -> bool {
+            if mgr.misbehave(session.id, behavior).is_disconnect() {
+                if context.disconnect(session.id).is_err() {
+                    debug!("disconnect {:?} send fail", session.id)
+                }
+                true
+            } else {
+                false
+            }
+        };
+
         match decode(&mut BytesMut::from(data.as_ref())) {
             Some(item) => {
                 match item {
-                    DiscoveryMessage::GetNodes { listen_port, .. } => {
+                    DiscoveryMessage::GetNodes {
+                        listen_port, count, ..
+                    } => {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
-                            if state.received_get_nodes
-                                && self
-                                    .addr_mgr
-                                    .misbehave(session.id, Misbehavior::DuplicateGetNodes)
-                                    .is_disconnect()
-                            {
-                                if context.disconnect(session.id).is_err() {
-                                    debug!("disconnect {:?} send fail", session.id)
-                                }
+                            if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
                                 return;
                             }
 
@@ -131,9 +134,10 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 }
                             }
 
-                            if items.len() > 1000 {
+                            let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
+                            if items.len() > max {
                                 items = items
-                                    .choose_multiple(&mut rand::thread_rng(), 1000)
+                                    .choose_multiple(&mut rand::thread_rng(), max)
                                     .cloned()
                                     .collect();
                             }
@@ -159,43 +163,19 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                         }
                     }
                     DiscoveryMessage::Nodes(nodes) => {
-                        for item in &nodes.items {
-                            if item.addresses.len() > MAX_ADDRS {
-                                let misbehavior =
-                                    Misbehavior::TooManyAddresses(item.addresses.len());
-                                if self
-                                    .addr_mgr
-                                    .misbehave(session.id, misbehavior)
-                                    .is_disconnect()
-                                {
-                                    if context.disconnect(session.id).is_err() {
-                                        debug!("disconnect {:?} send fail", session.id)
-                                    }
-                                    return;
-                                }
+                        if let Some(misbehavior) = verify_nodes_message(&nodes) {
+                            if check(misbehavior) {
+                                return;
                             }
                         }
 
                         if let Some(state) = self.sessions.get_mut(&session.id) {
-                            if nodes.announce {
-                                if nodes.items.len() > ANNOUNCE_THRESHOLD {
-                                    warn!("Nodes items more than {}", ANNOUNCE_THRESHOLD);
-                                    let misbehavior = Misbehavior::TooManyItems {
-                                        announce: nodes.announce,
-                                        length: nodes.items.len(),
-                                    };
-                                    if self
-                                        .addr_mgr
-                                        .misbehave(session.id, misbehavior)
-                                        .is_disconnect()
-                                    {
-                                        if context.disconnect(session.id).is_err() {
-                                            debug!("disconnect {:?} send fail", session.id)
-                                        }
-                                        return;
-                                    }
+                            if !nodes.announce && state.received_nodes {
+                                warn!("already received Nodes(announce=false) message");
+                                if check(Misbehavior::DuplicateFirstNodes) {
+                                    return;
                                 }
-
+                            } else {
                                 let addrs = nodes
                                     .items
                                     .into_iter()
@@ -203,57 +183,9 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                     .collect::<Vec<_>>();
 
                                 state.addr_known.extend(addrs.iter());
-
+                                state.received_nodes = true;
                                 self.addr_mgr.add_new_addrs(session.id, addrs);
-                                return;
                             }
-
-                            if state.received_nodes {
-                                warn!("already received Nodes(announce=false) message");
-                                if self
-                                    .addr_mgr
-                                    .misbehave(session.id, Misbehavior::DuplicateFirstNodes)
-                                    .is_disconnect()
-                                {
-                                    if context.disconnect(session.id).is_err() {
-                                        debug!("disconnect {:?} send fail", session.id)
-                                    }
-                                    return;
-                                }
-                            }
-
-                            if nodes.items.len() > MAX_ADDR_TO_SEND {
-                                warn!(
-                                    "Too many items (announce=false) length={}",
-                                    nodes.items.len()
-                                );
-                                let misbehavior = Misbehavior::TooManyItems {
-                                    announce: nodes.announce,
-                                    length: nodes.items.len(),
-                                };
-
-                                if self
-                                    .addr_mgr
-                                    .misbehave(session.id, misbehavior)
-                                    .is_disconnect()
-                                {
-                                    if context.disconnect(session.id).is_err() {
-                                        debug!("disconnect {:?} send fail", session.id)
-                                    }
-                                    return;
-                                }
-                            }
-
-                            let addrs = nodes
-                                .items
-                                .into_iter()
-                                .flat_map(|node| node.addresses.into_iter())
-                                .collect::<Vec<_>>();
-
-                            state.addr_known.extend(addrs.iter());
-                            state.received_nodes = true;
-
-                            self.addr_mgr.add_new_addrs(session.id, addrs);
                         }
                     }
                 }
@@ -285,54 +217,70 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                 // send all announce addr to remote
                 state.send_messages(context, *id);
                 // check timer
-                state.check_timer(now, dynamic_query_cycle);
-
-                if state.announce {
-                    state.announce = false;
-                    state.last_announce = Some(now);
-                    if let RemoteAddress::Listen(addr) = &state.remote_addr {
-                        if addr_mgr.is_valid_addr(addr) {
-                            Some(addr.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                state
+                    .check_timer(now, dynamic_query_cycle)
+                    .filter(|addr| addr_mgr.is_valid_addr(addr))
+                    .cloned()
             })
             .collect();
 
         if !announce_list.is_empty() {
             let mut rng = rand::thread_rng();
-            let mut remain_keys = self.sessions.keys().cloned().collect::<Vec<_>>();
+            let mut keys = self.sessions.keys().cloned().collect::<Vec<_>>();
             for announce_multiaddr in announce_list {
-                remain_keys.shuffle(&mut rng);
-                for i in 0..2 {
-                    if let Some(key) = remain_keys.get(i) {
-                        if let Some(value) = self.sessions.get_mut(key) {
-                            trace!(
-                                ">> send {} to: {:?}, contains: {}",
-                                announce_multiaddr,
-                                value.remote_addr,
-                                value.addr_known.contains(&announce_multiaddr)
-                            );
-                            if value.announce_multiaddrs.len() < 10
-                                && !value.addr_known.contains(&announce_multiaddr)
-                            {
-                                value.announce_multiaddrs.push(announce_multiaddr.clone());
-                                value.addr_known.insert(&announce_multiaddr);
-                            }
+                keys.shuffle(&mut rng);
+                for key in keys.iter().take(3) {
+                    if let Some(value) = self.sessions.get_mut(key) {
+                        trace!(
+                            ">> send {} to: {:?}, contains: {}",
+                            announce_multiaddr,
+                            value.remote_addr,
+                            value.addr_known.contains(&announce_multiaddr)
+                        );
+                        if value.announce_multiaddrs.len() < ANNOUNCE_THRESHOLD
+                            && !value.addr_known.contains(&announce_multiaddr)
+                        {
+                            value.announce_multiaddrs.push(announce_multiaddr.clone());
+                            value.addr_known.insert(&announce_multiaddr);
                         }
-                    } else {
-                        break;
                     }
                 }
             }
         }
     }
+}
+
+fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
+    let mut misbehavior = None;
+    if nodes.announce {
+        if nodes.items.len() > ANNOUNCE_THRESHOLD {
+            warn!("Nodes items more than {}", ANNOUNCE_THRESHOLD);
+            misbehavior = Some(Misbehavior::TooManyItems {
+                announce: nodes.announce,
+                length: nodes.items.len(),
+            });
+        }
+    } else if nodes.items.len() > MAX_ADDR_TO_SEND {
+        warn!(
+            "Too many items (announce=false) length={}",
+            nodes.items.len()
+        );
+        misbehavior = Some(Misbehavior::TooManyItems {
+            announce: nodes.announce,
+            length: nodes.items.len(),
+        });
+    }
+
+    if misbehavior.is_none() {
+        for item in &nodes.items {
+            if item.addresses.len() > MAX_ADDRS {
+                misbehavior = Some(Misbehavior::TooManyAddresses(item.addresses.len()));
+                break;
+            }
+        }
+    }
+
+    misbehavior
 }
 
 pub struct DiscoveryAddressManager {
