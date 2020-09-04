@@ -24,7 +24,12 @@
             "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": "0x0"
-        }
+        },
+        "types": [
+            {
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
+            }
+        ]
     },
     {
         "description": "Returns the information about the current epoch.",
@@ -133,6 +138,9 @@
         "types": [
             {
                 "hash": "Hash of a block"
+            },
+            {
+                "verbosity": "2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2"
             }
         ]
     },
@@ -156,7 +164,15 @@
             "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": "0x0"
-        }
+        },
+        "types": [
+            {
+                "hash": "Hash of a block"
+            },
+            {
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
+            }
+        ]
     },
     {
         "description": "Returns the information about a block header by block number.",
@@ -178,7 +194,15 @@
             "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": "0x0"
-        }
+        },
+        "types": [
+            {
+                "block_number": "Number of a block"
+            },
+            {
+                "verbosity": "1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1"
+            }
+        ]
     },
     {
         "description": "Returns the information about live cells collection by the hash of lock script.",
@@ -1140,6 +1164,9 @@
         "types": [
             {
                 "block_number": "Number of a block"
+            },
+            {
+                "verbosity": "2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2"
             }
         ]
     },

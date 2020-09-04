@@ -91,9 +91,7 @@ impl StoreTransaction {
         self.inner
             .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, &snapshot.inner)
             .expect("db operation should be ok")
-            .map(|slice| {
-                packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()[..]).to_entity()
-            })
+            .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()).to_entity())
     }
 
     pub fn insert_tip_header(&self, h: &HeaderView) -> Result<(), Error> {

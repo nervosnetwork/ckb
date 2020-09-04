@@ -95,6 +95,9 @@ http://localhost:8114
 
 Returns the information about the tip header of the longest.
 
+#### Parameters
+
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -169,7 +172,7 @@ Return the information corresponding the given epoch number.
 
 #### Parameters
 
-    epoch_number - Epoch number
+* epoch_number - Epoch number
 
 #### Examples
 
@@ -206,7 +209,7 @@ Returns the hash of a block in the best-block-chain by block number; block of No
 
 #### Parameters
 
-    block_number - Number of a block
+* block_number - Number of a block
 
 #### Examples
 
@@ -238,7 +241,8 @@ Returns the information about a block by hash.
 
 #### Parameters
 
-    hash - Hash of a block
+* hash - Hash of a block
+* verbosity - 2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2
 
 #### Examples
 
@@ -319,6 +323,10 @@ http://localhost:8114
 
 Returns the information about a block header by hash.
 
+#### Parameters
+
+* hash - Hash of a block
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -361,6 +369,10 @@ http://localhost:8114
 
 Returns the information about a block header by block number.
 
+#### Parameters
+
+* block_number - Number of a block
+* verbosity - 1 for a json object, 0 for hex encoded [Header](../util/types/schemas/blockchain.mol#L84) data, an optional parameter, default is 1
 
 #### Examples
 
@@ -405,18 +417,18 @@ Returns the information about live cells collection by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
-    from - Start block number
-    to - End block number
+* lock_hash - Cell lock script hash
+* from - Start block number
+* to - End block number
 #### Returns
 
-    block_hash - Refer to block
-    capacity - Cell capacity
-    cellbase - Cellbase or not
-    lock - Cell lock script
-    out_point - Refer to this output
-    output_data_len - Corresponding output data length
-    type - Cell type script
+* block_hash - Refer to block
+* capacity - Cell capacity
+* cellbase - Cellbase or not
+* lock - Cell lock script
+* out_point - Refer to this output
+* output_data_len - Corresponding output data length
+* type - Cell type script
 
 #### Examples
 
@@ -499,8 +511,8 @@ Returns the information about a cell by out_point if it is live. If second with_
 
 #### Parameters
 
-    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
-    with_data - Boolean
+* out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
+* with_data - Boolean
 
 #### Examples
 
@@ -553,7 +565,7 @@ Returns the information about a transaction requested by transaction hash.
 
 #### Parameters
 
-    hash - Hash of a transaction
+* hash - Hash of a transaction
 
 #### Examples
 
@@ -630,7 +642,7 @@ Returns each component of the created CKB in this block's cellbase, which is iss
 
 #### Parameters
 
-    hash - Block hash
+* hash - Block hash
 
 #### Examples
 
@@ -668,17 +680,17 @@ Returns increased issuance, miner reward and total transaction fee of a block.
 
 #### Parameters
 
-    hash - Block hash
+* hash - Block hash
 #### Returns
 
-    finalized_at - The hash of the block which finalized
-    issuance::primary - Primary issuance in this block
-    issuance::secondary - Secondary issuance in this block
-    miner_reward::committed - Committed fee in miner reward
-    miner_reward::proposal - Proposal fee in miner reward
-    miner_reward::primary - Primary issuance in miner reward
-    miner_reward::secondary - Secondary issuance in miner reward
-    txs_fee - The total transaction fee of all transactions in the this block
+* finalized_at - The hash of the block which finalized
+* issuance::primary - Primary issuance in this block
+* issuance::secondary - Secondary issuance in this block
+* miner_reward::committed - Committed fee in miner reward
+* miner_reward::proposal - Proposal fee in miner reward
+* miner_reward::primary - Primary issuance in miner reward
+* miner_reward::secondary - Secondary issuance in miner reward
+* txs_fee - The total transaction fee of all transactions in the this block
 
 #### Examples
 
@@ -723,7 +735,8 @@ Get block by number
 
 #### Parameters
 
-    block_number - Number of a block
+* block_number - Number of a block
+* verbosity - 2 for a json object, 0 for hex encoded [Block](../util/types/schemas/blockchain.mol#L94) data, an optional parameter, default is 2
 
 #### Examples
 
@@ -883,13 +896,13 @@ Return the transaction hash
 
 #### Parameters
 
-    transaction - The transaction object
-    version - Transaction version
-    cell_deps - Cell dependencies
-    header_deps - Header dependencies
-    inputs - Transaction inputs
-    outputs - Transaction outputs
-    witnesses - Witnesses
+* transaction - The transaction object
+* version - Transaction version
+* cell_deps - Cell dependencies
+* header_deps - Header dependencies
+* inputs - Transaction inputs
+* outputs - Transaction outputs
+* witnesses - Witnesses
 
 #### Examples
 
@@ -959,8 +972,8 @@ Calculate the maximum withdraw one can get, given a referenced DAO cell, and a w
 
 #### Parameters
 
-    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
-    withdraw_block_hash - Block hash
+* out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
+* withdraw_block_hash - Block hash
 
 #### Examples
 
@@ -1033,9 +1046,9 @@ Returns script hash of given transaction script
 
 #### Parameters
 
-    args - Hex encoded arguments passed to reference cell
-    code_hash - Code hash of referenced cell
-    hash_type - data: code_hash matches against dep cell data hash; type: code_hash matches against dep cell type hash.
+* args - Hex encoded arguments passed to reference cell
+* code_hash - Code hash of referenced cell
+* hash_type - data: code_hash matches against dep cell data hash; type: code_hash matches against dep cell type hash.
 
 #### Examples
 
@@ -1073,8 +1086,8 @@ Create index for live cells and transactions by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
-    index_from - Create an index from starting block number (exclusive), an optional parameter, null means starting from tip and 0 means starting from genesis
+* lock_hash - Cell lock script hash
+* index_from - Create an index from starting block number (exclusive), an optional parameter, null means starting from tip and 0 means starting from genesis
 
 #### Examples
 
@@ -1144,16 +1157,16 @@ Returns the live cells collection by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
-    page - Page number, starts from 0
-    per - Page size, max value is 50
-    reverse_order - Returns the live cells collection in reverse order, an optional parameter, default is false
+* lock_hash - Cell lock script hash
+* page - Page number, starts from 0
+* per - Page size, max value is 50
+* reverse_order - Returns the live cells collection in reverse order, an optional parameter, default is false
 #### Returns
 
-    cell_output - Cell output struct
-    cellbase - Cellbase or not
-    created_by - Refer to the transaction which creates this cell output
-    output_data_len - Corresponding output data length
+* cell_output - Cell output struct
+* cellbase - Cellbase or not
+* created_by - Refer to the transaction which creates this cell output
+* output_data_len - Corresponding output data length
 
 #### Examples
 
@@ -1440,10 +1453,10 @@ Returns the transactions collection by the hash of lock script. Returns empty ar
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
-    page - Page number, starts from 0
-    per - Page size, max value is 50
-    reverse_order - Return the transactions collection in reverse order, an optional parameter, default is false
+* lock_hash - Cell lock script hash
+* page - Page number, starts from 0
+* per - Page size, max value is 50
+* reverse_order - Return the transactions collection in reverse order, an optional parameter, default is false
 
 #### Examples
 
@@ -1590,12 +1603,12 @@ Returns the total capacity by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
+* lock_hash - Cell lock script hash
 #### Returns
 
-    capacity - Total capacity
-    cells_count - Total cells
-    block_number - At which block capacity was calculated
+* capacity - Total capacity
+* cells_count - Total cells
+* block_number - At which block capacity was calculated
 
 #### Examples
 
@@ -1631,7 +1644,7 @@ Remove index for live cells and transactions by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
+* lock_hash - Cell lock script hash
 
 #### Examples
 
@@ -1665,9 +1678,9 @@ Returns data needed to construct a block to work on
 
 #### Parameters
 
-    bytes_limit - optional number, specify the max bytes of block
-    proposals_limit - optional number, specify the max proposals of block
-    max_version - optional number, specify the max block version
+* bytes_limit - optional number, specify the max bytes of block
+* proposals_limit - optional number, specify the max proposals of block
+* max_version - optional number, specify the max block version
 
 #### Examples
 
@@ -1758,8 +1771,8 @@ Submit new block to network
 
 #### Parameters
 
-    work_id - the identifier to proof-of-work
-    block - new block
+* work_id - the identifier to proof-of-work
+* block - new block
 
 #### Examples
 
@@ -1843,13 +1856,13 @@ Returns the local node information.
 
 #### Returns
 
-    active - Whether p2p networking is enabled
-    addresses - The addresses of node listen to
-    connections - The number of connections
-    node_id - The id of node
-    protocols::id - Supported p2p protocol id
-    protocols::name - Supported p2p protocol name
-    protocols::support_versions - Supported p2p protocol versions
+* active - Whether p2p networking is enabled
+* addresses - The addresses of node listen to
+* connections - The number of connections
+* node_id - The id of node
+* protocols::id - Supported p2p protocol id
+* protocols::name - Supported p2p protocol name
+* protocols::support_versions - Supported p2p protocol versions
 
 #### Examples
 
@@ -1910,20 +1923,20 @@ Returns the connected peers information.
 
 #### Returns
 
-    addresses - Observed remote peer listening address
-    connected_duration - The connection duration in seconds
-    is_outbound - Outbound or inbound peer
-    last_ping_duration - Last ping duration in milliseconds
-    node_id - The id of remote peer
-    protocols - Opened protocols of remote peer
-    sync_state::best_known_header_hash - Best known header hash of remote peer
-    sync_state::best_known_header_number - Best known header number of remote peer
-    sync_state::last_common_header_hash - Last common header hash of remote peer
-    sync_state::last_common_header_number - Last common header number of remote peer
-    sync_state::unknown_header_list_size - The total size of unknown header list
-    sync_state::inflight_count - The count of concurrency downloading blocks
-    sync_state::can_fetch_count - The count of blocks are available for concurrency download
-    version - The peer version
+* addresses - Observed remote peer listening address
+* connected_duration - The connection duration in seconds
+* is_outbound - Outbound or inbound peer
+* last_ping_duration - Last ping duration in milliseconds
+* node_id - The id of remote peer
+* protocols - Opened protocols of remote peer
+* sync_state::best_known_header_hash - Best known header hash of remote peer
+* sync_state::best_known_header_number - Best known header number of remote peer
+* sync_state::last_common_header_hash - Last common header hash of remote peer
+* sync_state::last_common_header_number - Last common header number of remote peer
+* sync_state::unknown_header_list_size - The total size of unknown header list
+* sync_state::inflight_count - The count of concurrency downloading blocks
+* sync_state::can_fetch_count - The count of blocks are available for concurrency download
+* version - The peer version
 
 #### Examples
 
@@ -2104,11 +2117,11 @@ Insert or delete an IP/Subnet from the banned list
 
 #### Parameters
 
-    address - The IP/Subnet with an optional netmask (default is /32 = single IP)
-    command - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list
-    ban_time - Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h
-    absolute - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter
-    reason - Ban reason, optional parameter
+* address - The IP/Subnet with an optional netmask (default is /32 = single IP)
+* command - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list
+* ban_time - Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h
+* absolute - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter
+* reason - Ban reason, optional parameter
 
 #### Examples
 
@@ -2144,14 +2157,14 @@ Returns sync state of this node
 
 #### Returns
 
-    best_known_block_number - Height of the most difficult header observed across the network
-    best_known_block_timestamp - Timestamp of the most difficult header observed across the network
-    ibd - Whether the node is in IBD status, i.e. whether the local data is within one day of the latest
-    inflight_blocks_count - Number of blocks being requested for download
-    orphan_blocks_count - Number of blocks that have been downloaded but can't find the corresponding parents yet
-    fast_time - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
-    normal_time - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
-    low_time - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+* best_known_block_number - Height of the most difficult header observed across the network
+* best_known_block_timestamp - Timestamp of the most difficult header observed across the network
+* ibd - Whether the node is in IBD status, i.e. whether the local data is within one day of the latest
+* inflight_blocks_count - Number of blocks being requested for download
+* orphan_blocks_count - Number of blocks that have been downloaded but can't find the corresponding parents yet
+* fast_time - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+* normal_time - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+* low_time - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
 
 #### Examples
 
@@ -2190,7 +2203,7 @@ Disable/enable all p2p network activity
 
 #### Parameters
 
-    state - true to enable networking, false to disable
+* state - true to enable networking, false to disable
 
 #### Examples
 
@@ -2222,8 +2235,8 @@ Attempts to add a node to the peers list and try connecting to it.
 
 #### Parameters
 
-    peer_id - The peer id of node
-    address - The address of node
+* peer_id - The peer id of node
+* address - The address of node
 
 #### Examples
 
@@ -2256,7 +2269,7 @@ Attempts to remove a node from the peers list and try disconnecting from it.
 
 #### Parameters
 
-    peer_id - The peer id of node
+* peer_id - The peer id of node
 
 #### Examples
 
@@ -2290,8 +2303,8 @@ Send new transaction into transaction pool.
 
 #### Parameters
 
-    transaction - The transaction object, struct reference: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0019-data-structures/0019-data-structures.md#Transaction
-    outputs_validator - Validates the transaction outputs before entering the tx-pool, an optional string parameter (enum: default | passthrough ), null means passthrough. The deafult validator requires each output use the standard lock and type scripts, passthrough means skipping the validation.
+* transaction - The transaction object, struct reference: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0019-data-structures/0019-data-structures.md#Transaction
+* outputs_validator - Validates the transaction outputs before entering the tx-pool, an optional string parameter (enum: default | passthrough ), null means passthrough. The deafult validator requires each output use the standard lock and type scripts, passthrough means skipping the validation.
 
 #### Examples
 
@@ -2504,10 +2517,10 @@ Subscribe to a topic, if successful it returns the subscription id. For each eve
 
 #### Parameters
 
-    topic - Subscription topic (enum: new_tip_header | new_tip_block)
+* topic - Subscription topic (enum: new_tip_header | new_tip_block)
 #### Returns
 
-    id - Subscription id
+* id - Subscription id
 
 #### Examples
 
@@ -2539,10 +2552,10 @@ unsubscribe from a subscribed topic
 
 #### Parameters
 
-    id - Subscription id
+* id - Subscription id
 #### Returns
 
-    result - Unsubscribe result
+* result - Unsubscribe result
 
 #### Examples
 
