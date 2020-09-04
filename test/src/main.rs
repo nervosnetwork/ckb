@@ -93,19 +93,23 @@ fn main() {
             }
         };
         match msg {
+            Notify::Start { spec_name } => {
+                info!("[{}] Start executing", spec_name);
+            }
             Notify::Error {
                 spec_error,
                 spec_name,
                 node_dirs,
             } => {
                 error_spec_names.push(spec_name.clone());
-                rerun_specs.push(spec_name);
+                rerun_specs.push(spec_name.clone());
                 if fail_fast {
                     workers.shutdown();
                     worker_running -= 1;
                 }
                 spec_errors.push(Some(spec_error));
                 if !quiet {
+                    info!("[{}] Error", spec_name);
                     tail_node_logs(node_dirs);
                 }
             }
@@ -114,20 +118,21 @@ fn main() {
                 node_dirs,
             } => {
                 error_spec_names.push(spec_name.clone());
-                rerun_specs.push(spec_name);
+                rerun_specs.push(spec_name.clone());
                 if fail_fast {
                     workers.shutdown();
                     worker_running -= 1;
                 }
                 spec_errors.push(None);
                 if !quiet {
+                    info!("[{}] Panic", spec_name);
                     print_panicked_logs(&node_dirs);
                 }
             }
             Notify::Done { spec_name, seconds } => {
                 done_specs += 1;
                 info!(
-                    "{}/{} .............. Done {} in {} seconds",
+                    "{}/{} .............. [{}] Done in {} seconds",
                     done_specs, total, spec_name, seconds
                 );
             }

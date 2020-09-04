@@ -17,6 +17,9 @@ pub enum Command {
 
 /// Notify from worker
 pub enum Notify {
+    Start {
+        spec_name: String,
+    },
     Done {
         spec_name: String,
         seconds: u64,
@@ -127,6 +130,11 @@ impl Worker {
             .iter()
             .map(|node| node.working_dir().to_owned())
             .collect();
+        outbox
+            .send(Notify::Start {
+                spec_name: spec.name().to_string(),
+            })
+            .unwrap();
         let result = _run_spec(spec, &mut net);
 
         // error handles
