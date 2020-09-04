@@ -46,6 +46,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`local_node_info`](#local_node_info)
     *   [`get_peers`](#get_peers)
     *   [`get_banned_addresses`](#get_banned_addresses)
+    *   [`clear_banned_addresses`](#clear_banned_addresses)
     *   [`set_ban`](#set_ban)
     *   [`sync_state`](#sync_state)
     *   [`set_network_active`](#set_network_active)
@@ -2095,6 +2096,33 @@ http://localhost:8114
             "created_at": "0x16bde533338"
         }
     ]
+}
+```
+
+### `clear_banned_addresses`
+
+Clear all banned IPs/Subnets.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "clear_banned_addresses",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
 }
 ```
 

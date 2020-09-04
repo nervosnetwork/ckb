@@ -1174,6 +1174,10 @@ impl NetworkController {
             .get_banned_addrs()
     }
 
+    pub fn clear_banned_addrs(&self) {
+        self.network_state.peer_store.lock().clear_ban_list();
+    }
+
     pub fn addr_info(&self, ip_port: &IpPort) -> Option<AddrInfo> {
         self.network_state
             .peer_store

@@ -559,6 +559,13 @@
         "skip": true
     },
     {
+        "description": "Clear all banned IPs/Subnets.",
+        "method": "clear_banned_addresses",
+        "module": "net",
+        "params": [],
+        "result": null
+    },
+    {
         "description": "Insert or delete an IP/Subnet from the banned list",
         "method": "set_ban",
         "module": "net",
