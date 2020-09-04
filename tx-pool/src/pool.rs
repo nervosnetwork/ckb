@@ -54,15 +54,35 @@ pub struct TxPool {
     pub snapshot: Arc<Snapshot>,
 }
 
+/// Transaction pool information.
 #[derive(Clone, Debug)]
 pub struct TxPoolInfo {
+    /// The associated chain tip block hash.
+    ///
+    /// Transaction pool is stateful. It manages the transactions which are valid to be commit
+    /// after this block.
     pub tip_hash: Byte32,
+    /// The block number of the block `tip_hash`.
     pub tip_number: BlockNumber,
+    /// Count of transactions in the pending state.
+    ///
+    /// The pending transactions must be proposed in a new block first.
     pub pending_size: usize,
+    /// Count of transactions in the proposed state.
+    ///
+    /// The proposed transactions are ready to be commit in the new block after the block
+    /// `tip_hash`.
     pub proposed_size: usize,
+    /// Count of orphan transactions.
+    ///
+    /// An orphan transaction has an input cell from the transaction which is neither in the chain
+    /// nor in the transaction pool.
     pub orphan_size: usize,
+    /// Total count of transactions in the pool of all the different kinds of states.
     pub total_tx_size: usize,
+    /// Total consumed VM cycles of all the transactions in the pool.
     pub total_tx_cycles: Cycle,
+    /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: u64,
 }
 

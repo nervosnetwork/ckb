@@ -48,14 +48,151 @@ pub enum Topic {
     NewTransaction,
 }
 
+/// RPC Module Subscription that CKB node will push new messages to subscribers.
+///
+/// RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
+/// TCP (enable with rpc.tcp_listen_address configuration option) and WebSocket (enable with
+/// rpc.ws_listen_address).
+///
+/// ## Examples
+///
+/// TCP RPC subscription:
+///
+/// ```text
+/// telnet localhost 18114
+/// > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
+/// < {"jsonrpc":"2.0","result":0,"id":2}
+/// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+///"subscription":0}}
+/// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+///"subscription":0}}
+/// < ...
+/// > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
+/// < {"jsonrpc":"2.0","result":true,"id":2}
+/// ```
+///
+/// WebSocket RPC subscription:
+///
+/// ```javascript
+/// let socket = new WebSocket("ws://localhost:28114")
+///
+/// socket.onmessage = function(event) {
+///   console.log(`Data received from server: ${event.data}`);
+/// }
+///
+/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
+///
+/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
+/// ```
 #[allow(clippy::needless_return)]
 #[rpc(server)]
 pub trait SubscriptionRpc {
     type Metadata;
 
+    /// Subscribes to a topic.
+    ///
+    /// ## Params
+    ///
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block)
+    ///
+    /// ## Returns
+    ///
+    /// This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
+    /// topics to current RPC connection. The subscript ID is also attached as
+    /// `params.subscription` in the push messages.
+    ///
+    /// Example push message:
+    ///
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "subscribe",
+    ///   "params": {
+    ///     "result": { ... },
+    ///     "subscription": "0x2a"
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Topics
+    ///
+    /// ### `new_tip_header`
+    ///
+    /// Whenever there's a block is appended to the canonical chain, CKB node will publish the
+    /// block header to subscribers.
+    ///
+    /// The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
+    ///
+    /// ### `new_tip_block`
+    ///
+    /// Whenever there's a block is appended to the canonical chain, CKB node will publish the
+    /// whole block to subscribers.
+    ///
+    /// The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
+    ///
+    /// ### `new_transaction`
+    ///
+    /// Subscriber will get notified when new transaction is submitted to pool.
+    ///
+    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "subscribe",
+    ///   "params": [
+    ///     "new_tip_header"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x2a"
+    /// }
+    /// ```
     #[pubsub(subscription = "subscribe", subscribe, name = "subscribe")]
     fn subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<String>, topic: Topic);
 
+    /// Unsubscribes from a subscribed topic.
+    ///
+    /// ## Params
+    ///
+    /// * `id` - Subscription ID
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "unsubscribe",
+    ///   "params": [
+    ///     "0x2a"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
     #[pubsub(subscription = "subscribe", unsubscribe, name = "unsubscribe")]
     fn unsubscribe(&self, meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool>;
 }

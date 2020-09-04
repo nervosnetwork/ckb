@@ -2,6 +2,7 @@ use ckb_types::{packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
+/// The 10-byte fixed-length binary encoded as 0x-prefixed hex string in JSON.
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
 pub struct ProposalShortId(pub [u8; 10]);
 
