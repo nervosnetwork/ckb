@@ -61,7 +61,7 @@ pub trait ChainRpc {
         verbosity: Option<Uint32>,
     ) -> Result<ResponseFormat<HeaderView, Header>>;
 
-    #[rpc(name = "get_cells_by_lock_hash")]
+    #[rpc(name = "deprecated.get_cells_by_lock_hash")]
     fn get_cells_by_lock_hash(
         &self,
         _lock_hash: H256,

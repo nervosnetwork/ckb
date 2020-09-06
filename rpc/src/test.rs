@@ -1,9 +1,5 @@
-use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, MinerRpc,
-    MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
-};
-use crate::RpcServer;
-use ckb_app_config::{IndexerConfig, NetworkAlertConfig, NetworkConfig};
+use crate::{RpcServer, ServiceBuilder};
+use ckb_app_config::{IndexerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
@@ -31,10 +27,6 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use jsonrpc_core::IoHandler;
-use jsonrpc_http_server::ServerBuilder;
-use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
-use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, Map, Value};
@@ -182,7 +174,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
-    let indexer_store = {
+    let indexer_config = {
         let mut indexer_config = IndexerConfig::default();
         indexer_config.db.path = dir.join("indexer");
         let indexer_store = DefaultIndexerStore::new(&indexer_config, shared.clone());
@@ -190,7 +182,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         indexer_store.insert_lock_hash(&always_success_script.calc_script_hash(), Some(0));
         // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
-        indexer_store
+        indexer_config
     };
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
@@ -218,71 +210,54 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     };
 
     // Start rpc services
-    let mut io = IoHandler::new();
-    io.extend_with(
-        ChainRpcImpl {
-            shared: shared.clone(),
-        }
-        .to_delegate(),
-    );
-    io.extend_with(
-        PoolRpcImpl::new(
+    let rpc_config = RpcConfig {
+        listen_address: "127.0.0.01:0".to_owned(),
+        tcp_listen_address: None,
+        ws_listen_address: None,
+        max_request_body_size: 20_000_000,
+        threads: None,
+        // enable all rpc modules in unit test
+        modules: vec![
+            RpcModule::Net,
+            RpcModule::Chain,
+            RpcModule::Miner,
+            RpcModule::Pool,
+            RpcModule::Experiment,
+            RpcModule::Stats,
+            RpcModule::Indexer,
+            RpcModule::IntegrationTest,
+            RpcModule::Alert,
+            RpcModule::Subscription,
+            RpcModule::Debug,
+        ],
+        reject_ill_transactions: true,
+        // enable deprecated rpc in unit test
+        enable_deprecated_rpc: true,
+    };
+
+    let builder = ServiceBuilder::new(&rpc_config)
+        .enable_chain(shared.clone())
+        .enable_pool(
             shared.clone(),
             Arc::clone(&sync_shared),
             FeeRate::zero(),
             true,
         )
-        .to_delegate(),
-    );
-    io.extend_with(
-        NetworkRpcImpl {
-            network_controller: network_controller.clone(),
-            sync_shared,
-        }
-        .to_delegate(),
-    );
-    io.extend_with(
-        StatsRpcImpl {
-            shared: shared.clone(),
-            synchronizer,
-            alert_notifier,
-        }
-        .to_delegate(),
-    );
-    io.extend_with(
-        IndexerRpcImpl {
-            store: indexer_store,
-        }
-        .to_delegate(),
-    );
-    io.extend_with(
-        ExperimentRpcImpl {
-            shared: shared.clone(),
-        }
-        .to_delegate(),
-    );
-    io.extend_with(
-        MinerRpcImpl {
-            shared: shared.clone(),
-            chain: chain_controller.clone(),
-            network_controller,
-        }
-        .to_delegate(),
-    );
-    let http = ServerBuilder::new(io)
-        .cors(DomainsValidation::AllowOnly(vec![
-            AccessControlAllowOrigin::Null,
-            AccessControlAllowOrigin::Any,
-        ]))
-        .threads(1)
-        .max_request_body_size(20_000_000)
-        .start_http(&"127.0.0.1:0".parse().unwrap())
-        .expect("JsonRpc initialize");
-    let rpc_server = RpcServer {
-        http,
-        _tcp: None,
-        _ws: None,
-    };
+        .enable_miner(
+            shared.clone(),
+            network_controller.clone(),
+            chain_controller.clone(),
+            true,
+        )
+        .enable_net(network_controller.clone(), sync_shared)
+        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
+        .enable_experiment(shared.clone())
+        .enable_integration_test(shared.clone(), network_controller, chain_controller.clone())
+        .enable_indexer(&indexer_config, shared.clone())
+        .enable_debug();
+    let io_handler = builder.build();
+
+    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
 
     (shared, chain_controller, rpc_server)
 }

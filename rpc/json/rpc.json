@@ -205,6 +205,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Returns the information about live cells collection by the hash of lock script.",
         "method": "get_cells_by_lock_hash",
         "module": "chain",
@@ -1171,6 +1172,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Create index for live cells and transactions by the hash of lock script.",
         "method": "index_lock_hash",
         "module": "indexer",
@@ -1193,6 +1195,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Get lock hash index states",
         "method": "get_lock_hash_index_states",
         "module": "indexer",
@@ -1206,6 +1209,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Returns the live cells collection by the hash of lock script.",
         "method": "get_live_cells_by_lock_hash",
         "module": "indexer",
@@ -1498,6 +1502,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` has not been indexed yet.",
         "method": "get_transactions_by_lock_hash",
         "module": "indexer",
@@ -1636,6 +1641,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Returns the total capacity by the hash of lock script.",
         "method": "get_capacity_by_lock_hash",
         "module": "indexer",
@@ -1665,6 +1671,7 @@
         ]
     },
     {
+        "deprecated": "This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution",
         "description": "Remove index for live cells and transactions by the hash of lock script.",
         "method": "deindex_lock_hash",
         "module": "indexer",

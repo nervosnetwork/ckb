@@ -147,6 +147,15 @@ impl RPCError {
             )
         )
     }
+
+    pub fn rpc_method_is_deprecated() -> Error {
+        Self::custom(
+            RPCError::Deprecated,
+            "This RPC method is deprecated, it will be removed in future release. \
+            Please check the related information in the CKB release notes and RPC document. \
+            You may enable deprecated methods via adding `enable_deprecated_rpc = true` to the `[rpc]` section in ckb.toml.",
+        )
+    }
 }
 
 #[cfg(test)]
