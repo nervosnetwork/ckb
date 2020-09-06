@@ -17,6 +17,7 @@ use ckb_types::{
     packed::Byte32,
 };
 use std::collections::HashSet;
+use std::iter;
 use std::sync::Arc;
 
 pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
@@ -71,7 +72,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         )
         .unwrap();
         DaoCalculator::new(shared.consensus(), snapshot.as_ref())
-            .dao_field(&[resolved_cellbase], &parent.header())
+            .dao_field(iter::once(&resolved_cellbase), &parent.header())
             .unwrap()
     };
 

@@ -510,7 +510,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let rtxs = rtxs.expect("dao_data resolve_transaction");
     let calculator = DaoCalculator::new(shared.consensus(), snapshot);
     calculator
-        .dao_field(&rtxs, &parent)
+        .dao_field(rtxs.iter(), &parent)
         .expect("calculator dao_field")
 }
 

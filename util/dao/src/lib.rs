@@ -88,18 +88,18 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
-    pub fn dao_field(
+    pub fn dao_field<'b>(
         &self,
-        rtxs: &[ResolvedTransaction],
+        rtxs: impl Iterator<Item = &'b ResolvedTransaction> + std::clone::Clone,
         parent: &HeaderView,
     ) -> Result<Byte32, Error> {
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
-            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+            rtxs.clone().try_fold(Capacity::zero(), |capacities, rtx| {
                 self.input_occupied_capacities(rtx)
                     .and_then(|c| capacities.safe_add(c).map_err(Into::into))
             })?;
-        let added_occupied_capacities = self.added_occupied_capacities(rtxs)?;
+        let added_occupied_capacities = self.added_occupied_capacities(rtxs.clone())?;
         let withdrawed_interests = self.withdrawed_interests(rtxs)?;
 
         let (parent_ar, parent_c, parent_s, parent_u) = extract_dao_data(parent.dao())?;
@@ -186,20 +186,22 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .map_err(Into::into)
     }
 
-    fn added_occupied_capacities(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
+    fn added_occupied_capacities<'b>(
+        &self,
+        mut rtxs: impl Iterator<Item = &'b ResolvedTransaction>,
+    ) -> Result<Capacity, Error> {
         // Newly added occupied capacities from outputs
-        let added_occupied_capacities =
-            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
-                rtx.transaction
-                    .outputs_with_data_iter()
-                    .enumerate()
-                    .try_fold(Capacity::zero(), |tx_capacities, (_, (output, data))| {
-                        Capacity::bytes(data.len())
-                            .and_then(|c| output.occupied_capacity(c))
-                            .and_then(|c| tx_capacities.safe_add(c))
-                    })
-                    .and_then(|c| capacities.safe_add(c))
-            })?;
+        let added_occupied_capacities = rtxs.try_fold(Capacity::zero(), |capacities, rtx| {
+            rtx.transaction
+                .outputs_with_data_iter()
+                .enumerate()
+                .try_fold(Capacity::zero(), |tx_capacities, (_, (output, data))| {
+                    Capacity::bytes(data.len())
+                        .and_then(|c| output.occupied_capacity(c))
+                        .and_then(|c| tx_capacities.safe_add(c))
+                })
+                .and_then(|c| capacities.safe_add(c))
+        })?;
 
         Ok(added_occupied_capacities)
     }
@@ -214,12 +216,15 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .map_err(Into::into)
     }
 
-    fn withdrawed_interests(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
-        let maximum_withdraws = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+    fn withdrawed_interests<'b>(
+        &self,
+        mut rtxs: impl Iterator<Item = &'b ResolvedTransaction> + std::clone::Clone,
+    ) -> Result<Capacity, Error> {
+        let maximum_withdraws = rtxs.clone().try_fold(Capacity::zero(), |capacities, rtx| {
             self.transaction_maximum_withdraw(rtx)
                 .and_then(|c| capacities.safe_add(c).map_err(Into::into))
         })?;
-        let input_capacities = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+        let input_capacities = rtxs.try_fold(Capacity::zero(), |capacities, rtx| {
             let tx_input_capacities = rtx.resolved_inputs.iter().try_fold(
                 Capacity::zero(),
                 |tx_capacities, cell_meta| {
@@ -378,6 +383,7 @@ mod tests {
         utilities::DIFF_TWO,
         H256, U256,
     };
+    use std::iter;
 
     fn new_store() -> ChainDB {
         ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
@@ -433,7 +439,7 @@ mod tests {
 
         let (store, parent_header) = prepare_store(&parent_header, None);
         let result = DaoCalculator::new(&consensus, &store)
-            .dao_field(&[], &parent_header)
+            .dao_field(iter::empty(), &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
         assert_eq!(
@@ -464,7 +470,7 @@ mod tests {
 
         let (store, parent_header) = prepare_store(&parent_header, Some(0));
         let result = DaoCalculator::new(&consensus, &store)
-            .dao_field(&[], &parent_header)
+            .dao_field(iter::empty(), &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
         assert_eq!(
@@ -495,7 +501,7 @@ mod tests {
 
         let (store, parent_header) = prepare_store(&parent_header, Some(12340));
         let result = DaoCalculator::new(&consensus, &store)
-            .dao_field(&[], &parent_header)
+            .dao_field(iter::empty(), &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
         assert_eq!(
@@ -525,7 +531,8 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, None);
-        let result = DaoCalculator::new(&consensus, &store).dao_field(&[], &parent_header);
+        let result =
+            DaoCalculator::new(&consensus, &store).dao_field(iter::empty(), &parent_header);
         assert!(result
             .unwrap_err()
             .to_string()
@@ -571,7 +578,7 @@ mod tests {
         };
 
         let result = DaoCalculator::new(&consensus, &store)
-            .dao_field(&[rtx], &parent_header)
+            .dao_field(iter::once(&rtx), &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
         assert_eq!(

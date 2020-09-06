@@ -41,6 +41,7 @@ use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs::File;
+use std::iter;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -123,7 +124,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())
-            .dao_field(&[resolved_cellbase], parent)
+            .dao_field(iter::once(&resolved_cellbase), parent)
             .unwrap()
     };
     BlockBuilder::default()

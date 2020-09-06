@@ -82,6 +82,10 @@ impl TxEntry {
         &self.rtx.transaction
     }
 
+    pub fn resolved_transaction(&self) -> &ResolvedTransaction {
+        &self.rtx
+    }
+
     // pub fn related_out_points(&self) -> &[OutPoint] {
     //     self.rtx.related_dep_out_points()
     // }

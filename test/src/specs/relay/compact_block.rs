@@ -364,7 +364,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .collect();
         let calculator = DaoCalculator::new(&consensus, mock_store.store());
         let dao = calculator
-            .dao_field(&rtxs, &node.get_tip_block().header())
+            .dao_field(rtxs.iter(), &node.get_tip_block().header())
             .unwrap();
         let header = parent.header().as_advanced_builder().dao(dao).build();
         let parent = parent.as_advanced_builder().header(header).build();
@@ -406,7 +406,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         )
         .unwrap()];
         let dao = DaoCalculator::new(&consensus, mock_store.store())
-            .dao_field(&rtxs, &parent.header())
+            .dao_field(rtxs.iter(), &parent.header())
             .unwrap();
         let block = BlockBuilder::default()
             .transaction(cellbase)

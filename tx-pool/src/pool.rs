@@ -478,6 +478,61 @@ impl TxPool {
         )
     }
 
+    pub(crate) fn gap_resolved(
+        &mut self,
+        cache_entry: Option<CacheEntry>,
+        size: usize,
+        rtx: ResolvedTransaction,
+    ) -> Result<CacheEntry, Error> {
+        let snapshot = self.snapshot();
+        let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
+        let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &proposed_provider);
+        let pending_and_proposed_provider =
+            OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
+        rtx.status_check(&pending_and_proposed_provider, snapshot)?;
+        let verified = self.verify_rtx(&rtx, cache_entry);
+        self.handle_tx_by_resolved_result(
+            "gap",
+            cache_entry,
+            size,
+            rtx,
+            verified,
+            |tx_pool, cycles, fee, size, rtx| {
+                let entry = TxEntry::new(rtx, cycles, fee, size);
+                let tx_hash = entry.transaction().hash();
+                if tx_pool.add_gap(entry)? {
+                    Ok(())
+                } else {
+                    Err(Reject::Duplicated(tx_hash).into())
+                }
+            },
+        )
+    }
+
+    pub(crate) fn proposed_resolved(
+        &mut self,
+        cache_entry: Option<CacheEntry>,
+        size: usize,
+        rtx: ResolvedTransaction,
+    ) -> Result<CacheEntry, Error> {
+        let snapshot = self.snapshot();
+        let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
+        rtx.status_check(&cell_provider, snapshot)?;
+        let verified = self.verify_rtx(&rtx, cache_entry);
+        self.handle_tx_by_resolved_result(
+            "proposed",
+            cache_entry,
+            size,
+            rtx,
+            verified,
+            |tx_pool, cycles, fee, size, rtx| {
+                let entry = TxEntry::new(rtx, cycles, fee, size);
+                tx_pool.add_proposed(entry)?;
+                Ok(())
+            },
+        )
+    }
+
     pub(crate) fn proposed_tx(
         &mut self,
         cache_entry: Option<CacheEntry>,

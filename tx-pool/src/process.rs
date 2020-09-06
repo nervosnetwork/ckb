@@ -15,7 +15,7 @@ use ckb_types::{
     core::{
         cell::{
             get_related_dep_out_points, resolve_transaction, OverlayCellProvider,
-            ResolvedTransaction, TransactionsProvider,
+            ResolvedTransaction,
         },
         BlockView, Capacity, Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView,
         Version,
@@ -185,28 +185,28 @@ impl TxPoolService {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
-        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| entry.transaction()));
-        let mut seen_inputs = HashSet::new();
-        let transactions_provider = TransactionsProvider::new(txs.clone());
-        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
 
-        let rtxs = txs
-            .try_fold(vec![], |mut rtxs, tx| {
-                resolve_transaction(
-                    tx.clone(),
-                    &mut seen_inputs,
-                    &overlay_cell_provider,
-                    snapshot,
-                )
-                .map(|rtx| {
-                    rtxs.push(rtx);
-                    rtxs
-                })
-            })
-            .map_err(|_| BlockAssemblerError::InvalidInput)?;
+        let mut seen_inputs = HashSet::new();
+        let resolved_cellbase = resolve_transaction(
+            cellbase.clone(),
+            &mut seen_inputs,
+            &snapshot.cell_provider(),
+            snapshot,
+        )
+        .map_err(|_| BlockAssemblerError::InvalidInput)?;
+
+        for entry in &entries {
+            entry
+                .resolved_transaction()
+                .status_check(&snapshot.cell_provider(), snapshot)
+                .map_err(|_| BlockAssemblerError::InvalidInput)?;
+        }
+
+        let rtxs = iter::once(&resolved_cellbase)
+            .chain(entries.iter().map(|entry| entry.resolved_transaction()));
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
+        let dao = DaoCalculator::new(consensus, snapshot).dao_field(rtxs, tip_header)?;
 
         let candidate_number = tip_header.number() + 1;
         let cycles_limit = consensus.max_block_cycles();
@@ -376,7 +376,7 @@ impl TxPoolService {
 
         // tip changed
         if pre_resolve_tip != snapshot.tip_hash() {
-            resolve_tx(&tx_pool, snapshot, rtx.transaction.clone())?;
+            rtx.status_check(&snapshot.cell_provider(), snapshot)?;
         }
 
         let (tx_size, fee, tx_status) = status;
@@ -588,6 +588,11 @@ fn verify_rtx(
     }
 }
 
+enum Tx {
+    Resolved(ResolvedTransaction),
+    View(TransactionView),
+}
+
 fn _update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
     txs_verify_cache: &HashMap<Byte32, CacheEntry>,
@@ -642,7 +647,7 @@ fn _update_tx_pool_for_reorg(
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction().to_owned(),
+                Tx::Resolved(entry.resolved_transaction().to_owned()),
             ));
             removed.push(key.id.clone());
         }
@@ -659,14 +664,14 @@ fn _update_tx_pool_for_reorg(
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction().to_owned(),
+                Tx::Resolved(entry.resolved_transaction().to_owned()),
             ));
             removed.push(key.id.clone());
         } else if snapshot.proposals().contains_gap(&key.id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction().to_owned(),
+                Tx::Resolved(entry.resolved_transaction().to_owned()),
             ));
             removed.push(key.id.clone());
         }
@@ -679,25 +684,46 @@ fn _update_tx_pool_for_reorg(
     for entry in tx_pool.conflict.entries() {
         if snapshot.proposals().contains_proposed(entry.key()) {
             let entry = entry.remove();
-            entries.push((entry.cache_entry, entry.size, entry.transaction));
+            entries.push((entry.cache_entry, entry.size, Tx::View(entry.transaction)));
         } else if snapshot.proposals().contains_gap(entry.key()) {
             let entry = entry.remove();
-            gaps.push((entry.cache_entry, entry.size, entry.transaction));
+            gaps.push((entry.cache_entry, entry.size, Tx::View(entry.transaction)));
         }
     }
 
     for (cycles, size, tx) in entries {
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.proposed_tx(cycles, size, tx) {
-            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+        match tx {
+            Tx::Resolved(rtx) => {
+                let tx_hash = rtx.hash();
+                if let Err(e) = tx_pool.proposed_resolved(cycles, size, rtx) {
+                    debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+                }
+            }
+            Tx::View(tx) => {
+                let tx_hash = tx.hash();
+                if let Err(e) = tx_pool.proposed_tx(cycles, size, tx) {
+                    debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+                }
+            }
         }
     }
 
     for (cycles, size, tx) in gaps {
-        debug!("tx proposed, add to gap {}", tx.hash());
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
-            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+        match tx {
+            Tx::Resolved(rtx) => {
+                let tx_hash = rtx.hash();
+                debug!("tx proposed, add to gap {}", tx_hash);
+                if let Err(e) = tx_pool.gap_resolved(cycles, size, rtx) {
+                    debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+                }
+            }
+            Tx::View(tx) => {
+                let tx_hash = tx.hash();
+                debug!("tx proposed, add to gap {}", tx_hash);
+                if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
+                    debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+                }
+            }
         }
     }
 

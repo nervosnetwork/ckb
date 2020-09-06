@@ -507,5 +507,5 @@ pub fn dao_data(
         rtxs.unwrap()
     };
     let calculator = DaoCalculator::new(consensus, store.store());
-    calculator.dao_field(&rtxs, &parent).unwrap()
+    calculator.dao_field(rtxs.iter(), &parent).unwrap()
 }

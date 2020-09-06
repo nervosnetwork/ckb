@@ -307,7 +307,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
 
     pub fn verify(&self) -> Result<(), Error> {
         let dao = DaoCalculator::new(self.context.consensus, self.context.store)
-            .dao_field(&self.resolved, self.parent)
+            .dao_field(self.resolved.iter(), self.parent)
             .map_err(|e| {
                 error_target!(
                     crate::LOG_TARGET,

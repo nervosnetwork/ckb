@@ -211,6 +211,42 @@ impl ResolvedTransaction {
     pub fn proposal_short_id(&self) -> ProposalShortId {
         self.transaction.proposal_short_id()
     }
+
+    pub fn status_check<CP: CellProvider, HC: HeaderChecker>(
+        &self,
+        cell_provider: &CP,
+        header_checker: &HC,
+    ) -> Result<(), Error> {
+        let check = |out_point: &OutPoint| -> Result<(), Error> {
+            let cell_status = cell_provider.cell(out_point, false);
+            match cell_status {
+                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
+                CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone()).into()),
+                CellStatus::Live(_) => Ok(()),
+            }
+        };
+
+        // skip check input of cellbase
+        if !self.transaction.is_cellbase() {
+            for cell in &self.resolved_inputs {
+                check(&cell.out_point)?;
+            }
+        }
+
+        for cell in &self.resolved_cell_deps {
+            check(&cell.out_point)?;
+        }
+
+        for cell in &self.resolved_dep_groups {
+            check(&cell.out_point)?;
+        }
+
+        for block_hash in self.transaction.header_deps_iter() {
+            header_checker.check_valid(&block_hash)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl PartialEq for ResolvedTransaction {
@@ -356,7 +392,9 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
-                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
+                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data)
+                        .out_point(out_point.to_owned())
+                        .build();
                     if !with_data {
                         cell_meta.mem_cell_data = None;
                     }

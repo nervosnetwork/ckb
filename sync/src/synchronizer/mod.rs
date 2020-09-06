@@ -693,6 +693,7 @@ mod tests {
     use futures::future::Future;
     use std::{
         collections::{HashMap, HashSet},
+        iter,
         ops::Deref,
         pin::Pin,
         time::Duration,
@@ -759,7 +760,7 @@ mod tests {
                 resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
                     .unwrap();
             DaoCalculator::new(shared.consensus(), shared.store())
-                .dao_field(&[resolved_cellbase], parent_header)
+                .dao_field(iter::once(&resolved_cellbase), parent_header)
                 .unwrap()
         };
 

@@ -23,6 +23,7 @@ use ckb_types::{
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
 use std::collections::HashSet;
+use std::iter;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
@@ -147,7 +148,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             )
             .unwrap();
             DaoCalculator::new(shared.consensus(), snapshot.as_ref())
-                .dao_field(&[resolved_cellbase], &block.header())
+                .dao_field(iter::once(&resolved_cellbase), &block.header())
                 .unwrap()
         };
 
