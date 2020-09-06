@@ -441,7 +441,7 @@ async fn process(service: TxPoolService, message: Message) {
             let tx = tx_pool
                 .proposed()
                 .get(&id)
-                .map(|entry| (true, entry.transaction.clone()))
+                .map(|entry| (true, entry.transaction().clone()))
                 .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)));
             if let Err(e) = responder.send(tx) {
                 error!("responder send fetch_tx_for_rpc failed {:?}", e)

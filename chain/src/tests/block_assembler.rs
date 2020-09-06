@@ -1,4 +1,5 @@
 use crate::chain::ChainService;
+use crate::tests::util::mock_rtx;
 use crate::{chain::ChainController, switch::Switch};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
@@ -13,8 +14,8 @@ use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView,
+        cell::ResolvedTransaction, BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt,
+        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Block, CellInput, CellOutput, CellOutputBuilder, OutPoint},
@@ -258,10 +259,14 @@ fn test_prepare_uncles() {
     assert!(block_template.uncles.is_empty());
 }
 
-fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> TransactionView {
+fn build_tx(
+    parent_tx: &TransactionView,
+    inputs: &[u32],
+    outputs_len: usize,
+) -> ResolvedTransaction {
     let per_output_capacity =
         Capacity::shannons(parent_tx.outputs_capacity().unwrap().as_u64() / outputs_len as u64);
-    TransactionBuilder::default()
+    let transaction = TransactionBuilder::default()
         .inputs(
             inputs
                 .iter()
@@ -277,10 +282,17 @@ fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> 
                 .collect::<Vec<CellOutput>>(),
         )
         .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
-        .build()
+        .build();
+
+    ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    }
 }
 
-fn check_txs(block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>) {
+fn check_txs(block_template: &BlockTemplate, expect_txs: Vec<&ResolvedTransaction>) {
     assert_eq!(
         block_template
             .transactions
@@ -319,24 +331,24 @@ fn test_package_basic() {
 
     let tx0 = &blocks[0].transactions()[0];
     let tx1 = build_tx(tx0, &[0], 2);
-    let tx2 = build_tx(&tx1, &[0], 2);
-    let tx3 = build_tx(&tx2, &[0], 2);
-    let tx4 = build_tx(&tx3, &[0], 2);
+    let tx2 = build_tx(&tx1.transaction, &[0], 2);
+    let tx3 = build_tx(&tx2.transaction, &[0], 2);
+    let tx4 = build_tx(&tx3.transaction, &[0], 2);
 
     let tx2_0 = &blocks[1].transactions()[0];
     let tx2_1 = build_tx(tx2_0, &[0], 2);
-    let tx2_2 = build_tx(&tx2_1, &[0], 2);
-    let tx2_3 = build_tx(&tx2_2, &[0], 2);
+    let tx2_2 = build_tx(&tx2_1.transaction, &[0], 2);
+    let tx2_3 = build_tx(&tx2_2.transaction, &[0], 2);
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500, vec![]),
-        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100, vec![]),
+        TxEntry::new(tx1.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500),
+        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -428,36 +440,36 @@ fn test_package_multi_best_scores() {
         blocks.push(block);
     }
 
-    let tx0 = &blocks[0].transactions()[0];
-    let tx1 = build_tx(tx0, &[0], 2);
-    let tx2 = build_tx(&tx1, &[0], 2);
-    let tx3 = build_tx(&tx2, &[0], 2);
-    let tx4 = build_tx(&tx3, &[0], 2);
+    let tx0 = mock_rtx(blocks[0].transactions()[0].clone());
+    let tx1 = build_tx(&tx0.transaction, &[0], 2);
+    let tx2 = build_tx(&tx1.transaction, &[0], 2);
+    let tx3 = build_tx(&tx2.transaction, &[0], 2);
+    let tx4 = build_tx(&tx3.transaction, &[0], 2);
 
-    let tx2_0 = &blocks[1].transactions()[0];
-    let tx2_1 = build_tx(tx2_0, &[0], 2);
-    let tx2_2 = build_tx(&tx2_1, &[0], 2);
-    let tx2_3 = build_tx(&tx2_2, &[0], 2);
-    let tx2_4 = build_tx(&tx2_3, &[0], 2);
+    let tx2_0 = mock_rtx(blocks[1].transactions()[0].clone());
+    let tx2_1 = build_tx(&tx2_0.transaction, &[0], 2);
+    let tx2_2 = build_tx(&tx2_1.transaction, &[0], 2);
+    let tx2_3 = build_tx(&tx2_2.transaction, &[0], 2);
+    let tx2_4 = build_tx(&tx2_3.transaction, &[0], 2);
 
-    let tx3_0 = &blocks[2].transactions()[0];
-    let tx3_1 = build_tx(tx3_0, &[0], 1);
+    let tx3_0 = mock_rtx(blocks[2].transactions()[0].clone());
+    let tx3_1 = build_tx(&tx3_0.transaction, &[0], 1);
 
-    let tx4_0 = &blocks[3].transactions()[0];
-    let tx4_1 = build_tx(tx4_0, &[0], 1);
+    let tx4_0 = mock_rtx(blocks[3].transactions()[0].clone());
+    let tx4_1 = build_tx(&tx4_0.transaction, &[0], 1);
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(200), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(200), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(50), 50, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500, vec![]),
-        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_4.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx3_1.clone(), 0, Capacity::shannons(1000), 1000, vec![]),
-        TxEntry::new(tx4_1.clone(), 0, Capacity::shannons(300), 250, vec![]),
+        TxEntry::new(tx1.clone(), 0, Capacity::shannons(200), 100),
+        TxEntry::new(tx2.clone(), 0, Capacity::shannons(200), 100),
+        TxEntry::new(tx3.clone(), 0, Capacity::shannons(50), 50),
+        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500),
+        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx2_4.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::new(tx3_1.clone(), 0, Capacity::shannons(1000), 1000),
+        TxEntry::new(tx4_1.clone(), 0, Capacity::shannons(300), 250),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -532,20 +544,20 @@ fn test_package_low_fee_decendants() {
         blocks.push(block);
     }
 
-    let tx0 = &blocks[0].transactions()[0];
-    let tx1 = build_tx(tx0, &[0], 2);
-    let tx2 = build_tx(&tx1, &[0], 2);
-    let tx3 = build_tx(&tx2, &[0], 2);
-    let tx4 = build_tx(&tx3, &[0], 2);
-    let tx5 = build_tx(&tx4, &[0], 2);
+    let tx0 = mock_rtx(blocks[0].transactions()[0].clone());
+    let tx1 = build_tx(&tx0.transaction, &[0], 2);
+    let tx2 = build_tx(&tx1.transaction, &[0], 2);
+    let tx3 = build_tx(&tx2.transaction, &[0], 2);
+    let tx4 = build_tx(&tx3.transaction, &[0], 2);
+    let tx5 = build_tx(&tx4.transaction, &[0], 2);
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx5.clone(), 0, Capacity::shannons(100), 100, vec![]),
+        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100),
+        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx4.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::new(tx5.clone(), 0, Capacity::shannons(100), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -581,36 +593,22 @@ fn test_package_txs_lower_than_min_fee_rate() {
         blocks.push(block);
     }
 
-    let tx0 = &blocks[0].transactions()[0];
-    let tx1 = build_tx(tx0, &[0], 2);
-    let tx2 = build_tx(&tx1, &[0], 2);
-    let tx3 = build_tx(&tx2, &[0], 2);
-    let tx4 = build_tx(&tx3, &[0], 2);
-    let tx5 = build_tx(&tx4, &[0], 2);
+    let tx0 = mock_rtx(blocks[0].transactions()[0].clone());
+    let tx1 = build_tx(&tx0.transaction, &[0], 2);
+    let tx2 = build_tx(&tx1.transaction, &[0], 2);
+    let tx3 = build_tx(&tx2.transaction, &[0], 2);
+    let tx4 = build_tx(&tx3.transaction, &[0], 2);
+    let tx5 = build_tx(&tx4.transaction, &[0], 2);
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
-        TxEntry::new(tx2, 0, Capacity::shannons(80), 100, vec![]),
-        TxEntry::new(tx3, 0, Capacity::shannons(50), 100, vec![]),
-        TxEntry::new(tx4, 0, Capacity::shannons(20), 100, vec![]),
-        TxEntry::new(tx5, 0, Capacity::shannons(0), 100, vec![]),
+        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100),
+        TxEntry::new(tx2, 0, Capacity::shannons(80), 100),
+        TxEntry::new(tx3, 0, Capacity::shannons(50), 100),
+        TxEntry::new(tx4, 0, Capacity::shannons(20), 100),
+        TxEntry::new(tx5, 0, Capacity::shannons(0), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
-
-    let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>| {
-        assert_eq!(
-            block_template
-                .transactions
-                .iter()
-                .map(|tx| format!("{}", tx.hash))
-                .collect::<Vec<_>>(),
-            expect_txs
-                .iter()
-                .map(|tx| format!("{}", Unpack::<H256>::unpack(&tx.hash())))
-                .collect::<Vec<_>>()
-        );
-    };
     // best scored txs
     let block_template = tx_pool
         .get_block_template(None, None, None)

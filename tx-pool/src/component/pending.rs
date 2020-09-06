@@ -41,7 +41,7 @@ impl PendingQueue {
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.inner.get(id).map(|x| &x.transaction)
+        self.inner.get(id).map(|x| x.transaction())
     }
 
     pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
@@ -107,7 +107,7 @@ impl CellProvider for PendingQueue {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         let tx_hash = out_point.tx_hash();
         if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
-            match x.transaction.output_with_data(out_point.index().unpack()) {
+            match x.transaction().output_with_data(out_point.index().unpack()) {
                 Some((output, data)) => {
                     let mut cell_meta = CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.to_owned())
@@ -130,14 +130,14 @@ mod tests {
     use super::*;
     use ckb_types::{
         bytes::Bytes,
-        core::{Capacity, Cycle, TransactionBuilder},
+        core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionBuilder},
         packed::{Byte32, CellInput, CellOutputBuilder},
     };
 
     const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
 
-    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
-        TransactionBuilder::default()
+    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> ResolvedTransaction {
+        let transaction = TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
@@ -149,7 +149,14 @@ mod tests {
                     .build()
             }))
             .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
-            .build()
+            .build();
+
+        ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![],
+            resolved_inputs: vec![],
+            resolved_dep_groups: vec![],
+        }
     }
 
     // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
@@ -170,7 +177,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(100),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -178,7 +184,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -186,7 +191,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
 
@@ -229,7 +233,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(100),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -237,7 +240,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -245,7 +247,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -253,7 +254,6 @@ mod tests {
             MOCK_CYCLES,
             Capacity::shannons(400),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
 
@@ -312,7 +312,6 @@ mod tests {
                 MOCK_CYCLES,
                 Capacity::shannons(200),
                 MOCK_SIZE,
-                vec![],
             ))
             .unwrap();
         }

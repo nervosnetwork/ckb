@@ -2,7 +2,7 @@ use crate::{
     bytes::Bytes,
     core::error::OutPointError,
     core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
-    packed::{Byte32, CellDep, CellOutput, OutPoint, OutPointVec},
+    packed::{Byte32, CellDep, CellOutput, OutPoint, OutPointVec, ProposalShortId},
     prelude::*,
 };
 use ckb_error::Error;
@@ -163,7 +163,7 @@ impl CellStatus {
 }
 
 /// Transaction with resolved input cells.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq)]
 pub struct ResolvedTransaction {
     pub transaction: TransactionView,
     pub resolved_cell_deps: Vec<CellMeta>,
@@ -195,6 +195,27 @@ impl ResolvedTransaction {
             .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
             .cloned()
             .collect()
+    }
+
+    pub fn related_dep_out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.resolved_cell_deps
+            .iter()
+            .map(|d| &d.out_point)
+            .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.transaction.hash()
+    }
+
+    pub fn proposal_short_id(&self) -> ProposalShortId {
+        self.transaction.proposal_short_id()
+    }
+}
+
+impl PartialEq for ResolvedTransaction {
+    fn eq(&self, other: &ResolvedTransaction) -> bool {
+        self.transaction == other.transaction
     }
 }
 

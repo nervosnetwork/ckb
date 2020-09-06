@@ -1,3 +1,4 @@
+use super::helper::mock_rtx;
 use crate::relayer::block_transactions_process::BlockTransactionsProcess;
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use crate::{Status, StatusCode};
@@ -272,7 +273,7 @@ fn test_collision_and_send_missing_indexes() {
 
     {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
-        let entry = TxEntry::new(tx3.clone(), 0, Capacity::shannons(0), 0, vec![]);
+        let entry = TxEntry::new(mock_rtx(tx3.clone()), 0, Capacity::shannons(0), 0);
         tx_pool
             .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();

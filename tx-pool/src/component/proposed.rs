@@ -127,7 +127,7 @@ impl ProposedPool {
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.get(id).map(|x| &x.transaction)
+        self.get(id).map(|x| x.transaction())
     }
 
     pub fn size(&self) -> usize {
@@ -137,14 +137,14 @@ impl ProposedPool {
     pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
         self.inner
             .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
-            .and_then(|x| x.transaction.output_with_data(out_point.index().unpack()))
+            .and_then(|x| x.transaction().output_with_data(out_point.index().unpack()))
     }
 
     // remove entry and all it's descendants
     pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
         let removed_entries = self.inner.remove_entry_and_descendants(id);
         for entry in &removed_entries {
-            let tx = &entry.transaction;
+            let tx = entry.transaction();
             let inputs = tx.input_pts_iter();
             let outputs = tx.output_pts();
             for i in inputs {
@@ -153,7 +153,7 @@ impl ProposedPool {
                 }
             }
 
-            for d in &entry.related_out_points {
+            for d in entry.related_dep_out_points_iter() {
                 self.edges.delete_value_in_deps(&d, &id);
             }
 
@@ -199,10 +199,10 @@ impl ProposedPool {
     }
 
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
-        let inputs = entry.transaction.input_pts_iter();
-        let outputs = entry.transaction.output_pts();
+        let inputs = entry.transaction().input_pts_iter();
+        let outputs = entry.transaction().output_pts();
 
-        let tx_short_id = entry.transaction.proposal_short_id();
+        let tx_short_id = entry.transaction().proposal_short_id();
 
         for i in inputs {
             if let Some(id) = self.edges.get_inner_mut(&i) {
@@ -212,7 +212,7 @@ impl ProposedPool {
             }
         }
 
-        for d in &entry.related_out_points {
+        for d in entry.related_dep_out_points_iter() {
             self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
         }
 
@@ -272,8 +272,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::get_related_dep_out_points, Capacity, Cycle, DepType, TransactionBuilder,
-            TransactionView,
+            cell::{get_related_dep_out_points, ResolvedTransaction},
+            Capacity, Cycle, DepType, TransactionBuilder,
         },
         h256,
         packed::{Byte32, CellDep, CellInput, CellOutput},
@@ -282,8 +282,8 @@ mod tests {
 
     const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
 
-    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
-        TransactionBuilder::default()
+    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> ResolvedTransaction {
+        let transaction = TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
@@ -295,7 +295,14 @@ mod tests {
                     .build()
             }))
             .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
-            .build()
+            .build();
+
+        ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![],
+            resolved_inputs: vec![],
+            resolved_dep_groups: vec![],
+        }
     }
 
     const MOCK_CYCLES: Cycle = 0;
@@ -310,28 +317,19 @@ mod tests {
 
         let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        pool.add_entry(TxEntry::new(
-            tx1.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx2.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ))
-        .unwrap();
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
 
         assert_eq!(pool.size(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+        pool.remove_committed_tx(
+            &tx1.transaction,
+            &get_related_dep_out_points(&tx1.transaction, |_| None).unwrap(),
+        );
         assert_eq!(pool.edges.inner_len(), 1);
         assert_eq!(pool.edges.outer_len(), 1);
     }
@@ -346,27 +344,18 @@ mod tests {
 
         let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        pool.add_entry(TxEntry::new(
-            tx1.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx2.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ))
-        .unwrap();
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
 
         assert_eq!(pool.edges.inner_len(), 4);
         assert_eq!(pool.edges.outer_len(), 4);
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+        pool.remove_committed_tx(
+            &tx1.transaction,
+            &get_related_dep_out_points(&tx1.transaction, |_| None).unwrap(),
+        );
 
         assert_eq!(pool.edges.inner_len(), 3);
         assert_eq!(pool.edges.outer_len(), 2);
@@ -388,51 +377,24 @@ mod tests {
 
         let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        pool.add_entry(TxEntry::new(
-            tx1.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx1, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx2.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx2, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx3.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx3, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx4.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx4, |_| None).unwrap(),
-        ))
-        .unwrap();
-        pool.add_entry(TxEntry::new(
-            tx5.clone(),
-            MOCK_CYCLES,
-            MOCK_FEE,
-            MOCK_SIZE,
-            get_related_dep_out_points(&tx5, |_| None).unwrap(),
-        ))
-        .unwrap();
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx3, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx4, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
+        pool.add_entry(TxEntry::new(tx5, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE))
+            .unwrap();
 
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+        pool.remove_committed_tx(
+            &tx1.transaction,
+            &get_related_dep_out_points(&tx1.transaction, |_| None).unwrap(),
+        );
 
         assert_eq!(pool.edges.inner_len(), 10);
         assert_eq!(pool.edges.outer_len(), 4);
@@ -454,7 +416,6 @@ mod tests {
             cycles,
             Capacity::shannons(100),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -462,7 +423,6 @@ mod tests {
             cycles,
             Capacity::shannons(300),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -470,12 +430,11 @@ mod tests {
             cycles,
             Capacity::shannons(200),
             size,
-            vec![],
         ))
         .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction.hash())
+            iter.map(|entry| entry.transaction().hash())
                 .collect::<Vec<_>>()
         });
         let expect_result = vec![tx2.hash(), tx3.hash(), tx1.hash()];
@@ -501,7 +460,6 @@ mod tests {
             cycles,
             Capacity::shannons(100),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -509,7 +467,6 @@ mod tests {
             cycles,
             Capacity::shannons(300),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -517,7 +474,6 @@ mod tests {
             cycles,
             Capacity::shannons(200),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -525,12 +481,11 @@ mod tests {
             cycles,
             Capacity::shannons(400),
             size,
-            vec![],
         ))
         .unwrap();
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction.hash())
+            iter.map(|entry| entry.transaction().hash())
                 .collect::<Vec<_>>()
         });
         let expect_result = vec![tx4.hash(), tx2.hash(), tx3.hash(), tx1.hash()];
@@ -566,13 +521,12 @@ mod tests {
                 cycles,
                 Capacity::shannons(200),
                 size,
-                vec![],
             ))
             .unwrap();
         }
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| format!("{}", entry.transaction.hash()))
+            iter.map(|entry| format!("{}", entry.transaction().hash()))
                 .collect::<Vec<_>>()
         });
         // the entry with most ancestors score will win
@@ -599,7 +553,6 @@ mod tests {
             cycles,
             Capacity::shannons(100),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -607,7 +560,6 @@ mod tests {
             cycles,
             Capacity::shannons(300),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -615,7 +567,6 @@ mod tests {
             cycles,
             Capacity::shannons(200),
             size,
-            vec![],
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
@@ -623,7 +574,6 @@ mod tests {
             cycles,
             Capacity::shannons(400),
             size,
-            vec![],
         ))
         .unwrap();
 
@@ -673,9 +623,11 @@ mod tests {
         );
         assert_eq!(entry.ancestors_count, ancestors.len() + 1);
 
-        let ancestors = pool.get_ancestors(&tx1.proposal_short_id());
+        let ancestors = pool.get_ancestors(&tx1.transaction.proposal_short_id());
         assert_eq!(ancestors, Default::default());
-        let entry = pool.get(&tx1.proposal_short_id()).expect("exists");
+        let entry = pool
+            .get(&tx1.transaction.proposal_short_id())
+            .expect("exists");
         assert_eq!(entry.ancestors_cycles, cycles);
         assert_eq!(entry.ancestors_size, size);
         assert_eq!(entry.ancestors_count, 1);
@@ -688,15 +640,24 @@ mod tests {
 
         // Dep group cell
         let tx2_data = vec![tx1_out_point.clone()].pack().as_bytes();
-        let tx2 = TransactionBuilder::default()
-            .input(CellInput::new(OutPoint::new(h256!("0x2").pack(), 0), 0))
-            .output(
-                CellOutput::new_builder()
-                    .capacity(Capacity::bytes(1000).unwrap().pack())
-                    .build(),
-            )
-            .output_data(tx2_data.pack())
-            .build();
+        let tx2 = {
+            let transaction = TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::new(h256!("0x2").pack(), 0), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(1000).unwrap().pack())
+                        .build(),
+                )
+                .output_data(tx2_data.pack())
+                .build();
+
+            ResolvedTransaction {
+                transaction,
+                resolved_cell_deps: vec![],
+                resolved_inputs: vec![],
+                resolved_dep_groups: vec![],
+            }
+        };
         let tx2_out_point = OutPoint::new(tx2.hash(), 0);
 
         // Transaction use dep group
@@ -704,16 +665,37 @@ mod tests {
             .out_point(tx2_out_point.clone())
             .dep_type(DepType::DepGroup.into())
             .build();
-        let tx3 = TransactionBuilder::default()
-            .cell_dep(dep)
-            .input(CellInput::new(OutPoint::new(h256!("0x3").pack(), 0), 0))
-            .output(
-                CellOutput::new_builder()
-                    .capacity(Capacity::bytes(3).unwrap().pack())
-                    .build(),
+        let tx3 = {
+            let transaction = TransactionBuilder::default()
+                .cell_dep(dep)
+                .input(CellInput::new(OutPoint::new(h256!("0x3").pack(), 0), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(3).unwrap().pack())
+                        .build(),
+                )
+                .output_data(Bytes::new().pack())
+                .build();
+            let cell =
+                CellMetaBuilder::from_cell_output(tx1.transaction.output(0).unwrap(), Bytes::new())
+                    .out_point(tx1_out_point.clone())
+                    .build();
+
+            let dep_group = CellMetaBuilder::from_cell_output(
+                tx2.transaction.output(0).unwrap(),
+                tx2_data.clone(),
             )
-            .output_data(Bytes::new().pack())
+            .out_point(tx2_out_point.clone())
             .build();
+
+            ResolvedTransaction {
+                transaction,
+                resolved_cell_deps: vec![cell],
+                resolved_inputs: vec![],
+                resolved_dep_groups: vec![dep_group],
+            }
+        };
+
         let tx3_out_point = OutPoint::new(tx3.hash(), 0);
 
         let get_cell_data = |out_point: &OutPoint| -> Option<Bytes> {
@@ -731,7 +713,6 @@ mod tests {
                 MOCK_CYCLES,
                 MOCK_FEE,
                 MOCK_SIZE,
-                get_related_dep_out_points(*tx, &get_cell_data).unwrap(),
             ))
             .unwrap();
         }
@@ -748,8 +729,8 @@ mod tests {
         assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
 
         pool.remove_committed_tx(
-            &tx3,
-            &get_related_dep_out_points(&tx3, &get_cell_data).unwrap(),
+            &tx3.transaction,
+            &get_related_dep_out_points(&tx3.transaction, &get_cell_data).unwrap(),
         );
         assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
         assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);

@@ -117,11 +117,11 @@ impl BlockAssembler {
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash().unpack(),
+            hash: tx.transaction().hash().unpack(),
             required,
             cycles: Some(tx.cycles.into()),
             depends: depends.map(|deps| deps.into_iter().map(|x| u64::from(x).into()).collect()),
-            data: tx.transaction.data().into(),
+            data: tx.transaction().data().into(),
         }
     }
 

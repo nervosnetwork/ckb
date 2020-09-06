@@ -1,7 +1,7 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{Capacity, Cycle, TransactionView},
+    core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
@@ -46,7 +46,7 @@ impl DefectEntry {
 #[derive(Debug, Clone, Eq)]
 pub struct TxEntry {
     /// Transaction
-    pub transaction: TransactionView,
+    pub rtx: ResolvedTransaction,
     /// Cycles
     pub cycles: Cycle,
     /// tx size
@@ -61,21 +61,13 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
-    /// related out points (cell deps includes cell group itself)
-    pub related_out_points: Vec<OutPoint>,
 }
 
 impl TxEntry {
     /// Create new transaction pool entry
-    pub fn new(
-        tx: TransactionView,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-        related_out_points: Vec<OutPoint>,
-    ) -> Self {
+    pub fn new(rtx: ResolvedTransaction, cycles: Cycle, fee: Capacity, size: usize) -> Self {
         TxEntry {
-            transaction: tx,
+            rtx,
             cycles,
             size,
             fee,
@@ -83,8 +75,19 @@ impl TxEntry {
             ancestors_fee: fee,
             ancestors_cycles: cycles,
             ancestors_count: 1,
-            related_out_points,
         }
+    }
+
+    pub fn transaction(&self) -> &TransactionView {
+        &self.rtx.transaction
+    }
+
+    // pub fn related_out_points(&self) -> &[OutPoint] {
+    //     self.rtx.related_dep_out_points()
+    // }
+
+    pub fn related_dep_out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.rtx.related_dep_out_points_iter()
     }
 
     pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
@@ -142,7 +145,7 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
         AncestorsScoreSortKey {
             fee: entry.fee,
             vbytes,
-            id: entry.transaction.proposal_short_id(),
+            id: entry.transaction().proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
             ancestors_size: entry.ancestors_size,
             ancestors_vbytes,
@@ -152,13 +155,13 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
 
 impl Hash for TxEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Hash::hash(&self.transaction, state);
+        Hash::hash(self.transaction(), state);
     }
 }
 
 impl PartialEq for TxEntry {
     fn eq(&self, other: &TxEntry) -> bool {
-        self.transaction == other.transaction
+        self.transaction() == other.transaction()
     }
 }
 
@@ -212,7 +215,7 @@ impl TxModifiedEntries {
 
     pub fn insert(&mut self, entry: TxEntry) {
         let key = AncestorsScoreSortKey::from(&entry);
-        let short_id = entry.transaction.proposal_short_id();
+        let short_id = entry.transaction().proposal_short_id();
         self.entries.insert(short_id, entry);
         self.sort_index.insert(key);
     }

@@ -143,22 +143,22 @@ impl TxPool {
     pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         if self
             .gap
-            .contains_key(&entry.transaction.proposal_short_id())
+            .contains_key(&entry.transaction().proposal_short_id())
         {
             return Ok(false);
         }
-        trace!("add_pending {}", entry.transaction.hash());
+        trace!("add_pending {}", entry.transaction().hash());
         self.pending.add_entry(entry).map(|entry| entry.is_none())
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
     pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        trace!("add_gap {}", entry.transaction.hash());
+        trace!("add_gap {}", entry.transaction().hash());
         self.gap.add_entry(entry).map(|entry| entry.is_none())
     }
 
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        trace!("add_proposed {}", entry.transaction.hash());
+        trace!("add_proposed {}", entry.transaction().hash());
         self.touch_last_txs_updated_at();
         self.proposed.add_entry(entry).map(|entry| entry.is_none())
     }
@@ -191,25 +191,24 @@ impl TxPool {
     ) -> Option<(TransactionView, Option<Cycle>)> {
         self.pending
             .get(id)
-            .cloned()
-            .map(|entry| (entry.transaction, Some(entry.cycles)))
+            .map(|entry| (entry.transaction().clone(), Some(entry.cycles)))
             .or_else(|| {
                 self.gap
                     .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+                    .map(|entry| (entry.transaction().clone(), Some(entry.cycles)))
             })
             .or_else(|| {
                 self.proposed
                     .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+                    .map(|entry| (entry.transaction().clone(), Some(entry.cycles)))
             })
             .or_else(|| {
-                self.conflict
-                    .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, entry.cache_entry.map(|c| c.cycles)))
+                self.conflict.get(id).map(|entry| {
+                    (
+                        entry.transaction.clone(),
+                        entry.cache_entry.map(|c| c.cycles),
+                    )
+                })
             })
     }
 
@@ -364,33 +363,19 @@ impl TxPool {
         pool_name: &str,
         cache_entry: Option<CacheEntry>,
         size: usize,
-        tx: TransactionView,
-        tx_resolved_result: Result<(CacheEntry, Vec<OutPoint>), Error>,
+        rtx: ResolvedTransaction,
+        verified: Result<CacheEntry, Error>,
         add_to_pool: F,
     ) -> Result<CacheEntry, Error>
     where
-        F: FnOnce(
-            &mut TxPool,
-            Cycle,
-            Capacity,
-            usize,
-            Vec<OutPoint>,
-            TransactionView,
-        ) -> Result<(), Error>,
+        F: FnOnce(&mut TxPool, Cycle, Capacity, usize, ResolvedTransaction) -> Result<(), Error>,
     {
-        let short_id = tx.proposal_short_id();
-        let tx_hash = tx.hash();
+        let short_id = rtx.transaction.proposal_short_id();
+        let tx_hash = rtx.transaction.hash();
 
-        match tx_resolved_result {
-            Ok((cache_entry, related_dep_out_points)) => {
-                add_to_pool(
-                    self,
-                    cache_entry.cycles,
-                    cache_entry.fee,
-                    size,
-                    related_dep_out_points,
-                    tx,
-                )?;
+        match verified {
+            Ok(cache_entry) => {
+                add_to_pool(self, cache_entry.cycles, cache_entry.fee, size, rtx)?;
                 Ok(cache_entry)
             }
             Err(err) => {
@@ -413,7 +398,10 @@ impl TxPool {
                             OutPointError::Dead(_) => {
                                 if self
                                     .conflict
-                                    .insert(short_id, DefectEntry::new(tx, 0, cache_entry, size))
+                                    .insert(
+                                        short_id,
+                                        DefectEntry::new(rtx.transaction, 0, cache_entry, size),
+                                    )
                                     .is_some()
                                 {
                                     self.update_statics_for_remove_tx(
@@ -470,23 +458,17 @@ impl TxPool {
         size: usize,
         tx: TransactionView,
     ) -> Result<CacheEntry, Error> {
-        let tx_result = self
-            .resolve_tx_from_pending_and_proposed(tx.clone())
-            .and_then(|rtx| {
-                self.verify_rtx(&rtx, cache_entry).map(|cache_entry| {
-                    let related_dep_out_points = rtx.related_dep_out_points();
-                    (cache_entry, related_dep_out_points)
-                })
-            });
+        let rtx = self.resolve_tx_from_pending_and_proposed(tx)?;
+        let verified = self.verify_rtx(&rtx, cache_entry);
         self.handle_tx_by_resolved_result(
             "gap",
             cache_entry,
             size,
-            tx,
-            tx_result,
-            |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
-                let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
-                let tx_hash = entry.transaction.hash();
+            rtx,
+            verified,
+            |tx_pool, cycles, fee, size, rtx| {
+                let entry = TxEntry::new(rtx, cycles, fee, size);
+                let tx_hash = entry.transaction().hash();
                 if tx_pool.add_gap(entry)? {
                     Ok(())
                 } else {
@@ -502,20 +484,16 @@ impl TxPool {
         size: usize,
         tx: TransactionView,
     ) -> Result<CacheEntry, Error> {
-        let tx_result = self.resolve_tx_from_proposed(tx.clone()).and_then(|rtx| {
-            self.verify_rtx(&rtx, cache_entry).map(|cache_entry| {
-                let related_dep_out_points = rtx.related_dep_out_points();
-                (cache_entry, related_dep_out_points)
-            })
-        });
+        let rtx = self.resolve_tx_from_proposed(tx)?;
+        let verified = self.verify_rtx(&rtx, cache_entry);
         self.handle_tx_by_resolved_result(
             "proposed",
             cache_entry,
             size,
-            tx,
-            tx_result,
-            |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
-                let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
+            rtx,
+            verified,
+            |tx_pool, cycles, fee, size, rtx| {
+                let entry = TxEntry::new(rtx, cycles, fee, size);
                 tx_pool.add_proposed(entry)?;
                 Ok(())
             },
@@ -528,23 +506,17 @@ impl TxPool {
         size: usize,
         tx: TransactionView,
     ) -> Result<CacheEntry, Error> {
-        let tx_result = self
-            .resolve_tx_from_pending_and_proposed(tx.clone())
-            .and_then(|rtx| {
-                self.verify_rtx(&rtx, cache_entry).map(|cache_entry| {
-                    let related_dep_out_points = rtx.related_dep_out_points();
-                    (cache_entry, related_dep_out_points)
-                })
-            });
+        let rtx = self.resolve_tx_from_pending_and_proposed(tx)?;
+        let verified = self.verify_rtx(&rtx, cache_entry);
         self.handle_tx_by_resolved_result(
             "pending",
             cache_entry,
             size,
-            tx,
-            tx_result,
-            |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
-                let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
-                let tx_hash = entry.transaction.hash();
+            rtx,
+            verified,
+            |tx_pool, cycles, fee, size, rtx| {
+                let entry = TxEntry::new(rtx, cycles, fee, size);
+                let tx_hash = entry.transaction().hash();
                 if tx_pool.add_pending(entry)? {
                     Ok(())
                 } else {

@@ -1,3 +1,4 @@
+use super::helper::mock_rtx;
 use super::helper::{build_chain, new_transaction};
 use crate::relayer::ReconstructionResult;
 use crate::StatusCode;
@@ -101,7 +102,7 @@ fn test_reconstruct_transactions_and_uncles() {
     let entries = pool_transactions
         .iter()
         .cloned()
-        .map(|tx| TxEntry::new(tx, 0, Capacity::shannons(0), 0, vec![]))
+        .map(|tx| TxEntry::new(mock_rtx(tx), 0, Capacity::shannons(0), 0))
         .collect();
     relayer
         .shared

@@ -185,7 +185,7 @@ impl TxPoolService {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
-        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| &entry.transaction));
+        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| entry.transaction()));
         let mut seen_inputs = HashSet::new();
         let transactions_provider = TransactionsProvider::new(txs.clone());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
@@ -391,14 +391,7 @@ impl TxPoolService {
             return Err(Reject::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
         }
 
-        let related_dep_out_points = rtx.related_dep_out_points();
-        let entry = TxEntry::new(
-            rtx.transaction,
-            verified.cycles,
-            fee,
-            tx_size,
-            related_dep_out_points,
-        );
+        let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
         let inserted = match tx_status {
             TxStatus::Fresh => tx_pool.add_pending(entry)?,
             TxStatus::Gap => tx_pool.add_gap(entry)?,
@@ -649,7 +642,7 @@ fn _update_tx_pool_for_reorg(
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction.to_owned(),
+                entry.transaction().to_owned(),
             ));
             removed.push(key.id.clone());
         }
@@ -666,14 +659,14 @@ fn _update_tx_pool_for_reorg(
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction.to_owned(),
+                entry.transaction().to_owned(),
             ));
             removed.push(key.id.clone());
         } else if snapshot.proposals().contains_gap(&key.id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.size,
-                entry.transaction.to_owned(),
+                entry.transaction().to_owned(),
             ));
             removed.push(key.id.clone());
         }

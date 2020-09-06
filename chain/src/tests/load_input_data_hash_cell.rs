@@ -1,5 +1,6 @@
 use crate::tests::util::{
-    create_load_input_data_hash_cell_out_point, create_load_input_data_hash_cell_tx, start_chain,
+    create_load_input_data_hash_cell_out_point, create_load_input_data_hash_cell_tx, mock_rtx,
+    start_chain,
 };
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
@@ -91,7 +92,7 @@ fn test_load_input_data_hash_cell() {
     //ValidationFailure(2) missing item
     assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
 
-    let entry0 = vec![TxEntry::new(tx0, 0, Capacity::shannons(0), 100, vec![])];
+    let entry0 = vec![TxEntry::new(mock_rtx(tx0), 0, Capacity::shannons(0), 100)];
     tx_pool.plug_entry(entry0, PlugTarget::Proposed).unwrap();
 
     // Ensure tx which calls syscall load_cell_data_hash will got reject even previous tx is already in tx-pool

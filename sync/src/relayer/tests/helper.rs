@@ -13,8 +13,8 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
-        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
+        capacity_bytes, cell::ResolvedTransaction, BlockBuilder, BlockNumber, Capacity,
+        EpochNumberWithFraction, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
@@ -40,6 +40,15 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
         .index(index.pack())
         .transaction(transaction.data())
         .build()
+}
+
+pub(crate) fn mock_rtx(transaction: TransactionView) -> ResolvedTransaction {
+    ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    }
 }
 
 pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> HeaderBuilder {

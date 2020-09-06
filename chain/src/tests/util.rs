@@ -12,7 +12,9 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
+        cell::{
+            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
+        },
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
         TransactionView,
     },
@@ -47,6 +49,15 @@ pub(crate) fn create_load_input_data_hash_cell_tx() -> TransactionView {
 
 pub(crate) fn create_load_input_data_hash_cell_out_point() -> OutPoint {
     OutPoint::new(create_load_input_data_hash_cell_tx().hash(), 0)
+}
+
+pub(crate) fn mock_rtx(transaction: TransactionView) -> ResolvedTransaction {
+    ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    }
 }
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+

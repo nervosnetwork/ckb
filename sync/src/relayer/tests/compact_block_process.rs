@@ -1,3 +1,4 @@
+use super::helper::mock_rtx;
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
@@ -621,7 +622,7 @@ fn test_collision() {
 
     let parent = {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
-        let entry = TxEntry::new(missing_tx, 0, Capacity::shannons(0), 0, vec![]);
+        let entry = TxEntry::new(mock_rtx(missing_tx), 0, Capacity::shannons(0), 0);
         tx_pool
             .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
