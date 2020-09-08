@@ -1085,10 +1085,11 @@ impl<T: ExitHandler> NetworkService<T> {
                     })
                     .collect::<Vec<_>>();
 
-                debug!("receiving shutdown signal ...");
-
+                debug!("Waiting for the shutdown signal ...");
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
+                debug!("Recevied the shutdown signal.");
+
                 for peer in network_state.peer_registry.read().peers().values() {
                     info!("Disconnect peer {}", peer.connected_addr);
                     if let Err(err) =
