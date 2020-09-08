@@ -25,7 +25,8 @@ use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
     SupportProtocols,
 };
-use ckb_types::{core, packed, prelude::*};
+use ckb_types::core::BlockNumber;
+use ckb_types::{core, packed, prelude::*, u256, U256};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -43,6 +44,10 @@ const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
+// 500_000 total difficulty
+const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
+
 enum FetchCMD {
     Fetch(Vec<PeerIndex>),
 }
@@ -51,24 +56,59 @@ struct BlockFetchCMD {
     sync: Synchronizer,
     p2p_control: ServiceControl,
     recv: channel::Receiver<FetchCMD>,
+    can_start: bool,
+    number: BlockNumber,
 }
 
 impl BlockFetchCMD {
-    fn run(&self) {
+    fn run(&mut self) {
         while let Ok(cmd) = self.recv.recv() {
             match cmd {
                 FetchCMD::Fetch(peers) => {
-                    for peer in peers {
-                        if let Some(fetch) =
-                            BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
-                        {
-                            for item in fetch {
-                                BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
+                    if self.can_start() {
+                        for peer in peers {
+                            if let Some(fetch) =
+                                BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
+                            {
+                                for item in fetch {
+                                    BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
+                                }
                             }
+                        }
+                    } else {
+                        let best_known = self.sync.shared.state().shared_best_header_ref();
+                        let number = best_known.number();
+                        if number != self.number && number % 10000 == 0 {
+                            self.number = number;
+                            info!(
+                                "best known header number: {}, difficulty: {:#x}, \
+                                 require min header number on 500_000, min difficulty: {:#x}, \
+                                 then start to download block",
+                                number,
+                                best_known.total_difficulty(),
+                                MIN_CHAIN_WORK_500K
+                            );
                         }
                     }
                 }
             }
+        }
+    }
+
+    fn can_start(&mut self) -> bool {
+        if self.can_start {
+            true
+        } else if self.sync.shared.consensus().is_mainnet() {
+            self.can_start = self
+                .sync
+                .shared
+                .state()
+                .shared_best_header_ref()
+                .is_better_than(&MIN_CHAIN_WORK_500K);
+            self.can_start
+        } else {
+            self.can_start = true;
+            true
         }
     }
 
@@ -481,14 +521,20 @@ impl Synchronizer {
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);
-                    ::std::thread::spawn(move || {
-                        BlockFetchCMD {
-                            sync,
-                            p2p_control,
-                            recv,
-                        }
-                        .run();
-                    });
+                    let thread = ::std::thread::Builder::new();
+                    thread
+                        .name("BlockDownload".to_string())
+                        .spawn(move || {
+                            BlockFetchCMD {
+                                sync,
+                                p2p_control,
+                                recv,
+                                number: 0,
+                                can_start: false,
+                            }
+                            .run();
+                        })
+                        .expect("donwload thread can't start");
                 }
             },
             _ => {

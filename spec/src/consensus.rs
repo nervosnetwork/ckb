@@ -82,6 +82,7 @@ pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
 // "TYPE_ID" in hex
 pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
+static IS_MAINNET: once_cell::sync::OnceCell<bool> = once_cell::sync::OnceCell::new();
 
 /// Two protocol parameters w_close and w_far define the closest
 /// and farthest on-chain distance between a transaction's proposal
@@ -777,6 +778,14 @@ impl Consensus {
         } else {
             self.primary_epoch_reward(epoch.number() + 1)
         }
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        *IS_MAINNET.get_or_init(|| {
+            let mainnet_genesis_hash: H256 =
+                h256!("0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5");
+            self.genesis_hash == mainnet_genesis_hash.pack()
+        })
     }
 }
 

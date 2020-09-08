@@ -454,6 +454,7 @@ dependencies = [
  "ckb-resource",
  "ckb-types",
  "failure",
+ "once_cell",
  "serde",
  "toml",
 ]
