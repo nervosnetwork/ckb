@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
+use ckb_debug_console_config::Config as DebugConsoleConfig;
 use ckb_logger_config::Config as LogConfig;
 use ckb_metrics_config::Config as MetricsConfig;
 use ckb_resource::Resource;
@@ -35,6 +36,8 @@ pub struct CKBAppConfig {
     pub metrics: MetricsConfig,
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
+    #[serde(default)]
+    pub debug_console: DebugConsoleConfig,
     pub chain: ChainConfig,
 
     pub block_assembler: Option<BlockAssemblerConfig>,
@@ -121,6 +124,13 @@ impl AppConfig {
         match self {
             AppConfig::CKB(config) => &config.memory_tracker,
             AppConfig::Miner(config) => &config.memory_tracker,
+        }
+    }
+
+    pub fn debug_console(&self) -> Option<&DebugConsoleConfig> {
+        match self {
+            AppConfig::CKB(config) => Some(&config.debug_console),
+            AppConfig::Miner(_) => None,
         }
     }
 

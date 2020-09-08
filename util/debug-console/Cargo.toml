@@ -1,0 +1,16 @@
+[package]
+name = "ckb-debug-console"
+version = "0.36.0-pre"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+ckb-debug-console-config = { path = "../debug-console-config" }
+ckb-debug-console-common = { path = "../debug-console-common" }
+ckb-util = { path = ".." }
+ckb-logger = { path = "../logger" }
+ckb-async-runtime = { path = "../runtime" }
+ckb-stop-handler = { path = "../stop-handler" }
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "time", "io-driver"] }
+lazy_static = "1.4"

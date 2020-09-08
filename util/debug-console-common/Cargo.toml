@@ -1,0 +1,11 @@
+[package]
+name = "ckb-debug-console-common"
+version = "0.36.0-pre"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "time", "io-driver"] }
+thiserror = "1.0.20"
+handwritten-json = "0.1.0"

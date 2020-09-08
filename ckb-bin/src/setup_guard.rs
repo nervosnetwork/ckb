@@ -1,5 +1,6 @@
 use ckb_app_config::{ExitCode, Setup};
 use ckb_build_info::Version;
+use ckb_debug_console::{self, Guard as DebugConsoleInitGuard};
 use ckb_logger::info_target;
 use ckb_logger_service::{self, LoggerInitGuard};
 use ckb_metrics_service::{self, Guard as MetricsInitGuard};
@@ -8,6 +9,7 @@ pub struct SetupGuard {
     _logger_guard: LoggerInitGuard,
     _sentry_guard: Option<sentry::internals::ClientInitGuard>,
     _metrics_guard: MetricsInitGuard,
+    _debug_console_guard: DebugConsoleInitGuard,
 }
 
 impl SetupGuard {
@@ -51,10 +53,17 @@ impl SetupGuard {
             ExitCode::Config
         })?;
 
+        let debug_console_config = setup.config.debug_console().cloned();
+        let debug_console_guard = ckb_debug_console::init(debug_console_config).map_err(|err| {
+            eprintln!("DebugConsole error: {:?}", err);
+            ExitCode::Failure
+        })?;
+
         Ok(Self {
             _logger_guard: logger_guard,
             _sentry_guard: sentry_guard,
             _metrics_guard: metrics_guard,
+            _debug_console_guard: debug_console_guard,
         })
     }
 }
