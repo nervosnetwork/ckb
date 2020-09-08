@@ -12,10 +12,5 @@ ckb-stop-handler = { path = "../stop-handler" }
 ckb-util = { path = ".." }
 metrics-runtime = "~0.13.1"
 metrics-core = "~0.5.2"
-metrics-exporter-log = "~0.4.0"
-metrics-exporter-http = "~0.3.0"
-metrics-observer-json = "~0.1.1"
-metrics-observer-yaml = "~0.1.1"
-metrics-observer-prometheus = "~0.1.4"
 log = "0.4"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "time", "io-driver"] }

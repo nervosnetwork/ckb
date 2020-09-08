@@ -713,11 +713,6 @@ dependencies = [
  "ckb-util",
  "log 0.4.11",
  "metrics-core",
- "metrics-exporter-http",
- "metrics-exporter-log",
- "metrics-observer-json",
- "metrics-observer-prometheus",
- "metrics-observer-yaml",
  "metrics-runtime",
  "tokio 0.2.22",
 ]
