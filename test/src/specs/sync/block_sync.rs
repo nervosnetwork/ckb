@@ -1,4 +1,5 @@
-use crate::node::exit_ibd_mode;
+use crate::util::mining::mine;
+use crate::util::sugar::out_ibd_mode;
 use crate::utils::{
     build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
     now_ms, sleep, wait_until,
@@ -28,7 +29,7 @@ impl Spec for BlockSyncFromOne {
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
         (0..3).for_each(|_| {
-            node0.generate_block();
+            mine(&node0, 1);
         });
 
         node1.connect(node0);
@@ -52,9 +53,9 @@ impl Spec for BlockSyncWithUncle {
 
     // Case: Sync a block with uncle
     fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
         let target = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
 
         let new_builder = node1.new_block_builder(None, None, None);
         let new_block1 = new_builder.clone().nonce(0.pack()).build();
@@ -443,13 +444,13 @@ impl Spec for SyncTooNewBlock {
         node1.connect(node0);
 
         // sync node0 node2
-        node2.generate_blocks(6);
+        mine(node2, 6);
         node2.connect(node0);
         node2.waiting_for_sync(node0, node2.get_tip_block_number());
         node2.disconnect(node0);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        node0.generate_block();
+        mine(&node0, 1);
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();

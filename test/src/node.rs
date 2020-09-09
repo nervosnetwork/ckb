@@ -1,8 +1,11 @@
 use crate::global::binary;
 use crate::rpc::RpcClient;
+use crate::utils::wait_until;
 use crate::utils::{find_available_port, temp_path, wait_until};
+use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
+use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
@@ -293,19 +296,6 @@ impl Node {
         self.rpc_client()
             .process_block_without_verify(block.data().into(), broadcast)
             .unwrap()
-    }
-
-    pub fn generate_blocks(&self, blocks_num: usize) -> Vec<Byte32> {
-        (0..blocks_num).map(|_| self.generate_block()).collect()
-    }
-
-    pub fn generate_blocks_until_contains_valid_cellbase(&self) -> Vec<Byte32> {
-        self.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize)
-    }
-
-    // generate a new block and submit it through rpc.
-    pub fn generate_block(&self) -> Byte32 {
-        self.rpc_client().generate_block()
     }
 
     // Convenient way to construct an uncle block

@@ -13,12 +13,18 @@ pub fn mine_until_out_ibd_mode(node: &Node) {
 ///
 /// Typically involve this function at the beginning of test.
 pub fn mine_until_out_bootstrap_period(node: &Node) {
-    let predicate = || {
-        node.get_tip_block()
-            .transaction(0)
-            .map(|tx| tx.output(0).is_some())
-            .unwrap_or(false)
-    };
+    // TODO predicate by output.is_some() is more realistic. But keeps original behaviours,
+    // update it later.
+    // let predicate = || {
+    //     node.get_tip_block()
+    //         .transaction(0)
+    //         .map(|tx| tx.output(0).is_some())
+    //         .unwrap_or(false)
+    // };
+
+    let farthest = node.consensus().tx_proposal_window().farthest();
+    let out_bootstrap_period = farthest + 2;
+    let predicate = || node.get_tip_block_number() >= out_bootstrap_period;
     mine_until_bool(node, predicate)
 }
 

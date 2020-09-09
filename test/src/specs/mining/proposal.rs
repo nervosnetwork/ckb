@@ -1,5 +1,6 @@
 use crate::generic::GetProposalTxIds;
-use crate::{Node, Spec};
+use crate::util::mining::mine_until_out_bootstrap_period;
+use crate::{Net, Spec};
 use ckb_types::prelude::*;
 
 pub struct AvoidDuplicatedProposalsWithUncles;
@@ -13,7 +14,7 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks_until_contains_valid_cellbase();
+        mine_until_out_bootstrap_period(node);
 
         let tx = node.new_transaction_spend_tip_cellbase();
 

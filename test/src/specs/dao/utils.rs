@@ -1,4 +1,5 @@
 use crate::util::check::is_transaction_committed;
+use crate::util::mining::mine;
 use crate::Node;
 use ckb_types::core::EpochNumberWithFraction;
 use ckb_types::{core::TransactionView, packed::OutPoint};
@@ -24,6 +25,6 @@ pub(crate) fn goto_target_point(node: &Node, target_point: EpochNumberWithFracti
             break;
         }
 
-        node.generate_block();
+        mine(&node, 1);
     }
 }

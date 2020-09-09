@@ -1,6 +1,7 @@
 use crate::node::{connect_all, exit_ibd_mode};
 use crate::util::check::is_transaction_committed;
 use crate::util::log_monitor::monitor_log_until_expected_show;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_fee_estimator::FeeRate;
@@ -22,7 +23,7 @@ impl Spec for TransactionRelayLowFeeRate {
         let node2 = &nodes[2];
 
         info!("Generate new transaction on node1");
-        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node1);
         let tx = node1.new_transaction_spend_tip_cellbase();
         node1.submit_transaction(&tx);
         let hash = tx.hash();

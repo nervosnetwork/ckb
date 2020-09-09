@@ -1,5 +1,6 @@
+use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::BlockAssemblerConfig;
+use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{
     bytes::Bytes,
@@ -18,7 +19,7 @@ impl Spec for BootstrapCellbase {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
 
-        let blk_hashes = node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 1) as usize);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.1 + 1);
 
         let miner = packed::Script::new_builder()
             .args(Bytes::from(vec![2, 1]).pack())
@@ -26,26 +27,22 @@ impl Spec for BootstrapCellbase {
             .hash_type(ScriptHashType::Data.into())
             .build();
 
-        let is_bootstrap_cellbase = |blk_hash: &packed::Byte32| {
-            let blk: BlockView = node
-                .rpc_client()
-                .get_block(blk_hash.clone())
-                .unwrap()
-                .into();
+        let is_bootstrap_cellbase = |number| {
+            let blk: BlockView = node.get_block_by_number(number).into();
             blk.transactions()[0].is_cellbase()
                 && blk.transactions()[0].outputs().as_reader().is_empty()
         };
 
-        blk_hashes.iter().enumerate().for_each(|(index, blk_hash)| {
+        (1..=node.get_tip_block_number()).for_each(|number| {
             assert!(
-                is_bootstrap_cellbase(blk_hash),
+                is_bootstrap_cellbase(number),
                 "The {} block's cellbase should be bootstrap_cellbase",
-                index
+                number
             );
         });
 
-        let hash = node.generate_block();
-        let blk: BlockView = node.rpc_client().get_block(hash).unwrap().into();
+        mine(&node, 1);
+        let blk = node.get_tip_block();
         assert!(
             blk.transactions()[0].is_cellbase()
                 && blk.transactions()[0]

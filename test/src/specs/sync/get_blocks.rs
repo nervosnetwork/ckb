@@ -1,3 +1,5 @@
+use super::utils::wait_get_blocks;
+use crate::util::mining::mine;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -5,9 +7,8 @@ use ckb_sync::BLOCK_DOWNLOAD_TIMEOUT;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::{GetBlocks, SyncMessage};
 use ckb_types::prelude::*;
-use failure::_core::time::Duration;
 use log::info;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct GetBlocksTimeout;
 
@@ -17,8 +18,9 @@ impl Spec for GetBlocksTimeout {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node1 = nodes.pop().unwrap();
         let node2 = nodes.pop().unwrap();
-        node1.generate_blocks(1);
-        node2.generate_blocks(20);
+
+        mine(&node1, 1);
+        mine(&node2, 20);
 
         let headers: Vec<HeaderView> = (1..=node2.get_tip_block_number())
             .map(|i| node2.get_header_by_number(i))

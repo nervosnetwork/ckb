@@ -1,3 +1,4 @@
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
@@ -12,7 +13,7 @@ impl Spec for DifferentTxsWithSameInput {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node0);
         let tx_hash_0 = node0.generate_transaction();
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
@@ -29,12 +30,12 @@ impl Spec for DifferentTxsWithSameInput {
         node0.rpc_client().send_transaction(tx1.data().into());
         node0.rpc_client().send_transaction(tx2.data().into());
 
-        node0.generate_block();
-        node0.generate_block();
+        mine(&node0, 1);
+        mine(&node0, 1);
 
         info!("RBF (Replace-By-Fees) is not implemented, but transaction fee sorting is ready");
         info!("tx2 should be included in the next + 2 block, and tx1 should be ignored");
-        node0.generate_block();
+        mine(&node0, 1);
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block
             .transactions()

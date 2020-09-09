@@ -1,7 +1,7 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::{
@@ -46,7 +46,7 @@ impl Spec for SendLargeCyclesTxInBlock {
         });
         node0.start();
 
-        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node1);
         info!("Generate large cycles tx");
         let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
         // send tx
@@ -62,7 +62,7 @@ impl Spec for SendLargeCyclesTxInBlock {
         node0.disconnect(&node1);
         let ret = node0.rpc_client().send_transaction_result(tx.data().into());
         ret.expect("package large cycles tx");
-        node0.generate_blocks(3);
+        mine(&node0, 3);
         let block: BlockView = node0.get_tip_block();
         assert_eq!(block.transactions()[1], tx);
         node0.connect(&node1);
@@ -114,7 +114,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         });
         node0.start();
 
-        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node1);
         info!("Generate large cycles tx");
         let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
         // send tx

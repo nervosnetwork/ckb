@@ -1,3 +1,4 @@
+use crate::util::mining::mine;
 use crate::{Node, Spec};
 
 pub struct RpcTruncate;
@@ -6,14 +7,14 @@ impl Spec for RpcTruncate {
     // After truncating, the chain will be rollback to the target block, and tx-pool be cleared.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks(12);
+        mine(node, 12);
         let to_truncate = node.get_block_by_number(node.get_tip_block_number()).hash();
         let tx1 = {
             let tx1 = node.new_transaction_spend_tip_cellbase();
             node.submit_transaction(&tx1);
             tx1
         };
-        node.generate_blocks(3);
+        mine(node, 3);
         let _tx2 = {
             let tx2 = node.new_transaction_spend_tip_cellbase();
             node.submit_transaction(&tx2);
@@ -66,9 +67,9 @@ impl Spec for RpcTruncate {
         assert_eq!(tx_pool_info.total_tx_size.value(), 0, "tx-pool was cleared");
 
         // The chain can generate new blocks
-        node.generate_blocks(3);
+        mine(node, 3);
         node.submit_transaction(&tx1);
-        node.generate_blocks(3);
+        mine(node, 3);
         let cell1 = node
             .rpc_client()
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);

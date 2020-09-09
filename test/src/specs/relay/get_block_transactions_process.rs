@@ -1,4 +1,6 @@
 use crate::node::exit_ibd_mode;
+use crate::util::mining::mine;
+use crate::util::sugar::out_ibd_mode;
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
@@ -21,7 +23,7 @@ impl Spec for MissingUncleRequest {
         );
         net.connect(node);
 
-        node.generate_block();
+        mine(&node, 1);
 
         let builder = node.new_block_builder(None, None, None);
         let block1 = builder.clone().nonce(0.pack()).build();

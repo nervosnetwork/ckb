@@ -7,8 +7,9 @@ use ckb_network::{
     bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
     NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId, SupportProtocols,
 };
+use ckb_types::core::BlockNumber;
 use ckb_util::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,6 +1,7 @@
 use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
+use crate::util::mining::mine;
 use crate::utils::{assert_send_transaction_fail, generate_utxo_set};
 use crate::{Node, Spec};
 
@@ -22,7 +23,7 @@ impl Spec for WithdrawDAO {
         let mut user = DAOUser::new(node, utxos);
 
         ensure_committed(node, &user.deposit());
-        node.generate_blocks(20); // Time makes interest
+        mine(node, 20); // Time makes interest
         ensure_committed(node, &user.prepare());
 
         let withdrawal = user.withdraw();
@@ -50,7 +51,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
         let mut user = DAOUser::new(node, utxos);
 
         ensure_committed(node, &user.deposit());
-        node.generate_blocks(20); // Time makes interest
+        mine(node, 20); // Time makes interest
         ensure_committed(node, &user.prepare());
 
         let withdrawal = user.withdraw();

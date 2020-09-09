@@ -1,4 +1,5 @@
-use crate::{Node, Spec};
+use crate::util::mining::mine;
+use crate::{Net, Node, Spec};
 use ckb_types::core::{BlockView, EpochNumberWithFraction};
 use ckb_types::prelude::*;
 
@@ -158,7 +159,7 @@ impl Spec for PackUnclesIntoEpochStarting {
         };
         let current_epoch_end = next_epoch_start - 1;
 
-        node.generate_blocks((current_epoch_end - node.get_tip_block_number() - 1) as usize);
+        mine(node, current_epoch_end - node.get_tip_block_number() - 1);
         node.submit_block(&uncle);
 
         let block = node.new_block(None, None, None);
@@ -182,9 +183,9 @@ impl Spec for PackUnclesIntoEpochStarting {
 
 // Convenient way to construct an uncle block
 fn construct_uncle(node: &Node) -> BlockView {
-    node.generate_block(); // Ensure exit IBD mode
+    mine(&node, 1); // Ensure exit IBD mode
     let uncle = node.construct_uncle();
-    node.generate_block();
+    mine(&node, 1);
 
     uncle
 }

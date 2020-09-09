@@ -1,9 +1,10 @@
-use crate::node::exit_ibd_mode;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::sugar::out_ibd_mode;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
-    build_header, build_headers, wait_until,
+    build_header, build_headers, clear_messages, wait_until,
 };
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec, TestProtocol};
 use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_test_chain_utils::MockStore;
@@ -35,7 +36,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         );
         net.connect(node);
 
-        node.generate_block();
+        mine(&node, 1);
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
@@ -104,7 +105,7 @@ impl Spec for CompactBlockPrefilled {
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node);
 
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
@@ -114,7 +115,7 @@ impl Spec for CompactBlockPrefilled {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Relay a block contains `new_tx` as committed
         let new_block = node
@@ -150,7 +151,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         );
         net.connect(node);
 
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node);
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
         node.submit_block(
             &node
@@ -158,7 +159,7 @@ impl Spec for CompactBlockMissingFreshTxs {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Relay a block contains `new_tx` as committed, but not include in prefilled
         let new_block = node
@@ -207,7 +208,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node);
 
         // Build the target transaction
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
@@ -217,7 +218,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Generate the target block which contains the target transaction as a committed transaction
         let new_block = node
@@ -255,7 +256,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node0);
         let node1 = &nodes[1];
         net.connect(node1);
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node0);
 
         let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash());
         node0.submit_block(
@@ -265,10 +266,10 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
                 .build(),
         );
         // Proposal a tx, and grow up into proposal window
-        node0.generate_blocks(6);
+        mine(node0, 6);
 
         // Make node0 and node1 reach the same height
-        node1.generate_block();
+        mine(&node1, 1);
         node0.connect(node1);
         node0.waiting_for_sync(node1, node0.get_tip_block().header().number());
 
@@ -313,7 +314,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let node = &nodes[0];
         exit_ibd_mode(nodes);
 
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node);
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction_spend_tip_cellbase();
         node.submit_block(
@@ -322,7 +323,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(6);
+        mine(node, 6);
 
         let consensus = node.consensus();
         let mock_store = MockStore::default();
@@ -478,7 +479,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
 
         assert_eq!(node0.get_tip_block(), node1.get_tip_block());
         let old_tip = node1.get_tip_block_number();
-        node1.generate_blocks(10);
+        mine(node1, 10);
         let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
             .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
             .collect();

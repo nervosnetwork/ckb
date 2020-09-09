@@ -1,10 +1,11 @@
+use super::utils::wait_get_blocks;
+use crate::util::mining::mine;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
-use ckb_types::packed::GetBlocks;
 use ckb_types::{
     core::{BlockView, TransactionBuilder},
-    packed::{self, Byte32, SyncMessage},
+    packed::{self, Byte32, GetBlocks, SyncMessage},
     prelude::*,
 };
 use std::time::Duration;
@@ -28,17 +29,17 @@ impl Spec for ChainContainsInvalidBlock {
         let fresh_node = nodes.pop().unwrap();
 
         // Build invalid chain on bad_node
-        bad_node.generate_blocks(3);
+        mine(&bad_node, 3);
         let invalid_block = bad_node
             .new_block_builder(None, None, None)
             .transaction(TransactionBuilder::default().build())
             .build();
         let invalid_number = invalid_block.header().number();
         let invalid_hash = bad_node.process_block_without_verify(&invalid_block, false);
-        bad_node.generate_blocks(3);
+        mine(&bad_node, 3);
 
         // Start good_node and let it synchronize from bad_node
-        good_node.generate_block();
+        mine(&good_node, 1);
         fresh_node.connect(&good_node);
         good_node.connect_and_wait_ban(&bad_node);
         fresh_node.connect_and_wait_ban(&bad_node);
@@ -57,7 +58,7 @@ impl Spec for ChainContainsInvalidBlock {
         );
 
         // good_node mine the next block
-        good_node.generate_block();
+        mine(&good_node, 1);
         let valid_hash = good_node.get_tip_block().header().hash();
         let valid_number = invalid_number + 1;
 
@@ -84,26 +85,26 @@ impl Spec for ForkContainsInvalidBlock {
         let bad_chain: Vec<BlockView> = {
             let tip_number = invalid_number * 2;
             let bad_node = nodes.pop().unwrap();
-            bad_node.generate_blocks(invalid_number - 1);
+            mine(&bad_node, invalid_number - 1);
             let invalid_block = bad_node
                 .new_block_builder(None, None, None)
                 .transaction(TransactionBuilder::default().build())
                 .build();
             bad_node.process_block_without_verify(&invalid_block, false);
-            bad_node.generate_blocks(tip_number - invalid_number);
+            mine(&bad_node, tip_number - invalid_number);
             (1..=bad_node.get_tip_block_number())
                 .map(|i| bad_node.get_block_by_number(i))
                 .collect()
         };
         let bad_hashes: Vec<Byte32> = bad_chain
             .iter()
-            .skip(invalid_number - 1)
+            .skip(invalid_number as usize - 1)
             .map(|b| b.hash())
             .collect();
 
         // Sync headers of bad forks
         let good_node = nodes.pop().unwrap();
-        good_node.generate_block();
+        mine(&good_node, 1);
         let mut net = Net::new(
             self.name(),
             good_node.consensus(),
@@ -120,7 +121,7 @@ impl Spec for ForkContainsInvalidBlock {
         assert!(ret, "timeout to wait GetBlocks");
 
         // Build good chain (good_chain.len < bad_chain.len)
-        good_node.generate_blocks(invalid_number + 2);
+        mine(&good_node, invalid_number + 2);
         let tip_block = good_node.get_tip_block();
 
         // Sync first part of bad fork which contains an invalid block
