@@ -162,15 +162,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "bitmaps"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031043d04099746d8db04daf1fa424b2bc8bd69d92b25962dcde24da39ab64a2"
-dependencies = [
- "typenum",
-]
-
-[[package]]
 name = "blake2b-rs"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1372,7 +1363,7 @@ dependencies = [
  "num-traits",
  "rand_core 0.5.1",
  "rand_os 0.2.2",
- "rand_xoshiro 0.3.1",
+ "rand_xoshiro",
  "rayon",
  "serde",
  "serde_derive",
@@ -2397,31 +2388,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "im"
-version = "12.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de38d1511a0ce7677538acb1e31b5df605147c458e061b2cdb89858afb1cd182"
-dependencies = [
- "rustc_version",
- "sized-chunks 0.1.2",
- "typenum",
-]
-
-[[package]]
-name = "im"
-version = "15.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "111c1983f3c5bb72732df25cddacee9b546d08325fb584b5ebd38148be7b0246"
-dependencies = [
- "bitmaps",
- "rand_core 0.5.1",
- "rand_xoshiro 0.4.0",
- "sized-chunks 0.6.2",
- "typenum",
- "version_check 0.9.2",
-]
-
-[[package]]
 name = "includedir"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2786,8 +2752,7 @@ dependencies = [
 [[package]]
 name = "metrics"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b70227ece8711a1aa2f99655efd795d0cff297a5b9fe39645a93aacf6ad39d"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "metrics-core",
 ]
@@ -2795,14 +2760,12 @@ dependencies = [
 [[package]]
 name = "metrics-core"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c064b3a1ff41f4bf6c91185c8a0caeccf8a8a27e9d0f92cc54cf3dbec812f48"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 
 [[package]]
 name = "metrics-exporter-http"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e14017d204ae062dc5c68a321e3dbdcd9b30181305cb6b067932f7f03f754e27"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "hyper 0.13.7",
  "log 0.4.11",
@@ -2812,8 +2775,7 @@ dependencies = [
 [[package]]
 name = "metrics-exporter-log"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3fc63816bd5f8bde5eb31ce471f9633adc69ba1c55b44191b4d5fc7e263e8ab"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "log 0.4.11",
  "metrics-core",
@@ -2823,8 +2785,7 @@ dependencies = [
 [[package]]
 name = "metrics-observer-json"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe930460a6c336b8f873dcfb28da3f805fd0dbadbea7beaf3042c7fb1d9fcd3"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -2835,8 +2796,7 @@ dependencies = [
 [[package]]
 name = "metrics-observer-prometheus"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bfe24ad8285ef8b239232135a65f89cc5fa4690bbfaf8907f4bef38f8b08eba"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -2846,8 +2806,7 @@ dependencies = [
 [[package]]
 name = "metrics-observer-yaml"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f66811013592560efc75d75a92d6e2f415a11b52f085e51d9fb4d1edec6335"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -2858,13 +2817,11 @@ dependencies = [
 [[package]]
 name = "metrics-runtime"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce0e4f69639ccc0c6b2f0612164f9817349eb25545ed1ffb5ef3e1e1c1d220b4"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "arc-swap",
  "atomic-shim",
  "crossbeam-utils 0.7.2",
- "im 15.0.0",
  "metrics",
  "metrics-core",
  "metrics-exporter-http",
@@ -2880,8 +2837,7 @@ dependencies = [
 [[package]]
 name = "metrics-util"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d11f8090a8886339f9468a04eeea0711e4cf27538b134014664308041307a1c5"
+source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
  "crossbeam-epoch 0.8.2",
  "serde",
@@ -3059,7 +3015,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ad2a91a8e869eeb30b9cb3119ae87773a8f4ae617f41b1eb9c154b2905f7bd6"
 dependencies = [
  "memchr",
- "version_check 0.1.5",
+ "version_check",
 ]
 
 [[package]]
@@ -3803,15 +3759,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_xoshiro"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9fcdd2e881d02f1d9390ae47ad8e5696a9e4be7b547a1da2afbc61973217004"
-dependencies = [
- "rand_core 0.5.1",
-]
-
-[[package]]
 name = "ratelimit_meter"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4127,15 +4074,13 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 [[package]]
 name = "sentry"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe4ea18f306c959be49f1bea8f3911a454e5d09d2dc43307215729e636bfbf4b"
+source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.17.0-patch.1#0e964f5af46e7a3fb5dbae10a4603b4bc811bf30"
 dependencies = [
  "backtrace",
  "env_logger",
  "failure",
  "hostname",
  "httpdate",
- "im 12.3.4",
  "lazy_static",
  "libc",
  "log 0.4.11",
@@ -4257,25 +4202,6 @@ name = "siphasher"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b8de496cf83d4ed58b6be86c3a275b8602f6ffe98d3024a869e124147a9a3ac"
-
-[[package]]
-name = "sized-chunks"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882678bcc6f62ef6bb83ce1b7dbbec316f24a2be7f3033acc107d3b11735cb50"
-dependencies = [
- "typenum",
-]
-
-[[package]]
-name = "sized-chunks"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ec31ceca5644fa6d444cc77548b88b67f46db6f7c71683b0f9336e671830d2f"
-dependencies = [
- "bitmaps",
- "typenum",
-]
 
 [[package]]
 name = "slab"
@@ -4913,7 +4839,7 @@ version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f4765f83163b74f957c797ad9253caf97f103fb064d3999aea9568d09fc8a33"
 dependencies = [
- "version_check 0.1.5",
+ "version_check",
 ]
 
 [[package]]
@@ -4922,7 +4848,7 @@ version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41d17211f887da8e4a70a45b9536f26fc5de166b81e2d5d80de4a17fd22553bd"
 dependencies = [
- "version_check 0.1.5",
+ "version_check",
 ]
 
 [[package]]
@@ -5055,12 +4981,6 @@ name = "version_check"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "914b1a6776c4c929a602fafd8bc742e06365d4bcbe48c30f9cca5824f70dc9dd"
-
-[[package]]
-name = "version_check"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a972e5669d67ba988ce3dc826706fb0a8b01471c088cb0b6110b805cc36aed"
 
 [[package]]
 name = "void"
