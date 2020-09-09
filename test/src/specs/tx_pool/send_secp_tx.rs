@@ -1,5 +1,5 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
-use crate::utils::is_committed;
+use crate::util::check::is_transaction_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
@@ -90,18 +90,10 @@ impl Spec for SendSecpTxUseDepGroup {
             .build();
         info!("Send 1 secp tx use dep group");
 
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        node.rpc_client().send_transaction(tx.data().into());
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
@@ -219,23 +211,14 @@ impl Spec for CheckTypical2In2OutTx {
             .build();
 
         info!("Send 1 secp tx use dep group");
-        let tx_hash = node
-            .rpc_client()
+        node.rpc_client()
             .inner()
             .send_transaction(tx.data().into(), None)
             .expect("should pass default outputs validator")
             .pack();
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {:#x}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {

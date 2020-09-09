@@ -1,9 +1,9 @@
+use crate::util::check::is_transaction_committed;
 use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::utils::wait_until;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use ckb_fee_estimator::FeeRate;
-use ckb_jsonrpc_types::Status;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
 
@@ -23,16 +23,12 @@ impl Spec for TransactionRelayLowFeeRate {
 
         info!("Generate new transaction on node1");
         node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        let hash = node1.generate_transaction();
+        let tx = node1.new_transaction_spend_tip_cellbase();
+        node1.submit_transaction(&tx);
+        let hash = tx.hash();
         // confirm tx
         node1.generate_blocks(20);
-        let ret = wait_until(10, || {
-            node1
-                .rpc_client()
-                .get_transaction(hash.clone())
-                .map(|tx_result| tx_result.tx_status.status == Status::Committed)
-                .unwrap_or(false)
-        });
+        let ret = wait_until(10, || is_transaction_committed(node1, &tx));
         assert!(ret, "send tx should success");
         let tx: TransactionView = packed::Transaction::from(
             node1

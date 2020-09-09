@@ -1,5 +1,6 @@
+use crate::util::check::is_transaction_committed;
 use crate::utils::assert_send_transaction_fail;
-use crate::{utils::is_committed, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::core::EpochNumberWithFraction;
 use log::info;
@@ -89,15 +90,7 @@ impl Spec for ReferenceHeaderMaturity {
 
         info!("Tx will be eventually accepted on chain");
         node.generate_blocks(5);
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx.hash())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {}",
-            tx.hash(),
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
