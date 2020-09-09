@@ -19,7 +19,7 @@ p2p = { version="0.3.0", package="tentacle", features = ["molc"] }
 faketime = "0.2.0"
 lazy_static = "1.3.0"
 bs58 = "0.3.0"
-sentry = "0.16.0"
+sentry = "0.17.0"
 faster-hex = "0.4"
 ckb-hash = {path = "../util/hash"}
 secp256k1 = {version = "0.17", features = ["recovery"] }

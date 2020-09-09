@@ -4126,9 +4126,9 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "sentry"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "509c5fbb9e875fafcd9c4612c0e49d476083b848bf87380cfe1126ebc745c140"
+checksum = "fe4ea18f306c959be49f1bea8f3911a454e5d09d2dc43307215729e636bfbf4b"
 dependencies = [
  "backtrace",
  "env_logger",
