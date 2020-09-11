@@ -30,6 +30,7 @@ ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
 serde_json = "1.0"
 tempfile = "3.0.7"
+bloom-filters = "0.1"
 
 [dev-dependencies]
 criterion = "0.3"

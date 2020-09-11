@@ -6,7 +6,7 @@ use crate::peer_store::{
 };
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
-    discovery::DiscoveryProtocol,
+    discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
     ping::PingHandler,
@@ -886,12 +886,12 @@ impl<T: ExitHandler> NetworkService<T> {
         });
 
         // Discovery protocol
-        let disc_network_state = Arc::clone(&network_state);
+        let addr_mgr = DiscoveryAddressManager {
+            network_state: Arc::clone(&network_state),
+            discovery_local_address: config.discovery_local_address,
+        };
         let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-            ProtocolHandle::Both(Box::new(DiscoveryProtocol::new(
-                disc_network_state,
-                config.discovery_local_address,
-            )))
+            ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr)))
         });
 
         // Identify protocol
