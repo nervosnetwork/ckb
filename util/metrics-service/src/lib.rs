@@ -1,12 +1,11 @@
 use std::{net::SocketAddr, time::Duration};
 
 use metrics_core::Observe;
-use metrics_exporter_http::HttpExporter;
-use metrics_exporter_log::LogExporter;
-use metrics_observer_json::JsonBuilder;
-use metrics_observer_prometheus::PrometheusBuilder;
-use metrics_observer_yaml::YamlBuilder;
-use metrics_runtime::Receiver;
+use metrics_runtime::{
+    exporters::{HttpExporter, LogExporter},
+    observers::{JsonBuilder, PrometheusBuilder, YamlBuilder},
+    Receiver,
+};
 use tokio::sync::oneshot;
 
 use ckb_async_runtime::{new_runtime, Builder, Handle};

@@ -81,3 +81,10 @@ jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
+
+[patch.crates-io]
+# Fix RUSTSEC-2020-0041.
+metrics         = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+metrics-runtime = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+metrics-core    = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+sentry      = { git = "https://github.com/nervosnetwork/sentry-rust", tag = "sentry-v0.17.0-patch.1" }

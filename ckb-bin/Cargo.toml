@@ -37,7 +37,7 @@ ckb-verification = { path = "../verification" }
 base64 = "0.10.1"
 tempfile = "3.0"
 rayon = "1.0"
-sentry = "0.16.0"
+sentry = "0.17.0"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]

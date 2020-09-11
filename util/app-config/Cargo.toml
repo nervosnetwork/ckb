@@ -14,7 +14,7 @@ path-clean = "0.1.0"
 ckb-logger = { path = "../../util/logger" }
 ckb-logger-config = { path = "../../util/logger-config" }
 ckb-metrics-config = { path = "../../util/metrics-config" }
-sentry = "0.16.0"
+sentry = "0.17.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}
 ckb-pow = { path = "../../pow" }
