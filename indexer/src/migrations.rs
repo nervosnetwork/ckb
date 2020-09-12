@@ -1,6 +1,6 @@
 use crate::types::LockHashIndex;
 use ckb_db::{Col, Result, RocksDB};
-use ckb_db_migration::Migration;
+use ckb_db_migration::{Migration, ProgressBar};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 
@@ -20,7 +20,7 @@ impl AddFieldsToLiveCell {
 }
 
 impl Migration for AddFieldsToLiveCell {
-    fn migrate(&self, db: RocksDB) -> Result<RocksDB> {
+    fn migrate(&self, db: RocksDB, _pb: Box<dyn FnMut(u64) -> ProgressBar>) -> Result<RocksDB> {
         const COLUMN_LOCK_HASH_LIVE_CELL: Col = "1";
 
         let snapshot = self.shared.snapshot();
