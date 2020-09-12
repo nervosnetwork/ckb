@@ -467,10 +467,6 @@ pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     })
 }
 
-pub fn silent() {
-    log::set_max_level(LevelFilter::Off);
-}
-
 pub fn flush() {
     log::logger().flush()
 }
