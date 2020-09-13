@@ -1,8 +1,10 @@
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::cell::{as_inputs, as_outputs, gen_spendable};
+use crate::util::mining::{mine, };
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
+use ckb_types::core::TransactionBuilder;
 use ckb_types::prelude::*;
 
 pub struct MiningBasic;
@@ -16,9 +18,13 @@ impl Spec for MiningBasic {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine_until_out_bootstrap_period(node);
-
-        let transaction = node.new_transaction_spend_tip_cellbase();
+        let cells = gen_spendable(node, 1);
+        let transaction = TransactionBuilder::default()
+            .inputs(as_inputs(&cells))
+            .outputs(as_outputs(&cells))
+            .outputs_data(cells.iter().map(|_| Default::default()))
+            .cell_dep(node.always_success_cell_dep())
+            .build();
         node.submit_transaction(&transaction);
 
         mine(&node, 1);

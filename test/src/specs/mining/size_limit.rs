@@ -1,8 +1,8 @@
 use crate::generic::GetCommitTxIds;
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::cell::{as_input, as_output, gen_spendable};
+use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_types::prelude::Unpack;
-use log::info;
+use ckb_types::core::TransactionBuilder;
 
 pub struct TemplateSizeLimit;
 
@@ -14,32 +14,28 @@ impl Spec for TemplateSizeLimit {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine_until_out_bootstrap_period(node);
+
+        let cells = gen_spendable(node, 6);
+        let txs: Vec<_> = cells
+            .into_iter()
+            .map(|cell| {
+                TransactionBuilder::default()
+                    .input(as_input(&cell))
+                    .output(as_output(&cell))
+                    .output_data(Default::default())
+                    .cell_dep(node.always_success_cell_dep())
+                    .build()
+            })
+            .collect();
+        let tx_size = txs[0].data().serialized_size_in_block();
 
         // get blank block size
-        let blank_block = node.new_block(None, None, None);
-        node.submit_block(&blank_block);
+        let blank_block = node.new_block(None, Some(0), None);
         let blank_block_size = blank_block.data().serialized_size_without_uncle_proposals();
 
-        // Generate 6 txs
-        let mut txs_hash = Vec::new();
-        let block = node.get_tip_block();
-        let cellbase = &block.transactions()[0];
-        let capacity = cellbase.outputs().get(0).unwrap().capacity().unpack();
-        let tx = node.new_transaction_with_since_capacity(cellbase.hash(), 0, capacity);
-        let tx_size = tx.data().serialized_size_in_block();
-        info!(
-            "blank_block_size: {}, tx_size: {}",
-            blank_block_size, tx_size
-        );
-
-        let mut hash = node.rpc_client().send_transaction(tx.data().into());
-        txs_hash.push(hash.clone());
-
-        (0..5).for_each(|_| {
-            let tx = node.new_transaction_with_since_capacity(hash.clone(), 0, capacity);
-            hash = node.rpc_client().send_transaction(tx.data().into());
-            txs_hash.push(hash.clone());
+        // send transaction adn skip proposal window
+        txs.into_iter().for_each(|tx| {
+            node.submit_transaction(&tx);
         });
 
         // skip proposal window

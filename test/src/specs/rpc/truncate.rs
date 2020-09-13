@@ -1,5 +1,7 @@
+use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::mining::mine;
 use crate::{Node, Spec};
+use ckb_types::core::TransactionBuilder;
 
 pub struct RpcTruncate;
 
@@ -7,19 +9,27 @@ impl Spec for RpcTruncate {
     // After truncating, the chain will be rollback to the target block, and tx-pool be cleared.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine(node, 12);
+
+        let cells = gen_spendable(node, 2);
+        let transactions: Vec<_> = cells
+            .iter()
+            .map(|cell| {
+                TransactionBuilder::default()
+                    .input(as_input(cell))
+                    .output(as_output(cell))
+                    .output_data(Default::default())
+                    .cell_dep(node.always_success_cell_dep())
+                    .build()
+            })
+            .collect();
+        let tx1 = &transactions[0];
+        let _tx2 = &transactions[1];
+
         let to_truncate = node.get_block_by_number(node.get_tip_block_number()).hash();
-        let tx1 = {
-            let tx1 = node.new_transaction_spend_tip_cellbase();
-            node.submit_transaction(&tx1);
-            tx1
-        };
+
+        node.submit_transaction(&transactions[0]);
         mine(node, 3);
-        let _tx2 = {
-            let tx2 = node.new_transaction_spend_tip_cellbase();
-            node.submit_transaction(&tx2);
-            tx2
-        };
+        node.submit_transaction(&transactions[1]);
 
         // tx1 is already committed on chain, tx2 is still in tx-pool.
 

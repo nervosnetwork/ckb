@@ -5,6 +5,7 @@ use ckb_types::packed::{Byte32, CellInput, CellOutput, OutPoint};
 use ckb_types::prelude::*;
 use std::collections::HashMap;
 use std::ops::Range;
+use crate::util::mining::mine;
 
 pub fn gen_spendable(node: &Node, count: usize) -> Vec<CellMeta> {
     // TODO optimize based on `out_of_boostrap_period`
@@ -12,7 +13,7 @@ pub fn gen_spendable(node: &Node, count: usize) -> Vec<CellMeta> {
         let mut spendable = get_spendable(node);
         if count > spendable.len() {
             let gap = count - spendable.len();
-            node.generate_blocks(gap);
+            mine(node, gap as u64);
         } else {
             break spendable.split_off(spendable.len() - count);
         }
