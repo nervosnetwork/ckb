@@ -1,5 +1,6 @@
 use crate::node::waiting_for_sync;
 use crate::util::cell::{as_inputs, as_outputs, gen_spendable};
+use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, wait_until,
@@ -20,7 +21,6 @@ use ckb_types::{
     H256,
 };
 use std::collections::HashSet;
-use crate::util::mining::{mine, out_ibd_mode};
 
 pub struct CompactBlockEmptyParentUnknown;
 
@@ -108,13 +108,7 @@ impl Spec for CompactBlockPrefilled {
         net.connect(node);
 
         let cells = gen_spendable(node, 1);
-        let new_tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
-
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -158,12 +152,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         net.connect(node);
 
         let cells = gen_spendable(node, 1);
-        let new_tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -222,12 +211,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
 
         // Build the target transaction
         let cells = gen_spendable(node, 1);
-        let new_tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -274,12 +258,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node1);
 
         let cells = gen_spendable(node0, 1);
-        let new_tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node0.always_success_cell_dep())
-            .build();
+        let new_tx = always_success_transaction(node0, &cells[0]);
         node0.submit_block(
             &node0
                 .new_block_builder(None, None, None)
@@ -337,12 +316,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         // Proposal a tx, and grow up into proposal window
         let cells = gen_spendable(node, 1);
-        let new_tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)

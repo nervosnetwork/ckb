@@ -1,10 +1,8 @@
 use crate::generic::GetCommitTxIds;
-use crate::util::cell::{as_input, gen_spendable};
-use crate::util::mining::mine;
+use crate::util::cell::gen_spendable;
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::bytes::Bytes;
-use ckb_types::core::TransactionBuilder;
-use ckb_types::packed::CellOutput;
 use ckb_types::prelude::*;
 
 pub struct TemplateTxSelect;
@@ -17,18 +15,7 @@ impl Spec for TemplateTxSelect {
             .iter()
             .zip(vec![501, 501, 501, 501, 300].into_iter())
             .map(|(cell, n)| {
-                let tx = TransactionBuilder::default()
-                    .input(as_input(cell))
-                    .output(
-                        CellOutput::new_builder()
-                            .lock(cell.cell_output.lock())
-                            .type_(cell.cell_output.type_())
-                            .capacity(cell.capacity().pack())
-                            .build(),
-                    )
-                    .output_data(Default::default())
-                    .cell_dep(node.always_success_cell_dep())
-                    .build();
+                let tx = always_success_transaction(node, cell);
                 let original_tx_size = tx.data().serialized_size_in_block();
                 let expect_tx_size = n;
                 let data_size = expect_tx_size - original_tx_size;

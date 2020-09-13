@@ -1,6 +1,6 @@
-use crate::node::{connect_all, waiting_for_sync};
-use crate::util::cell::{as_input, as_inputs, as_output, as_outputs, gen_spendable};
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::node::{connect_all, exit_ibd_mode, waiting_for_sync};
+use crate::util::cell::gen_spendable;
+use crate::util::transaction::{always_success_transaction, always_success_transactions};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -23,12 +23,7 @@ impl Spec for TransactionRelayBasic {
 
         let node1 = &nodes[1];
         let cells = gen_spendable(node1, 1);
-        let transaction = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node1.always_success_cell_dep())
-            .build();
+        let transaction = always_success_transaction(node1, &cells[0]);
         let hash = node1.submit_transaction(&transaction);
 
         let relayed = wait_until(10, || {
@@ -53,17 +48,7 @@ impl Spec for TransactionRelayMultiple {
 
         let node0 = &nodes[0];
         let cells = gen_spendable(node0, 10);
-        let transactions: Vec<_> = cells
-            .iter()
-            .map(|cell| {
-                TransactionBuilder::default()
-                    .input(as_input(cell))
-                    .output(as_output(&cell))
-                    .output_data(Default::default())
-                    .cell_dep(node0.always_success_cell_dep())
-                    .build()
-            })
-            .collect();
+        let transactions = always_success_transactions(node0, &cells);
         transactions.iter().for_each(|tx| {
             node0.submit_transaction(tx);
         });
@@ -195,12 +180,7 @@ impl Spec for TransactionRelayEmptyPeers {
         let node1 = &nodes[1];
 
         let cells = gen_spendable(node0, 1);
-        let transaction = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node0.always_success_cell_dep())
-            .build();
+        let transaction = always_success_transaction(node1, &cells[0]);
 
         // Connect to node1 and then disconnect
         node0.connect(node1);

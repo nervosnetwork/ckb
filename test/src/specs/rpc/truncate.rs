@@ -1,7 +1,6 @@
-use crate::util::cell::{as_input, as_output, gen_spendable};
-use crate::util::mining::mine;
-use crate::{Node, Spec};
-use ckb_types::core::TransactionBuilder;
+use crate::util::cell::gen_spendable;
+use crate::util::transaction::always_success_transactions;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
 pub struct RpcTruncate;
 
@@ -11,17 +10,7 @@ impl Spec for RpcTruncate {
         let node = &nodes[0];
 
         let cells = gen_spendable(node, 2);
-        let transactions: Vec<_> = cells
-            .iter()
-            .map(|cell| {
-                TransactionBuilder::default()
-                    .input(as_input(cell))
-                    .output(as_output(cell))
-                    .output_data(Default::default())
-                    .cell_dep(node.always_success_cell_dep())
-                    .build()
-            })
-            .collect();
+        let transactions = always_success_transactions(node, &cells);
         let tx1 = &transactions[0];
         let _tx2 = &transactions[1];
 

@@ -1,7 +1,8 @@
 use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
-use crate::util::cell::{as_input, as_inputs, as_outputs, gen_spendable};
+use crate::util::cell::{as_input, gen_spendable};
 use crate::util::check::is_transaction_committed;
+use crate::util::transaction::always_success_transaction;
 use crate::util::mining::mine;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
@@ -26,12 +27,7 @@ impl Spec for FeeOfTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let cells = gen_spendable(node, 1);
-        let transaction = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
+        let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
 
         let txs = vec![transaction];
@@ -180,12 +176,7 @@ impl Spec for ProposeButNotCommit {
         let feed_node = &nodes[1];
 
         let cells = gen_spendable(feed_node, 1);
-        let transaction = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(feed_node.always_success_cell_dep())
-            .build();
+        let transaction = always_success_transaction(feed_node, &cells[0]);
         let txs = vec![transaction];
         feed_node.submit_transaction(&txs[0]);
         mine(&feed_node, 1);
@@ -211,12 +202,7 @@ impl Spec for ProposeDuplicated {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let cells = gen_spendable(node, 1);
-        let tx = TransactionBuilder::default()
-            .inputs(as_inputs(&cells))
-            .outputs(as_outputs(&cells))
-            .outputs_data(cells.iter().map(|_| Default::default()))
-            .cell_dep(node.always_success_cell_dep())
-            .build();
+        let tx = always_success_transaction(node, &cells[0]);
         let txs = vec![tx.clone()];
         let tx = &txs[0];
 

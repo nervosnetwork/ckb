@@ -1,8 +1,7 @@
 use crate::generic::GetCommitTxIds;
-use crate::util::cell::{as_input, as_output, gen_spendable};
-use crate::util::mining::mine;
+use crate::util::cell::gen_spendable;
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_types::core::TransactionBuilder;
 
 pub struct TemplateSizeLimit;
 
@@ -17,15 +16,8 @@ impl Spec for TemplateSizeLimit {
 
         let cells = gen_spendable(node, 6);
         let txs: Vec<_> = cells
-            .into_iter()
-            .map(|cell| {
-                TransactionBuilder::default()
-                    .input(as_input(&cell))
-                    .output(as_output(&cell))
-                    .output_data(Default::default())
-                    .cell_dep(node.always_success_cell_dep())
-                    .build()
-            })
+            .iter()
+            .map(|cell| always_success_transaction(node, cell))
             .collect();
         let tx_size = txs[0].data().serialized_size_in_block();
 
