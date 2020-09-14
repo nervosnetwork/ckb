@@ -131,7 +131,7 @@ impl RocksDB {
         self.inner.get_pinned(&key).map_err(internal_error)
     }
 
-    pub fn put<K, V>(&self, key: K, value: V) -> Result<()>
+    pub fn put_default<K, V>(&self, key: K, value: V) -> Result<()>
     where
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,

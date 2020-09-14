@@ -22,6 +22,6 @@ futures = "0.1"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 failure = "0.1.5"
-indicatif = "0.11"
+indicatif = "0.15"
 console = "0.8.0"
 eaglesong = "0.1"
