@@ -23,7 +23,7 @@ pub struct Net {
     controller: Option<(NetworkController, Receiver<NetMessage>)>,
     p2p_port: u16,
     setup: Setup,
-    working_dir: String,
+    working_dir: PathBuf,
     vendor_dir: PathBuf,
 }
 
@@ -36,13 +36,20 @@ impl Net {
         case_name: &str,
     ) -> Self {
         let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
+        let case_working_dir = temp_path(case_name);
         let nodes: Vec<Node> = (0..setup.num_nodes)
             .enumerate()
             .map(|(index, _)| {
                 let node_index = "node".to_owned() + &index.to_string();
                 let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
                 let rpc_port = start_port.fetch_add(1, Ordering::SeqCst);
-                Node::new(binary, p2p_port, rpc_port, case_name, &node_index)
+                Node::new(
+                    binary,
+                    p2p_port,
+                    rpc_port,
+                    case_working_dir.clone(),
+                    &node_index,
+                )
             })
             .collect();
 
@@ -51,12 +58,12 @@ impl Net {
             controller: None,
             p2p_port,
             setup,
-            working_dir: temp_path(case_name, "net"),
+            working_dir: case_working_dir.join("net"),
             vendor_dir,
         }
     }
 
-    pub fn working_dir(&self) -> &str {
+    pub fn working_dir(&self) -> &PathBuf {
         &self.working_dir
     }
 

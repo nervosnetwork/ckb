@@ -128,7 +128,7 @@ impl Worker {
         let node_dirs: Vec<_> = net
             .nodes
             .iter()
-            .map(|node| node.working_dir().to_owned())
+            .map(|node| node.working_dir().display().to_string())
             .collect();
         outbox
             .send(Notify::Start {
