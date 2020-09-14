@@ -11,6 +11,8 @@ edition = "2018"
 ckb-db = { path = "../db" }
 ckb-logger = { path = "../util/logger" }
 ckb-error = { path = "../error" }
+indicatif = "0.15"
+console = "0.12"
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -44,7 +44,6 @@ pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
         if let Some((from, to)) = args.profile {
             profile(shared, chain, from, to);
         } else if args.sanity_check {
-            ckb_logger_service::silent();
             sanity_check(shared, chain, args.full_verfication);
         }
     }
