@@ -38,10 +38,7 @@ impl Spec for CellbaseMaturity {
             "Tx will be added to proposed pool in N + {} block",
             MATURITY
         );
-        (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
-            mine(&node, 1);
-        });
-
+        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
         mine(&node, 1);
         node.assert_tx_pool_size(0, 0);

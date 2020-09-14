@@ -30,11 +30,7 @@ impl Spec for MiningBasic {
         );
 
         // skip (proposal_window.closest - 1) block
-        (0..DEFAULT_TX_PROPOSAL_WINDOW.0 - 1).for_each(|_| {
-            mine(&node, 1);
-        });
-
-        mine(&node, 1);
+        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         let block3 = node.get_tip_block();
 
         assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());

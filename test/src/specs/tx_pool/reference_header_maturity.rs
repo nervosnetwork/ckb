@@ -78,10 +78,7 @@ impl Spec for ReferenceHeaderMaturity {
         node.assert_tx_pool_size(1, 0);
 
         info!("Tx will be added to proposed pool");
-        (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
-            mine(&node, 1);
-        });
-
+        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
         mine(&node, 1);
         node.assert_tx_pool_size(0, 0);
