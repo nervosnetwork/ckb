@@ -26,7 +26,7 @@ use ckb_network::{
     SupportProtocols,
 };
 use ckb_types::core::BlockNumber;
-use ckb_types::{core, packed, prelude::*, u256, U256};
+use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -43,10 +43,6 @@ pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
-
-// 500_000 total difficulty
-const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
-// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 enum FetchCMD {
     Fetch(Vec<PeerIndex>),
@@ -81,12 +77,12 @@ impl BlockFetchCMD {
                         if number != self.number && number % 10000 == 0 {
                             self.number = number;
                             info!(
-                                "best known header number: {}, difficulty: {:#x}, \
-                                 require min header number on 500_000, min difficulty: {:#x}, \
+                                "best known header number: {}, total difficulty: {:#x}, \
+                                 require min header number on 500_000, min total difficulty: {:#x}, \
                                  then start to download block",
                                 number,
                                 best_known.total_difficulty(),
-                                MIN_CHAIN_WORK_500K
+                                self.sync.shared.consensus().min_chain_work
                             );
                         }
                     }
@@ -98,17 +94,14 @@ impl BlockFetchCMD {
     fn can_start(&mut self) -> bool {
         if self.can_start {
             true
-        } else if self.sync.shared.consensus().is_mainnet() {
+        } else {
             self.can_start = self
                 .sync
                 .shared
                 .state()
                 .shared_best_header_ref()
-                .is_better_than(&MIN_CHAIN_WORK_500K);
+                .is_better_than(&self.sync.shared.consensus().min_chain_work);
             self.can_start
-        } else {
-            self.can_start = true;
-            true
         }
     }
 

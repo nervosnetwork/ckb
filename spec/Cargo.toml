@@ -18,4 +18,3 @@ ckb-crypto = { path = "../util/crypto"}
 ckb-hash = { path = "../util/hash"}
 failure = "0.1.5"
 ckb-error = { path = "../error" }
-once_cell = "1.3.1"
