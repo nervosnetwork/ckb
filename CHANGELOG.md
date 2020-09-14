@@ -1,3 +1,9 @@
+# [v0.35.1](https://github.com/nervosnetwork/ckb/compare/v0.35.0...v0.35.1) (2020-09-14)
+
+### Features
+
+* #2276: Improve migration progress display (@zhangsoledad)
+
 # [v0.35.0](https://github.com/nervosnetwork/ckb/compare/v0.34.2...v0.35.0) (2020-08-24)
 
 ### Features
