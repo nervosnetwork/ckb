@@ -1,6 +1,4 @@
-use crate::node::{connect_all, exit_ibd_mode, waiting_for_sync};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_network::SupportProtocols;

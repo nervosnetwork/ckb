@@ -1,5 +1,4 @@
-use crate::node::exit_ibd_mode;
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};

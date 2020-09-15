@@ -1,5 +1,5 @@
 use crate::util::mining::mine;
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::{
     build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
     now_ms, sleep, wait_until,

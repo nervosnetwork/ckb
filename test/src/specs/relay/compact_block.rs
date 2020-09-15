@@ -1,5 +1,5 @@
+use crate::util::mining::out_ibd_mode;
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
-use crate::util::sugar::out_ibd_mode;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, clear_messages, wait_until,

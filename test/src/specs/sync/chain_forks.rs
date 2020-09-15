@@ -1,7 +1,6 @@
-use crate::node::{disconnect_all, exit_ibd_mode, waiting_for_sync};
+use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::is_committed;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;

@@ -1,5 +1,6 @@
 use crate::node::exit_ibd_mode;
 use crate::util::mining::mine;
+use crate::util::mining::out_ibd_mode;
 use crate::util::sugar::out_ibd_mode;
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};

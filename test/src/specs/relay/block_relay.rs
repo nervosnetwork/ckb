@@ -1,12 +1,11 @@
 use crate::node::{connect_all, exit_ibd_mode};
 use crate::util::mining::mine;
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{
     utils::{now_ms, sleep, wait_until},
     TestProtocol,
 };
-use crate::{Net, Spec};
 use crate::{Node, Spec};
 use ckb_types::prelude::*;
 use log::info;

@@ -28,7 +28,7 @@ impl Spec for BootstrapCellbase {
             .build();
 
         let is_bootstrap_cellbase = |number| {
-            let blk: BlockView = node.get_block_by_number(number).into();
+            let blk: BlockView = node.get_block_by_number(number);
             blk.transactions()[0].is_cellbase()
                 && blk.transactions()[0].outputs().as_reader().is_empty()
         };
