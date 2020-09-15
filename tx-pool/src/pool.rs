@@ -15,7 +15,7 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
         error::OutPointError,
-        Capacity, Cycle, TransactionView,
+        Capacity, Cycle, PoolKind, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
@@ -247,6 +247,25 @@ impl TxPool {
             .or_else(|| self.orphan.get_tx(id))
             .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
             .cloned()
+    }
+
+    pub fn get_entry(&self, id: &ProposalShortId) -> Option<(TxEntry, PoolKind)> {
+        self.pending
+            .get(id)
+            .cloned()
+            .map(|entry| (entry, PoolKind::Pending))
+            .or_else(|| {
+                self.gap
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry, PoolKind::Pending))
+            })
+            .or_else(|| {
+                self.proposed
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry, PoolKind::Proposed))
+            })
     }
 
     pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<TransactionView> {

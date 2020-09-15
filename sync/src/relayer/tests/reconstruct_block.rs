@@ -1,7 +1,7 @@
 use super::helper::{build_chain, new_transaction};
 use crate::relayer::ReconstructionResult;
 use crate::StatusCode;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{PoolKind, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     core::{BlockBuilder, Capacity, TransactionView},
@@ -107,7 +107,7 @@ fn test_reconstruct_transactions_and_uncles() {
         .shared
         .shared()
         .tx_pool_controller()
-        .plug_entry(entries, PlugTarget::Pending)
+        .plug_entry(entries, PoolKind::Pending)
         .unwrap();
 
     {

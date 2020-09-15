@@ -5,7 +5,7 @@ use crate::types::InflightBlocks;
 use crate::{Status, StatusCode};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{PoolKind, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -622,9 +622,7 @@ fn test_collision() {
     let parent = {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
         let entry = TxEntry::new(missing_tx, 0, Capacity::shannons(0), 0, vec![]);
-        tx_pool
-            .plug_entry(vec![entry], PlugTarget::Pending)
-            .unwrap();
+        tx_pool.plug_entry(vec![entry], PoolKind::Pending).unwrap();
         relayer.shared.active_chain().tip_header()
     };
 

@@ -3,7 +3,7 @@ use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use crate::{Status, StatusCode};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{PoolKind, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -273,9 +273,7 @@ fn test_collision_and_send_missing_indexes() {
     {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
         let entry = TxEntry::new(tx3.clone(), 0, Capacity::shannons(0), 0, vec![]);
-        tx_pool
-            .plug_entry(vec![entry], PlugTarget::Pending)
-            .unwrap();
+        tx_pool.plug_entry(vec![entry], PoolKind::Pending).unwrap();
     }
 
     let hash = compact_block.header().calc_header_hash();

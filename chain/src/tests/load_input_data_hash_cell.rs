@@ -4,7 +4,7 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_test_chain_utils::load_input_data_hash_cell;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{PoolKind, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -92,7 +92,7 @@ fn test_load_input_data_hash_cell() {
     assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
 
     let entry0 = vec![TxEntry::new(tx0, 0, Capacity::shannons(0), 100, vec![])];
-    tx_pool.plug_entry(entry0, PlugTarget::Proposed).unwrap();
+    tx_pool.plug_entry(entry0, PoolKind::Proposed).unwrap();
 
     // Ensure tx which calls syscall load_cell_data_hash will got reject even previous tx is already in tx-pool
     let ret = tx_pool.submit_txs(vec![tx1]).unwrap();

@@ -37,11 +37,6 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
-pub enum PlugTarget {
-    Pending,
-    Proposed,
-}
-
 pub enum TxStatus {
     Fresh,
     Gap,

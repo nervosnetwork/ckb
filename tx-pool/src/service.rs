@@ -2,7 +2,6 @@ use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
 use crate::error::handle_try_send_error;
 use crate::pool::{TxPool, TxPoolInfo};
-use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
@@ -12,7 +11,7 @@ use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
-    core::{BlockView, Cycle, TransactionView, UncleBlockView, Version},
+    core::{BlockView, Cycle, PoolKind, TransactionView, UncleBlockView, Version},
     packed::ProposalShortId,
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
@@ -82,8 +81,10 @@ pub enum Message {
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
     NewUncle(Notify<UncleBlockView>),
-    PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+    PlugEntry(Request<(Vec<TxEntry>, PoolKind), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
+    GetEntry(Request<ProposalShortId, Option<(TxEntry, PoolKind)>>),
+    // Inspect(Request<ProposalShortId, TxPoolInspect)
 }
 
 #[derive(Clone)]
@@ -186,11 +187,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    pub fn plug_entry(
-        &self,
-        entries: Vec<TxEntry>,
-        target: PlugTarget,
-    ) -> Result<(), FailureError> {
+    pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PoolKind) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((entries, target), responder);
@@ -289,6 +286,20 @@ impl TxPoolController {
         let (responder, response) = oneshot::channel();
         let request = Request::call(new_snapshot, responder);
         sender.try_send(Message::ClearPool(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
+        self.handle.block_on(response).map_err(Into::into)
+    }
+
+    pub fn get_entry(
+        &self,
+        id: ProposalShortId,
+    ) -> Result<Option<(TxEntry, PoolKind)>, FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(id, responder);
+        sender.try_send(Message::GetEntry(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
@@ -518,14 +529,14 @@ async fn process(service: TxPoolService, message: Message) {
         }) => {
             let mut tx_pool = service.tx_pool.write().await;
             match target {
-                PlugTarget::Pending => {
+                PoolKind::Pending => {
                     for entry in entries {
                         if let Err(err) = tx_pool.add_pending(entry) {
                             error!("plug entry error {}", err);
                         }
                     }
                 }
-                PlugTarget::Proposed => {
+                PoolKind::Proposed => {
                     for entry in entries {
                         if let Err(err) = tx_pool.add_proposed(entry) {
                             error!("plug entry error {}", err);
@@ -544,6 +555,16 @@ async fn process(service: TxPoolService, message: Message) {
             service.clear_pool(new_snapshot).await;
             if let Err(e) = responder.send(()) {
                 error!("responder send clear_pool failed {:?}", e)
+            };
+        }
+        Message::GetEntry(Request {
+            responder,
+            arguments: id,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let entry = tx_pool.get_entry(&id);
+            if let Err(e) = responder.send(entry) {
+                error!("responder send get_entry failed {:?}", e);
             };
         }
     }

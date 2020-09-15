@@ -9,7 +9,7 @@ use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{PoolKind, TxEntry};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -338,7 +338,7 @@ fn test_package_basic() {
         TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100, vec![]),
         TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100, vec![]),
     ];
-    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+    tx_pool.plug_entry(entries, PoolKind::Proposed).unwrap();
 
     // 300 size best scored txs
     let block_template = tx_pool
@@ -459,7 +459,7 @@ fn test_package_multi_best_scores() {
         TxEntry::new(tx3_1.clone(), 0, Capacity::shannons(1000), 1000, vec![]),
         TxEntry::new(tx4_1.clone(), 0, Capacity::shannons(300), 250, vec![]),
     ];
-    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+    tx_pool.plug_entry(entries, PoolKind::Proposed).unwrap();
 
     // 250 size best scored txs
     let block_template = tx_pool
@@ -547,7 +547,7 @@ fn test_package_low_fee_decendants() {
         TxEntry::new(tx4.clone(), 0, Capacity::shannons(100), 100, vec![]),
         TxEntry::new(tx5.clone(), 0, Capacity::shannons(100), 100, vec![]),
     ];
-    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+    tx_pool.plug_entry(entries, PoolKind::Proposed).unwrap();
 
     // best scored txs
     let block_template = tx_pool
@@ -596,7 +596,7 @@ fn test_package_txs_lower_than_min_fee_rate() {
         TxEntry::new(tx4, 0, Capacity::shannons(20), 100, vec![]),
         TxEntry::new(tx5, 0, Capacity::shannons(0), 100, vec![]),
     ];
-    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+    tx_pool.plug_entry(entries, PoolKind::Proposed).unwrap();
 
     let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>| {
         assert_eq!(

@@ -11,12 +11,14 @@ mod blockchain;
 mod extras;
 mod reward;
 mod transaction_meta;
+mod tx_pool;
 mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 pub use blockchain::{DepType, ScriptHashType};
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
+pub use tx_pool::PoolKind;
 pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 
 pub use ckb_occupied_capacity::{capacity_bytes, Capacity, Ratio, Result as CapacityResult};

@@ -1,13 +1,13 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_fee_estimator::FeeRate;
-use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolEntry, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_tx_pool::error::Reject;
+use ckb_tx_pool::{error::Reject, TxEntry};
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
@@ -32,6 +32,12 @@ pub trait PoolRpc {
     // curl -d '{"params": [], "method": "clear_tx_pool", "jsonrpc": "2.0", "id": 2}' -H 'content-type:application/json' http://localhost:8114
     #[rpc(name = "clear_tx_pool")]
     fn clear_tx_pool(&self) -> Result<()>;
+
+    // #[rpc(name = "get_raw_tx_pool")]
+    // fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
+
+    #[rpc(name = "get_tx_pool_entry")]
+    fn get_tx_pool_entry(&self, _hash: H256) -> Result<Option<TxPoolEntry>>;
 }
 
 pub(crate) struct PoolRpcImpl {
@@ -160,6 +166,16 @@ impl PoolRpc for PoolRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())
+    }
+
+    fn get_tx_pool_entry(&self, hash: H256) -> Result<Option<TxPoolEntry>> {
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_id = hash.pack();
+        let id = packed::ProposalShortId::from_tx_hash(&tx_id);
+        tx_pool
+            .get_entry(id)
+            .map(|ret| ret.map(|(entry, kind)| convert_tx_pool_entry(entry, kind)))
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))
     }
 }
 
@@ -297,6 +313,20 @@ fn extract_since_from_secp256k1_blake160_multisig_all_args(script: &packed::Scri
             .try_into()
             .expect("checked len"),
     ))
+}
+
+fn convert_tx_pool_entry(raw: TxEntry, kind: core::PoolKind) -> TxPoolEntry {
+    TxPoolEntry {
+        pool: kind.into(),
+        cycles: raw.cycles.into(),
+        size_in_block: (raw.size as u64).into(),
+        fees: raw.fee.into(),
+        ancestors_size: (raw.ancestors_size as u64).into(),
+        ancestors_fee: raw.ancestors_fee.into(),
+        ancestors_cycles: raw.ancestors_cycles.into(),
+        ancestors_count: (raw.ancestors_count as u64).into(),
+        witness_hash: raw.transaction.witness_hash().unpack(),
+    }
 }
 
 #[cfg(test)]
