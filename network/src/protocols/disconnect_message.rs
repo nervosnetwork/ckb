@@ -5,8 +5,17 @@ use p2p::{
     traits::ServiceProtocol,
 };
 
+use crate::NetworkState;
+use std::sync::Arc;
+
 // A protocol for just receive string message and log it use debug level.
-pub(crate) struct DisconnectMessageProtocol;
+pub(crate) struct DisconnectMessageProtocol(Arc<NetworkState>);
+
+impl DisconnectMessageProtocol {
+    pub(crate) fn new(network_state: Arc<NetworkState>) -> Self {
+        DisconnectMessageProtocol(network_state)
+    }
+}
 
 impl ServiceProtocol for DisconnectMessageProtocol {
     fn init(&mut self, _context: &mut ProtocolContext) {}
@@ -30,11 +39,16 @@ impl ServiceProtocol for DisconnectMessageProtocol {
         }
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
+    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         debug!(
             "DisconnectMessageProtocol connected, peer={}",
             context.session.id
         );
+        self.0.with_peer_registry_mut(|reg| {
+            reg.get_peer_mut(context.session.id).map(|peer| {
+                peer.protocols.insert(context.proto_id, version.to_owned());
+            })
+        });
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -42,5 +56,10 @@ impl ServiceProtocol for DisconnectMessageProtocol {
             "DisconnectMessageProtocol disconnected, peer={}",
             context.session.id
         );
+        self.0.with_peer_registry_mut(|reg| {
+            let _ = reg.get_peer_mut(context.session.id).map(|peer| {
+                peer.protocols.remove(&context.proto_id);
+            });
+        });
     }
 }
