@@ -51,6 +51,7 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
     *   [`set_network_active`](#set_network_active)
     *   [`add_node`](#add_node)
     *   [`remove_node`](#remove_node)
+    *   [`ping_peers`](#ping_peers)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -2288,6 +2289,33 @@ echo '{
     "params": [
         "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
     ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `ping_peers`
+
+Requests that a ping be sent to all connected peers, to measure ping time. Results provided in get_peers rpc last_ping_duration field is milliseconds.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "ping_peers",
+    "params": []
 }' \
 | tr -d '\n' \
 | curl -H 'content-type: application/json' -d @- \

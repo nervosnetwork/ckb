@@ -53,6 +53,9 @@ pub trait NetworkRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"remove_node","params": ["QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "remove_node")]
     fn remove_node(&self, peer_id: String) -> Result<()>;
+
+    #[rpc(name = "ping_peers")]
+    fn ping_peers(&self) -> Result<()>;
 }
 
 pub(crate) struct NetworkRpcImpl {
@@ -271,6 +274,11 @@ impl NetworkRpc for NetworkRpcImpl {
     fn remove_node(&self, peer_id: String) -> Result<()> {
         self.network_controller
             .remove_node(&peer_id.parse().expect("invalid peer_id"));
+        Ok(())
+    }
+
+    fn ping_peers(&self) -> Result<()> {
+        self.network_controller.ping_peers();
         Ok(())
     }
 }

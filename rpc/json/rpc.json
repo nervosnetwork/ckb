@@ -704,6 +704,14 @@
         ]
     },
     {
+        "description": "Requests that a ping be sent to all connected peers, to measure ping time. Results provided in get_peers rpc last_ping_duration field is milliseconds.",
+        "method": "ping_peers",
+        "module": "net",
+        "params": [],
+        "result": null,
+        "skip": true
+    },
+    {
         "description": "Return state info of blockchain",
         "method": "get_blockchain_info",
         "module": "stats",
