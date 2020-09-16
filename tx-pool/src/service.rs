@@ -6,6 +6,7 @@ use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::{new_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_debug_console_common::Request as ConsoleRequest;
 use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
@@ -91,6 +92,7 @@ pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
     handle: Handle,
     stop: StopHandler<()>,
+    debug_console_sender: mpsc::Sender<ConsoleRequest>,
 }
 
 impl Drop for TxPoolController {
@@ -102,6 +104,10 @@ impl Drop for TxPoolController {
 impl TxPoolController {
     pub fn handle(&self) -> &Handle {
         &self.handle
+    }
+
+    pub fn debug_console_sender(&self) -> mpsc::Sender<ConsoleRequest> {
+        self.debug_console_sender.clone()
     }
 
     pub fn get_block_template(
@@ -327,12 +333,17 @@ impl TxPoolServiceBuilder {
 
     pub fn start(mut self) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (console_sender, mut console_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
 
         let service = self.service.take().expect("tx pool service start once");
         let server = move |handle: Handle| async move {
             loop {
                 tokio::select! {
+                    Some(request) = console_receiver.recv() => {
+                        let service_clone = service.clone();
+                        handle.spawn(crate::debug_console::process(service_clone, request));
+                    }
                     Some(message) = receiver.recv() => {
                         let service_clone = service.clone();
                         handle.spawn(process(service_clone, message));
@@ -348,6 +359,7 @@ impl TxPoolServiceBuilder {
             sender,
             handle,
             stop,
+            debug_console_sender: console_sender,
         }
     }
 }
@@ -357,7 +369,7 @@ pub struct TxPoolService {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
-    pub(crate) block_assembler: Option<BlockAssembler>,
+    pub(crate) block_assembler: Arc<RwLock<Option<BlockAssembler>>>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
@@ -377,7 +389,7 @@ impl TxPoolService {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             consensus,
             tx_pool_config,
-            block_assembler,
+            block_assembler: Arc::new(RwLock::new(block_assembler)),
             txs_verify_cache,
             last_txs_updated_at,
             snapshot_mgr,
@@ -504,8 +516,8 @@ async fn process(service: TxPoolService, message: Message) {
                 .await
         }
         Message::NewUncle(Notify { arguments: uncle }) => {
-            if service.block_assembler.is_some() {
-                let block_assembler = service.block_assembler.clone().unwrap();
+            if service.block_assembler.read().await.is_some() {
+                let block_assembler = service.block_assembler.read().await.clone().unwrap();
                 block_assembler.candidate_uncles.lock().await.insert(uncle);
                 block_assembler
                     .last_uncles_updated_at

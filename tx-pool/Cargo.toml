@@ -9,7 +9,8 @@ edition = "2018"
 
 [dependencies]
 ckb-types = { path = "../util/types" }
-ckb-logger = {path = "../util/logger"}
+ckb-logger = {path = "../util/logger" }
+ckb-debug-console-common = {path = "../util/debug-console-common" }
 ckb-verification = { path = "../verification" }
 failure = "0.1.5"
 faketime = "0.2"

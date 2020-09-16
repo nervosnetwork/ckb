@@ -15,6 +15,8 @@ mod proposal_short_id;
 mod sync;
 mod uints;
 
+pub extern crate serde_json;
+
 pub use self::alert::{Alert, AlertMessage};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,

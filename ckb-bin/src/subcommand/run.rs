@@ -158,6 +158,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
+    ckb_debug_console::register(
+        "tx-pool",
+        shared.tx_pool_controller().debug_console_sender(),
+    );
+
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
         exit_handler_clone.notify_exit();

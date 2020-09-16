@@ -263,14 +263,17 @@ impl TxPoolService {
         max_version: Option<Version>,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplate, FailureError> {
-        if self.block_assembler.is_none() && block_assembler_config.is_none() {
+        if self.block_assembler.read().await.is_none() && block_assembler_config.is_none() {
             Err(InternalErrorKind::Config
                 .reason("BlockAssembler disabled")
                 .into())
         } else {
-            let block_assembler = block_assembler_config
-                .map(BlockAssembler::new)
-                .unwrap_or_else(|| self.block_assembler.clone().unwrap());
+            let block_assembler = if let Some(ba) = block_assembler_config.map(BlockAssembler::new)
+            {
+                ba
+            } else {
+                self.block_assembler.read().await.clone().unwrap()
+            };
             let snapshot = self.snapshot();
             let consensus = snapshot.consensus();
             let cycles_limit = consensus.max_block_cycles();

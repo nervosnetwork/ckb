@@ -1,5 +1,6 @@
 mod block_assembler;
 mod component;
+pub(crate) mod debug_console;
 pub mod error;
 pub mod pool;
 mod process;

@@ -1160,6 +1160,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-dao",
+ "ckb-debug-console-common",
  "ckb-error",
  "ckb-fee-estimator",
  "ckb-jsonrpc-types",
