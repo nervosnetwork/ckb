@@ -9,6 +9,7 @@ use ckb_dao::DaoCalculator;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, info};
+use ckb_notify::PoolTransactionEntry;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -412,7 +413,7 @@ impl TxPoolService {
 
             let related_dep_out_points = rtx.related_dep_out_points();
             let entry = TxEntry::new(
-                rtx.transaction,
+                rtx.transaction.clone(),
                 cache_entry.cycles,
                 fee,
                 tx_size,
@@ -424,6 +425,14 @@ impl TxPoolService {
                 TxStatus::Proposed => tx_pool.add_proposed(entry)?,
             };
             if inserted {
+                let notify_tx_entry = PoolTransactionEntry {
+                    transaction: rtx.transaction,
+                    cycles: cache_entry.cycles,
+                    size: tx_size,
+                    fee,
+                };
+                self.notify_controller
+                    .notify_new_transaction(notify_tx_entry);
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }

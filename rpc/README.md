@@ -2552,7 +2552,7 @@ Subscribe to a topic, if successful it returns the subscription id. For each eve
 
 #### Parameters
 
-* topic - Subscription topic (enum: new_tip_header | new_tip_block)
+* topic - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction)
 #### Returns
 
 * id - Subscription id
