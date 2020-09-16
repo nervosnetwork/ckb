@@ -15,8 +15,9 @@ use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
 };
+use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
 use ckb_logger::{debug, error, info, trace, warn};
@@ -25,14 +26,18 @@ use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
     SupportProtocols,
 };
-use ckb_types::core::BlockNumber;
-use ckb_types::{core, packed, prelude::*};
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed::{self, Byte32},
+    prelude::*,
+};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use std::collections::HashSet;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    sync::{atomic::Ordering, Arc},
+    time::{Duration, Instant},
+};
 
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
 pub const IBD_BLOCK_FETCH_TOKEN: u64 = 1;
@@ -43,6 +48,28 @@ pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
+
+bitflags! {
+    struct CanStart: u32 {
+        const READY = 0b00000000;
+        const MIN_WORK_NOT_REACH = 0b00000001;
+        const ASSUME_VALID_NOT_FIND = 0b00000010;
+    }
+}
+
+impl CanStart {
+    fn is_ready(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn is_min_work_not_reach(&self) -> bool {
+        self.contains(CanStart::MIN_WORK_NOT_REACH)
+    }
+
+    fn is_assume_valid_not_find(&self) -> bool {
+        self.contains(CanStart::ASSUME_VALID_NOT_FIND)
+    }
+}
 
 enum FetchCMD {
     Fetch(Vec<PeerIndex>),
@@ -61,7 +88,8 @@ impl BlockFetchCMD {
         while let Ok(cmd) = self.recv.recv() {
             match cmd {
                 FetchCMD::Fetch(peers) => {
-                    if self.can_start() {
+                    let flag = self.can_start();
+                    if flag.is_ready() {
                         for peer in peers {
                             if let Some(fetch) =
                                 BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
@@ -71,7 +99,7 @@ impl BlockFetchCMD {
                                 }
                             }
                         }
-                    } else {
+                    } else if flag.is_min_work_not_reach() {
                         let best_known = self.sync.shared.state().shared_best_header_ref();
                         let number = best_known.number();
                         if number != self.number && (number - self.number) % 10000 == 0 {
@@ -85,23 +113,80 @@ impl BlockFetchCMD {
                                 self.sync.shared.consensus().min_chain_work
                             );
                         }
+                    } else if flag.is_assume_valid_not_find() {
+                        let state = self.sync.shared.state();
+                        let best_known = state.shared_best_header_ref();
+                        let number = best_known.number();
+                        let assume_valid_target: Byte32 = state
+                            .assume_valid_target()
+                            .as_ref()
+                            .map(Pack::pack)
+                            .expect("assume valid target must exist");
+
+                        if number != self.number && number % 10000 == 0 {
+                            self.number = number;
+                            info!(
+                                "best known header number: {}, hash: {:#?}, \
+                                 can't find assume valid target temporarily, hash: {:#?} \
+                                 please wait",
+                                number,
+                                best_known.hash(),
+                                assume_valid_target
+                            );
+                        }
                     }
                 }
             }
         }
     }
 
-    fn can_start(&mut self) -> bool {
+    fn can_start(&mut self) -> CanStart {
         if self.can_start {
-            true
+            CanStart::READY
         } else {
-            self.can_start = self
-                .sync
-                .shared
-                .state()
+            let mut can_start = CanStart::ASSUME_VALID_NOT_FIND | CanStart::MIN_WORK_NOT_REACH;
+            let state = self.sync.shared.state();
+            if state
                 .shared_best_header_ref()
-                .is_better_than(&self.sync.shared.consensus().min_chain_work);
-            self.can_start
+                .is_better_than(&self.sync.shared.consensus().min_chain_work)
+            {
+                can_start.remove(CanStart::MIN_WORK_NOT_REACH)
+            }
+
+            {
+                let mut assume_valid_target = state.assume_valid_target();
+                if let Some(ref target) = *assume_valid_target {
+                    match state.header_map().get(&target.pack()) {
+                        Some(header) => {
+                            can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
+                            // Blocks that are no longer in the scope of ibd must be forced to verify
+                            if unix_time_as_millis().saturating_sub(header.timestamp())
+                                < MAX_TIP_AGE
+                            {
+                                assume_valid_target.take();
+                            }
+                        }
+                        None => {
+                            // Best known already not in the scope of ibd, it means target is invalid
+                            if unix_time_as_millis()
+                                .saturating_sub(state.shared_best_header_ref().timestamp())
+                                < MAX_TIP_AGE
+                            {
+                                can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
+                                assume_valid_target.take();
+                            }
+                        }
+                    }
+                } else {
+                    can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
+                }
+            }
+
+            if can_start.is_ready() {
+                self.can_start = true;
+            }
+
+            can_start
         }
     }
 

@@ -8,7 +8,7 @@ use crate::{
     TIME_TRACE_SIZE,
 };
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::ChainController;
+use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error, trace};
 use ckb_metrics::{metrics, Timer};
@@ -19,7 +19,7 @@ use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    H256, U256,
 };
 use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashSet;
@@ -1181,13 +1181,18 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
-    /// TODO(doc): @driftluo
+    // only use on test
     pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, None)
     }
 
     /// TODO(doc): @driftluo
-    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
+    pub fn with_tmpdir<P>(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tmpdir: Option<P>,
+        assume_valid_target: Option<H256>,
+    ) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1224,6 +1229,7 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_hashes: Mutex::new(HashMap::default()),
+            assume_valid_target: Mutex::new(assume_valid_target),
         };
 
         SyncShared {
@@ -1328,7 +1334,22 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
-        let ret = chain.process_block(Arc::clone(&block));
+        let ret = {
+            let mut assume_valid_target = self.state.assume_valid_target();
+            if let Some(ref target) = *assume_valid_target {
+                // if the target has been reached, delete it
+                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                    assume_valid_target.take();
+                    Switch::NONE
+                } else {
+                    Switch::DISABLE_SCRIPT
+                };
+
+                chain.internal_process_block(Arc::clone(&block), switch)
+            } else {
+                chain.process_block(Arc::clone(&block))
+            }
+        };
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
             self.state
@@ -1475,9 +1496,14 @@ pub struct SyncState {
 
     /* cached for sending bulk */
     tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
+    assume_valid_target: Mutex<Option<H256>>,
 }
 
 impl SyncState {
+    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
+        self.assume_valid_target.lock()
+    }
+
     pub fn n_sync_started(&self) -> &AtomicUsize {
         &self.n_sync_started
     }
@@ -1539,6 +1565,10 @@ impl SyncState {
 
     pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderView> {
         self.shared_best_header.read()
+    }
+
+    pub fn header_map(&self) -> &HeaderMap {
+        &self.header_map
     }
 
     pub fn may_set_shared_best_header(&self, header: HeaderView) {

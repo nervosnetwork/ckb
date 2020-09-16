@@ -16,8 +16,9 @@ pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_types::H256;
 use clap::{value_t, ArgMatches, ErrorKind};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 /// TODO(doc): @doitian
 pub struct Setup {
@@ -56,6 +57,10 @@ impl Setup {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
         let config = self.config.into_ckb()?;
+        let assume_valid_target = matches.value_of(cli::ARG_ASSUME_VALID_TARGET).map(|s| {
+            let (_, r) = s.split_at(2);
+            H256::from_str(r).expect("assume valid target is invalid data")
+        });
 
         Ok(RunArgs {
             config,
@@ -63,6 +68,7 @@ impl Setup {
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
             skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
             chain_spec_hash,
+            assume_valid_target,
         })
     }
 

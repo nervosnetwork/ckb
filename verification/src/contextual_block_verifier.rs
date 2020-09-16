@@ -46,6 +46,7 @@ pub trait Switch {
     fn disable_daoheader(&self) -> bool;
     /// TODO(doc): @zhangsoledad
     fn disable_reward(&self) -> bool;
+    fn disable_script(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
@@ -386,6 +387,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         &self,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         handle: &Handle,
+        skip_vm_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let keys: Vec<Byte32> = self
             .resolved
@@ -429,7 +431,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.context.consensus,
                         self.context.store,
                     )
-                    .verify(self.context.consensus.max_block_cycles())
+                    .verify(self.context.consensus.max_block_cycles(), skip_vm_verify)
                     .map_err(|error| {
                         BlockTransactionsError {
                             index: index as u32,
@@ -575,6 +577,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             parent_hash,
             resolved,
         )
-        .verify(txs_verify_cache, handle)
+        .verify(txs_verify_cache, handle, switch.disable_script())
     }
 }

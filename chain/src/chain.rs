@@ -19,10 +19,10 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
     U256,
 };
-use ckb_verification::InvalidParentError;
 use ckb_verification::{
     BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
 };
+use ckb_verification::{InvalidParentError, Switch as _};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -403,6 +403,7 @@ impl ChainService {
             }
 
             self.rollback(&fork, &db_txn)?;
+
             // update and verify chain root
             // MUST update index before reconcile_main_chain
             self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
@@ -742,7 +743,7 @@ impl ChainService {
                                     mut_ext.verified = Some(true);
                                     mut_ext.txs_fees = txs_fees;
                                     txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
-                                    if b.transactions().len() > 1 {
+                                    if !switch.disable_script() && b.transactions().len() > 1 {
                                         info!(
                                             "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
                                             b.number(),
