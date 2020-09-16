@@ -2752,8 +2752,9 @@ dependencies = [
 
 [[package]]
 name = "merkle-cbt"
-version = "0.2.2"
-source = "git+https://github.com/nervosnetwork/merkle-tree?branch=quake/tree-verify-proof#8a6a8d9a34e699c5dc41d90571546481248b7c3e"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f1ac8428ec02d6caa5a79c15e851d84d5dc7a00df0429a8aa860d104f0a81be"
 dependencies = [
  "cfg-if",
 ]
