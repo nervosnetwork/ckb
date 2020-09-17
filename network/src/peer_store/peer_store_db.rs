@@ -93,12 +93,11 @@ impl PeerStore {
     pub fn dump_to_dir<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
         // create dir
         create_dir_all(&path)?;
-        // dump file to temp dir
-        let tmp_dir = tempfile::tempdir()?;
-        // make sure temp dir exists
-        create_dir_all(tmp_dir.path())?;
-        let tmp_addr_manager = tmp_dir.path().join(DEFAULT_ADDR_MANAGER_DB);
-        let tmp_ban_list = tmp_dir.path().join(DEFAULT_BAN_LIST_DB);
+        // dump file to a temporary sub-directory
+        let tmp_dir = path.as_ref().join("tmp");
+        create_dir_all(&tmp_dir)?;
+        let tmp_addr_manager = tmp_dir.join(DEFAULT_ADDR_MANAGER_DB);
+        let tmp_ban_list = tmp_dir.join(DEFAULT_BAN_LIST_DB);
         self.addr_manager().dump(
             OpenOptions::new()
                 .write(true)

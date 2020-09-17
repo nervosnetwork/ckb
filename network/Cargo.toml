@@ -29,10 +29,10 @@ snap = "1"
 ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
 serde_json = "1.0"
-tempfile = "3.0.7"
 bloom-filters = "0.1"
 
 [dev-dependencies]
+tempfile = "3.0"
 criterion = "0.3"
 proptest = "0.9"
 
