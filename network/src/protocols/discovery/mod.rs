@@ -183,7 +183,13 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                     .collect::<Vec<_>>();
 
                                 state.addr_known.extend(addrs.iter());
-                                state.received_nodes = true;
+                                // Non-announce nodes can only receive once
+                                // Due to the uncertainty of the other party’s state,
+                                // the announce node may be sent out first, and it must be
+                                // determined to be Non-announce before the state can be changed
+                                if !nodes.announce {
+                                    state.received_nodes = true;
+                                }
                                 self.addr_mgr.add_new_addrs(session.id, addrs);
                             }
                         }
