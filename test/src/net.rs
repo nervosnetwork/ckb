@@ -1,118 +1,91 @@
-use crate::specs::TestProtocol;
-use crate::utils::{temp_path, wait_until};
-use crate::{Node, Setup};
+use crate::global::VENDOR_PATH;
+use crate::utils::{find_available_port, temp_path, wait_until};
+use crate::Node;
 use ckb_app_config::NetworkConfig;
+use ckb_chain_spec::consensus::Consensus;
+
 use ckb_channel::{self as channel, Receiver, RecvTimeoutError, Sender};
 use ckb_network::{
     bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
-    NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
+    NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId, SupportProtocols,
 };
-use ckb_types::core::{BlockNumber, BlockView};
-use std::collections::HashSet;
+
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicU16, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
 pub struct Net {
-    pub nodes: Vec<Node>,
-    controller: Option<(NetworkController, Receiver<NetMessage>)>,
+    consensus: Consensus,
+    protocols: Vec<SupportProtocols>,
     p2p_port: u16,
-    setup: Setup,
-    working_dir: PathBuf,
-    vendor_dir: PathBuf,
+    working_dir: String,
+    controller: Option<(NetworkController, Receiver<NetMessage>)>,
 }
 
 impl Net {
-    pub fn new(
-        binary: &str,
-        start_port: Arc<AtomicU16>,
-        vendor_dir: PathBuf,
-        setup: Setup,
-        case_name: &str,
-    ) -> Self {
-        let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
-        let case_working_dir = temp_path(case_name);
-        let nodes: Vec<Node> = (0..setup.num_nodes)
-            .enumerate()
-            .map(|(index, _)| {
-                let node_index = "node".to_owned() + &index.to_string();
-                let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
-                let rpc_port = start_port.fetch_add(1, Ordering::SeqCst);
-                Node::new(
-                    binary,
-                    p2p_port,
-                    rpc_port,
-                    case_working_dir.clone(),
-                    &node_index,
-                )
-            })
-            .collect();
-
+    pub fn new(spec_name: &str, consensus: Consensus, protocols: Vec<SupportProtocols>) -> Self {
+        assert!(
+            !protocols.is_empty(),
+            "Net cannot initialize with empty protocols"
+        );
+        let p2p_port = find_available_port();
+        let working_dir = temp_path(spec_name, "net");
         Self {
-            nodes,
-            controller: None,
+            consensus,
+            protocols,
             p2p_port,
-            setup,
-            working_dir: case_working_dir.join("net"),
-            vendor_dir,
+            working_dir,
+            controller: None,
         }
     }
 
-    pub fn working_dir(&self) -> &PathBuf {
+    pub fn working_dir(&self) -> &str {
         &self.working_dir
     }
 
-    pub fn vendor_dir(&self) -> &PathBuf {
-        &self.vendor_dir
+    pub fn vendor_dir(&self) -> PathBuf {
+        let vendor_path = VENDOR_PATH.lock();
+        (*vendor_path).clone()
     }
 
-    fn num_nodes(&self) -> u32 {
-        self.setup.num_nodes as u32
+    pub fn p2p_listen(&self) -> String {
+        format!("/ip4/127.0.0.1/tcp/{}", self.p2p_port)
+    }
+
+    pub fn p2p_address(&self) -> String {
+        format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            self.p2p_port,
+            self.node_id()
+        )
     }
 
     pub fn node_id(&self) -> String {
-        self.controller
-            .as_ref()
-            .map(|(control, _)| control.node_id())
-            .expect("uninitialized controller")
-    }
-
-    pub fn p2p_port(&self) -> u16 {
-        self.p2p_port
-    }
-
-    fn test_protocols(&self) -> &[TestProtocol] {
-        &self.setup.protocols
+        if self.controller.is_none() {
+            self.init_controller()
+        }
+        self.controller().0.node_id()
     }
 
     pub fn controller(&self) -> &(NetworkController, Receiver<NetMessage>) {
         self.controller.as_ref().expect("uninitialized controller")
     }
 
-    pub fn init_controller(&self, node: &Node) {
-        assert!(
-            !self.test_protocols().is_empty(),
-            "Net cannot connect the node with empty setup::test_protocols"
-        );
+    fn init_controller(&self) {
         assert!(self.controller.is_none());
 
         let (tx, rx) = channel::unbounded();
         let config = NetworkConfig {
-            listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.p2p_port())
-                .parse()
-                .expect("invalid address")],
+            listen_addresses: vec![self.p2p_listen().parse().expect("invalid address")],
             public_addresses: vec![],
             bootnodes: vec![],
             dns_seeds: vec![],
             whitelist_peers: vec![],
             whitelist_only: false,
-            max_peers: self.num_nodes(),
-            max_outbound_peers: self.num_nodes(),
+            max_peers: 128,
+            max_outbound_peers: 128,
             path: self.working_dir().into(),
             ping_interval_secs: 15,
             ping_timeout_secs: 20,
@@ -126,30 +99,23 @@ impl Net {
 
         let network_state =
             Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
-
         let protocols = self
-            .test_protocols()
+            .protocols
             .iter()
-            .cloned()
             .map(|tp| {
-                CKBProtocol::new(
-                    tp.protocol_name,
-                    tp.id,
-                    &tp.supported_versions,
-                    1024 * 1024,
+                CKBProtocol::new_with_support_protocol(
+                    tp.clone(),
                     Box::new(DummyProtocolHandler { tx: tx.clone() }),
                     Arc::clone(&network_state),
-                    Default::default(),
                 )
             })
             .collect();
-
         let controller = Some((
             NetworkService::new(
                 Arc::clone(&network_state),
                 protocols,
                 Vec::new(),
-                node.consensus().identify_name(),
+                self.consensus.identify_name(),
                 "0.1.0".to_string(),
                 DefaultExitHandler::default(),
             )
@@ -166,75 +132,27 @@ impl Net {
 
     pub fn connect(&self, node: &Node) {
         if self.controller.is_none() {
-            self.init_controller(node);
+            self.init_controller();
         }
-
-        let node_info = node.rpc_client().local_node_info();
-        self.controller.as_ref().unwrap().0.add_node(
-            &node_info.node_id.parse().expect("invalid peer_id"),
-            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port())
-                .parse()
-                .expect("invalid address"),
+        self.controller().0.add_node(
+            &node.node_id().parse().unwrap(),
+            node.p2p_address().parse().unwrap(),
         );
     }
 
-    pub fn connect_all(&self) {
-        self.nodes
-            .windows(2)
-            .for_each(|nodes| nodes[0].connect(&nodes[1]));
-    }
-
-    pub fn disconnect_all(&self) {
-        self.nodes.iter().for_each(|node_a| {
-            self.nodes.iter().for_each(|node_b| {
-                if node_a.node_id() != node_b.node_id() {
-                    node_a.disconnect(node_b)
-                }
-            })
-        });
-    }
-
-    // generate a same block on all nodes, exit IBD mode and return the tip block
-    pub fn exit_ibd_mode(&self) -> BlockView {
-        let block = self.nodes[0].new_block(None, None, None);
-        self.nodes.iter().for_each(|node| {
-            node.submit_block(&block);
-        });
-        block
-    }
-
-    pub fn waiting_for_sync(&self, target: BlockNumber) {
-        let rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
-        let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
-        // 60 seconds is a reasonable timeout to sync, even for poor CI server
-        let result = wait_until(60, || {
-            tip_numbers = rpc_clients
-                .iter()
-                .map(|rpc_client| rpc_client.get_tip_block_number())
-                .collect();
-            tip_numbers.len() == 1 && tip_numbers.iter().next().cloned().unwrap() == target
-        });
-
-        if !result {
-            panic!("timeout to wait for sync, tip_numbers: {:?}", tip_numbers);
-        }
-    }
-
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
-        self.controller
-            .as_ref()
-            .unwrap()
+        self.controller()
             .0
             .send_message_to(peer, protocol_id, data)
             .expect("Send message to p2p network failed");
     }
 
     pub fn receive(&self) -> NetMessage {
-        self.controller.as_ref().unwrap().1.recv().unwrap()
+        self.controller().1.recv().unwrap()
     }
 
     pub fn receive_timeout(&self, timeout: Duration) -> Result<NetMessage, RecvTimeoutError> {
-        self.controller.as_ref().unwrap().1.recv_timeout(timeout)
+        self.controller().1.recv_timeout(timeout)
     }
 
     pub fn should_receive<F>(&self, f: F, message: &str) -> PeerIndex
