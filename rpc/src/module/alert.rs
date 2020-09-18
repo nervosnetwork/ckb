@@ -21,6 +21,12 @@ pub trait AlertRpc {
     ///
     /// This RPC returns `null` on success.
     ///
+    /// ## Errors
+    ///
+    /// * [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
+    /// * [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
+    /// * `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
+    ///
     /// ## Examples
     ///
     /// Request

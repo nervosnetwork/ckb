@@ -181,6 +181,11 @@ pub trait ChainRpc {
     /// When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
     /// encodes the block serialized by molecule using schema `table Block`.
     ///
+    /// ## Errors
+    ///
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
+    /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
+    ///
     /// ## Examples
     ///
     /// Request
@@ -373,6 +378,10 @@ pub trait ChainRpc {
     ///
     /// When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
     /// encodes the block header serialized by molecule using schema `table Header`.
+    ///
+    /// ## Errors
+    ///
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
     ///
     /// ## Examples
     ///
@@ -640,6 +649,11 @@ pub trait ChainRpc {
     /// * `from` - Start block number
     /// * `to` - End block number. This RPC restricts that `to` is greater than `from` and `to
     /// - from < 100`.
+    ///
+    /// ## Errors
+    ///
+    /// * `InvalidParams (-32602)` - Expected parameters that `from <= to` and `to - from <= 100`.
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
     ///
     /// ## Examples
     ///

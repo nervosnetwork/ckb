@@ -39,6 +39,8 @@
 //! * `outputs_validator: Option<OutputsValidator>` - The second param. The `Option` shows that this argument is optional. The document for `OutputsValidator` shows that `outputs_validator` is an enum type which possible values include "default" and "passthrough".
 //! * `-> Result<H256>` - The type inside the `Result` after `->` is the response type. In this example, it is `H256` which is a 32-bytes binary encoded as a hex string.
 //!
+//! The RPC errors are documented in [`RPCError`](../enum.RPCError.html).
+//!
 //! ## JSONRPC Deprecation Process
 //!
 //! A CKB RPC method is deprecated in three steps.

@@ -138,6 +138,11 @@ pub trait ExperimentRpc {
     ///
     /// It is used to debug transaction scripts and query how many cycles the scripts consume.
     ///
+    /// ## Errors
+    ///
+    /// * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+    /// * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
+    ///
     /// ## Examples
     ///
     /// Request
@@ -222,6 +227,11 @@ pub trait ExperimentRpc {
     /// In CKB, scripts cannot get the information about in which block the transaction is
     /// committed. A workaround is letting the transaction reference a block hash so the script
     /// knows that the transaction is committed at least after the reference block.
+    ///
+    /// ## Errors
+    ///
+    /// * [`DaoError (-5)`](../enum.RPCError.html#variant.DaoError) - The given out point is not a valid cell for DAO computation.
+    /// * [`CKBInternalError (-1)`](../enum.RPCError.html#variant.CKBInternalError) - Mathematics overflow.
     ///
     /// ## Examples
     ///

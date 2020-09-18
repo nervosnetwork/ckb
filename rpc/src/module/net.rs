@@ -293,6 +293,12 @@ pub trait NetRpc {
     /// * `absolute` - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter.
     /// * `reason` - Ban reason, optional parameter.
     ///
+    /// ## Errors
+    ///
+    /// * [`InvalidParams (-32602)`](../enum.RPCError.html#variant.InvalidParams)
+    ///     * Expected `address` to be a valid IP address with an optional netmask.
+    ///     * Expected `command` to be in the list [insert, delete].
+    ///
     /// ## Examples
     ///
     /// Request
