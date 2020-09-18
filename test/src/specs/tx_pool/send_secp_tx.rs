@@ -104,7 +104,7 @@ impl Spec for SendSecpTxUseDepGroup {
             .serialize();
         let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         let hash_type = self.hash_type;
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), hash_type);
+        let block_assembler = new_block_assembler_config(lock_arg, hash_type);
         config.block_assembler = Some(block_assembler);
     }
 }
@@ -219,7 +219,7 @@ impl Spec for CheckTypical2In2OutTx {
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let lock_arg = self.lock_arg.clone();
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
     }
 }

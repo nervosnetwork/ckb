@@ -113,7 +113,7 @@ impl Spec for SendDefectedBinary {
             .serialize();
         let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         let reject_ill_transactions = self.reject_ill_transactions;
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
         config.rpc.reject_ill_transactions = reject_ill_transactions;
     }

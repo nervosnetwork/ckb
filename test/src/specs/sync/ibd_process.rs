@@ -91,7 +91,7 @@ impl Spec for IBDProcessWithWhiteList {
             nodes[0].stop();
 
             // whitelist will be connected on outbound on node start
-            let node6_address = nodes[6].p2p_address().to_string();
+            let node6_address = nodes[6].p2p_address();
             nodes[0].modify_app_config(move |config| {
                 config.network.whitelist_peers = vec![node6_address.parse().unwrap()];
             });

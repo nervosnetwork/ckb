@@ -4,7 +4,7 @@ use crate::{Node, Spec};
 pub struct Discovery;
 
 impl Spec for Discovery {
-    crate::setup!(num_nodes: 4);
+    crate::setup!(num_nodes: 3);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         for i in 0..nodes.len() - 1 {

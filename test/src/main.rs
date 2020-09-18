@@ -54,7 +54,7 @@ fn main() {
     *VENDOR_PATH.lock() = vendor;
     PORT_COUNTER.store(start_port, Ordering::SeqCst);
     info!("binary: {}", global::binary().to_string_lossy());
-    info!("vendor dir: {}", VENDOR_PATH.lock().to_string_lossy());
+    info!("vendor dir: {}", global::vendor().to_string_lossy());
     info!("start port: {}", PORT_COUNTER.load(Ordering::SeqCst));
     info!("max time: {:?}", max_time);
 

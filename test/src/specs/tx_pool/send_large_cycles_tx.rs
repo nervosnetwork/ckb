@@ -79,7 +79,7 @@ impl Spec for SendLargeCyclesTxInBlock {
         let lock_arg = self.lock_arg.clone();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
     }
 }
@@ -140,7 +140,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         let lock_arg = self.lock_arg.clone();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
     }
 }

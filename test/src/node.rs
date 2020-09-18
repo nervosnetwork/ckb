@@ -68,14 +68,14 @@ impl Node {
 
         // Copy node template into node's working directory
         fs::create_dir_all(format!("{}/specs/cells", working_dir)).expect("create node's dir");
-        for file in vec![
+        for file in &[
             "ckb.toml",
             "specs/integration.toml",
             "specs/cells/always_success",
         ] {
             let src = format!("template/{}", file);
             let dest = format!("{}/{}", working_dir, file);
-            fs::copy(&src, &dest).expect(&format!("cp {} {}", src, dest));
+            fs::copy(&src, &dest).unwrap_or_else(|_| panic!("cp {} {}", src, dest));
         }
 
         // Allocate rpc port and p2p port, and fill into app config
@@ -221,12 +221,12 @@ impl Node {
 
     pub fn connect(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_address().to_string());
+            .add_node(peer.node_id().to_string(), peer.p2p_address());
         let connected = wait_until(5, || {
             self.rpc_client()
                 .get_peers()
                 .iter()
-                .any(|p| &p.node_id == peer.node_id())
+                .any(|p| p.node_id == peer.node_id())
         });
         if !connected {
             panic!("Connect outbound peer timeout, node id: {}", peer.node_id());
@@ -235,7 +235,7 @@ impl Node {
 
     pub fn connect_uncheck(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_address().to_string());
+            .add_node(peer.node_id().to_string(), peer.p2p_address());
     }
 
     // workaround for banned address checking (because we are using loopback address)
@@ -248,7 +248,7 @@ impl Node {
             rpc_client.get_banned_addresses().is_empty(),
             "banned addresses should be empty"
         );
-        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_address().to_string());
+        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_address());
         let result = wait_until(10, || {
             let banned_addresses = rpc_client.get_banned_addresses();
             let result = !banned_addresses.is_empty();
@@ -272,12 +272,12 @@ impl Node {
             self.rpc_client()
                 .get_peers()
                 .iter()
-                .all(|p| &p.node_id != peer.node_id())
+                .all(|p| p.node_id != peer.node_id())
                 && peer
                     .rpc_client()
                     .get_peers()
                     .iter()
-                    .all(|p| &p.node_id != self.node_id())
+                    .all(|p| p.node_id != self.node_id())
         });
         if !disconnected {
             panic!("Disconnect timeout, node {}", peer.node_id());

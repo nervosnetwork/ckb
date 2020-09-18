@@ -111,7 +111,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         let multi_sign_script = gen_multi_sign_script(&self.keys, self.keys.len() as u8, 0);
         let lock_arg = Bytes::from(blake160(&multi_sign_script).as_bytes().to_vec());
         let hash_type = self.hash_type;
-        let block_assembler = new_block_assembler_config(lock_arg.clone(), hash_type);
+        let block_assembler = new_block_assembler_config(lock_arg, hash_type);
         config.block_assembler = Some(block_assembler);
     }
 }

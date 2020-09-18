@@ -28,7 +28,7 @@ impl Spec for InsufficientReward {
         let data_path = VENDOR_PATH
             .lock()
             .join("consensus")
-            .join("insufficient_reward.rs")
+            .join("insufficient_reward.json")
             .to_string_lossy()
             .to_string();
         node.import(data_path);

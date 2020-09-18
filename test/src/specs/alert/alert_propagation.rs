@@ -132,7 +132,7 @@ impl Spec for AlertPropagation {
         let alert_config = self.alert_config.to_owned();
         config.network.discovery_local_address = true;
         // set test alert config
-        config.alert_signature = Some(alert_config.clone());
+        config.alert_signature = Some(alert_config);
         // enable alert RPC
         config.rpc.modules.push(RpcModule::Alert);
     }
