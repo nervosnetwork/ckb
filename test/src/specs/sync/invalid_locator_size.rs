@@ -18,11 +18,7 @@ impl Spec for InvalidLocatorSize {
         info!("Connect node0");
         exit_ibd_mode(nodes);
         let node0 = &nodes[0];
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
         // get peer_id from GetHeaders message
         let (peer_id, _, _) = net.receive();

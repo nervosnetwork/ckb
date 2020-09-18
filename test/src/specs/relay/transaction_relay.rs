@@ -136,7 +136,7 @@ impl Spec for TransactionRelayTimeout {
         node.generate_blocks(4);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(&node);
@@ -174,7 +174,7 @@ impl Spec for RelayInvalidTransaction {
         node.generate_blocks(4);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(&node);

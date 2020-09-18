@@ -156,11 +156,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let node = &nodes[0];
         let rpc_client = node.rpc_client();
         exit_ibd_mode(nodes);
-        let net = Net::new(
-            self.name(),
-            node.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -183,10 +179,10 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // Disconnect and reconnect node, and then sync the same header
         // `node` should send back a corresponding GetBlocks message
         let ctrl = net.controller();
-        let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
-        ctrl.0.remove_node(&peer.1.peer_id);
+        let peer = ctrl.connected_peers()[peer_id.value() - 1].clone();
+        ctrl.remove_node(&peer.1.peer_id);
         wait_until(5, || {
-            rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
+            rpc_client.get_peers().is_empty() && ctrl.connected_peers().is_empty()
         });
 
         net.connect(node);
@@ -223,11 +219,7 @@ impl Spec for BlockSyncOrphanBlocks {
             })
             .collect();
 
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -285,7 +277,7 @@ impl Spec for BlockSyncRelayerCollaboration {
 
         let net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
@@ -353,11 +345,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         assert_ne!(a.hash(), b.hash());
         node1.submit_block(&b);
 
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -415,7 +403,7 @@ impl Spec for RequestUnverifiedBlocks {
         // `main_chain` blocks
         let net = Net::new(
             self.name(),
-            target_node.consensus().clone(),
+            target_node.consensus(),
             vec![SupportProtocols::Sync],
         );
         net.connect(target_node);

@@ -106,7 +106,7 @@ impl Spec for ForkContainsInvalidBlock {
         good_node.generate_block();
         let net = Net::new(
             self.name(),
-            good_node.consensus().clone(),
+            good_node.consensus(),
             vec![SupportProtocols::Sync],
         );
         net.connect(&good_node);

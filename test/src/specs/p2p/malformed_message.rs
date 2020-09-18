@@ -16,11 +16,7 @@ impl Spec for MalformedMessage {
         info!("Connect node0");
         let node0 = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
@@ -67,11 +63,7 @@ impl Spec for MalformedMessageWithWhitelist {
         let node1 = nodes.pop().unwrap();
         exit_ibd_mode(nodes);
         let mut node0 = nodes.pop().unwrap();
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node0);
 
         info!("Test node should receive GetHeaders message from node0");

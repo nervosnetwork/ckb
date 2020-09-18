@@ -19,7 +19,7 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
         // Net relay blocks[1..4] to node0, let node0 knows our best chain is at 4.
         let net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);

@@ -32,7 +32,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         let node = &nodes[0];
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -78,7 +78,7 @@ impl Spec for CompactBlockEmpty {
         exit_ibd_mode(nodes);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -104,7 +104,7 @@ impl Spec for CompactBlockPrefilled {
         exit_ibd_mode(nodes);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -150,7 +150,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         exit_ibd_mode(nodes);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -215,7 +215,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         exit_ibd_mode(nodes);
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -263,7 +263,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         let node0 = &nodes[0];
         let net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
@@ -434,7 +434,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
@@ -494,7 +494,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         exit_ibd_mode(nodes);
         let net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);

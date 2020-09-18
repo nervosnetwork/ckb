@@ -16,7 +16,7 @@ impl Spec for MissingUncleRequest {
         let node = &nodes[0];
         let net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);

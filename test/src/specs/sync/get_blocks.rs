@@ -22,11 +22,7 @@ impl Spec for GetBlocksTimeout {
             .map(|i| node2.get_header_by_number(i))
             .collect();
 
-        let net = Net::new(
-            self.name(),
-            node1.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let net = Net::new(self.name(), node1.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node1);
         let (pi, _, _) = net.receive();
         info!("Send Headers to node1");
