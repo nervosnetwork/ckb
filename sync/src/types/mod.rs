@@ -1517,6 +1517,10 @@ impl SyncState {
         self.shared_best_header.read().to_owned()
     }
 
+    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderView> {
+        self.shared_best_header.read()
+    }
+
     pub fn may_set_shared_best_header(&self, header: HeaderView) {
         if !header.is_better_than(&self.shared_best_header.read().total_difficulty()) {
             return;
