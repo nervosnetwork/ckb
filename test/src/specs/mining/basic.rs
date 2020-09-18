@@ -1,6 +1,6 @@
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::{core::BlockView, prelude::*};
 use std::convert::Into;
@@ -8,16 +8,14 @@ use std::convert::Into;
 pub struct MiningBasic;
 
 impl Spec for MiningBasic {
-    crate::name!("mining_basic");
-
     // Basic life cycle of transactions:
     //     1. Submit transaction 'tx' into transactions_pool after height i
     //     2. Expect tx will be included in block[i+1] proposal zone;
     //     3. Expect tx will be included in block[i + 1 + proposal_window.closest]
     //        commit zone.
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         node.generate_blocks_until_contains_valid_cellbase();
 
         let transaction = node.new_transaction_spend_tip_cellbase();
@@ -46,14 +44,12 @@ impl Spec for MiningBasic {
 pub struct BlockTemplates;
 
 impl Spec for BlockTemplates {
-    crate::name!("block_template");
-
     // Block template:
     //    1. Tip block hash should be parent_hash in block template;
     //    2. Block template should be updated if tip block updated.
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let rpc_client = node.rpc_client();
 
         let is_block_template_equal = |template1: &BlockTemplate, template2: &BlockTemplate| {

@@ -1,5 +1,5 @@
 use crate::utils::{blank, commit, propose};
-use crate::{Net, Node, Spec};
+use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
 use ckb_types::core::{Capacity, TransactionView};
 use ckb_types::prelude::*;
@@ -11,11 +11,9 @@ use ckb_types::prelude::*;
 pub struct TransactionHashCollisionDifferentWitnessHashes;
 
 impl Spec for TransactionHashCollisionDifferentWitnessHashes {
-    crate::name!("transaction_hash_collision_different_witness_hashes");
-
     // Case: `tx1` and `tx2` have the same tx_hash, but different witness_hash.
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         let start_issue = window.farthest() + 2;
         node.generate_blocks((start_issue.saturating_sub(node.get_tip_block_number())) as usize);
@@ -37,10 +35,8 @@ impl Spec for TransactionHashCollisionDifferentWitnessHashes {
 pub struct DuplicatedTransaction;
 
 impl Spec for DuplicatedTransaction {
-    crate::name!("duplicated_transaction");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         let start_issue = window.farthest() + 2;
         node.generate_blocks((start_issue.saturating_sub(node.get_tip_block_number())) as usize);
@@ -61,10 +57,8 @@ impl Spec for DuplicatedTransaction {
 pub struct ConflictInPending;
 
 impl Spec for ConflictInPending {
-    crate::name!("conflict_in_pending");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks(window.farthest() as usize + 2);
 
@@ -85,10 +79,8 @@ impl Spec for ConflictInPending {
 pub struct ConflictInGap;
 
 impl Spec for ConflictInGap {
-    crate::name!("conflict_in_gap");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks(window.farthest() as usize + 2);
 
@@ -112,10 +104,8 @@ impl Spec for ConflictInGap {
 pub struct ConflictInProposed;
 
 impl Spec for ConflictInProposed {
-    crate::name!("conflict_in_proposed");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks(window.farthest() as usize + 2);
 

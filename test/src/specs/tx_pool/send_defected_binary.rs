@@ -1,6 +1,6 @@
 use super::new_block_assembler_config;
 use crate::util::check::is_transaction_committed;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -35,8 +35,8 @@ impl Spec for SendDefectedBinary {
         self.name
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         info!("Generate 20 blocks to work around initial blocks without rewards");
         node.generate_blocks(20);
@@ -105,7 +105,7 @@ impl Spec for SendDefectedBinary {
         }
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let pubkey_data = self
             .privkey
             .pubkey()
@@ -113,11 +113,8 @@ impl Spec for SendDefectedBinary {
             .serialize();
         let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         let reject_ill_transactions = self.reject_ill_transactions;
-        Box::new(move |config| {
-            let block_assembler =
-                new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
-            config.block_assembler = Some(block_assembler);
-            config.rpc.reject_ill_transactions = reject_ill_transactions;
-        })
+        let block_assembler = new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
+        config.rpc.reject_ill_transactions = reject_ill_transactions;
     }
 }

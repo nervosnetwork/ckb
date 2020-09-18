@@ -1,4 +1,4 @@
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
     packed::CellOutputBuilder,
@@ -9,10 +9,8 @@ use log::info;
 pub struct DifferentTxsWithSameInput;
 
 impl Spec for DifferentTxsWithSameInput {
-    crate::name!("different_txs_with_same_input");
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let tx_hash_0 = node0.generate_transaction();

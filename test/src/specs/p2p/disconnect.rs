@@ -1,22 +1,20 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use log::info;
 
 pub struct Disconnect;
 
 impl Spec for Disconnect {
-    crate::name!("disconnect");
-
     crate::setup!(num_nodes: 2);
 
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         info!("Running Disconnect");
 
         info!("Disconnect node1");
-        let node1 = net.nodes.pop().unwrap();
+        let node1 = nodes.pop().unwrap();
         std::mem::drop(node1);
 
-        let rpc_client = net.nodes[0].rpc_client();
+        let rpc_client = nodes[0].rpc_client();
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()

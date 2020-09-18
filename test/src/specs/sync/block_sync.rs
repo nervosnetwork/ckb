@@ -1,8 +1,9 @@
+use crate::node::exit_ibd_mode;
 use crate::utils::{
     build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
     now_ms, sleep, wait_until,
 };
-use crate::{Net, Node, Spec, TestProtocol};
+use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};
 use ckb_types::{
@@ -16,18 +17,12 @@ use std::time::Duration;
 pub struct BlockSyncFromOne;
 
 impl Spec for BlockSyncFromOne {
-    crate::name!("block_sync_from_one");
-
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync()],
-    );
+    crate::setup!(num_nodes: 2);
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
@@ -53,19 +48,13 @@ impl Spec for BlockSyncFromOne {
 pub struct BlockSyncWithUncle;
 
 impl Spec for BlockSyncWithUncle {
-    crate::name!("block_sync_with_uncle");
-
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
-    );
+    crate::setup!(num_nodes: 2);
 
     // Case: Sync a block with uncle
-    fn run(&self, net: &mut Net) {
-        let target = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let target = &nodes[0];
+        let node1 = &nodes[1];
+        exit_ibd_mode(nodes);
 
         let new_builder = node1.new_block_builder(None, None, None);
         let new_block1 = new_builder.clone().nonce(0.pack()).build();
@@ -95,19 +84,13 @@ impl Spec for BlockSyncWithUncle {
 pub struct BlockSyncForks;
 
 impl Spec for BlockSyncForks {
-    crate::name!("block_sync_forks");
-
-    crate::setup!(
-        num_nodes: 3,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync()],
-    );
+    crate::setup!(num_nodes: 3);
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        let node2 = &nodes[2];
         let (rpc_client0, rpc_client1, rpc_client2) =
             (node0.rpc_client(), node1.rpc_client(), node2.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
@@ -168,15 +151,16 @@ impl Spec for BlockSyncForks {
 pub struct BlockSyncDuplicatedAndReconnect;
 
 impl Spec for BlockSyncDuplicatedAndReconnect {
-    crate::name!("block_sync_duplicated_and_reconnect");
-
-    crate::setup!(protocols: vec![TestProtocol::sync()]);
-
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let rpc_client = node.rpc_client();
-        net.exit_ibd_mode();
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync],
+        );
         net.connect(node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -223,18 +207,12 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 pub struct BlockSyncOrphanBlocks;
 
 impl Spec for BlockSyncOrphanBlocks {
-    crate::name!("block_sync_orphan_blocks");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync()],
-    );
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        exit_ibd_mode(nodes);
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=5)
@@ -245,6 +223,11 @@ impl Spec for BlockSyncOrphanBlocks {
             })
             .collect();
 
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync],
+        );
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -284,18 +267,12 @@ impl Spec for BlockSyncOrphanBlocks {
 pub struct BlockSyncRelayerCollaboration;
 
 impl Spec for BlockSyncRelayerCollaboration {
-    crate::name!("block_sync_relayer_collaboration");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
-    );
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        exit_ibd_mode(nodes);
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=17)
@@ -306,6 +283,11 @@ impl Spec for BlockSyncRelayerCollaboration {
             })
             .collect();
 
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -348,18 +330,12 @@ impl Spec for BlockSyncRelayerCollaboration {
 pub struct BlockSyncNonAncestorBestBlocks;
 
 impl Spec for BlockSyncNonAncestorBestBlocks {
-    crate::name!("block_sync_non_ancestor_best_blocks");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync()],
-    );
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        exit_ibd_mode(nodes);
 
         // By picking blocks this way, we ensure that block a and b has
         // the same difficulty, but different hash. So
@@ -377,6 +353,11 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         assert_ne!(a.hash(), b.hash());
         node1.submit_block(&b);
 
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync],
+        );
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -402,20 +383,18 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
 pub struct RequestUnverifiedBlocks;
 
 impl Spec for RequestUnverifiedBlocks {
-    crate::name!("request_unverified_blocks");
-
-    crate::setup!(num_nodes: 3, connect_all: false, protocols: vec![TestProtocol::sync()]);
+    crate::setup!(num_nodes: 3);
 
     // Case:
     //   1. `target_node` maintains an unverified fork
     //   2. Expect that when other peers request `target_node` for the blocks on the unverified
     //      fork(referred to as fork-blocks), `target_node` should discard the request because
     //     these fork-blocks are unverified yet or verified failed.
-    fn run(&self, net: &mut Net) {
-        let target_node = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let target_node = &nodes[0];
+        let node1 = &nodes[1];
+        let node2 = &nodes[2];
+        exit_ibd_mode(nodes);
 
         let main_chain = build_forks(node1, &[0; 6]);
         let fork_chain = build_forks(node2, &[1; 5]);
@@ -434,6 +413,11 @@ impl Spec for RequestUnverifiedBlocks {
 
         // Request for the blocks on `main_chain` and `fork_chain`. We should only receive the
         // `main_chain` blocks
+        let net = Net::new(
+            self.name(),
+            target_node.consensus().clone(),
+            vec![SupportProtocols::Sync],
+        );
         net.connect(target_node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -467,16 +451,14 @@ impl Spec for RequestUnverifiedBlocks {
 pub struct SyncTooNewBlock;
 
 impl Spec for SyncTooNewBlock {
-    crate::name!("sync_too_new_block");
+    crate::setup!(num_nodes: 3);
 
-    crate::setup!(num_nodes: 3, connect_all: false, protocols: vec![TestProtocol::sync()]);
-
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         info!("run sync too new block");
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        let node2 = &net.nodes[2];
-        net.exit_ibd_mode();
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        let node2 = &nodes[2];
+        exit_ibd_mode(nodes);
 
         let future = Duration::from_secs(6_000).as_millis() as u64;
 
