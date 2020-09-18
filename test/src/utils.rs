@@ -1,3 +1,4 @@
+use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
 use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -10,9 +11,11 @@ use ckb_types::{
     },
     prelude::*,
 };
+use core::sync::atomic::Ordering::SeqCst;
 use std::convert::Into;
 use std::env;
 use std::fs::read_to_string;
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -318,4 +321,16 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
     since_the_epoch.as_millis() as u64
+}
+
+// TODO move into utils
+pub fn find_available_port() -> u16 {
+    for _ in 0..2000 {
+        let port = PORT_COUNTER.fetch_add(1, SeqCst);
+        let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+        if TcpListener::bind(address).is_ok() {
+            return port;
+        }
+    }
+    panic!("failed to allocate available port")
 }

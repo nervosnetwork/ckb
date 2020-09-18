@@ -1,10 +1,9 @@
-use crate::{utils::nodes_panicked, Net, Spec};
+use crate::{utils::nodes_panicked, Spec};
 use ckb_channel::{unbounded, Receiver, Sender};
 use ckb_util::Mutex;
 use log::{error, info};
 use std::any::Any;
 use std::panic;
-use std::path::PathBuf;
 use std::sync::{atomic::AtomicU16, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -36,16 +35,12 @@ pub enum Notify {
     Stop,
 }
 
-type Tasks = Vec<(String, Box<dyn Spec + Send>)>;
-
 /// Worker
 pub struct Worker {
-    tasks: Arc<Mutex<Tasks>>,
+    tasks: Arc<Mutex<Vec<Box<dyn Spec>>>>,
     inbox: Receiver<Command>,
     outbox: Sender<Notify>,
     start_port: Arc<AtomicU16>,
-    binary: String,
-    vendor: PathBuf,
 }
 
 impl Clone for Worker {
@@ -55,28 +50,22 @@ impl Clone for Worker {
             inbox: self.inbox.clone(),
             outbox: self.outbox.clone(),
             start_port: Arc::clone(&self.start_port),
-            binary: self.binary.clone(),
-            vendor: self.vendor.clone(),
         }
     }
 }
 
 impl Worker {
     pub fn new(
-        tasks: Arc<Mutex<Tasks>>,
+        tasks: Arc<Mutex<Vec<Box<dyn Spec>>>>,
         inbox: Receiver<Command>,
         outbox: Sender<Notify>,
         start_port: Arc<AtomicU16>,
-        binary: String,
-        vendor: PathBuf,
     ) -> Self {
         Worker {
             tasks,
             inbox,
             outbox,
             start_port,
-            binary,
-            vendor,
         }
     }
 
@@ -100,7 +89,7 @@ impl Worker {
                     return;
                 }
                 // pick a spec to run
-                let (_spec_name, spec) = match self.tasks.lock().pop() {
+                let spec = match self.tasks.lock().pop() {
                     Some(spec) => spec,
                     None => {
                         self.outbox.send(Notify::Stop).unwrap();
@@ -113,37 +102,29 @@ impl Worker {
         })
     }
 
-    fn run_spec(&self, spec: &dyn crate::specs::Spec, retried: usize) {
-        let binary = self.binary.clone();
-        let vendor = self.vendor.clone();
+    fn run_spec(&self, spec: &dyn Spec, retried: usize) {
         let outbox = self.outbox.clone();
-        let mut net = Net::new(
-            &binary,
-            Arc::clone(&self.start_port),
-            vendor,
-            spec.setup(),
-            spec.name(),
-        );
         let now = Instant::now();
-        let node_dirs: Vec<_> = net
-            .nodes
-            .iter()
-            .map(|node| node.working_dir().display().to_string())
-            .collect();
         outbox
             .send(Notify::Start {
                 spec_name: spec.name().to_string(),
             })
             .unwrap();
-        let result = _run_spec(spec, &mut net);
+
+        let mut nodes = spec.before_run();
+        let node_dirs = nodes
+            .iter()
+            .map(|node| node.working_dir().to_string())
+            .collect::<Vec<_>>();
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            spec.run(&mut nodes);
+        }));
 
         // error handles
         let spec_error = result.err();
         let panicked_error = nodes_panicked(&node_dirs);
-
         if (panicked_error || spec_error.is_some()) && retried < spec.setup().retry_failed {
             error!("{} failed at {} attempt, retry...", spec.name(), retried);
-            drop(net);
             self.run_spec(spec, retried + 1);
         } else if panicked_error {
             outbox
@@ -171,22 +152,6 @@ impl Worker {
     }
 }
 
-fn _run_spec(spec: &dyn crate::specs::Spec, net: &mut Net) -> ::std::thread::Result<()> {
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.init_config(net);
-    }))?;
-
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.before_run(net);
-    }))?;
-
-    spec.start_node(net);
-
-    panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        spec.run(net);
-    }))
-}
-
 /// A group of workers
 pub struct Workers {
     workers: Vec<(Sender<Command>, Worker)>,
@@ -198,11 +163,9 @@ impl Workers {
     /// Create n workers
     pub fn new(
         count: usize,
-        tasks: Arc<Mutex<Tasks>>,
+        tasks: Arc<Mutex<Vec<Box<dyn Spec>>>>,
         outbox: Sender<Notify>,
         start_port: u16,
-        binary: String,
-        vendor: PathBuf,
     ) -> Self {
         let start_port = Arc::new(AtomicU16::new(start_port));
         let workers: Vec<_> = (0..count)
@@ -215,8 +178,6 @@ impl Workers {
                         command_rx,
                         outbox.clone(),
                         Arc::clone(&start_port),
-                        binary.to_string(),
-                        vendor.clone(),
                     );
                     (command_tx, worker)
                 }
