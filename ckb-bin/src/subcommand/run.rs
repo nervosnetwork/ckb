@@ -1,5 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -25,6 +26,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
+
+    let global_runtime_stop = new_global_runtime();
 
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
@@ -164,6 +167,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     })
     .expect("Error setting Ctrl-C handler");
     exit_handler.wait_for_exit();
+
+    drop(global_runtime_stop);
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 

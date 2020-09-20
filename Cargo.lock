@@ -344,6 +344,8 @@ dependencies = [
 name = "ckb-async-runtime"
 version = "0.36.0-pre"
 dependencies = [
+ "ckb-stop-handler",
+ "once_cell",
  "tokio 0.2.22",
 ]
 
@@ -378,6 +380,7 @@ version = "0.36.0-pre"
 dependencies = [
  "base64",
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-build-info",
  "ckb-chain",
  "ckb-chain-iter",
@@ -1060,6 +1063,7 @@ version = "0.36.0-pre"
 dependencies = [
  "bitflags",
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-channel",

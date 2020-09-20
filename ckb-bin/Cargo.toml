@@ -33,6 +33,7 @@ ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
 ckb-build-info = { path = "../util/build-info" }
 ckb-memory-tracker = { path = "../util/memory-tracker" }
 ckb-chain-iter = { path = "../util/chain-iter" }
+ckb-async-runtime = { path = "../util/runtime" }
 ckb-verification = { path = "../verification" }
 base64 = "0.10.1"
 tempfile = "3.0"

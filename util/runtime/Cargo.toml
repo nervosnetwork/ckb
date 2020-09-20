@@ -7,3 +7,5 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
+ckb-stop-handler = { path = "../stop-handler" }
+once_cell = "1.3.1"
