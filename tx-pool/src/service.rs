@@ -6,7 +6,7 @@ use crate::error::handle_try_send_error;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_async_runtime::{new_runtime, Handle};
+use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -205,6 +205,21 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
+    /// Submit local tx to tx-pool
+    pub async fn async_submit_tx(
+        &self,
+        tx: TransactionView,
+    ) -> Result<SubmitTxResult, FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(tx, responder);
+        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
+        response.await.map_err(Into::into)
+    }
+
     /// Receive txs from network, try to add txs to tx-pool
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
@@ -379,28 +394,31 @@ impl TxPoolServiceBuilder {
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(mut self) -> TxPoolController {
+    pub fn start(mut self, handle: &Handle) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
 
         let service = self.service.take().expect("tx pool service start once");
-        let server = move |handle: Handle| async move {
-            loop {
-                tokio::select! {
-                    Some(message) = receiver.recv() => {
-                        let service_clone = service.clone();
-                        handle.spawn(process(service_clone, message));
-                    },
-                    _ = &mut signal_receiver => break,
-                    else => break,
+        let server = || {
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        Some(message) = receiver.recv() => {
+                            let service_clone = service.clone();
+                            tokio::spawn(process(service_clone, message));
+                        },
+                        _ = &mut signal_receiver => break,
+                        else => break,
+                    }
                 }
-            }
+            })
         };
-        let (handle, thread) = new_runtime("Global", None, server);
-        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
+        handle.enter(server);
+
+        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
         TxPoolController {
             sender,
-            handle,
+            handle: handle.clone(),
             stop,
         }
     }

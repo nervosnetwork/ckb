@@ -23,4 +23,7 @@ ckb-notify = { path = "../notify", version = "= 0.38.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.38.0-pre" }
 ckb-db-migration = { path = "../db-migration", version = "= 0.38.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.38.0-pre" }
+ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.38.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.0-pre" }
 num_cpus = "1.10"

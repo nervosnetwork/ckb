@@ -414,6 +414,8 @@ dependencies = [
 name = "ckb-async-runtime"
 version = "0.38.0-pre"
 dependencies = [
+ "ckb-logger",
+ "ckb-stop-handler",
  "tokio 0.2.23",
 ]
 
@@ -1075,6 +1077,8 @@ version = "0.38.0-pre"
 dependencies = [
  "arc-swap",
  "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-migration",
@@ -1083,6 +1087,7 @@ dependencies = [
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-tx-pool",
  "ckb-types",

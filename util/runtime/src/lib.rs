@@ -1,5 +1,9 @@
 //! Utilities for tokio runtime.
+
+use ckb_logger::debug;
+use ckb_stop_handler::{SignalSender, StopHandler};
 use std::{future::Future, sync, thread};
+use tokio::sync::oneshot;
 
 pub use tokio::runtime::{Builder, Handle};
 
@@ -43,4 +47,28 @@ where
 
     barrier.wait();
     (executor, handler)
+}
+
+pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
+    let mut runtime = Builder::new()
+        .threaded_scheduler()
+        .thread_name("ckb-global-runtime")
+        .build()
+        .expect("ckb runtime initialized");
+
+    let handle = runtime.handle().clone();
+
+    let (tx, rx) = oneshot::channel();
+    let thread = thread::Builder::new()
+        .name("ckb-global-runtime-tb".to_string())
+        .spawn(move || {
+            let ret = runtime.block_on(rx);
+            debug!("global runtime finish {:?}", ret);
+        })
+        .expect("tokio runtime started");
+
+    (
+        handle,
+        StopHandler::new(SignalSender::Tokio(tx), Some(thread)),
+    )
 }

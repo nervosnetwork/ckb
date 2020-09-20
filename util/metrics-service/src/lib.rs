@@ -97,7 +97,7 @@ pub fn init(config: Config) -> Result<Guard, String> {
 
     receiver.install();
 
-    let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
+    let stop = StopHandler::new(SignalSender::Tokio(signal_sender), Some(thread));
 
     Ok(Guard::On { handle, stop })
 }

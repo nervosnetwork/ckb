@@ -73,7 +73,7 @@ impl Rpc {
 
         Rpc {
             sender,
-            stop: StopHandler::new(SignalSender::Future(stop), thread),
+            stop: StopHandler::new(SignalSender::Future(stop), Some(thread)),
         }
     }
 

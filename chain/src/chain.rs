@@ -218,7 +218,7 @@ impl ChainService {
                 }
             })
             .expect("Start ChainService failed");
-        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
 
         ChainController {
             process_block_sender,
@@ -287,7 +287,11 @@ impl ChainService {
 
     // visible pub just for test
     #[doc(hidden)]
-    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<BlockReceived, Error> {
+    pub fn process_block(
+        &mut self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> Result<BlockReceived, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
