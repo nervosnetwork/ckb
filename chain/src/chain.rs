@@ -188,7 +188,7 @@ impl ChainService {
                 }
             })
             .expect("Start ChainService failed");
-        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
 
         ChainController {
             process_block_sender,

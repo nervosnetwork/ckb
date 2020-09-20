@@ -1,6 +1,7 @@
 use crate::{migrations, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
+use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_db::RocksDB;
@@ -8,6 +9,7 @@ use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
+use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, COLUMNS};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
@@ -28,6 +30,14 @@ pub struct Shared {
     pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
+    pub(crate) async_handle: Handle,
+    pub(crate) async_runtime_stop: StopHandler<()>,
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        self.async_runtime_stop.try_send();
+    }
 }
 
 impl Shared {
@@ -70,7 +80,9 @@ impl Shared {
             notify_controller.clone(),
         );
 
-        let tx_pool_controller = tx_pool_builder.start();
+        let (async_handle, async_runtime_stop) = new_global_runtime();
+
+        let tx_pool_controller = tx_pool_builder.start(&async_handle);
 
         let shared = Shared {
             store,
@@ -79,6 +91,8 @@ impl Shared {
             snapshot_mgr,
             tx_pool_controller,
             notify_controller,
+            async_handle,
+            async_runtime_stop,
         };
 
         Ok((shared, proposal_table))
@@ -153,6 +167,10 @@ impl Shared {
 
     pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
         Arc::clone(&self.txs_verify_cache)
+    }
+
+    pub fn async_handle(&self) -> &Handle {
+        &self.async_handle
     }
 
     pub fn notify_controller(&self) -> &NotifyController {

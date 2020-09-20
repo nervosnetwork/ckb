@@ -98,7 +98,7 @@ impl NotifyService {
             new_transaction_notifier: new_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
-            stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), join_handle),
+            stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(join_handle)),
         }
     }
 

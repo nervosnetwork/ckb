@@ -20,3 +20,5 @@ ckb-notify = { path = "../notify" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-db-migration = { path = "../db-migration" }
 ckb-chain-iter = { path = "../util/chain-iter" }
+ckb-async-runtime = { path = "../util/runtime" }
+ckb-stop-handler = { path = "../util/stop-handler" }

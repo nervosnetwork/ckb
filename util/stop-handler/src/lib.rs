@@ -44,7 +44,7 @@ impl SignalSender {
 #[derive(Debug)]
 struct Handler<T> {
     signal: SignalSender,
-    thread: JoinHandle<T>,
+    thread: Option<JoinHandle<T>>,
 }
 
 //the outer Option take ownership for `Arc::try_unwrap`
@@ -55,7 +55,7 @@ pub struct StopHandler<T> {
 }
 
 impl<T> StopHandler<T> {
-    pub fn new(signal: SignalSender, thread: JoinHandle<T>) -> StopHandler<T> {
+    pub fn new(signal: SignalSender, thread: Option<JoinHandle<T>>) -> StopHandler<T> {
         let handler = Handler { signal, thread };
         StopHandler {
             inner: Some(Arc::new(Mutex::new(Some(handler)))),
@@ -71,9 +71,11 @@ impl<T> StopHandler<T> {
             let handler = lock.lock().take().expect("Handler can only be taken once");
             let Handler { signal, thread } = handler;
             signal.send();
-            if let Err(e) = thread.join() {
-                error!("handler thread join error {:?}", e);
-            };
+            if let Some(thread) = thread {
+                if let Err(e) = thread.join() {
+                    error!("handler thread join error {:?}", e);
+                };
+            }
         };
     }
 }

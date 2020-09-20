@@ -1038,7 +1038,7 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Std(sender), thread);
+        let stop = StopHandler::new(SignalSender::Std(sender), Some(thread));
         Ok(NetworkController {
             version,
             network_state,
