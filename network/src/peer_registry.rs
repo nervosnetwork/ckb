@@ -131,11 +131,11 @@ impl PeerRegistry {
             EVICTION_PROTECT_PEERS,
             |peer1, peer2| {
                 let peer1_ping = peer1
-                    .ping
+                    .ping_rtt
                     .map(|p| p.as_secs())
                     .unwrap_or_else(|| std::u64::MAX);
                 let peer2_ping = peer2
-                    .ping
+                    .ping_rtt
                     .map(|p| p.as_secs())
                     .unwrap_or_else(|| std::u64::MAX);
                 peer2_ping.cmp(&peer1_ping)
@@ -148,11 +148,11 @@ impl PeerRegistry {
             EVICTION_PROTECT_PEERS,
             |peer1, peer2| {
                 let peer1_last_message = peer1
-                    .last_message_time
+                    .last_ping_protocol_message_received_at
                     .map(|t| t.elapsed().as_secs())
                     .unwrap_or_else(|| std::u64::MAX);
                 let peer2_last_message = peer2
-                    .last_message_time
+                    .last_ping_protocol_message_received_at
                     .map(|t| t.elapsed().as_secs())
                     .unwrap_or_else(|| std::u64::MAX);
                 peer2_last_message.cmp(&peer1_last_message)

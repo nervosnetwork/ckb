@@ -160,7 +160,7 @@ fn test_accept_inbound_peer_eviction() {
             .get_key_by_peer_id(&peer_id)
             .expect("get_key_by_peer_id failed");
         if let Some(peer) = peers_registry.get_peer_mut(session_id) {
-            peer.ping = Some(Duration::from_secs(0));
+            peer.ping_rtt = Some(Duration::from_secs(0));
         };
     }
 
@@ -173,7 +173,7 @@ fn test_accept_inbound_peer_eviction() {
             .get_key_by_peer_id(&peer_id)
             .expect("get_key_by_peer_id failed");
         if let Some(peer) = peers_registry.get_peer_mut(session_id) {
-            peer.last_message_time = Some(now + Duration::from_secs(10));
+            peer.last_ping_protocol_message_received_at = Some(now + Duration::from_secs(10));
         };
     }
     // protect half peers which have the longest connection time

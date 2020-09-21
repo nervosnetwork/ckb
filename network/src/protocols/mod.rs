@@ -22,7 +22,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio_util::codec::length_delimited;
 
@@ -300,12 +300,6 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(peer) = reg.get_peer_mut(context.session.id) {
-                peer.last_message_time = Some(Instant::now());
-            }
-        });
-
         if !self.network_state.is_active() {
             return;
         }
