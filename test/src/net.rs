@@ -111,7 +111,6 @@ impl Net {
 
         let mut n_protocols_connected = 0;
         while let Ok(connected) = self.register_rx.recv_timeout(Duration::from_secs(60)) {
-            log::info!("bilibili");
             let (node_id, peer_index, receiver) = connected;
             n_protocols_connected += 1;
             if n_protocols_connected == 1 {

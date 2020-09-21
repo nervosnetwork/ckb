@@ -17,19 +17,14 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
             .collect::<Vec<_>>();
 
         // Net relay blocks[1..4] to node0, let node0 knows our best chain is at 4.
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
             node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
-        let (peer_id, _, _) = net.receive();
         for block in worse {
-            net.send(
-                SupportProtocols::Relay.protocol_id(),
-                peer_id,
-                build_compact_block(&block),
-            );
+            net.send(node0, SupportProtocols::Relay, build_compact_block(&block));
         }
 
         // peer.last_common_header is expect to be advanced to peer.best_known_header

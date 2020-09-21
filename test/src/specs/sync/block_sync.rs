@@ -5,7 +5,7 @@ use crate::utils::{
 };
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
-use ckb_network::{bytes::Bytes, PeerIndex, SupportProtocols};
+use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
     core::BlockView,
     packed::{self, Byte32, SyncMessage},
@@ -156,45 +156,40 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let node = &nodes[0];
         let rpc_client = node.rpc_client();
         exit_ibd_mode(nodes);
-        let net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Sync]);
+        let mut net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("build connection with node");
 
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
         let block = node.new_block(None, None, None);
-        sync_header(&net, peer_id, &block);
+        sync_header(&net, node, &block);
 
-        should_receive_get_blocks_message(&net, block.hash());
+        should_receive_get_blocks_message(&net, node, block.hash());
 
         // Sync duplicated header again, `node` should discard the duplicated one.
         // So we will not receive any response messages
-        sync_header(&net, peer_id, &block);
+        sync_header(&net, node, &block);
         assert!(
-            net.receive_timeout(Duration::new(10, 0)).is_err(),
+            net.receive_timeout(node, Duration::new(10, 0)).is_err(),
             "node should discard duplicated sync headers",
         );
 
         // Disconnect and reconnect node, and then sync the same header
         // `node` should send back a corresponding GetBlocks message
         let ctrl = net.controller();
-        let peer = ctrl.connected_peers()[peer_id.value() - 1].clone();
+        let peers_num = ctrl.connected_peers().len();
+        let peer = ctrl.connected_peers()[peers_num - 1].clone();
         ctrl.remove_node(&peer.1.peer_id);
         wait_until(5, || {
             rpc_client.get_peers().is_empty() && ctrl.connected_peers().is_empty()
         });
 
         net.connect(node);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("build connection with node");
-        sync_header(&net, peer_id, &block);
+        sync_header(&net, node, &block);
 
-        should_receive_get_blocks_message(&net, block.hash());
+        should_receive_get_blocks_message(&net, node, block.hash());
 
         // Sync corresponding block entity, `node` should accept the block as tip block
-        sync_block(&net, peer_id, &block);
+        sync_block(&net, node, &block);
         let hash = block.header().hash();
         wait_until(10, || rpc_client.get_tip_header().hash == hash.unpack());
     }
@@ -219,32 +214,29 @@ impl Spec for BlockSyncOrphanBlocks {
             })
             .collect();
 
-        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
         let rpc_client = node0.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
 
         // Send headers to node0, keep blocks body
         blocks.iter().for_each(|block| {
-            sync_header(&net, peer_id, block);
+            sync_header(&net, node0, block);
         });
 
         // Wait for block fetch timer
-        should_receive_get_blocks_message(&net, blocks.last().unwrap().hash());
+        should_receive_get_blocks_message(&net, node0, blocks.last().unwrap().hash());
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
         blocks.into_iter().for_each(|block| {
-            sync_block(&net, peer_id, &block);
+            sync_block(&net, node0, &block);
         });
         let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
         // Send that skipped first block to node0
-        sync_block(&net, peer_id, &first);
+        sync_block(&net, node0, &first);
         let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
         assert!(ret, "node0 should grow up");
     }
@@ -275,15 +267,12 @@ impl Spec for BlockSyncRelayerCollaboration {
             })
             .collect();
 
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
             node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
         let rpc_client = node0.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
 
@@ -291,27 +280,23 @@ impl Spec for BlockSyncRelayerCollaboration {
 
         // Send headers to node0, keep blocks body
         blocks.iter().for_each(|block| {
-            sync_header(&net, peer_id, block);
+            sync_header(&net, node0, block);
         });
 
         // Wait for block fetch timer
-        should_receive_get_blocks_message(&net, blocks.last().unwrap().hash());
+        should_receive_get_blocks_message(&net, node0, blocks.last().unwrap().hash());
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
         blocks.into_iter().for_each(|block| {
-            sync_block(&net, peer_id, &block);
+            sync_block(&net, node0, &block);
         });
 
         let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
-        sync_block(&net, peer_id, &first);
-        net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
-            build_compact_block(&last),
-        );
+        sync_block(&net, node0, &first);
+        net.send(node0, SupportProtocols::Relay, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
         log::info!("{}", rpc_client.get_tip_block_number());
@@ -345,14 +330,11 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         assert_ne!(a.hash(), b.hash());
         node1.submit_block(&b);
 
-        let net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
         // With a header synced to node0, node0 should have a new best header
         // but tip is not updated yet.
-        sync_header(&net, peer_id, &a);
+        sync_header(&net, node0, &a);
 
         node1.connect(node0);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
@@ -401,20 +383,17 @@ impl Spec for RequestUnverifiedBlocks {
 
         // Request for the blocks on `main_chain` and `fork_chain`. We should only receive the
         // `main_chain` blocks
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
             target_node.consensus(),
             vec![SupportProtocols::Sync],
         );
         net.connect(target_node);
-        let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
-            .expect("net receive timeout");
-        sync_get_blocks(&net, peer_id, &main_hashes);
-        sync_get_blocks(&net, peer_id, &fork_hashes);
+        sync_get_blocks(&net, target_node, &main_hashes);
+        sync_get_blocks(&net, target_node, &fork_hashes);
 
         let mut received = Vec::new();
-        while let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+        while let Ok((_, _, data)) = net.receive_timeout(target_node, Duration::from_secs(10)) {
             let message = SyncMessage::from_slice(&data).unwrap();
             if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
             {
@@ -494,43 +473,29 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
     blocks
 }
 
-fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
-    net.send(
-        SupportProtocols::Sync.protocol_id(),
-        peer_id,
-        build_header(&block.header()),
-    );
+fn sync_header(net: &Net, node: &Node, block: &BlockView) {
+    net.send(node, SupportProtocols::Sync, build_header(&block.header()));
 }
 
-fn sync_block(net: &Net, peer_id: PeerIndex, block: &BlockView) {
-    net.send(
-        SupportProtocols::Sync.protocol_id(),
-        peer_id,
-        build_block(block),
-    );
+fn sync_block(net: &Net, node: &Node, block: &BlockView) {
+    net.send(node, SupportProtocols::Sync, build_block(block));
 }
 
-fn sync_get_blocks(net: &Net, peer_id: PeerIndex, hashes: &[Byte32]) {
-    net.send(
-        SupportProtocols::Sync.protocol_id(),
-        peer_id,
-        build_get_blocks(hashes),
-    );
+fn sync_get_blocks(net: &Net, node: &Node, hashes: &[Byte32]) {
+    net.send(node, SupportProtocols::Sync, build_get_blocks(hashes));
 }
 
-fn should_receive_get_blocks_message(net: &Net, last_block_hash: Byte32) {
-    net.should_receive(
-        |data: &Bytes| {
-            SyncMessage::from_slice(&data)
-                .map(|message| match message.to_enum() {
-                    packed::SyncMessageUnion::GetBlocks(get_blocks) => {
-                        let block_hashes = get_blocks.block_hashes();
-                        block_hashes.get(block_hashes.len() - 1).unwrap() == last_block_hash
-                    }
-                    _ => false,
-                })
-                .unwrap_or(false)
-        },
-        "Test node should receive GetBlocks message from node0",
-    );
+fn should_receive_get_blocks_message(net: &Net, node: &Node, last_block_hash: Byte32) {
+    let ret = net.should_receive(node, |data: &Bytes| {
+        SyncMessage::from_slice(&data)
+            .map(|message| match message.to_enum() {
+                packed::SyncMessageUnion::GetBlocks(get_blocks) => {
+                    let block_hashes = get_blocks.block_hashes();
+                    block_hashes.get(block_hashes.len() - 1).unwrap() == last_block_hash
+                }
+                _ => false,
+            })
+            .unwrap_or(false)
+    });
+    assert!(ret, "Test node should receive GetBlocks message from node");
 }
