@@ -2,13 +2,12 @@ extern crate proc_macro;
 
 use std::str::FromStr;
 
-use proc_macro_hack::proc_macro_hack;
 use quote::quote;
 use syn::parse_macro_input;
 
 macro_rules! impl_hack {
     ($name:ident, $type:ident) =>    {
-        #[proc_macro_hack]
+        #[proc_macro]
         pub fn $name(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let input = parse_macro_input!(input as syn::LitStr);
             let expanded = {

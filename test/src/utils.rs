@@ -17,7 +17,6 @@ use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tempfile;
 
 pub const FLAG_SINCE_RELATIVE: u64 =
     0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
@@ -161,7 +160,7 @@ fn tweaked_duration(secs: u64) -> Duration {
 
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
-    while let Ok(_) = net.receive_timeout(Duration::new(3, 0)) {}
+    while net.receive_timeout(Duration::new(3, 0)).is_ok() {}
 }
 
 pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {
@@ -216,9 +215,10 @@ pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
 ///
 /// We use `tempdir` only for generating a random path, and expect the corresponding directory
 /// that `tempdir` creates be deleted when go out of this function.
-pub fn temp_path() -> String {
+pub fn temp_path(case_name: &str, id: &str) -> String {
     let mut builder = tempfile::Builder::new();
-    builder.prefix("ckb-it-");
+    let prefix = ["ckb-it", case_name, id, ""].join("-");
+    builder.prefix(&prefix);
     let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
         builder.tempdir_in(val)
     } else {

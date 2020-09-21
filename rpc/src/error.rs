@@ -1,4 +1,4 @@
-use ckb_error::{Error as CKBError, InternalError, InternalErrorKind};
+use ckb_error::{Error as CKBError, ErrorKind, InternalError, InternalErrorKind};
 use ckb_tx_pool::error::Reject;
 use jsonrpc_core::{Error, ErrorCode, Value};
 use std::fmt::{Debug, Display};
@@ -95,15 +95,18 @@ impl RPCError {
     }
 
     pub fn from_ckb_error(err: CKBError) -> Error {
-        use ckb_error::ErrorKind::*;
         match err.kind() {
-            Dao => Self::custom_with_error(RPCError::DaoError, err.unwrap_cause_or_self()),
-            OutPoint => Self::custom_with_error(RPCError::TransactionFailedToResolve, err),
-            Transaction => Self::custom_with_error(
+            ErrorKind::Dao => {
+                Self::custom_with_error(RPCError::DaoError, err.unwrap_cause_or_self())
+            }
+            ErrorKind::OutPoint => {
+                Self::custom_with_error(RPCError::TransactionFailedToResolve, err)
+            }
+            ErrorKind::Transaction => Self::custom_with_error(
                 RPCError::TransactionFailedToVerify,
                 err.unwrap_cause_or_self(),
             ),
-            Internal => {
+            ErrorKind::Internal => {
                 let internal_err = match err.downcast_ref::<InternalError>() {
                     Some(err) => err,
                     None => return Self::ckb_internal_error(err),
@@ -142,6 +145,15 @@ impl RPCError {
                  Please modify `rpc.modules`{miner_info} in ckb.toml and restart the ckb node to enable it.",
                  module = module, miner_info = if module == "Miner" {" and `block_assembler`"} else {""}
             )
+        )
+    }
+
+    pub fn rpc_method_is_deprecated() -> Error {
+        Self::custom(
+            RPCError::Deprecated,
+            "This RPC method is deprecated, it will be removed in future release. \
+            Please check the related information in the CKB release notes and RPC document. \
+            You may enable deprecated methods via adding `enable_deprecated_rpc = true` to the `[rpc]` section in ckb.toml.",
         )
     }
 }

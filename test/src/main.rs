@@ -1,3 +1,4 @@
+use ckb_channel::unbounded;
 use ckb_test::specs::*;
 use ckb_test::{
     utils::node_log,
@@ -7,7 +8,6 @@ use ckb_test::{
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
 use clap::{value_t, App, Arg};
-use crossbeam_channel::unbounded;
 use log::{error, info};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
@@ -394,6 +394,7 @@ fn all_specs() -> SpecMap {
         Box::new(RpcTruncate),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
+        Box::new(LastCommonHeaderForPeerWithWorseChain),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

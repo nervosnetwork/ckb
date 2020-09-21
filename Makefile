@@ -3,7 +3,8 @@ SHELL = /bin/sh
 MOLC    := moleculec
 MOLC_VERSION := 0.6.0
 VERBOSE := $(if ${CI},--verbose,)
-CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
+	-A clippy::mutable_key_type
 CKB_TEST_ARGS := -c 4
 INTEGRATION_RUST_LOG := ckb-network=error
 
@@ -120,9 +121,11 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	# https://rustsec.org/advisories/RUSTSEC-2019-0031: spin is no longer actively maintained, it's not a problem
 	# https://rustsec.org/advisories/RUSTSEC-2020-0016: net2 has been deprecated, but still a lot of required crates are dependent on it
+	# https://rustsec.org/advisories/RUSTSEC-2020-0036: failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
 	cargo audit \
 		--ignore RUSTSEC-2019-0031 \
 		--ignore RUSTSEC-2020-0016 \
+		--ignore RUSTSEC-2020-0036 \
 		--deny-warnings
 	# expecting to see "Success No vulnerable packages found"
 

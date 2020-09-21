@@ -26,12 +26,12 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 pub const DEFAULT_CHANNEL_SIZE: usize = 512;
 
 pub struct Request<A, R> {
-    pub responder: crossbeam_channel::Sender<R>,
+    pub responder: oneshot::Sender<R>,
     pub arguments: A,
 }
 
 impl<A, R> Request<A, R> {
-    pub fn call(arguments: A, responder: crossbeam_channel::Sender<R>) -> Request<A, R> {
+    pub fn call(arguments: A, responder: oneshot::Sender<R>) -> Request<A, R> {
         Request {
             responder,
             arguments,
@@ -126,7 +126,7 @@ impl TxPoolController {
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplateResult, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(
             (
                 bytes_limit,
@@ -142,7 +142,8 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        response.recv().map_err(Into::into)
+
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), FailureError> {
@@ -176,13 +177,13 @@ impl TxPoolController {
 
     pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(txs, responder);
         sender.try_send(Message::SubmitTxs(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn plug_entry(
@@ -191,13 +192,13 @@ impl TxPoolController {
         target: PlugTarget,
     ) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call((entries, target), responder);
         sender.try_send(Message::PlugEntry(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn notify_txs(
@@ -215,7 +216,7 @@ impl TxPoolController {
 
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
         sender
             .try_send(Message::GetTxPoolInfo(request))
@@ -223,7 +224,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn fresh_proposals_filter(
@@ -231,7 +232,7 @@ impl TxPoolController {
         proposals: Vec<ProposalShortId>,
     ) -> Result<Vec<ProposalShortId>, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(proposals, responder);
         sender
             .try_send(Message::FreshProposalsFilter(request))
@@ -239,18 +240,18 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(id, responder);
         sender.try_send(Message::FetchTxRPC(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn fetch_txs(
@@ -258,13 +259,13 @@ impl TxPoolController {
         short_ids: Vec<ProposalShortId>,
     ) -> Result<HashMap<ProposalShortId, TransactionView>, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
         sender.try_send(Message::FetchTxs(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn fetch_txs_with_cycles(
@@ -272,7 +273,7 @@ impl TxPoolController {
         short_ids: Vec<ProposalShortId>,
     ) -> Result<FetchTxsWithCyclesResult, FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
         sender
             .try_send(Message::FetchTxsWithCycles(request))
@@ -280,18 +281,18 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
-        let (responder, response) = crossbeam_channel::bounded(1);
+        let (responder, response) = oneshot::channel();
         let request = Request::call(new_snapshot, responder);
         sender.try_send(Message::ClearPool(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        response.recv().map_err(Into::into)
+        self.handle.block_on(response).map_err(Into::into)
     }
 }
 

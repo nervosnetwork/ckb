@@ -44,7 +44,7 @@ impl Spec for GenesisIssuedCells {
         }
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.genesis.issued_cells = vec![IssuedCell {
                 capacity: capacity_bytes!(5_000),

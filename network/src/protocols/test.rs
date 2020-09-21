@@ -2,7 +2,7 @@ use super::{
     discovery::DiscoveryProtocol,
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
-    ping::{PingHandler, PingService},
+    ping::PingHandler,
 };
 
 use crate::{
@@ -18,7 +18,7 @@ use std::{
 };
 
 use ckb_app_config::NetworkConfig;
-use futures::{channel::mpsc::channel, StreamExt};
+use futures::StreamExt;
 use p2p::{
     builder::ServiceBuilder,
     multiaddr::{Multiaddr, Protocol},
@@ -116,6 +116,7 @@ fn net_service_start(name: String) -> Node {
         upnp: false,
         bootnode_mode: true,
         max_send_buffer: None,
+        sync: None,
     };
 
     let network_state =
@@ -143,15 +144,15 @@ fn net_service_start(name: String) -> Node {
     ));
 
     // Ping protocol
-    let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
     let ping_interval = Duration::from_secs(5);
     let ping_timeout = Duration::from_secs(10);
 
+    let ping_network_state = Arc::clone(&network_state);
     let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
-        ProtocolHandle::Both(Box::new(PingHandler::new(
+        ProtocolHandle::Callback(Box::new(PingHandler::new(
             ping_interval,
             ping_timeout,
-            ping_sender,
+            ping_network_state,
         )))
     });
 
@@ -165,7 +166,7 @@ fn net_service_start(name: String) -> Node {
     let identify_callback =
         IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
     let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-        ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+        ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
     });
 
     // Feeler protocol
@@ -189,16 +190,10 @@ fn net_service_start(name: String) -> Node {
             exit_handler: DefaultExitHandler::default(),
         });
 
-    let mut ping_service = PingService::new(
-        Arc::clone(&network_state),
-        p2p_service.control().to_owned(),
-        ping_receiver,
-    );
-
     let peer_id = network_state.local_peer_id().clone();
 
     let control = p2p_service.control().clone();
-    let (addr_sender, addr_receiver) = crossbeam_channel::bounded(1);
+    let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
     thread::spawn(move || {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
@@ -208,13 +203,6 @@ fn net_service_start(name: String) -> Node {
             .threaded_scheduler()
             .build()
             .unwrap();
-        rt.spawn(async move {
-            loop {
-                if ping_service.next().await.is_none() {
-                    break;
-                }
-            }
-        });
         rt.block_on(async move {
             let mut listen_addr = p2p_service
                 .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
@@ -263,7 +251,7 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
     }
 }
 
-#[allow(clippy::block_in_if_condition_stmt)]
+#[allow(clippy::blocks_in_if_conditions)]
 fn wait_discovery(node: &Node) {
     if !wait_until(100, || {
         node.network_state

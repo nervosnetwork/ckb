@@ -1,6 +1,7 @@
 use crate::module::{SubscriptionRpc, SubscriptionRpcImpl, SubscriptionSession};
 use crate::IoHandler;
 use ckb_app_config::RpcConfig;
+use ckb_logger::info;
 use ckb_notify::NotifyController;
 use jsonrpc_pubsub::Session;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -36,6 +37,7 @@ impl RpcServer {
                     .expect("config listen_address parsed"),
             )
             .expect("Start Jsonrpc HTTP service");
+        info!("Listen HTTP RPCServer on address {}", config.listen_address);
 
         let _tcp = config
             .tcp_listen_address
@@ -47,7 +49,7 @@ impl RpcServer {
                 if config.subscription_enable() {
                     handler.extend_with(subscription_rpc_impl.to_delegate());
                 }
-                jsonrpc_tcp_server::ServerBuilder::with_meta_extractor(
+                let tcp_server = jsonrpc_tcp_server::ServerBuilder::with_meta_extractor(
                     handler,
                     |context: &jsonrpc_tcp_server::RequestContext| {
                         Some(SubscriptionSession::new(Session::new(
@@ -62,7 +64,10 @@ impl RpcServer {
                         .next()
                         .expect("config tcp_listen_address parsed"),
                 )
-                .expect("Start Jsonrpc TCP service")
+                .expect("Start Jsonrpc TCP service");
+                info!("Listen TCP RPCServer on address {}", tcp_listen_address);
+
+                tcp_server
             });
 
         let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
@@ -72,7 +77,7 @@ impl RpcServer {
             if config.subscription_enable() {
                 handler.extend_with(subscription_rpc_impl.to_delegate());
             }
-            jsonrpc_ws_server::ServerBuilder::with_meta_extractor(
+            let ws_server = jsonrpc_ws_server::ServerBuilder::with_meta_extractor(
                 handler,
                 |context: &jsonrpc_ws_server::RequestContext| {
                     Some(SubscriptionSession::new(Session::new(context.sender())))
@@ -85,7 +90,10 @@ impl RpcServer {
                     .next()
                     .expect("config ws_listen_address parsed"),
             )
-            .expect("Start Jsonrpc WebSocket service")
+            .expect("Start Jsonrpc WebSocket service");
+            info!("Listen WS RPCServer on address {}", ws_listen_address);
+
+            ws_server
         });
 
         RpcServer { http, _tcp, _ws }

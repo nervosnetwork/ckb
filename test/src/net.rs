@@ -2,12 +2,12 @@ use crate::specs::TestProtocol;
 use crate::utils::{temp_path, wait_until};
 use crate::{Node, Setup};
 use ckb_app_config::NetworkConfig;
+use ckb_channel::{self as channel, Receiver, RecvTimeoutError, Sender};
 use ckb_network::{
     bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
     NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
 use ckb_types::core::{BlockNumber, BlockView};
-use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{
@@ -33,13 +33,16 @@ impl Net {
         start_port: Arc<AtomicU16>,
         vendor_dir: PathBuf,
         setup: Setup,
+        case_name: &str,
     ) -> Self {
         let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
         let nodes: Vec<Node> = (0..setup.num_nodes)
-            .map(|_| {
+            .enumerate()
+            .map(|(index, _)| {
+                let node_index = "node".to_owned() + &index.to_string();
                 let p2p_port = start_port.fetch_add(1, Ordering::SeqCst);
                 let rpc_port = start_port.fetch_add(1, Ordering::SeqCst);
-                Node::new(binary, p2p_port, rpc_port)
+                Node::new(binary, p2p_port, rpc_port, case_name, &node_index)
             })
             .collect();
 
@@ -48,7 +51,7 @@ impl Net {
             controller: None,
             p2p_port,
             setup,
-            working_dir: temp_path(),
+            working_dir: temp_path(case_name, "net"),
             vendor_dir,
         }
     }
@@ -91,7 +94,7 @@ impl Net {
         );
         assert!(self.controller.is_none());
 
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let (tx, rx) = channel::unbounded();
         let config = NetworkConfig {
             listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.p2p_port())
                 .parse()
@@ -111,6 +114,7 @@ impl Net {
             upnp: false,
             bootnode_mode: false,
             max_send_buffer: None,
+            sync: None,
         };
 
         let network_state =
@@ -149,7 +153,7 @@ impl Net {
 
         let ptr = self as *const Self as *mut Self;
         unsafe {
-            ::std::mem::replace(&mut (*ptr).controller, controller);
+            let _ingore_prev_value = ::std::mem::replace(&mut (*ptr).controller, controller);
         }
     }
 

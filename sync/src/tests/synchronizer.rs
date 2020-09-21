@@ -166,7 +166,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .expect("process block should be OK");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(shared.clone()));
+    let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
     let synchronizer = Synchronizer::new(chain_controller, sync_shared);
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;

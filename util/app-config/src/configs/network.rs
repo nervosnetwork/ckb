@@ -1,8 +1,6 @@
-use p2p::{
-    multiaddr::{Multiaddr, Protocol},
-    secio::{self, PeerId},
-};
+use multiaddr::{Multiaddr, Protocol};
 use rand::Rng;
+use secio::{self, PeerId};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -39,6 +37,30 @@ pub struct Config {
     pub bootnode_mode: bool,
     // Max send buffer size
     pub max_send_buffer: Option<usize>,
+    pub sync: Option<SyncConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct SyncConfig {
+    #[serde(default)]
+    pub header_map: HeaderMapConfig,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HeaderMapConfig {
+    // The maximum size of data in memory
+    pub primary_limit: usize,
+    // Disable cache if the size of data in memory less than this threshold
+    pub backend_close_threshold: usize,
+}
+
+impl Default for HeaderMapConfig {
+    fn default() -> Self {
+        Self {
+            primary_limit: 300_000,
+            backend_close_threshold: 20_000,
+        }
+    }
 }
 
 pub(crate) fn generate_random_key() -> [u8; 32] {

@@ -47,3 +47,34 @@ pub use primitive::{
     BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, FeeRate, Timestamp, Version,
 };
 pub use serde::{Deserialize, Serialize};
+
+pub enum ResponseFormat<V, P> {
+    // ckb_jsonrpc_types::(BlockView / HeaderView / etc)
+    Json(V),
+    // ckb_types::packed::(Block / Header / etc)
+    Hex(P),
+}
+
+impl<V, P> Serialize for ResponseFormat<V, P>
+where
+    V: Serialize,
+    P: ckb_types::prelude::Entity,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ResponseFormat::Json(view) => view.serialize(serializer),
+            ResponseFormat::Hex(packed) => {
+                let slice = packed.as_slice();
+                let mut dst = vec![0u8; slice.len() * 2 + 2];
+                dst[0] = b'0';
+                dst[1] = b'x';
+                faster_hex::hex_encode(slice, &mut dst[2..])
+                    .map_err(|e| serde::ser::Error::custom(&format!("{}", e)))?;
+                serializer.serialize_str(unsafe { ::std::str::from_utf8_unchecked(&dst) })
+            }
+        }
+    }
+}

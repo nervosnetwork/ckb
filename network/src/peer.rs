@@ -16,7 +16,6 @@ pub struct Peer {
     pub peer_id: PeerId,
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
-    pub last_ping_time: Option<Instant>,
     pub last_message_time: Option<Instant>,
     pub ping: Option<Duration>,
     pub is_feeler: bool,
@@ -40,7 +39,6 @@ impl Peer {
             listened_addrs: Vec::new(),
             identify_info: None,
             ping: None,
-            last_ping_time: None,
             last_message_time: None,
             connected_time: Instant::now(),
             is_feeler: false,

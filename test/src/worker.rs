@@ -1,6 +1,6 @@
 use crate::{utils::nodes_panicked, Net, Spec};
+use ckb_channel::{unbounded, Receiver, Sender};
 use ckb_util::Mutex;
-use crossbeam_channel::{unbounded, Receiver, Sender};
 use log::{error, info};
 use std::any::Any;
 use std::panic;
@@ -114,7 +114,13 @@ impl Worker {
         let binary = self.binary.clone();
         let vendor = self.vendor.clone();
         let outbox = self.outbox.clone();
-        let mut net = Net::new(&binary, Arc::clone(&self.start_port), vendor, spec.setup());
+        let mut net = Net::new(
+            &binary,
+            Arc::clone(&self.start_port),
+            vendor,
+            spec.setup(),
+            spec.name(),
+        );
         let now = Instant::now();
         let node_dirs: Vec<_> = net
             .nodes

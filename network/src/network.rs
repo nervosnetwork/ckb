@@ -9,7 +9,7 @@ use crate::protocols::{
     discovery::DiscoveryProtocol,
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
-    ping::{PingHandler, PingService},
+    ping::PingHandler,
     support_protocols::SupportProtocols,
 };
 use crate::services::{
@@ -23,10 +23,7 @@ use ckb_app_config::NetworkConfig;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
-use futures::{
-    channel::{mpsc::channel, oneshot},
-    Future, StreamExt,
-};
+use futures::{channel::oneshot, Future, StreamExt};
 use ipnetwork::IpNetwork;
 use p2p::{
     builder::ServiceBuilder,
@@ -49,7 +46,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc as std_mpsc, Arc,
     },
     thread,
     time::{Duration, Instant},
@@ -774,7 +771,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     }
 
     fn handle_proto(&mut self, context: &mut ServiceContext, event: ProtocolEvent) {
-        // For special protocols: ping/discovery/identify/disconnect_message
+        // For special protocols: disconnect_message
         match event {
             ProtocolEvent::Connected {
                 session_context,
@@ -876,15 +873,15 @@ impl<T: ExitHandler> NetworkService<T> {
 
         // TODO: how to deny banned node to open those protocols?
         // Ping protocol
-        let (ping_sender, ping_receiver) = channel(std::u8::MAX as usize);
         let ping_interval = Duration::from_secs(config.ping_interval_secs);
         let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
 
+        let ping_network_state = Arc::clone(&network_state);
         let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
-            ProtocolHandle::Both(Box::new(PingHandler::new(
+            ProtocolHandle::Callback(Box::new(PingHandler::new(
                 ping_interval,
                 ping_timeout,
-                ping_sender,
+                ping_network_state,
             )))
         });
 
@@ -901,7 +898,7 @@ impl<T: ExitHandler> NetworkService<T> {
         let identify_callback =
             IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-            ProtocolHandle::Both(Box::new(IdentifyProtocol::new(identify_callback)))
+            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
         });
 
         // Feeler protocol
@@ -946,11 +943,6 @@ impl<T: ExitHandler> NetworkService<T> {
             .build(event_handler);
 
         // == Build background service tasks
-        let mut ping_service = PingService::new(
-            Arc::clone(&network_state),
-            p2p_service.control().to_owned(),
-            ping_receiver,
-        );
         let dump_peer_store_service = DumpPeerStoreService::new(Arc::clone(&network_state));
         let protocol_type_checker_service = ProtocolTypeCheckerService::new(
             Arc::clone(&network_state),
@@ -958,13 +950,6 @@ impl<T: ExitHandler> NetworkService<T> {
             required_protocol_ids,
         );
         let mut bg_services = vec![
-            Box::pin(async move {
-                loop {
-                    if ping_service.next().await.is_none() {
-                        break;
-                    }
-                }
-            }) as Pin<Box<_>>,
             Box::pin(dump_peer_store_service) as Pin<Box<_>>,
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
@@ -1036,8 +1021,8 @@ impl<T: ExitHandler> NetworkService<T> {
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        let (start_sender, start_receiver) = crossbeam_channel::bounded(1);
+        let (sender, receiver) = std_mpsc::channel();
+        let (start_sender, start_receiver) = std_mpsc::channel();
         let network_state_1 = Arc::clone(&network_state);
         // Main network thread
         let thread = thread_builder
@@ -1128,7 +1113,7 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
+        let stop = StopHandler::new(SignalSender::Std(sender), thread);
         Ok(NetworkController {
             version,
             network_state,

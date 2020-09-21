@@ -159,11 +159,12 @@ impl<'a> BlockTransactionsProcess<'a> {
                         return StatusCode::Network
                             .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
                     }
-                    crate::relayer::log_sent_metric(message.to_enum().item_name());
+                    crate::relayer::metrics_counter_send(message.to_enum().item_name());
                 }
 
-                mem::replace(expected_transaction_indexes, missing_transactions);
-                mem::replace(expected_uncle_indexes, missing_uncles);
+                let _ignore_prev_value =
+                    mem::replace(expected_transaction_indexes, missing_transactions);
+                let _ignore_prev_value = mem::replace(expected_uncle_indexes, missing_uncles);
 
                 if collision {
                     return StatusCode::CompactBlockMeetsShortIdsCollision.with_context(block_hash);

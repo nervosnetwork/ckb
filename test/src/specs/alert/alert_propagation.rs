@@ -126,7 +126,7 @@ impl Spec for AlertPropagation {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         let alert_config = self.alert_config.to_owned();
         Box::new(move |config| {
             config.network.discovery_local_address = true;

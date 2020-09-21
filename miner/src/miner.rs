@@ -2,6 +2,7 @@ use crate::client::Client;
 use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_app_config::MinerWorkerConfig;
+use ckb_channel::{select, unbounded, Receiver};
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
 use ckb_types::{
@@ -9,7 +10,6 @@ use ckb_types::{
     prelude::*,
     utilities::compact_to_target,
 };
-use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
 use std::sync::Arc;

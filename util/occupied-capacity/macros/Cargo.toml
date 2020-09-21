@@ -1,6 +1,6 @@
 [package]
 name = "ckb-occupied-capacity-macros"
-version = "0.35.0"
+version = "0.36.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -11,5 +11,4 @@ proc-macro = true
 [dependencies]
 quote = "0.6"
 syn = "0.15"
-proc-macro-hack = "0.5"
 ckb-occupied-capacity-core = { path = "../core" }

@@ -483,7 +483,7 @@ fn test_accept_block() {
     let block = BlockBuilder::default()
         .header(header)
         .transaction(TransactionBuilder::default().build())
-        .uncle(uncle.clone().as_uncle())
+        .uncle(uncle.as_uncle())
         .build();
 
     let uncle_hash = uncle.hash();

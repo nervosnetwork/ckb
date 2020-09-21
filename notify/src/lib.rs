@@ -1,11 +1,11 @@
 use ckb_app_config::NotifyConfig;
+use ckb_channel::{bounded, select, Receiver, RecvError, Sender};
 use ckb_logger::{debug, error, trace};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
     core::{service::Request, BlockView},
     packed::Alert,
 };
-use crossbeam_channel::{bounded, select, Receiver, RecvError, Sender};
 use std::collections::HashMap;
 use std::process::Command;
 use std::thread;

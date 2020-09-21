@@ -1,19 +1,19 @@
 [package]
 name = "ckb-chain"
-version = "0.35.0"
+version = "0.36.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
 ckb-logger = { path = "../util/logger" }
+ckb-metrics = { path = "../util/metrics" }
 ckb-types = { path = "../util/types" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
 ckb-store = { path = "../store" }
 ckb-verification = { path = "../verification" }
 faketime = "0.2.0"
-crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }
@@ -21,6 +21,7 @@ ckb-error = { path = "../error" }
 ckb-app-config = { path = "../util/app-config" }
 bitflags = "1.0"
 ckb-rust-unstable-port = { path = "../util/rust-unstable-port" }
+ckb-channel = { path = "../util/channel" }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }

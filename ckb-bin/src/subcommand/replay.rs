@@ -5,7 +5,6 @@ use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use std::sync::Arc;
-use tempfile;
 
 pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
     let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
@@ -45,7 +44,6 @@ pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
         if let Some((from, to)) = args.profile {
             profile(shared, chain, from, to);
         } else if args.sanity_check {
-            ckb_logger_service::silent();
             sanity_check(shared, chain, args.full_verfication);
         }
     }

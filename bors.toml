@@ -1,9 +1,9 @@
 status = [
-  "continuous-integration/travis-ci/push"
+  "Travis CI - Branch"
 ]
 
 pr_status = [
-  "continuous-integration/travis-ci/pull"
+  "Travis CI - Pull Request"
 ]
 
 timeout_sec = 7200

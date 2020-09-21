@@ -83,5 +83,5 @@ pub struct ResetDataArgs {
 }
 
 pub struct PeerIDArgs {
-    pub peer_id: p2p::secio::PeerId,
+    pub peer_id: secio::PeerId,
 }

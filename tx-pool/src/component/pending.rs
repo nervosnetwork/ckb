@@ -152,7 +152,9 @@ mod tests {
             .build()
     }
 
-    const MOCK_CYCLES: Cycle = 5_000_000;
+    // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
+    // calculating the vbytes for a package.
+    const MOCK_CYCLES: Cycle = 5_000_839;
     const MOCK_SIZE: usize = 200;
 
     #[test]

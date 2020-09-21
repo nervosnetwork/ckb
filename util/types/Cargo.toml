@@ -1,6 +1,6 @@
 [package]
 name = "ckb-types"
-version = "0.35.0"
+version = "0.36.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -13,7 +13,7 @@ bytes = { version="0.5.4", features = ["serde"] }
 merkle-cbt = "0.2"
 ckb-occupied-capacity = { path = "../occupied-capacity" }
 ckb-hash = { path = "../hash" }
-crossbeam-channel = "0.3"
+ckb-channel = { path = "../channel" }
 bit-vec = "0.5.1"
 failure = "0.1.5"
 ckb-error = { path = "../../error" }

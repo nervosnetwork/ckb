@@ -1,7 +1,9 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use crate::switch::Switch;
+use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::{self, debug, error, info, log_enabled, metric, trace, warn};
+use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_metrics::{metrics, Timer};
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
@@ -21,7 +23,6 @@ use ckb_verification::InvalidParentError;
 use ckb_verification::{
     BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
 };
-use crossbeam_channel::{self, select, Sender};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -151,11 +152,9 @@ impl ChainService {
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
-        let (signal_sender, signal_receiver) =
-            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
-        let (process_block_sender, process_block_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (truncate_sender, truncate_receiver) = crossbeam_channel::bounded(1);
+        let (signal_sender, signal_receiver) = channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
+        let (truncate_sender, truncate_receiver) = channel::bounded(1);
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();
@@ -313,7 +312,7 @@ impl ChainService {
 
         let mut total_difficulty = U256::zero();
         let mut fork = ForkChanges::default();
-        let timestamp = unix_time_as_millis();
+        let timer = Timer::start();
 
         let parent_ext = txn_snapshot
             .get_block_ext(&block.data().header().raw().parent_hash())
@@ -384,10 +383,8 @@ impl ChainService {
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
             if !fork.detached_blocks.is_empty() {
-                metric!({
-                    "topic": "reorg",
-                    "fields": { "attached": fork.attached_blocks.len(), "detached": fork.detached_blocks.len(), },
-                });
+                metrics!(gauge, "ckb-chain.reorg", fork.attached_blocks.len() as i64, "type" => "attached");
+                metrics!(gauge, "ckb-chain.reorg", fork.detached_blocks.len() as i64, "type" => "detached");
             }
 
             self.rollback(&fork, &db_txn)?;
@@ -452,6 +449,8 @@ impl ChainService {
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }
+            metrics!(gauge, "ckb-chain.tip_number", block.header().number() as i64, "type" => "main_chain");
+            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "false");
         } else {
             self.shared.refresh_snapshot();
             info!(
@@ -470,15 +469,9 @@ impl ChainService {
             {
                 error!("notify new_uncle error {}", e);
             }
+            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "true");
         }
 
-        metric!({
-            "topic": "chain",
-            "fields": {
-                "main_chain_tip": block.header().number(),
-                "elapsed": unix_time_as_millis().saturating_sub(timestamp),
-             },
-        });
         Ok(true)
     }
 

@@ -1,0 +1,16 @@
+[package]
+name = "ckb-metrics-service"
+version = "0.36.0"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-metrics-config = { path = "../metrics-config" }
+ckb-async-runtime = { path = "../runtime" }
+ckb-stop-handler = { path = "../stop-handler" }
+ckb-util = { path = ".." }
+metrics-runtime = "~0.13.1"
+metrics-core = "~0.5.2"
+log = "0.4"
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "time", "io-driver"] }

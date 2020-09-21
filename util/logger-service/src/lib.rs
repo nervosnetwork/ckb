@@ -1,22 +1,21 @@
 use ansi_term::Colour;
 use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
-use ckb_util::{Mutex, RwLock};
-use crossbeam_channel::unbounded;
+use ckb_channel::{self, unbounded};
 use env_logger::filter::{Builder, Filter};
-use lazy_static::lazy_static;
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
+use once_cell::sync::OnceCell;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, panic, process, sync, thread};
 
-lazy_static! {
-    static ref CONTROL_HANDLE: sync::Arc<RwLock<Option<crossbeam_channel::Sender<Message>>>> =
-        sync::Arc::new(RwLock::new(None));
-}
+use ckb_logger_config::Config;
+use ckb_util::{strings, Mutex, RwLock};
+
+static CONTROL_HANDLE: OnceCell<ckb_channel::Sender<Message>> = OnceCell::new();
+static RE: OnceCell<regex::Regex> = OnceCell::new();
 
 enum Message {
     Record {
@@ -37,7 +36,7 @@ enum Message {
 
 #[derive(Debug)]
 pub struct Logger {
-    sender: crossbeam_channel::Sender<Message>,
+    sender: ckb_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
     filter: sync::Arc<RwLock<Filter>>,
     emit_sentry_breadcrumbs: bool,
@@ -119,7 +118,9 @@ impl Logger {
         }
 
         let (sender, receiver) = unbounded();
-        CONTROL_HANDLE.write().replace(sender.clone());
+        CONTROL_HANDLE
+            .set(sender.clone())
+            .expect("CONTROL_HANDLE init once");
 
         let Config {
             color,
@@ -336,8 +337,7 @@ impl Logger {
 
     fn send_message(message: Message) -> Result<(), String> {
         CONTROL_HANDLE
-            .read()
-            .as_ref()
+            .get()
             .ok_or_else(|| "no sender for logger service".to_owned())
             .and_then(|sender| {
                 sender
@@ -364,23 +364,7 @@ impl Logger {
     }
 
     pub fn check_extra_logger_name(name: &str) -> Result<(), String> {
-        if name.is_empty() {
-            return Err("the name of extra shouldn't be empty".to_owned());
-        }
-        match Regex::new(r"^[0-9a-zA-Z_-]+$") {
-            Ok(re) => {
-                if !re.is_match(&name) {
-                    return Err(format!(
-                        "invaild extra logger name \"{}\", only \"0-9a-zA-Z_-\" are allowed",
-                        name
-                    ));
-                }
-            }
-            Err(err) => {
-                return Err(format!("failed to check the name of extra logger: {}", err));
-            }
-        }
-        Ok(())
+        strings::check_if_identifier_is_valid(name)
     }
 
     pub fn update_extra_logger(name: String, filter_str: String) -> Result<(), String> {
@@ -392,41 +376,6 @@ impl Logger {
     pub fn remove_extra_logger(name: String) -> Result<(), String> {
         let message = Message::RemoveExtraLogger(name);
         Self::send_message(message)
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Config {
-    pub filter: Option<String>,
-    pub color: bool,
-    #[serde(skip)]
-    pub file: PathBuf,
-    #[serde(skip)]
-    pub log_dir: PathBuf,
-    pub log_to_file: bool,
-    pub log_to_stdout: bool,
-    pub emit_sentry_breadcrumbs: Option<bool>,
-    #[serde(default)]
-    pub extra: HashMap<String, ExtraLoggerConfig>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExtraLoggerConfig {
-    pub filter: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            filter: None,
-            color: !cfg!(windows),
-            file: Default::default(),
-            log_dir: Default::default(),
-            log_to_file: false,
-            log_to_stdout: true,
-            emit_sentry_breadcrumbs: None,
-            extra: Default::default(),
-        }
     }
 }
 
@@ -493,10 +442,8 @@ impl Log for Logger {
 }
 
 fn sanitize_color(s: &str) -> String {
-    lazy_static! {
-        static ref RE: Regex = Regex::new("\x1b\\[[^m]+m").expect("Regex compile success");
-    }
-    RE.replace_all(s, "").to_string()
+    let re = RE.get_or_init(|| Regex::new("\x1b\\[[^m]+m").expect("Regex compile success"));
+    re.replace_all(s, "").to_string()
 }
 
 /// Flush the logger when dropped
@@ -518,10 +465,6 @@ pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
         log::set_max_level(filter);
         LoggerInitGuard
     })
-}
-
-pub fn silent() {
-    log::set_max_level(LevelFilter::Off);
 }
 
 pub fn flush() {

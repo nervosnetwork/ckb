@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.35.0"
+version = "0.36.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -20,7 +20,11 @@ members = [
     # Members are ordered by dependencies. Crates at top has fewer dependencies.
     "util/build-info",
     "util/logger",
+    "util/logger-config",
     "util/logger-service",
+    "util/metrics",
+    "util/metrics-config",
+    "util/metrics-service",
     "util/memory-tracker",
     "util",
     "util/hash",
@@ -77,3 +81,10 @@ jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
+
+[patch.crates-io]
+# Fix RUSTSEC-2020-0041.
+metrics         = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+metrics-runtime = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+metrics-core    = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
+sentry      = { git = "https://github.com/nervosnetwork/sentry-rust", tag = "sentry-v0.17.0-patch.1" }

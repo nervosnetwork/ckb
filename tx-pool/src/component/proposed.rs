@@ -555,7 +555,9 @@ mod tests {
 
         let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        let cycles = 5_000_000;
+        // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
+        // calculating the vbytes for a package.
+        let cycles = 5_000_839;
         let size = 200;
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {

@@ -7,7 +7,7 @@ pub struct DAOVerify;
 impl Spec for DAOVerify {
     crate::name!("dao_verify");
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.genesis_epoch_length = 20;
         })

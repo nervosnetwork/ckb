@@ -14,7 +14,11 @@ def sort_cases_by_module(cases):
 
 
 def print_title(case):
-    print("### `{}`".format(case["method"]))
+    if case.get("deprecated") is None:
+        print("### `{}`".format(case["method"]))
+    else:
+        print("### ~~`{}`~~".format(case["method"]))
+        print("**DEPRECATED** {}".format(case["deprecated"]))
     newline(1)
 
 
@@ -34,7 +38,7 @@ def print_types(case):
             raise Exception(
                 "Invalid `types` format, expect one map for only one type: {}".format(item))
         for (key, val) in item.items():
-            print("    {} - {}".format(key, val))
+            print("* {} - {}".format(key, val))
 
 def print_returns(case):
     if case.get("returns") is None:
@@ -46,7 +50,7 @@ def print_returns(case):
         if len(item) != 1:
             raise Exception("Invalid `returns` format, expect one map for only one type: {}".format(item))
         for (key, val) in item.items():
-            print("    {} - {}".format(key, val))
+            print("* {} - {}".format(key, val))
 
 def print_example(case):
     example = {}

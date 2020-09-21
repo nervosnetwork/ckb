@@ -18,7 +18,9 @@ use crate::{
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
 };
 use ckb_chain::chain::ChainController;
-use ckb_logger::{debug, error, info, metric, trace, warn};
+use ckb_channel as channel;
+use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::metrics;
 use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
     SupportProtocols,
@@ -48,7 +50,7 @@ enum FetchCMD {
 struct BlockFetchCMD {
     sync: Synchronizer,
     p2p_control: ServiceControl,
-    recv: crossbeam_channel::Receiver<FetchCMD>,
+    recv: channel::Receiver<FetchCMD>,
 }
 
 impl BlockFetchCMD {
@@ -84,7 +86,7 @@ impl BlockFetchCMD {
         ) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -92,7 +94,7 @@ impl BlockFetchCMD {
 pub struct Synchronizer {
     chain: ChainController,
     pub shared: Arc<SyncShared>,
-    fetch_channel: Option<crossbeam_channel::Sender<FetchCMD>>,
+    fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
@@ -145,15 +147,9 @@ impl Synchronizer {
         let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
 
-        metric!({
-            "topic": "received",
-            "fields": { item_name: 1 }
-        });
+        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
         if !status.is_ok() {
-            metric!({
-                "topic": "status",
-                "fields": { format!("{:?}", status.code()): 1 }
-            });
+            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
         }
 
         if let Some(ban_time) = status.should_ban() {
@@ -481,7 +477,7 @@ impl Synchronizer {
                 None => {
                     let p2p_control = raw.clone();
                     let sync = self.clone();
-                    let (sender, recv) = crossbeam_channel::bounded(2);
+                    let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);
@@ -522,7 +518,7 @@ impl Synchronizer {
         if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::log_sent_metric(message.to_enum().item_name());
+        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -744,7 +740,7 @@ mod tests {
     }
 
     fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {
-        let shared = Arc::new(SyncShared::new(shared));
+        let shared = Arc::new(SyncShared::new(shared, Default::default()));
         Synchronizer::new(chain_controller, shared)
     }
 
@@ -1706,9 +1702,6 @@ mod tests {
     }
 }
 
-pub(self) fn log_sent_metric(item_name: &str) {
-    metric!({
-        "topic": "sent",
-        "fields": { item_name: 1 }
-    });
+pub(self) fn metrics_counter_send(item_name: &str) {
+    metrics!(counter, "ckb-net.sent", 1, "action" => "sync", "item" => item_name.to_owned());
 }

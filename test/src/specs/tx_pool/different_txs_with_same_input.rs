@@ -28,12 +28,8 @@ impl Spec for DifferentTxsWithSameInput {
             .as_advanced_builder()
             .set_outputs(vec![output])
             .build();
-        node0
-            .rpc_client()
-            .send_transaction(tx1.clone().data().into());
-        node0
-            .rpc_client()
-            .send_transaction(tx2.clone().data().into());
+        node0.rpc_client().send_transaction(tx1.data().into());
+        node0.rpc_client().send_transaction(tx2.data().into());
 
         node0.generate_block();
         node0.generate_block();

@@ -92,7 +92,7 @@ impl Spec for InsufficientReward {
     //     node.export("${backup}".to_string());
     // }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
         Box::new(|spec_config| {
             spec_config.params.initial_primary_epoch_reward = Capacity::shannons(2000_00000000);
             spec_config.params.secondary_epoch_reward = Capacity::shannons(100_00000000);

@@ -11,7 +11,7 @@ impl Spec for WhitelistOnSessionLimit {
 
     crate::setup!(num_nodes: 5, connect_all: false);
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
         // disable outbound peer service
         Box::new(|config| {
             config.network.connect_outbound_interval_secs = 0;

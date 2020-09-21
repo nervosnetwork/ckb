@@ -1,6 +1,6 @@
 use ckb_app_config::{ExitCode, MinerArgs, MinerConfig};
+use ckb_channel::unbounded;
 use ckb_miner::{Client, Miner};
-use crossbeam_channel::unbounded;
 use std::thread;
 
 pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {

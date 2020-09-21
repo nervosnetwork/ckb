@@ -45,6 +45,48 @@ lazy_static! {
     };
 }
 
+// #include "ckb_syscalls.h"
+
+// #define HASH_SIZE 32
+
+// int main() {
+//   int ret;
+//   uint64_t hash_len = HASH_SIZE;
+//   unsigned char data_hash[HASH_SIZE];
+
+//   ret = ckb_load_cell_by_field(data_hash, &hash_len, 0, 0, CKB_SOURCE_INPUT, CKB_CELL_FIELD_DATA_HASH);
+//   if (ret != CKB_SUCCESS) {
+//     return ret;
+//   }
+
+//   return 0;
+// }
+lazy_static! {
+    static ref LOAD_INPUT_DATA_HASH: (CellOutput, Bytes, Script) = {
+        let mut file =
+            File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/load_input_data_hash"))
+                .unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+        let data: Bytes = buffer.into();
+
+        let cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .build();
+
+        let script = Script::new_builder()
+            .hash_type(ScriptHashType::Data.into())
+            .code_hash(CellOutput::calc_data_hash(&data))
+            .build();
+
+        (cell, data, script)
+    };
+}
+
+pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
+    &LOAD_INPUT_DATA_HASH
+}
+
 pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL
 }
