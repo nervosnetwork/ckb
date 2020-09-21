@@ -1,5 +1,5 @@
 use crate::rpc::RpcClient;
-use crate::utils::{temp_path, wait_until};
+use crate::utils::wait_until;
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
@@ -18,13 +18,13 @@ use failure::Error;
 use failure::_core::time::Duration;
 use std::convert::Into;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::{self, Child, Command, Stdio};
 use std::time::Instant;
 
 pub struct Node {
     binary: String,
-    working_dir: String,
+    working_dir: PathBuf,
     p2p_port: u16,
     rpc_port: u16,
     rpc_client: RpcClient,
@@ -54,13 +54,14 @@ impl Node {
         binary: &str,
         p2p_port: u16,
         rpc_port: u16,
-        case_name: &str,
+        case_working_dir: PathBuf,
         node_index: &str,
     ) -> Self {
         let rpc_client = RpcClient::new(&format!("http://127.0.0.1:{}/", rpc_port));
+        let working_dir = case_working_dir.join(node_index);
         Self {
             binary: binary.to_string(),
-            working_dir: temp_path(case_name, node_index),
+            working_dir,
             p2p_port,
             rpc_port,
             rpc_client,
@@ -90,7 +91,7 @@ impl Node {
         self.p2p_port
     }
 
-    pub fn working_dir(&self) -> &str {
+    pub fn working_dir(&self) -> &PathBuf {
         &self.working_dir
     }
 
@@ -100,7 +101,12 @@ impl Node {
 
     pub fn export(&self, target: String) {
         Command::new(self.binary.to_owned())
-            .args(&["export", "-C", self.working_dir(), &target])
+            .args(&[
+                "export",
+                "-C",
+                self.working_dir().to_str().unwrap(),
+                &target,
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -110,7 +116,12 @@ impl Node {
 
     pub fn import(&self, target: String) {
         Command::new(self.binary.to_owned())
-            .args(&["import", "-C", self.working_dir(), &target])
+            .args(&[
+                "import",
+                "-C",
+                self.working_dir().to_str().unwrap(),
+                &target,
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -121,7 +132,12 @@ impl Node {
     pub fn start(&mut self) {
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
-            .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
+            .args(&[
+                "-C",
+                self.working_dir().to_str().unwrap(),
+                "run",
+                "--ba-advanced",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -493,16 +509,15 @@ impl Node {
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
         let always_success_cell = include_bytes!("../../script/testdata/always_success");
-        let always_success_path = Path::new(self.working_dir()).join("specs/cells/always_success");
-        fs::create_dir_all(format!("{}/specs", self.working_dir()))?;
-        fs::create_dir_all(format!("{}/specs/cells", self.working_dir()))?;
+        let always_success_path = self.working_dir().join("specs/cells/always_success");
+        fs::create_dir_all(format!("{}/specs", self.working_dir().display()))?;
+        fs::create_dir_all(format!("{}/specs/cells", self.working_dir().display()))?;
         fs::write(&always_success_path, &always_success_cell[..])?;
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
         for r in spec.genesis.system_cells.iter_mut() {
-            r.file
-                .absolutize(Path::new(self.working_dir()).join("specs"));
+            r.file.absolutize(self.working_dir().join("specs"));
         }
         modify_chain_spec(&mut spec);
 
@@ -524,7 +539,7 @@ impl Node {
 
         // write to dir
         fs::write(
-            Path::new(self.working_dir()).join("specs/integration.toml"),
+            self.working_dir().join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
         .map_err(Into::into)
@@ -532,7 +547,7 @@ impl Node {
 
     fn rewrite_spec(&self, modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>) -> Result<(), Error> {
         // rewrite ckb.toml
-        let ckb_config_path = format!("{}/ckb.toml", self.working_dir());
+        let ckb_config_path = format!("{}/ckb.toml", self.working_dir().display());
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
@@ -561,7 +576,7 @@ impl Node {
         let init_output = Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
-                self.working_dir(),
+                self.working_dir().to_str().unwrap(),
                 "init",
                 "--chain",
                 "integration",
@@ -575,7 +590,7 @@ impl Node {
             .unwrap_or_else(|e| {
                 panic!(
                     "init working_dir {} command fail: {}",
-                    self.working_dir(),
+                    self.working_dir().display(),
                     e
                 );
             });
@@ -583,7 +598,7 @@ impl Node {
         if !init_output.status.success() {
             panic!(
                 "init working_dir {} output not success: {}",
-                self.working_dir(),
+                self.working_dir().display(),
                 String::from_utf8_lossy(init_output.stderr.as_slice())
             );
         }
@@ -592,14 +607,14 @@ impl Node {
             .unwrap_or_else(|e| {
                 panic!(
                     "prepare chain spec working_dir {} fail: {}",
-                    self.working_dir(),
+                    self.working_dir().display(),
                     e,
                 );
             });
         self.rewrite_spec(modify_ckb_config).unwrap_or_else(|e| {
             panic!(
                 "write chain spec working_dir {} fail: {}",
-                self.working_dir(),
+                self.working_dir().display(),
                 e,
             );
         });
