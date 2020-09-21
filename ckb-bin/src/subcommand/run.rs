@@ -156,7 +156,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .enable_debug();
     let io_handler = builder.build();
 
-    let _rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+    let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -166,6 +166,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     exit_handler.wait_for_exit();
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
+    drop(rpc_server);
 
     Ok(())
 }
