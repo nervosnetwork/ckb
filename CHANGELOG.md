@@ -1,3 +1,52 @@
+# [v0.36.0](https://github.com/nervosnetwork/ckb/compare/v0.35.0...v0.36.0) (2020-09-21)
+
+### Breaking Changes
+
+* #2251 **RPC:** Deprecated RPC method by adding `deprecated.` prefix to the rpc name (@quake)
+
+    This PR has also deprecated following RPC methods:
+
+    * `get_cells_by_lock_hash`
+    * All methods in the Indexer module.
+
+### Features
+
+* #2276: Improve database migration progress display (@zhangsoledad)
+* #2199: Add metrics service (@yangby-cryptape)
+
+    [How to enable the metrics service](https://github.com/nervosnetwork/ckb/blob/0db57dafaad73efbfcf5330ec289efba94fd6975/util/metrics-config/src/lib.rs#L5-L22)
+
+* #2243: Refactor identify network protocol by removing `Both` (@driftluo)
+* #2239: Support to control memory usage for header map (@yangby-cryptape)
+* #2248: Add verbosity param to chain related rpc (@quake)
+
+    This PR adds an optional `verbosity ` param to chain related rpc, returns data in hex format without calculated hash values, it will improve performance in some scenarios.
+
+### Bug Fixes
+
+* #2283: Resolve network background service cleanup issue when rpc tcp server is on. (@quake)
+* #2266: Use forked metrics and forked sentry to fix RUSTSEC-2020-0041 temporarily (@yangby-cryptape)
+* #2212: Advance last_common_header even the peer is worse than us (@keroro520)
+* #2238: Tx-pool block_on async oneshot (@zhangsoledad)
+
+    Replace crossbeam-channel with async oneshot
+
+* #2216: Integration test random failures (@quake)
+
+    While waiting for the `get_blocks` message in the integration test, we should determine whether the last block hash is equal or not.
+
+### Improvements
+
+* #2220: Split logger config and service (@yangby-cryptape)
+* #2213: Reduce useless field and reduce get time call (@driftluo)
+* #2245 **logger:** Replace lazy_static with once_cell (@zhangsoledad)
+* #2229: Rewrite the ping network protocol (@driftluo)
+* #2244: Re-export crossbeam-channel (@zhangsoledad)
+
+    Re-export crossbeam-channel from facade wrapper, unify version specify.
+
+    Use tilde requirements specify for crossbeam-channel, prevent automate dependency updates.
+
 # [v0.35.0](https://github.com/nervosnetwork/ckb/compare/v0.34.2...v0.35.0) (2020-08-24)
 
 ### Features

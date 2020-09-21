@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-iter"
-version = "0.36.0-pre"
+version = "0.36.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
