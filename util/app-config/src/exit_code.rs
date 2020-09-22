@@ -10,6 +10,14 @@ pub enum ExitCode {
     Failure = 113,
 }
 
+#[macro_export]
+macro_rules! exit_failure {
+    ($($token:tt)+) => {{
+        eprintln!($($token)+);
+        ExitCode::Failure
+    }};
+}
+
 impl ExitCode {
     pub fn into(self) -> i32 {
         self as i32
