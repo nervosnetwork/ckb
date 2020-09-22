@@ -212,12 +212,22 @@ impl StoreTransaction {
 
     pub fn insert_cells(
         &self,
-        cells: impl Iterator<Item = (packed::OutPoint, packed::CellEntry, packed::CellDataEntry)>,
+        cells: impl Iterator<
+            Item = (
+                packed::OutPoint,
+                packed::CellEntry,
+                Option<packed::CellDataEntry>,
+            ),
+        >,
     ) -> Result<(), Error> {
         for (out_point, cell, cell_data) in cells {
             let key = out_point.to_cell_key();
             self.insert_raw(COLUMN_CELL, &key, cell.as_slice())?;
-            self.insert_raw(COLUMN_CELL_DATA, &key, cell_data.as_slice())?;
+            if let Some(data) = cell_data {
+                self.insert_raw(COLUMN_CELL_DATA, &key, data.as_slice())?;
+            } else {
+                self.insert_raw(COLUMN_CELL_DATA, &key, &[])?;
+            }
         }
         Ok(())
     }

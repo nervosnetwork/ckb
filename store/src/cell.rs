@@ -43,7 +43,6 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                         .tx_hash(tx_hash.clone())
                         .index(index.pack())
                         .build();
-                    let data_hash = packed::CellOutput::calc_data_hash(&data);
 
                     let entry = packed::CellEntryBuilder::default()
                         .output(cell_output)
@@ -54,10 +53,17 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                         .data_size((data.len() as u64).pack())
                         .build();
 
-                    let data_entry = packed::CellDataEntryBuilder::default()
-                        .output_data(data.pack())
-                        .output_data_hash(data_hash)
-                        .build();
+                    let data_entry = if !data.is_empty() {
+                        let data_hash = packed::CellOutput::calc_data_hash(&data);
+                        Some(
+                            packed::CellDataEntryBuilder::default()
+                                .output_data(data.pack())
+                                .output_data_hash(data_hash)
+                                .build(),
+                        )
+                    } else {
+                        None
+                    };
 
                     (out_point, entry, data_entry)
                 })
@@ -109,7 +115,6 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                                 .tx_hash(tx_hash.clone())
                                 .index(index.pack())
                                 .build();
-                            let data_hash = packed::CellOutput::calc_data_hash(&data);
 
                             let entry = packed::CellEntryBuilder::default()
                                 .output(cell_output)
@@ -120,10 +125,17 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                                 .data_size((data.len() as u64).pack())
                                 .build();
 
-                            let data_entry = packed::CellDataEntryBuilder::default()
-                                .output_data(data.pack())
-                                .output_data_hash(data_hash)
-                                .build();
+                            let data_entry = if !data.is_empty() {
+                                let data_hash = packed::CellOutput::calc_data_hash(&data);
+                                Some(
+                                    packed::CellDataEntryBuilder::default()
+                                        .output_data(data.pack())
+                                        .output_data_hash(data_hash)
+                                        .build(),
+                                )
+                            } else {
+                                None
+                            };
 
                             (out_point, entry, data_entry)
                         })

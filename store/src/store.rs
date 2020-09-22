@@ -253,10 +253,23 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         };
 
         let ret = self.get(COLUMN_CELL_DATA, &key).map(|slice| {
-            let reader = packed::CellDataEntryReader::from_slice_should_be_ok(&slice.as_ref());
-            let data = reader.output_data().unpack();
-            let data_hash = reader.output_data_hash().to_entity();
-            (data, data_hash)
+            if !slice.as_ref().is_empty() {
+                let reader = packed::CellDataEntryReader::from_slice_should_be_ok(&slice.as_ref());
+                let data = reader.output_data().unpack();
+                let data_hash = reader.output_data_hash().to_entity();
+                (data, data_hash)
+            } else {
+                // impl packed::CellOutput {
+                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
+                //         if data.is_empty() {
+                //             packed::Byte32::zero()
+                //         } else {
+                //             blake2b_256(data).pack()
+                //         }
+                //     }
+                // }
+                (Bytes::new(), packed::Byte32::zero())
+            }
         });
 
         if let Some(cache) = self.cache() {
