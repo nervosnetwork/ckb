@@ -10,6 +10,8 @@ CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via N
 
 Subscriptions require a full duplex connection. CKB offers such connections in the form of tcp (enable with `rpc.tcp_listen_address` configuration option) and websockets (enable with `rpc.ws_listen_address`).
 
+The system module is always enabled.
+
 
 *   [`Chain`](#chain)
     *   [`get_tip_block_number`](#get_tip_block_number)
@@ -62,6 +64,8 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
 *   [`Subscription`](#subscription)
     *   [`subscribe`](#subscribe)
     *   [`unsubscribe`](#unsubscribe)
+*   [`System`](#system)
+    *   [`is_ready`](#is_ready)
 
 ## Chain
 
@@ -2602,6 +2606,38 @@ echo '{
     "params": [
         "0x2a"
     ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": true
+}
+```
+
+## System
+
+### `is_ready`
+
+check if the CKB is ready
+
+#### Returns
+
+* result - if the CKB is ready
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "is_ready",
+    "params": []
 }' \
 | tr -d '\n' \
 | curl -H 'content-type: application/json' -d @- \

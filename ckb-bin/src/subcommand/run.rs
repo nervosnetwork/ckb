@@ -27,6 +27,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let exit_handler = DefaultExitHandler::default();
 
     let rpc_controller = RpcServerController::new(
+        false,
         &args.config.rpc,
         &args.config.indexer,
         None,
@@ -175,6 +176,9 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         .update_network_controller(Some(network_controller))
         .map_err(|err| exit_failure!("Failed to update RPC server state: {}", err))?;
 
+    rpc_controller
+        .update_is_ready(true)
+        .map_err(|err| exit_failure!("Failed to update RPC server state: {}", err))?;
     rpc_controller
         .reload()
         .map_err(|err| exit_failure!("Failed to update RPC server state: {}", err))?;

@@ -8,6 +8,7 @@ mod net;
 mod pool;
 mod stats;
 mod subscription;
+mod system;
 mod test;
 
 pub(crate) use self::alert::{AlertRpc, AlertRpcImpl};
@@ -20,4 +21,5 @@ pub(crate) use self::net::{NetworkRpc, NetworkRpcImpl};
 pub(crate) use self::pool::{PoolRpc, PoolRpcImpl};
 pub(crate) use self::stats::{StatsRpc, StatsRpcImpl};
 pub(crate) use self::subscription::{SubscriptionRpc, SubscriptionRpcImpl, SubscriptionSession};
+pub(crate) use self::system::{SystemRpc, SystemRpcImpl};
 pub(crate) use self::test::{IntegrationTestRpc, IntegrationTestRpcImpl};

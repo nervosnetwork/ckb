@@ -132,6 +132,8 @@ def main():
     print("CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via Nginx or other HTTP servers.")
     newline(1)
     print("Subscriptions require a full duplex connection. CKB offers such connections in the form of tcp (enable with `rpc.tcp_listen_address` configuration option) and websockets (enable with `rpc.ws_listen_address`).")
+    newline(1)
+    print("The system module is always enabled.")
     newline(2)
 
     print_toc(cases)

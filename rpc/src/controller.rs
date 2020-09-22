@@ -21,6 +21,7 @@ enum RpcServerControl {
     Off,
     On,
     Reload,
+    IsReady(bool),
     RpcConfig(RpcConfig),
     IndexerConfig(IndexerConfig),
     Shared(Option<Shared>),
@@ -40,6 +41,7 @@ pub struct RpcServerController {
 }
 
 struct RpcServerState {
+    is_ready: bool,
     rpc_config: RpcConfig,
     indexer_config: IndexerConfig,
     shared: Option<Shared>,
@@ -56,6 +58,7 @@ struct RpcServerState {
 impl RpcServerState {
     #[allow(clippy::too_many_arguments)]
     fn new(
+        is_ready: bool,
         rpc_config: &RpcConfig,
         indexer_config: &IndexerConfig,
         shared: Option<Shared>,
@@ -69,6 +72,7 @@ impl RpcServerState {
         miner_enabled: bool,
     ) -> Self {
         Self {
+            is_ready,
             rpc_config: rpc_config.clone(),
             indexer_config: indexer_config.clone(),
             shared,
@@ -169,6 +173,7 @@ impl RpcServerState {
             builder = builder.enable_indexer(&self.indexer_config, shared.to_owned());
         }
         builder = builder.enable_debug();
+        builder = builder.enable_system(self.is_ready);
         let io_handler = builder.build();
         RpcServer::new(
             self.rpc_config.clone(),
@@ -183,6 +188,7 @@ impl RpcServerState {
 impl RpcServerController {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        is_ready: bool,
         rpc_config: &RpcConfig,
         indexer_config: &IndexerConfig,
         shared: Option<Shared>,
@@ -196,6 +202,7 @@ impl RpcServerController {
         miner_enabled: bool,
     ) -> Result<Self, io::Error> {
         let mut state = RpcServerState::new(
+            is_ready,
             rpc_config,
             indexer_config,
             shared,
@@ -231,6 +238,9 @@ impl RpcServerController {
                             }
                             let server = state.start_server();
                             current_server.replace(Some(server));
+                        }
+                        RpcServerControl::IsReady(is_ready) => {
+                            state.is_ready = is_ready;
                         }
                         RpcServerControl::RpcConfig(rpc_config) => {
                             state.rpc_config = rpc_config;
@@ -290,6 +300,12 @@ impl RpcServerController {
     pub fn reload(&self) -> Result<(), ControlError> {
         self.sender
             .send(RpcServerControl::Reload)
+            .map_err(Self::error_handle)
+    }
+
+    pub fn update_is_ready(&self, v: bool) -> Result<(), ControlError> {
+        self.sender
+            .send(RpcServerControl::IsReady(v))
             .map_err(Self::error_handle)
     }
 

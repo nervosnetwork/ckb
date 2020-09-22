@@ -4,7 +4,7 @@ use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
     ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
     MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc,
-    StatsRpcImpl,
+    StatsRpcImpl, SystemRpc, SystemRpcImpl,
 };
 use crate::IoHandler;
 use ckb_app_config::IndexerConfig;
@@ -187,6 +187,12 @@ impl<'a> ServiceBuilder<'a> {
         if self.config.debug_enable() {
             self.io_handler.extend_with(DebugRpcImpl {}.to_delegate());
         }
+        self
+    }
+
+    pub fn enable_system(mut self, is_ready: bool) -> Self {
+        self.io_handler
+            .extend_with(SystemRpcImpl::new(is_ready).to_delegate());
         self
     }
 

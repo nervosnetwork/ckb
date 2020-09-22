@@ -254,7 +254,8 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller, chain_controller.clone())
         .enable_indexer(&indexer_config, shared.clone())
-        .enable_debug();
+        .enable_debug()
+        .enable_system(true);
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(rpc_config, io_handler, Some(shared.notify_controller()));
@@ -408,6 +409,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             let json_block: JsonBlock = tip.data().into();
             vec![json!("example"), json!(json_block)]
         }
+        "is_ready" => vec![],
         method => {
             panic!("Unknown method: {}", method);
         }

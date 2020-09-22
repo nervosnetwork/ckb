@@ -1903,5 +1903,17 @@
                 "id": "Subscription id"
             }
         ]
+    },
+    {
+        "description": "check if the CKB is ready",
+        "method": "is_ready",
+        "module": "system",
+        "params": [],
+        "result": true,
+        "returns": [
+            {
+                "result": "if the CKB is ready"
+            }
+        ]
     }
 ]
