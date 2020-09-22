@@ -19,3 +19,10 @@ ckb-verification = { path = "../verification" }
 ckb-notify = { path = "../notify" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-db-migration = { path = "../db-migration" }
+
+[features]
+default = []
+# This feature is only for test in development phase.
+# The executable with this feature will corrupt ckb data.
+# Don't enable it until you understand this feature clearly.
+test-migration = []
