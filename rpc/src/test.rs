@@ -257,7 +257,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .enable_debug();
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
+    let rpc_server = RpcServer::new(rpc_config, io_handler, Some(shared.notify_controller()));
 
     (shared, chain_controller, rpc_server)
 }
