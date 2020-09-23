@@ -615,7 +615,7 @@ pub trait ChainRpc {
     ///     "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "version": "0x0"
     ///   },
-    ///   "id": 42,
+    ///   "id": 42
     /// }
     /// ```
     ///
@@ -636,107 +636,14 @@ pub trait ChainRpc {
 
     /// Returns the information about [live cell](#live-cell)s collection by the hash of lock script.
     ///
-    /// Returns all the output cells that:
-    ///
-    /// * are still live,
-    /// * have the lock script which hash matches `lock_hash`, and
-    /// * are created in the transactions which are commit between block `from` (inclusively) and
-    /// `to` (inclusively).
-    ///
-    /// ## Params
-    ///
-    /// * `lock_hash` - Cell lock script hash
-    /// * `from` - Start block number
-    /// * `to` - End block number. This RPC restricts that `to` is greater than `from` and `to
-    /// - from < 100`.
-    ///
-    /// ## Errors
-    ///
-    /// * `InvalidParams (-32602)` - Expected parameters that `from <= to` and `to - from <= 100`.
-    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
-    ///
-    /// ## Examples
-    ///
-    /// Request
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "method": "get_cells_by_lock_hash",
-    ///   "params": [
-    ///     "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-    ///     "0xa",
-    ///     "0xe"
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// Response
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": [
-    ///     {
-    ///       "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
-    ///       "capacity": "0x2ca86f2642",
-    ///       "cellbase": true,
-    ///       "lock": {
-    ///         "args": "0x",
-    ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///         "hash_type": "data"
-    ///       },
-    ///       "out_point": {
-    ///         "index": "0x0",
-    ///         "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
-    ///       },
-    ///       "output_data_len": "0x0",
-    ///       "type": null
-    ///     },
-    ///     {
-    ///       "block_hash": "0x63b872c02b1c2bd0c1af4f73f68ac04e2a3763a71f9656a823848d346619ffde",
-    ///       "capacity": "0x2ca86e3dd4",
-    ///       "cellbase": true,
-    ///       "lock": {
-    ///         "args": "0x",
-    ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///         "hash_type": "data"
-    ///       },
-    ///       "out_point": {
-    ///         "index": "0x0",
-    ///         "tx_hash": "0x0b0fb337a9168132d3771f07e0ba055419c7e8f7bc2681a9eb445e61f44e1eb9"
-    ///       },
-    ///       "output_data_len": "0x0",
-    ///       "type": null
-    ///     },
-    ///     {
-    ///       "block_hash": "0x6bbdd9dc71784d500daadf391ca9035900b3ff18ed868d7d4fe4b17fdea88853",
-    ///       "capacity": "0x2ca86d5691",
-    ///       "cellbase": true,
-    ///       "lock": {
-    ///         "args": "0x",
-    ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///         "hash_type": "data"
-    ///       },
-    ///       "out_point": {
-    ///         "index": "0x0",
-    ///         "tx_hash": "0xc336a23a785f3fec8b6e29e2c00d23483f1c6ad410b6b9fc0f62baf65d5efcc7"
-    ///       },
-    ///       "output_data_len": "0x0",
-    ///       "type": null
-    ///     }
-    ///   ]
-    /// }
-    /// ```
+    /// This method will be removed. It always returns an error now.
     #[deprecated(
         since = "0.36.0",
         note = "(Disabled since 0.36.0) This method is deprecated for reasons of flexibility.
         Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate
         solution"
     )]
-    #[rpc(name = "deprecated.get_cells_by_lock_hash")]
+    #[rpc(name = "deprecated.get_cells_by_lock_hash")] // noexample
     fn get_cells_by_lock_hash(
         &self,
         lock_hash: H256,
@@ -769,7 +676,7 @@ pub trait ChainRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "get_live_cell",
     ///   "params": [
@@ -1057,7 +964,7 @@ pub trait ChainRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "get_transaction_proof",
     ///   "params": [
@@ -1070,7 +977,7 @@ pub trait ChainRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
     ///     "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
@@ -1101,7 +1008,7 @@ pub trait ChainRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "verify_transaction_proof",
     ///   "params": [
@@ -1121,7 +1028,7 @@ pub trait ChainRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": [
     ///     "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"

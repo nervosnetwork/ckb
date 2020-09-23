@@ -262,7 +262,7 @@ pub trait NetRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "clear_banned_addresses",
     ///   "params": []
@@ -273,7 +273,7 @@ pub trait NetRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 2,
+    ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": null
     /// }
@@ -359,10 +359,10 @@ pub trait NetRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
-    ///     "best_known_block_number": "0x248623",
-    ///     "best_known_block_timestamp": "0x173943c36e4",
+    ///     "best_known_block_number": "0x400",
+    ///     "best_known_block_timestamp": "0x5cd2b117",
     ///     "fast_time": "0x3e8",
-    ///     "ibd": false,
+    ///     "ibd": true,
     ///     "inflight_blocks_count": "0x0",
     ///     "low_time": "0x5dc",
     ///     "normal_time": "0x4e2",
@@ -503,6 +503,30 @@ pub trait NetRpc {
     #[rpc(name = "remove_node")]
     fn remove_node(&self, peer_id: String) -> Result<()>;
 
+    /// Requests that a ping be sent to all connected peers, to measure ping time.
+    ///
+    /// ## Examples
+    ///
+    /// Requests
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "ping_peers",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
     #[rpc(name = "ping_peers")]
     fn ping_peers(&self) -> Result<()>;
 }

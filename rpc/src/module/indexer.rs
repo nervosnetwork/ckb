@@ -541,7 +541,7 @@ pub trait IndexerRpc {
     ///   "jsonrpc": "2.0",
     ///   "method": "deindex_lock_hash",
     ///   "params": [
-    ///     "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
+    ///     "0x214ccd7362ec77349bc8df11e6edb54173338a3f6ec312e314849296f23aaec4"
     ///   ]
     /// }
     /// ```

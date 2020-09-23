@@ -34,7 +34,7 @@ pub trait AlertRpc {
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
-    ///   "method": "get_block_template",
+    ///   "method": "send_alert",
     ///   "params": [
     ///     {
     ///       "id": "0x1",
@@ -56,6 +56,11 @@ pub trait AlertRpc {
     ///
     /// ```json
     /// {
+    ///   "error": {
+    ///     "code": -1000,
+    ///     "data": "SigNotEnough",
+    ///     "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
+    ///   },
     ///   "jsonrpc": "2.0",
     ///   "result": null,
     ///   "id": 42

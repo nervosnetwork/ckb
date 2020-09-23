@@ -273,7 +273,7 @@ pub trait ExperimentRpc {
         since = "0.34.0",
         note = "This method is deprecated because of the performance issue. It always returns an error now."
     )]
-    #[rpc(name = "estimate_fee_rate")]
+    #[rpc(name = "estimate_fee_rate")] // noexample
     fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> Result<EstimateResult>;
 }
 

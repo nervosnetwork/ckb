@@ -103,7 +103,7 @@ pub trait SubscriptionRpc {
     ///
     /// Example push message:
     ///
-    /// ```json
+    /// ```json+skip
     /// {
     ///   "jsonrpc": "2.0",
     ///   "method": "subscribe",

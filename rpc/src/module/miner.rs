@@ -57,7 +57,7 @@ pub trait MinerRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
-    ///     "bytes_limit": "0x22d387",
+    ///     "bytes_limit": "0x91c08",
     ///     "cellbase": {
     ///       "cycles": null,
     ///       "data": {
@@ -69,18 +69,16 @@ pub trait MinerRpc {
     ///               "index": "0xffffffff",
     ///               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
     ///             },
-    ///             "since": "0x1"
+    ///             "since": "0x401"
     ///           }
     ///         ],
     ///         "outputs": [
     ///           {
-    ///             "capacity": "0x1d1a94a200",
+    ///             "capacity": "0x18e64efc04",
     ///             "lock": {
-    ///               "args": [
-    ///                 "0xb2e61ff569acf041b3c2c17724e2379c581eeac3"
-    ///               ],
-    ///               "code_hash": "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2",
-    ///               "hash_type": "type"
+    ///               "args": "0x",
+    ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    ///               "hash_type": "data"
     ///             },
     ///             "type": null
     ///           }
@@ -90,24 +88,19 @@ pub trait MinerRpc {
     ///         ],
     ///         "version": "0x0",
     ///         "witnesses": [
-    ///           {
-    ///             "data": [
-    ///               "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df201",
-    ///               "0x"
-    ///             ]
-    ///           }
+    ///           "0x590000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac300000000"
     ///         ]
     ///       },
-    ///       "hash": "0x076049e2cc6b9f1ed4bb27b2337c55071dabfaf0183b1b17a4965bd0372d8dec"
+    ///       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
     ///     },
-    ///     "compact_target": "0x100",
-    ///     "current_time": "0x16d6269e84f",
-    ///     "cycles_limit": "0x2540be400",
-    ///     "dao": "0x004fb9e277860700b2f80165348723003d1862ec960000000028eb3d7e7a0100",
-    ///     "epoch": "0x3e80001000000",
-    ///     "number": "0x1",
-    ///     "parent_hash": "0xd5c495b7dd4d9d066a6a4d4356bc31955ad3199e0d856f34cfbe159c46ee335b",
-    ///     "proposals": [],
+    ///     "compact_target": "0x1e083126",
+    ///     "current_time": "0x174c45e17a3",
+    ///     "cycles_limit": "0xd09dc300",
+    ///     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
+    ///     "epoch": "0x7080019000001",
+    ///     "number": "0x401",
+    ///     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
     ///     "transactions": [],
     ///     "uncles": [],
     ///     "uncles_count_limit": "0x2",
