@@ -2771,9 +2771,9 @@ dependencies = [
 
 [[package]]
 name = "merkle-cbt"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c95c71a8dc57c7ad9b7623cf05711bb4e3daef44f1931c91e7d49c60de693ca"
+checksum = "6f1ac8428ec02d6caa5a79c15e851d84d5dc7a00df0429a8aa860d104f0a81be"
 dependencies = [
  "cfg-if",
 ]

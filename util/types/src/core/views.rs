@@ -539,11 +539,11 @@ impl BlockView {
         ])
     }
 
-    fn calc_raw_transactions_root(&self) -> packed::Byte32 {
+    pub fn calc_raw_transactions_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_hashes[..])
     }
 
-    fn calc_witnesses_root(&self) -> packed::Byte32 {
+    pub fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
     }
 }
