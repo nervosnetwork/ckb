@@ -1,5 +1,5 @@
 use crate::rpc::RpcClient;
-use crate::utils::wait_until;
+use crate::utils::{node_log, wait_until};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
@@ -93,6 +93,11 @@ impl Node {
 
     pub fn working_dir(&self) -> &PathBuf {
         &self.working_dir
+    }
+
+    pub fn log_size(&self) -> u64 {
+        let filename = node_log(self.working_dir().to_str().unwrap());
+        fs::metadata(filename).unwrap().len()
     }
 
     pub fn dep_group_tx_hash(&self) -> Byte32 {

@@ -1,3 +1,4 @@
+use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::utils::wait_until;
 use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
@@ -67,22 +68,32 @@ impl Spec for TransactionRelayLowFeeRate {
             .dry_run_transaction(tx_low_fee.data().into())
             .cycles;
 
+        let node0_log_size = node0.log_size();
+        let node2_log_size = node2.log_size();
+
         info!("Broadcast zero fee tx");
         // should only broadcast to node0
         node2.disconnect(node1);
-        let hash = node1
+        node1
             .rpc_client()
             .broadcast_transaction(tx_low_fee.data().into(), cycles)
             .unwrap();
 
-        info!("Waiting for relay");
-        let rpc_client = node0.rpc_client();
-        let ret = wait_until(10, || rpc_client.get_transaction(hash.pack()).is_some());
-        assert!(!ret, "Transaction should not be boradcast to node0");
+        assert!(monitor_log_until_expected_show(
+            node0,
+            node0_log_size,
+            10,
+            "error: SubmitTransaction(Transaction fee rate must >= 242 shannons/KB, got: 0)"
+        )
+        .is_some());
 
-        let rpc_client = node2.rpc_client();
-        let ret = wait_until(1, || rpc_client.get_transaction(hash.pack()).is_some());
-        assert!(!ret, "Transaction should not be relayed to node2");
+        assert!(monitor_log_until_expected_show(
+            node2,
+            node2_log_size,
+            10,
+            "received msg RelayTransactions",
+        )
+        .is_none());
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
