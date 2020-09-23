@@ -372,9 +372,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         }
         "get_block" | "get_header" | "get_cellbase_output_capacity_details" => vec![tip_hash],
         "get_block_economic_state" => vec![target_hash],
-        "get_cells_by_lock_hash"
-        | "get_live_cells_by_lock_hash"
-        | "get_transactions_by_lock_hash" => {
+        "get_live_cells_by_lock_hash" | "get_transactions_by_lock_hash" => {
             vec![always_success_script_hash, json!("0xa"), json!("0xe")]
         }
         "get_live_cell" => vec![always_success_out_point, json!(true)],
