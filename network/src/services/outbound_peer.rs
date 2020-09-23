@@ -112,7 +112,7 @@ impl Future for OutboundPeerService {
                     let last_connect = self
                         .last_connect
                         .map(|time| time.elapsed())
-                        .unwrap_or(Duration::from_secs(std::u64::MAX));
+                        .unwrap_or_else(|| Duration::from_secs(std::u64::MAX));
                     if last_connect > self.try_connect_interval {
                         let status = self.network_state.connection_status();
                         let new_outbound = status
