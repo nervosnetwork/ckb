@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::LocalNode>(r#"
 /// {
 ///   "active": true,
 ///   "addresses": [
@@ -38,6 +39,7 @@ use serde::{Deserialize, Serialize};
 ///   ],
 ///   "version": "0.34.0 (f37f598 2020-07-17)"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct LocalNode {
@@ -82,7 +84,8 @@ pub struct LocalNodeProtocol {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::RemoteNode>(r#"
 /// {
 ///   "addresses": [
 ///     {
@@ -143,6 +146,7 @@ pub struct LocalNodeProtocol {
 ///   },
 ///   "version": "0.34.0 (f37f598 2020-07-17)"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct RemoteNode {

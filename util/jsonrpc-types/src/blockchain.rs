@@ -61,12 +61,14 @@ impl fmt::Display for ScriptHashType {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#"
 /// {
 ///   "args": "0x",
 ///   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
 ///   "hash_type": "data"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
@@ -111,7 +113,8 @@ impl From<packed::Script> for Script {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::CellOutput>(r#"
 /// {
 ///   "capacity": "0x2540be400",
 ///   "lock": {
@@ -121,6 +124,7 @@ impl From<packed::Script> for Script {
 ///   },
 ///   "type": null
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
@@ -174,11 +178,13 @@ impl From<CellOutput> for packed::CellOutput {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::OutPoint>(r#"
 /// {
 ///   "index": "0x0",
 ///   "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
@@ -214,7 +220,8 @@ impl From<OutPoint> for packed::OutPoint {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::CellInput>(r#"
 /// {
 ///   "previous_output": {
 ///     "index": "0x0",
@@ -222,6 +229,7 @@ impl From<OutPoint> for packed::OutPoint {
 ///   },
 ///   "since": "0x0"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
@@ -302,7 +310,8 @@ impl From<core::DepType> for DepType {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::CellDep>(r#"
 /// {
 ///   "dep_type": "code",
 ///   "out_point": {
@@ -310,6 +319,7 @@ impl From<core::DepType> for DepType {
 ///     "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
 ///   }
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
@@ -393,7 +403,8 @@ pub struct Transaction {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::TransactionView>(r#"
 /// {
 ///   "cell_deps": [
 ///     {
@@ -434,6 +445,7 @@ pub struct Transaction {
 ///   "version": "0x0",
 ///   "witnesses": []
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionView {
@@ -638,7 +650,8 @@ pub struct Header {
 ///
 /// ## Examples
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::HeaderView>(r#"
 /// {
 ///   "compact_target": "0x1e083126",
 ///   "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
@@ -653,6 +666,7 @@ pub struct Header {
 ///   "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "version": "0x0"
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct HeaderView {
@@ -939,11 +953,15 @@ impl From<BlockView> for core::BlockView {
 ///
 /// ## Examples
 ///
-/// ```json
-/// "compact_target": "0x1e083126",
-/// "length": "0x708",
-/// "number": "0x1",
-/// "start_number": "0x3e8"
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::EpochView>(r#"
+/// {
+///   "compact_target": "0x1e083126",
+///   "length": "0x708",
+///   "number": "0x1",
+///   "start_number": "0x3e8"
+/// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct EpochView {

@@ -17,7 +17,8 @@ pub type AlertPriority = Uint32;
 ///
 /// An example in JSON
 ///
-/// ```json
+/// ```
+/// # serde_json::from_str::<ckb_jsonrpc_types::Alert>(r#"
 /// {
 ///   "id": "0x1",
 ///   "cancel": "0x0",
@@ -31,6 +32,7 @@ pub type AlertPriority = Uint32;
 ///     "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
 ///   ]
 /// }
+/// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Alert {
