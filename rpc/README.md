@@ -2553,6 +2553,9 @@ Subscribe to a topic, if successful it returns the subscription id. For each eve
 #### Parameters
 
 * topic - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction)
+    * new_tip_header: subscriber will get notified when new block is added to best chain tip
+    * new_tip_block: subscriber will get notified when new block is added to best chain tip
+    * new_transaction: subscriber will get notified when new transaction is submitted to pool
 #### Returns
 
 * id - Subscription id
