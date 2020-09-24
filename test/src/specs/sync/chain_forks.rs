@@ -1,7 +1,6 @@
 use crate::node::{disconnect_all, exit_ibd_mode, waiting_for_sync};
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
-use ckb_app_config::CKBAppConfig;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,

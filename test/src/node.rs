@@ -59,7 +59,7 @@ impl Node {
             "specs/integration.toml",
             "specs/cells/always_success",
         ] {
-            let src = PathBuf::from("template").join("file");
+            let src = PathBuf::from("template").join(file);
             let dest = working_dir.join(file);
             fs::copy(&src, &dest)
                 .unwrap_or_else(|_| panic!("cp {:?} {}", src.display(), dest.display()));

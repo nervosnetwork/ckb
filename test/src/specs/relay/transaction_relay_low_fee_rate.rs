@@ -1,6 +1,6 @@
+use crate::node::{connect_all, exit_ibd_mode};
 use crate::util::check::is_transaction_committed;
 use crate::util::log_monitor::monitor_log_until_expected_show;
-use crate::node::exit_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_fee_estimator::FeeRate;
@@ -15,6 +15,7 @@ impl Spec for TransactionRelayLowFeeRate {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         exit_ibd_mode(nodes);
+        connect_all(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];

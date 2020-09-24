@@ -1,7 +1,6 @@
 use crate::util::check::is_transaction_committed;
 use crate::utils::assert_send_transaction_fail;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_chain_spec::ChainSpec;
 use ckb_types::core::EpochNumberWithFraction;
 use log::info;
 
