@@ -158,10 +158,6 @@ impl Node {
         self.working_dir().join("data/logs/run.log")
     }
 
-    pub fn log_size(&self) -> u64 {
-        fs::metadata(self.log_path()).expect("stat node log").len()
-    }
-
     pub fn node_id(&self) -> &str {
         self.node_id.as_ref().expect("uninitialized node_id")
     }

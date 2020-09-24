@@ -3,10 +3,10 @@ use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::node::exit_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
+use std::fs;
 
 pub struct TransactionRelayLowFeeRate;
 
@@ -63,8 +63,8 @@ impl Spec for TransactionRelayLowFeeRate {
             .dry_run_transaction(tx_low_fee.data().into())
             .cycles;
 
-        let node0_log_size = node0.log_size();
-        let node2_log_size = node2.log_size();
+        let node0_log_size = fs::metadata(node0.log_path()).unwrap().len();
+        let node2_log_size = fs::metadata(node2.log_path()).unwrap().len();
 
         info!("Broadcast zero fee tx");
         // should only broadcast to node0
