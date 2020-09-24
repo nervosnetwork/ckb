@@ -151,12 +151,12 @@ where
         }
     }
 
-    /// skip vm verify will result in the return value cycle always is zero
-    pub fn verify(&self, max_cycles: Cycle, skip_vm_verify: bool) -> Result<CacheEntry, Error> {
+    /// skip script verify will result in the return value cycle always is zero
+    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.since.verify()?;
-        let cycles = if skip_vm_verify {
+        let cycles = if skip_script_verify {
             0
         } else {
             self.script.verify(max_cycles)?

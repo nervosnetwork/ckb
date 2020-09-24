@@ -38,7 +38,7 @@ pub struct RunArgs {
     pub skip_chain_spec_check: bool,
     /// Config chain spec hash
     pub chain_spec_hash: Byte32,
-    /// Assume valid target block hash
+    /// Block hash for assume valid target
     pub assume_valid_target: Option<H256>,
 }
 

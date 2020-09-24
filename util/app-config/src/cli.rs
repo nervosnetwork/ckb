@@ -100,6 +100,7 @@ pub const ARG_SANITY_CHECK: &str = "sanity-check";
 pub const ARG_FULL_VERIFICATION: &str = "full-verification";
 /// Present `skip-spec-check` arg to `run` skip spec check on setup
 pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
+/// assume valid target cli arg name
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 
 /// TODO(doc): @doitian
@@ -159,7 +160,7 @@ fn run() -> App<'static, 'static> {
             .takes_value(true)
             .validator(is_hex)
             .help("This parameter specifies the hash of a block. \
-            When the height does not reach this height, the execution of the script will be disabled, \
+            When the height does not reach this block's height, the execution of the script will be disabled, \
             that is, skip verifying the script content. \
             \
             It should be noted that when this option is enabled, the header is first synchronized to \

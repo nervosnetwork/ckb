@@ -17,7 +17,6 @@ use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
 };
-use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
 use ckb_logger::{debug, error, info, trace, warn};
@@ -49,37 +48,22 @@ const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
-bitflags! {
-    struct CanStart: u32 {
-        const READY = 0b00000000;
-        const MIN_WORK_NOT_REACH = 0b00000001;
-        const ASSUME_VALID_NOT_FIND = 0b00000010;
-    }
-}
-
-impl CanStart {
-    fn is_ready(&self) -> bool {
-        self.is_empty()
-    }
-
-    fn is_min_work_not_reach(&self) -> bool {
-        self.contains(CanStart::MIN_WORK_NOT_REACH)
-    }
-
-    fn is_assume_valid_not_find(&self) -> bool {
-        self.contains(CanStart::ASSUME_VALID_NOT_FIND)
-    }
+#[derive(Copy, Clone)]
+enum CanStart {
+    Ready,
+    MinWorkNotReach,
+    AssumeValidNotFound,
 }
 
 enum FetchCMD {
-    Fetch(Vec<PeerIndex>),
+    Fetch((Vec<PeerIndex>, IBDState)),
 }
 
 struct BlockFetchCMD {
     sync: Synchronizer,
     p2p_control: ServiceControl,
     recv: channel::Receiver<FetchCMD>,
-    can_start: bool,
+    can_start: CanStart,
     number: BlockNumber,
 }
 
@@ -87,33 +71,33 @@ impl BlockFetchCMD {
     fn run(&mut self) {
         while let Ok(cmd) = self.recv.recv() {
             match cmd {
-                FetchCMD::Fetch(peers) => {
-                    let flag = self.can_start();
-                    if flag.is_ready() {
+                FetchCMD::Fetch((peers, state)) => match self.can_start() {
+                    CanStart::Ready => {
                         for peer in peers {
-                            if let Some(fetch) =
-                                BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
+                            if let Some(fetch) = BlockFetcher::new(&self.sync, peer, state).fetch()
                             {
                                 for item in fetch {
                                     BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                                 }
                             }
                         }
-                    } else if flag.is_min_work_not_reach() {
+                    }
+                    CanStart::MinWorkNotReach => {
                         let best_known = self.sync.shared.state().shared_best_header_ref();
                         let number = best_known.number();
                         if number != self.number && (number - self.number) % 10000 == 0 {
                             self.number = number;
                             info!(
-                                "best known header number: {}, total difficulty: {:#x}, \
+                                    "best known header number: {}, total difficulty: {:#x}, \
                                  require min header number on 500_000, min total difficulty: {:#x}, \
                                  then start to download block",
-                                number,
-                                best_known.total_difficulty(),
-                                self.sync.shared.consensus().min_chain_work
-                            );
+                                    number,
+                                    best_known.total_difficulty(),
+                                    self.sync.shared.consensus().min_chain_work
+                                );
                         }
-                    } else if flag.is_assume_valid_not_find() {
+                    }
+                    CanStart::AssumeValidNotFound => {
                         let state = self.sync.shared.state();
                         let best_known = state.shared_best_header_ref();
                         let number = best_known.number();
@@ -123,7 +107,7 @@ impl BlockFetchCMD {
                             .map(Pack::pack)
                             .expect("assume valid target must exist");
 
-                        if number != self.number && number % 10000 == 0 {
+                        if number != self.number && (number - self.number) % 10000 == 0 {
                             self.number = number;
                             info!(
                                 "best known header number: {}, hash: {:#?}, \
@@ -135,58 +119,68 @@ impl BlockFetchCMD {
                             );
                         }
                     }
-                }
+                },
             }
         }
     }
 
     fn can_start(&mut self) -> CanStart {
-        if self.can_start {
-            CanStart::READY
-        } else {
-            let mut can_start = CanStart::ASSUME_VALID_NOT_FIND | CanStart::MIN_WORK_NOT_REACH;
-            let state = self.sync.shared.state();
+        if let CanStart::Ready = self.can_start {
+            return self.can_start;
+        }
+
+        let state = self.sync.shared.state();
+        let min_chain_work = &self.sync.shared.consensus().min_chain_work;
+
+        let min_work_reach = |flag: &mut CanStart| {
             if state
                 .shared_best_header_ref()
-                .is_better_than(&self.sync.shared.consensus().min_chain_work)
+                .is_better_than(min_chain_work)
             {
-                can_start.remove(CanStart::MIN_WORK_NOT_REACH)
+                *flag = CanStart::AssumeValidNotFound;
             }
+        };
 
-            {
-                let mut assume_valid_target = state.assume_valid_target();
-                if let Some(ref target) = *assume_valid_target {
-                    match state.header_map().get(&target.pack()) {
-                        Some(header) => {
-                            can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
-                            // Blocks that are no longer in the scope of ibd must be forced to verify
-                            if unix_time_as_millis().saturating_sub(header.timestamp())
-                                < MAX_TIP_AGE
-                            {
-                                assume_valid_target.take();
-                            }
-                        }
-                        None => {
-                            // Best known already not in the scope of ibd, it means target is invalid
-                            if unix_time_as_millis()
-                                .saturating_sub(state.shared_best_header_ref().timestamp())
-                                < MAX_TIP_AGE
-                            {
-                                can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
-                                assume_valid_target.take();
-                            }
+        let assume_valid_target_find = |flag: &mut CanStart| {
+            let mut assume_valid_target = state.assume_valid_target();
+            if let Some(ref target) = *assume_valid_target {
+                match state.header_map().get(&target.pack()) {
+                    Some(header) => {
+                        *flag = CanStart::Ready;
+                        // Blocks that are no longer in the scope of ibd must be forced to verify
+                        if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
+                            assume_valid_target.take();
                         }
                     }
-                } else {
-                    can_start.remove(CanStart::ASSUME_VALID_NOT_FIND);
+                    None => {
+                        // Best known already not in the scope of ibd, it means target is invalid
+                        if unix_time_as_millis()
+                            .saturating_sub(state.shared_best_header_ref().timestamp())
+                            < MAX_TIP_AGE
+                        {
+                            *flag = CanStart::Ready;
+                            assume_valid_target.take();
+                        }
+                    }
                 }
+            } else {
+                *flag = CanStart::Ready;
             }
+        };
 
-            if can_start.is_ready() {
-                self.can_start = true;
+        match self.can_start {
+            CanStart::Ready => self.can_start,
+            CanStart::MinWorkNotReach => {
+                min_work_reach(&mut self.can_start);
+                if let CanStart::AssumeValidNotFound = self.can_start {
+                    assume_valid_target_find(&mut self.can_start);
+                }
+                self.can_start
             }
-
-            can_start
+            CanStart::AssumeValidNotFound => {
+                assume_valid_target_find(&mut self.can_start);
+                self.can_start
+            }
         }
     }
 
@@ -597,7 +591,7 @@ impl Synchronizer {
                 Some(ref sender) => {
                     if !sender.is_full() {
                         let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                        let _ignore = sender.try_send(FetchCMD::Fetch(peers));
+                        let _ignore = sender.try_send(FetchCMD::Fetch((peers, ibd)));
                     }
                 }
                 None => {
@@ -605,7 +599,7 @@ impl Synchronizer {
                     let sync = self.clone();
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                    sender.send(FetchCMD::Fetch(peers)).unwrap();
+                    sender.send(FetchCMD::Fetch((peers, ibd))).unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
@@ -617,11 +611,11 @@ impl Synchronizer {
                                 p2p_control,
                                 recv,
                                 number,
-                                can_start: false,
+                                can_start: CanStart::MinWorkNotReach,
                             }
                             .run();
                         })
-                        .expect("donwload thread can't start");
+                        .expect("download thread can't start");
                 }
             },
             _ => {

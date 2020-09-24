@@ -1181,7 +1181,7 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
-    // only use on test
+    /// only use on test
     pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, None)
     }

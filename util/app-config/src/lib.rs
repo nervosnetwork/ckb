@@ -57,10 +57,9 @@ impl Setup {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
         let config = self.config.into_ckb()?;
-        let assume_valid_target = matches.value_of(cli::ARG_ASSUME_VALID_TARGET).map(|s| {
-            let (_, r) = s.split_at(2);
-            H256::from_str(r).expect("assume valid target is invalid data")
-        });
+        let assume_valid_target = matches
+            .value_of(cli::ARG_ASSUME_VALID_TARGET)
+            .and_then(|s| H256::from_str(&s[2..]).ok());
 
         Ok(RunArgs {
             config,
