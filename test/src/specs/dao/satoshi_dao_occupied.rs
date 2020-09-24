@@ -1,7 +1,8 @@
 use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
-use crate::utils::{generate_utxo_set, is_committed};
+use crate::util::check::is_transaction_committed;
+use crate::utils::generate_utxo_set;
 use crate::{Net, Spec};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
@@ -124,21 +125,14 @@ impl Spec for SpendSatoshiCell {
             .build();
 
         node0.generate_blocks(1);
-        let tx_hash = node0
+        node0
             .rpc_client()
             .send_transaction(transaction.data().into());
         node0.generate_blocks(3);
         // cellbase occupied capacity minus satoshi cell
         let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
-        let tx_status = node0
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {:#x}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node0, &transaction));
+
         let tip = node0.get_tip_block();
         // check tip dao, expect u correct
         let (_ar, _c, _s, new_u) = extract_dao_data(tip.header().dao()).expect("extract dao");

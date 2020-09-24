@@ -1,11 +1,9 @@
-use crate::utils::is_committed;
-use crate::{Net, Node, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::util::check::{is_transaction_committed, is_transaction_pending};
+use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
-use ckb_jsonrpc_types::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
-    packed::Byte32,
     prelude::*,
     H256,
 };
@@ -539,19 +537,19 @@ impl Spec for ForksContainSameTransactions {
         target_node.connect(node0);
         target_node.waiting_for_sync(node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 43);
         target_node.disconnect(node0);
-        is_transaction_existed(target_node, transaction.hash());
+        is_transaction_committed(target_node, &transaction);
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
         target_node.waiting_for_sync(node2, 61);
         target_node.disconnect(node2);
-        is_transaction_existed(target_node, transaction.hash());
+        is_transaction_committed(target_node, &transaction);
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
         target_node.waiting_for_sync(node1, 71);
         target_node.disconnect(node1);
-        is_transaction_existed(target_node, transaction.hash());
+        is_transaction_committed(target_node, &transaction);
     }
 }
 
@@ -645,8 +643,7 @@ impl Spec for ForkedTransaction {
         {
             node1.submit_transaction(&tx);
             node1.generate_blocks(2 * finalization_delay_length as usize);
-            let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
-            is_committed(&tx_status);
+            assert!(is_transaction_committed(node1, &tx));
         }
 
         // `node0` have `tx` on unverified-fork only => TxStatus: None
@@ -673,15 +670,7 @@ impl Spec for ForkedTransaction {
                 node1.submit_block(&block);
             });
 
-            let is_pending = |tx_status: &TransactionWithStatus| {
-                let pending_status = TxStatus::pending();
-                tx_status.tx_status.status == pending_status.status
-            };
-            let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
-            assert!(
-                is_pending(&tx_status),
-                "node1 maintains tx in verified fork."
-            );
+            assert!(is_transaction_pending(node1, &tx,));
         }
     }
 }
@@ -700,12 +689,4 @@ where
         .as_advanced_builder()
         .set_transactions(transactions)
         .build()
-}
-
-fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
-    let tx_status = node
-        .rpc_client()
-        .get_transaction(tx_hash)
-        .expect("node should contains transaction");
-    is_committed(&tx_status);
 }
