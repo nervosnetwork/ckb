@@ -1,5 +1,6 @@
-use crate::assertion::{reward_assertion::*, tx_assertion::*};
+use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
+use crate::util::check::is_transaction_committed;
 use crate::utils::generate_utxo_set;
 use crate::{Net, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
@@ -75,7 +76,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
                 .len(),
             txs.get_proposal_tx_ids().len()
         );
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
 
         assert_chain_rewards(node);
     }
@@ -115,7 +116,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         });
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
     }
 }
@@ -150,7 +151,7 @@ impl Spec for ProposeButNotCommit {
         });
         target_node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transaction_not_committed(target_node, &txs[0]);
+        assert!(!is_transaction_committed(target_node, &txs[0]));
     }
 }
 
@@ -196,7 +197,7 @@ impl Spec for ProposeDuplicated {
 
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
     }
 }

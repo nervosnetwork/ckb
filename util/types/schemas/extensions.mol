@@ -70,13 +70,18 @@ struct TransactionInfo {
     key:            TransactionKey,
 }
 
-table TransactionMeta {
-    block_hash:     Byte32,
-    block_number:   Uint64,
-    epoch_number:   Uint64,
-    len:            Uint32,
-    bits:           Bytes,
-    cellbase:       Bool,
+table CellEntry {
+    output:                CellOutput,
+    block_hash:            Byte32,
+    block_number:          Uint64,
+    block_epoch:           Uint64,
+    index:                 Uint32,
+    data_size:             Uint64,
+}
+
+table CellDataEntry {
+    output_data:           Bytes,
+    output_data_hash:      Byte32,
 }
 
 /* Types for Indexer */

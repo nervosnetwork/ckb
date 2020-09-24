@@ -1,15 +1,14 @@
+use crate::util::check::is_transaction_committed;
 use crate::{Net, Node, TXOSet};
-use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
+use ckb_jsonrpc_types::BlockTemplate;
 use ckb_network::bytes::Bytes;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochNumber, HeaderView, TransactionView},
-    h256,
     packed::{
         Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
         RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders, SyncMessage,
     },
     prelude::*,
-    H256,
 };
 use std::convert::Into;
 use std::env;
@@ -150,7 +149,7 @@ pub fn sleep(secs: u64) {
     thread::sleep(tweaked_duration(secs));
 }
 
-fn tweaked_duration(secs: u64) -> Duration {
+pub fn tweaked_duration(secs: u64) -> Duration {
     let sec_coefficient = env::var("CKB_TEST_SEC_COEFFICIENT")
         .unwrap_or_default()
         .parse()
@@ -206,11 +205,6 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
     );
 }
 
-pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
-    let committed_status = TxStatus::committed(h256!("0x0"));
-    tx_status.tx_status.status == committed_status.status
-}
-
 /// Return a random path located on temp_dir
 ///
 /// We use `tempdir` only for generating a random path, and expect the corresponding directory
@@ -258,10 +252,7 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     txs.iter().for_each(|tx| {
         node.submit_transaction(tx);
     });
-    while txs
-        .iter()
-        .any(|tx| !is_committed(&node.rpc_client().get_transaction(tx.hash()).unwrap()))
-    {
+    while txs.iter().any(|tx| !is_transaction_committed(node, tx)) {
         node.generate_blocks(node.consensus().finalization_delay_length() as usize);
     }
 

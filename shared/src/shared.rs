@@ -234,6 +234,7 @@ impl SharedBuilder {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
+        migrations.add_migration(Box::new(migrations::CellMigration));
         #[cfg(feature = "test-migration")]
         {
             let intervals = &[1000, 2000, 4000, 8000, 8000, 4000, 2000, 1000]; // 30 seconds

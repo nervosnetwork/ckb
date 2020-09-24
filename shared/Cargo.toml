@@ -19,6 +19,7 @@ ckb-verification = { path = "../verification" }
 ckb-notify = { path = "../notify" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-db-migration = { path = "../db-migration" }
+ckb-chain-iter = { path = "../util/chain-iter" }
 
 [features]
 default = []

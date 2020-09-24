@@ -1,5 +1,5 @@
 use super::new_block_assembler_config;
-use crate::utils::is_committed;
+use crate::util::check::is_transaction_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
@@ -100,17 +100,8 @@ impl Spec for SendDefectedBinary {
         if self.reject_ill_transactions {
             assert!(ret.is_err());
         } else {
-            let tx_hash = ret.expect("transaction should be accepted").pack();
             node.generate_blocks(20);
-            let tx_status = node
-                .rpc_client()
-                .get_transaction(tx_hash.clone())
-                .expect("get sent transaction");
-            assert!(
-                is_committed(&tx_status),
-                "ensure_committed failed {}",
-                tx_hash
-            );
+            assert!(is_transaction_committed(node, &tx));
         }
     }
 

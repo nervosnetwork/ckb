@@ -665,8 +665,8 @@ fn _update_tx_pool_for_reorg(
     let txs_iter = attached.iter().map(|tx| {
         let get_cell_data = |out_point: &OutPoint| {
             snapshot
-                .get_cell_data(&out_point.tx_hash(), out_point.index().unpack())
-                .map(|result| result.0)
+                .get_cell_data(out_point)
+                .map(|(data, _data_hash)| data)
         };
         let related_out_points =
             get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");

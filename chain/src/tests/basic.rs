@@ -116,7 +116,7 @@ fn test_genesis_transaction_spend() {
         shared
             .snapshot()
             .cell(&OutPoint::new(genesis_tx_hash, 0), false),
-        CellStatus::Dead
+        CellStatus::Unknown
     );
 }
 
@@ -177,7 +177,7 @@ fn test_transaction_spend_in_same_block() {
 
     assert_eq!(
         shared.snapshot().cell(&OutPoint::new(tx1_hash, 0), false),
-        CellStatus::Dead
+        CellStatus::Unknown
     );
 
     let epoch = mock_store
@@ -269,7 +269,7 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_error_eq!(
-        OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
+        OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 0)]),
         chain_controller
             .process_block(Arc::new(chain.blocks()[4].clone()))
             .unwrap_err(),

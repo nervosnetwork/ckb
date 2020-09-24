@@ -1,4 +1,4 @@
-use crate::utils::is_committed;
+use crate::util::check::is_transaction_committed;
 use crate::{Net, Spec};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_app_config::CKBAppConfig;
@@ -102,18 +102,10 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             .build();
         info!("Send 1 multisig tx use dep group");
 
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        node.rpc_client().send_transaction(tx.data().into());
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {

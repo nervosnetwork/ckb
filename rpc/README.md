@@ -22,12 +22,13 @@ The system module is always enabled.
     *   [`get_block`](#get_block)
     *   [`get_header`](#get_header)
     *   [`get_header_by_number`](#get_header_by_number)
-    *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
     *   [`get_live_cell`](#get_live_cell)
     *   [`get_transaction`](#get_transaction)
     *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
     *   [`get_block_economic_state`](#get_block_economic_state)
     *   [`get_block_by_number`](#get_block_by_number)
+    *   [`get_transaction_proof`](#get_transaction_proof)
+    *   [`verify_transaction_proof`](#verify_transaction_proof)
 *   [`Experiment`](#experiment)
     *   [`dry_run_transaction`](#dry_run_transaction)
     *   [`_compute_transaction_hash`](#_compute_transaction_hash)
@@ -416,101 +417,6 @@ http://localhost:8114
 }
 ```
 
-### ~~`get_cells_by_lock_hash`~~
-**DEPRECATED** This method is deprecated since version 0.36.0 for reasons of flexibility, please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
-
-Returns the information about live cells collection by the hash of lock script.
-
-#### Parameters
-
-* lock_hash - Cell lock script hash
-* from - Start block number
-* to - End block number
-#### Returns
-
-* block_hash - Refer to block
-* capacity - Cell capacity
-* cellbase - Cellbase or not
-* lock - Cell lock script
-* out_point - Refer to this output
-* output_data_len - Corresponding output data length
-* type - Cell type script
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_cells_by_lock_hash",
-    "params": [
-        "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-        "0xa",
-        "0xe"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": [
-        {
-            "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
-            "capacity": "0x2ca86f2642",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        },
-        {
-            "block_hash": "0x63b872c02b1c2bd0c1af4f73f68ac04e2a3763a71f9656a823848d346619ffde",
-            "capacity": "0x2ca86e3dd4",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0x0b0fb337a9168132d3771f07e0ba055419c7e8f7bc2681a9eb445e61f44e1eb9"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        },
-        {
-            "block_hash": "0x6bbdd9dc71784d500daadf391ca9035900b3ff18ed868d7d4fe4b17fdea88853",
-            "capacity": "0x2ca86d5691",
-            "cellbase": true,
-            "lock": {
-                "args": "0x",
-                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
-            },
-            "out_point": {
-                "index": "0x0",
-                "tx_hash": "0xc336a23a785f3fec8b6e29e2c00d23483f1c6ad410b6b9fc0f62baf65d5efcc7"
-            },
-            "output_data_len": "0x0",
-            "type": null
-        }
-    ]
-}
-```
-
 ### `get_live_cell`
 
 Returns the information about a cell by out_point if it is live. If second with_data argument set to true, will return cell data and data_hash if it is live
@@ -816,6 +722,101 @@ http://localhost:8114
         ],
         "uncles": []
     }
+}
+```
+
+### `get_transaction_proof`
+
+Returns a merkle proof that transaction was included in a block.
+
+#### Parameters
+
+* tx_hashes - Transaction hashes, all transactions must be in the same block
+* block_hash - An optional parameter, if specified, looks for transactions in the block with this hash
+#### Returns
+
+* block_hash - Block hash
+* witnesses_root - Merkle root of all transactions' witness hash
+* proof - Merkle proof of all transactions' hash
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transaction_proof",
+    "params": [
+        [
+            "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+        ]
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "proof": {
+            "indices": [
+                "0x0"
+            ],
+            "lemmas": []
+        },
+        "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
+    }
+}
+```
+
+### `verify_transaction_proof`
+
+Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to
+
+#### Parameters
+
+* transaction_proof - proof generated by get_transaction_proof
+#### Returns
+
+* transaction_hashes - Transaction hashes
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "verify_transaction_proof",
+    "params": [
+        {
+            "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+            "proof": {
+                "indices": [
+                    "0x0"
+                ],
+                "lemmas": []
+            },
+            "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    ]
 }
 ```
 

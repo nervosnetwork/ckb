@@ -1,0 +1,28 @@
+#!/bin/bash
+set -eu
+
+if ! command -v 7z &> /dev/null; then
+  sudo apt-get install p7zip-full
+fi
+
+PKG_DIR="$( cd "$( dirname "$1" )" >/dev/null 2>&1 && pwd )"
+PKG_NAME="$(basename "$1")"
+
+mkdir -p releases
+rm -f "releases/$PKG_NAME.7z"
+7z a -r "releases/$PKG_NAME.7z" "$PKG_DIR/$PKG_NAME"
+
+if ! command -v qshell &> /dev/null; then
+  curl -LO http://devtools.qiniu.com/qshell-linux-x64-v2.4.2.zip
+  unzip qshell-linux-x64-v2.4.2.zip
+  sudo mv -f qshell-linux-x64-v2.4.2 /usr/bin/qshell
+fi
+
+qshell account "$QINIU_ACCESS_KEY" "$QINIU_SECRET_KEY" ckb
+
+pushd releases
+ls -l "$PKG_NAME.7z"
+echo "start uploading $PKG_NAME.7z"
+qshell rput ckb-bin "$PKG_NAME.7z" "$PKG_NAME.7z" --overwrite
+echo "uploaded $PKG_NAME.7z"
+popd

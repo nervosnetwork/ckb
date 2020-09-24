@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint,
-    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, ResponseFormat,
-    TransactionWithStatus, Uint32,
+    CellWithStatus, EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof, OutPoint,
+    ResponseFormat, TransactionProof, TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -12,12 +12,12 @@ use ckb_types::{
     core::{self, cell::CellProvider},
     packed::{self, Block, Header},
     prelude::*,
+    utilities::{merkle_root, MerkleProof, CBMT},
     H256,
 };
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-
-pub const PAGE_SIZE: u64 = 100;
+use std::collections::HashSet;
 
 #[rpc(server)]
 pub trait ChainRpc {
@@ -86,6 +86,16 @@ pub trait ChainRpc {
 
     #[rpc(name = "get_block_economic_state")]
     fn get_block_economic_state(&self, _hash: H256) -> Result<Option<BlockEconomicState>>;
+
+    #[rpc(name = "get_transaction_proof")]
+    fn get_transaction_proof(
+        &self,
+        tx_hashes: Vec<H256>,
+        block_hash: Option<H256>,
+    ) -> Result<TransactionProof>;
+
+    #[rpc(name = "verify_transaction_proof")]
+    fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -301,74 +311,14 @@ impl ChainRpc for ChainRpcImpl {
     // TODO: we need to build a proper index instead of scanning every time
     fn get_cells_by_lock_hash(
         &self,
-        lock_hash: H256,
-        from: BlockNumber,
-        to: BlockNumber,
+        _lock_hash: H256,
+        _from: BlockNumber,
+        _to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
-        let lock_hash = lock_hash.pack();
-        let mut result = Vec::new();
-        let snapshot = self.shared.snapshot();
-        let from = from.into();
-        let to = to.into();
-        if from > to {
-            return Err(RPCError::invalid_params(format!(
-                "Expected from <= to in params[0], got from={:#x} to={:#x}",
-                from, to
-            )));
-        } else if to - from > PAGE_SIZE {
-            return Err(RPCError::invalid_params(format!(
-                "Expected to - from <= {} in params[0], got {}",
-                PAGE_SIZE,
-                to - from,
-            )));
-        }
-
-        for block_number in from..=to {
-            let block_hash = snapshot.get_block_hash(block_number);
-            if block_hash.is_none() {
-                break;
-            }
-
-            let block_hash = block_hash.unwrap();
-            let block = snapshot.get_block(&block_hash).ok_or_else(|| {
-                let message = format!(
-                    "Chain Index says block #{:#x} is {:#x}, but that block is not in the database",
-                    block_number, block_hash
-                );
-                error!("{}", message);
-                RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
-            })?;
-            for transaction in block.transactions() {
-                if let Some(transaction_meta) = snapshot.get_tx_meta(&transaction.hash()) {
-                    for (i, output) in transaction.outputs().into_iter().enumerate() {
-                        if output.calc_lock_hash() == lock_hash
-                            && transaction_meta.is_dead(i) == Some(false)
-                        {
-                            let out_point = packed::OutPoint::new_builder()
-                                .tx_hash(transaction.hash())
-                                .index(i.pack())
-                                .build();
-                            result.push(CellOutputWithOutPoint {
-                                out_point: out_point.into(),
-                                block_hash: block_hash.unpack(),
-                                capacity: output.capacity().unpack(),
-                                lock: output.lock().clone().into(),
-                                type_: output.type_().to_opt().map(Into::into),
-                                output_data_len: (transaction
-                                    .outputs_data()
-                                    .get(i)
-                                    .expect("verified tx")
-                                    .len()
-                                    as u64)
-                                    .into(),
-                                cellbase: transaction_meta.is_cellbase(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        Ok(result)
+        Err(RPCError::custom(
+            RPCError::Invalid,
+            "get_cells_by_lock_hash have been deprecated, use [indexer] get_live_cells_by_lock_hash instead",
+        ))
     }
 
     fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
@@ -468,5 +418,122 @@ impl ChainRpc for ChainRpcImpl {
                 })
                 .map(Into::into)
         }))
+    }
+
+    fn get_transaction_proof(
+        &self,
+        tx_hashes: Vec<H256>,
+        block_hash: Option<H256>,
+    ) -> Result<TransactionProof> {
+        if tx_hashes.is_empty() {
+            return Err(RPCError::invalid_params("Empty transaction hashes"));
+        }
+        let snapshot = self.shared.snapshot();
+
+        let mut retrieved_block_hash = None;
+        let mut tx_indices = HashSet::new();
+        for tx_hash in tx_hashes {
+            match snapshot.get_transaction_info(&tx_hash.pack()) {
+                Some(tx_info) => {
+                    if retrieved_block_hash.is_none() {
+                        retrieved_block_hash = Some(tx_info.block_hash);
+                    } else if Some(tx_info.block_hash) != retrieved_block_hash {
+                        return Err(RPCError::invalid_params(
+                            "Not all transactions found in retrieved block",
+                        ));
+                    }
+
+                    if !tx_indices.insert(tx_info.index as u32) {
+                        return Err(RPCError::invalid_params(format!(
+                            "Duplicated tx_hash {:#x}",
+                            tx_hash
+                        )));
+                    }
+                }
+                None => {
+                    return Err(RPCError::invalid_params(format!(
+                        "Transaction {:#x} not yet in block",
+                        tx_hash
+                    )));
+                }
+            }
+        }
+
+        let retrieved_block_hash = retrieved_block_hash.expect("checked len");
+        if let Some(specified_block_hash) = block_hash {
+            if !retrieved_block_hash.eq(&specified_block_hash.pack()) {
+                return Err(RPCError::invalid_params(
+                    "Not all transactions found in specified block",
+                ));
+            }
+        }
+
+        snapshot
+            .get_block(&retrieved_block_hash)
+            .ok_or_else(|| {
+                let message = format!(
+                    "Chain TransactionInfo says block {:#x} existing, but that block is not in the database",
+                    retrieved_block_hash
+                );
+                error!("{}", message);
+                RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
+            })
+            .map(|block| {
+                let proof = CBMT::build_merkle_proof(
+                    &block.transactions().iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
+                    &tx_indices.into_iter().collect::<Vec<_>>())
+                .expect("build proof with verified inputs should be OK");
+                TransactionProof {
+                    block_hash: block.hash().unpack(),
+                    witnesses_root: block.calc_witnesses_root().unpack(),
+                    proof: JsonMerkleProof {
+                        indices: proof.indices().iter().map(|index| (*index).into()).collect(),
+                        lemmas: proof.lemmas().iter().map(|lemma| Unpack::<H256>::unpack(lemma)).collect(),
+                    }
+                }
+            })
+    }
+
+    fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>> {
+        let snapshot = self.shared.snapshot();
+
+        snapshot
+            .get_block(&tx_proof.block_hash.pack())
+            .ok_or_else(|| {
+                RPCError::invalid_params(format!("Cannot find block {:#x}", tx_proof.block_hash))
+            })
+            .and_then(|block| {
+                let witnesses_root = tx_proof.witnesses_root.pack();
+                let merkle_proof = MerkleProof::new(
+                    tx_proof
+                        .proof
+                        .indices
+                        .into_iter()
+                        .map(|index| index.value())
+                        .collect(),
+                    tx_proof
+                        .proof
+                        .lemmas
+                        .into_iter()
+                        .map(|lemma| lemma.pack())
+                        .collect(),
+                );
+
+                CBMT::retrieve_leaves(&block.tx_hashes(), &merkle_proof)
+                    .and_then(|tx_hashes| {
+                        merkle_proof
+                            .root(&tx_hashes)
+                            .and_then(|raw_transactions_root| {
+                                if block.transactions_root()
+                                    == merkle_root(&[raw_transactions_root, witnesses_root])
+                                {
+                                    Some(tx_hashes.iter().map(|hash| hash.unpack()).collect())
+                                } else {
+                                    None
+                                }
+                            })
+                    })
+                    .ok_or_else(|| RPCError::invalid_params("Invalid transaction proof"))
+            })
     }
 }

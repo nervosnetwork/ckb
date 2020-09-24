@@ -59,6 +59,14 @@ impl packed::OutPoint {
     pub fn is_null(&self) -> bool {
         self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
     }
+
+    pub fn to_cell_key(&self) -> Vec<u8> {
+        let mut key = Vec::with_capacity(36);
+        let index: u32 = self.index().unpack();
+        key.extend_from_slice(self.tx_hash().as_slice());
+        key.extend_from_slice(&index.to_be_bytes());
+        key
+    }
 }
 
 impl packed::CellInput {
