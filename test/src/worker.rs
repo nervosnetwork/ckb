@@ -4,6 +4,7 @@ use ckb_util::Mutex;
 use log::{error, info};
 use std::any::Any;
 use std::panic;
+use std::path::PathBuf;
 use std::sync::{atomic::AtomicU16, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -26,11 +27,11 @@ pub enum Notify {
     Error {
         spec_error: Box<dyn Any + Send>,
         spec_name: String,
-        node_dirs: Vec<String>,
+        node_log_paths: Vec<PathBuf>,
     },
     Panick {
         spec_name: String,
-        node_dirs: Vec<String>,
+        node_log_paths: Vec<PathBuf>,
     },
     Stop,
 }
@@ -112,17 +113,14 @@ impl Worker {
             .unwrap();
 
         let mut nodes = spec.before_run();
-        let node_dirs = nodes
-            .iter()
-            .map(|node| node.working_dir().to_string())
-            .collect::<Vec<_>>();
+        let node_log_paths = nodes.iter().map(|node| node.log_path()).collect::<Vec<_>>();
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
             spec.run(&mut nodes);
         }));
 
         // error handles
         let spec_error = result.err();
-        let panicked_error = nodes_panicked(&node_dirs);
+        let panicked_error = nodes_panicked(&node_log_paths);
         if (panicked_error || spec_error.is_some()) && retried < spec.setup().retry_failed {
             error!("{} failed at {} attempt, retry...", spec.name(), retried);
             self.run_spec(spec, retried + 1);
@@ -130,7 +128,7 @@ impl Worker {
             outbox
                 .send(Notify::Panick {
                     spec_name: spec.name().to_string(),
-                    node_dirs,
+                    node_log_paths,
                 })
                 .unwrap();
         } else if let Some(spec_error) = spec_error {
@@ -138,7 +136,7 @@ impl Worker {
                 .send(Notify::Error {
                     spec_error,
                     spec_name: spec.name().to_string(),
-                    node_dirs,
+                    node_log_paths,
                 })
                 .unwrap();
         } else {

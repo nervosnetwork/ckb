@@ -1,8 +1,8 @@
-use crate::rpc::RpcClient;
 use crate::global::binary;
+use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
@@ -15,29 +15,14 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
-use failure::Error;
-use std::time::Duration;
+use std::collections::HashSet;
 use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Child, Command, Stdio};
+use std::thread::sleep;
+use std::time::Duration;
 use std::time::Instant;
-use std::collections::HashSet;
-
-pub struct Node {
-    binary: String,
-    working_dir: PathBuf,
-    p2p_port: u16,
-    rpc_port: u16,
-    rpc_client: RpcClient,
-    node_id: Option<String>,
-    genesis_cellbase_hash: Byte32,
-    dep_group_tx_hash: Byte32,
-    always_success_code_hash: Byte32,
-    guard: Option<ProcessGuard>,
-    consensus: Option<Consensus>,
-    spec: Option<ChainSpec>,
-}
 
 struct ProcessGuard(pub Child);
 
@@ -52,7 +37,7 @@ impl Drop for ProcessGuard {
 }
 
 pub struct Node {
-    working_dir: String,
+    working_dir: PathBuf,
     consensus: Consensus,
     p2p_listen: String,
     rpc_client: RpcClient,
@@ -64,18 +49,20 @@ pub struct Node {
 impl Node {
     pub fn new(spec_name: &str, node_name: &str) -> Self {
         let working_dir = temp_path(spec_name, node_name);
-        log::info!("New {}-{} on: {}", spec_name, node_name, working_dir);
+        // log::info!("New {}-{} on: {}", spec_name, node_name, working_dir);
 
         // Copy node template into node's working directory
-        fs::create_dir_all(format!("{}/specs/cells", working_dir)).expect("create node's dir");
+        let cells_dir = working_dir.join("specs").join("cells");
+        fs::create_dir_all(cells_dir).expect("create node's dir");
         for file in &[
             "ckb.toml",
             "specs/integration.toml",
             "specs/cells/always_success",
         ] {
-            let src = format!("template/{}", file);
-            let dest = format!("{}/{}", working_dir, file);
-            fs::copy(&src, &dest).unwrap_or_else(|_| panic!("cp {} {}", src, dest));
+            let src = PathBuf::from("template").join("file");
+            let dest = working_dir.join(file);
+            fs::copy(&src, &dest)
+                .unwrap_or_else(|_| panic!("cp {:?} {}", src.display(), dest.display()));
         }
 
         // Allocate rpc port and p2p port, and fill into app config
@@ -95,7 +82,7 @@ impl Node {
     where
         M: Fn(&mut CKBAppConfig),
     {
-        let app_config_path = format!("{}/ckb.toml", self.working_dir());
+        let app_config_path = self.working_dir().join("ckb.toml");
         let mut app_config: CKBAppConfig = {
             let toml = fs::read(&app_config_path).unwrap();
             toml::from_slice(&toml).unwrap()
@@ -103,14 +90,14 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir().to_string());
+        *self = Self::init(self.working_dir());
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
     where
         M: Fn(&mut ChainSpec),
     {
-        let ckb_spec_path = format!("{}/specs/integration.toml", self.working_dir());
+        let ckb_spec_path = self.working_dir().join("specs/integration.toml");
         let mut chain_spec = {
             let toml = fs::read(&ckb_spec_path).unwrap();
             toml::from_slice(&toml).unwrap()
@@ -118,18 +105,18 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&ckb_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir().to_string());
+        *self = Self::init(self.working_dir());
     }
 
     // Initialize Node instance based on working directory
-    fn init(working_dir: String) -> Self {
+    fn init(working_dir: PathBuf) -> Self {
         let app_config: CKBAppConfig = {
-            let app_config_path = format!("{}/ckb.toml", working_dir);
+            let app_config_path = working_dir.join("ckb.toml");
             let toml = fs::read(app_config_path).unwrap();
             toml::from_slice(&toml).unwrap()
         };
         let mut chain_spec: ChainSpec = {
-            let chain_spec_path = format!("{}/specs/integration.toml", working_dir);
+            let chain_spec_path = working_dir.join("specs/integration.toml");
             let toml = fs::read(chain_spec_path).unwrap();
             toml::from_slice(&toml).unwrap()
         };
@@ -145,9 +132,7 @@ impl Node {
                 .system_cells
                 .iter_mut()
                 .for_each(|system_cell| {
-                    system_cell
-                        .file
-                        .absolutize(&format!("{}/specs", working_dir));
+                    system_cell.file.absolutize(&working_dir.join("specs"));
                 });
             chain_spec.build_consensus().unwrap()
         };
@@ -165,16 +150,16 @@ impl Node {
         &self.rpc_client
     }
 
-    pub fn working_dir(&self) -> &str {
-        &self.working_dir
+    fn working_dir(&self) -> PathBuf {
+        self.working_dir.clone()
     }
 
-    pub fn node_log(&self) -> &str {
-        &format!("{}/data/logs/run.log", self.working_dir())
+    pub fn log_path(&self) -> PathBuf {
+        self.working_dir().join("data/logs/run.log")
     }
 
-    pub fn node_log_size(&self) -> u64 {
-        fs::metadata(self.node_log()).expect("stat node log").len()
+    pub fn log_size(&self) -> u64 {
+        fs::metadata(self.log_path()).expect("stat node log").len()
     }
 
     pub fn node_id(&self) -> &str {
@@ -524,7 +509,12 @@ impl Node {
     pub fn start(&mut self) {
         let mut child_process = Command::new(binary())
             .env("RUST_BACKTRACE", "full")
-            .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
+            .args(&[
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                "run",
+                "--ba-advanced",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -542,17 +532,17 @@ impl Node {
                 Ok(None) => sleep(std::time::Duration::from_secs(1)),
                 Ok(Some(status)) => {
                     log::error!(
-                        "Error: node crashed: {}, working_dir: {}",
+                        "Error: node crashed: {}, log_path: {}",
                         status,
-                        self.working_dir
+                        self.log_path().display()
                     );
                     process::exit(status.code().unwrap());
                 }
                 Err(error) => {
                     log::error!(
-                        "Error: node crashed with reason: {}, working_dir: {}",
+                        "Error: node crashed with reason: {}, log_path: {}",
                         error,
-                        self.working_dir
+                        self.log_path().display()
                     );
                     process::exit(255);
                 }
@@ -569,7 +559,12 @@ impl Node {
 
     pub fn export(&self, target: String) {
         Command::new(binary())
-            .args(&["export", "-C", self.working_dir(), &target])
+            .args(&[
+                "export",
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                &target,
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -579,7 +574,12 @@ impl Node {
 
     pub fn import(&self, target: String) {
         Command::new(binary())
-            .args(&["import", "-C", self.working_dir(), &target])
+            .args(&[
+                "import",
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                &target,
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())

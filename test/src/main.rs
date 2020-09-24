@@ -2,7 +2,6 @@ use ckb_channel::unbounded;
 use ckb_test::specs::*;
 use ckb_test::{
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
-    utils::node_log,
     worker::{Notify, Workers},
     Spec,
 };
@@ -97,7 +96,7 @@ fn main() {
             Notify::Error {
                 spec_error,
                 spec_name,
-                node_dirs,
+                node_log_paths,
             } => {
                 error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name.clone());
@@ -108,12 +107,12 @@ fn main() {
                 spec_errors.push(Some(spec_error));
                 if !quiet {
                     info!("[{}] Error", spec_name);
-                    tail_node_logs(node_dirs);
+                    tail_node_logs(&node_log_paths);
                 }
             }
             Notify::Panick {
                 spec_name,
-                node_dirs,
+                node_log_paths,
             } => {
                 error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name.clone());
@@ -124,7 +123,7 @@ fn main() {
                 spec_errors.push(None);
                 if !quiet {
                     info!("[{}] Panic", spec_name);
-                    print_panicked_logs(&node_dirs);
+                    print_panicked_logs(&node_log_paths);
                 }
             }
             Notify::Done { spec_name, seconds } => {
@@ -407,11 +406,10 @@ fn list_specs() {
 }
 
 // sed -n ${{panic_ln-300}},${{panic_ln+300}}p $node_log_path
-fn print_panicked_logs(node_dirs: &[String]) {
-    for (i, node_dir) in node_dirs.iter().enumerate() {
-        let node_log = node_log(&node_dir);
+fn print_panicked_logs(node_log_paths: &[PathBuf]) {
+    for (i, node_log) in node_log_paths.iter().enumerate() {
         let log_reader =
-            BufReader::new(File::open(&node_log).expect("failed to read node's log")).lines();
+            BufReader::new(File::open(node_log).expect("failed to read node's log")).lines();
         let panic_ln = log_reader.enumerate().find(|(_ln, line)| {
             line.as_ref()
                 .map(|line| line.contains("panicked at"))
@@ -444,15 +442,14 @@ fn print_panicked_logs(node_dirs: &[String]) {
 }
 
 // tail -n 2000 $node_log_path
-fn tail_node_logs(node_dirs: Vec<String>) {
+fn tail_node_logs(node_log_paths: &[PathBuf]) {
     let tail_n: usize = env::var("CKB_TEST_TAIL_N")
         .unwrap_or_default()
         .parse()
         .unwrap_or(2000);
 
-    for (i, node_dir) in node_dirs.into_iter().enumerate() {
-        let node_log = node_log(&node_dir);
-        let content = read_to_string(&node_log).expect("failed to read node's log");
+    for (i, node_log) in node_log_paths.iter().enumerate() {
+        let content = read_to_string(node_log).expect("failed to read node's log");
         let skip = content.lines().count().saturating_sub(tail_n);
 
         println!(

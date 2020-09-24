@@ -1,13 +1,11 @@
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::*;
 
 pub struct RpcTransactionProof;
 
 impl Spec for RpcTransactionProof {
-    crate::name!("rpc_transaction_proof");
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let tx_hash = node0.generate_transaction().unpack();

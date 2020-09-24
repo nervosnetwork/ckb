@@ -1,4 +1,3 @@
-use crate::global::VENDOR_PATH;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::Node;
 use ckb_app_config::NetworkConfig;
@@ -20,7 +19,7 @@ pub struct Net {
     consensus: Consensus,
     protocols: Vec<SupportProtocols>,
     p2p_port: u16,
-    working_dir: String,
+    working_dir: PathBuf,
     controller: Option<(NetworkController, Receiver<NetMessage>)>,
 }
 
@@ -41,13 +40,8 @@ impl Net {
         }
     }
 
-    pub fn working_dir(&self) -> &str {
+    pub fn working_dir(&self) -> &PathBuf {
         &self.working_dir
-    }
-
-    pub fn vendor_dir(&self) -> PathBuf {
-        let vendor_path = VENDOR_PATH.lock();
-        (*vendor_path).clone()
     }
 
     pub fn p2p_listen(&self) -> String {
@@ -86,7 +80,7 @@ impl Net {
             whitelist_only: false,
             max_peers: 128,
             max_outbound_peers: 128,
-            path: self.working_dir().into(),
+            path: self.working_dir().clone(),
             ping_interval_secs: 15,
             ping_timeout_secs: 20,
             connect_outbound_interval_secs: 0,
