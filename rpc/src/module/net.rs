@@ -27,6 +27,9 @@ pub trait NetworkRpc {
     #[rpc(name = "get_banned_addresses")]
     fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>>;
 
+    #[rpc(name = "clear_banned_addresses")]
+    fn clear_banned_addresses(&self) -> Result<()>;
+
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"set_ban","params": ["192.168.0.0/24", "insert"]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "set_ban")]
     fn set_ban(
@@ -196,6 +199,11 @@ impl NetworkRpc for NetworkRpcImpl {
                 created_at: banned.created_at.into(),
             })
             .collect())
+    }
+
+    fn clear_banned_addresses(&self) -> Result<()> {
+        self.network_controller.clear_banned_addrs();
+        Ok(())
     }
 
     fn set_ban(
