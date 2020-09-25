@@ -1,13 +1,11 @@
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 
 pub struct RpcTruncate;
 
 impl Spec for RpcTruncate {
-    crate::name!("rpc_truncate");
-
     // After truncating, the chain will be rollback to the target block, and tx-pool be cleared.
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         node.generate_blocks(12);
         let to_truncate = node.get_block_by_number(node.get_tip_block_number()).hash();
         let tx1 = {

@@ -2,26 +2,22 @@ use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
 use crate::utils::{assert_send_transaction_fail, generate_utxo_set};
-use crate::{Net, Spec};
-use ckb_chain_spec::ChainSpec;
+use crate::{Node, Spec};
+
 use ckb_types::core::EpochNumberWithFraction;
 use ckb_types::{core::Capacity, prelude::*};
 
 pub struct WithdrawDAO;
 
 impl Spec for WithdrawDAO {
-    crate::name!("withdraw_dao");
-
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.params.genesis_epoch_length = 2;
-            spec_config.params.epoch_duration_target = 2;
-            spec_config.params.permanent_difficulty_in_dummy = true;
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.genesis_epoch_length = 2;
+        spec.params.epoch_duration_target = 2;
+        spec.params.permanent_difficulty_in_dummy = true;
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let utxos = generate_utxo_set(node, 21);
         let mut user = DAOUser::new(node, utxos);
 
@@ -42,18 +38,14 @@ impl Spec for WithdrawDAO {
 pub struct WithdrawDAOWithOverflowCapacity;
 
 impl Spec for WithdrawDAOWithOverflowCapacity {
-    crate::name!("withdraw_dao_with_overflow_capacity");
-
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.params.genesis_epoch_length = 2;
-            spec_config.params.epoch_duration_target = 2;
-            spec_config.params.permanent_difficulty_in_dummy = true;
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.genesis_epoch_length = 2;
+        spec.params.epoch_duration_target = 2;
+        spec.params.permanent_difficulty_in_dummy = true;
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let utxos = generate_utxo_set(node, 21);
         let mut user = DAOUser::new(node, utxos);
 

@@ -1,5 +1,7 @@
-use crate::{Net, Spec};
-use ckb_chain_spec::ChainSpec;
+use crate::global::VENDOR_PATH;
+use crate::specs::spec_name;
+use crate::{Node, Spec};
+
 use ckb_types::{
     core::{capacity_bytes, Capacity},
     packed::CellOutput,
@@ -10,24 +12,36 @@ use std::convert::Into;
 pub struct InsufficientReward;
 
 impl Spec for InsufficientReward {
-    crate::name!("insufficient_reward");
-    // Case: block which reward is insufficient could not be submitted
-    //    1. submit block with insufficient reward in current epoch should failed;
-    //    2. submit block with empty reward should success.
+    fn before_run(&self) -> Vec<Node> {
+        let mut node = Node::new(spec_name(self), "node1");
 
-    fn before_run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        let data_path = net
-            .vendor_dir()
+        // modify chain spec
+        node.modify_chain_spec(|spec| {
+            spec.params.initial_primary_epoch_reward = Capacity::shannons(2000_00000000);
+            spec.params.secondary_epoch_reward = Capacity::shannons(100_00000000);
+            spec.params.primary_epoch_reward_halving_interval = 2;
+            spec.params.epoch_duration_target = 80;
+            spec.params.genesis_epoch_length = 20;
+        });
+
+        // import vendor data
+        let data_path = VENDOR_PATH
+            .lock()
             .join("consensus")
             .join("insufficient_reward.json")
             .to_string_lossy()
             .to_string();
         node.import(data_path);
+
+        node.start();
+        vec![node]
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    // Case: block which reward is insufficient could not be submitted
+    //    1. submit block with insufficient reward in current epoch should failed;
+    //    2. submit block with empty reward should success.
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let new_block_builder = node.new_block_builder(None, None, None);
 
         // build a block with insufficient reward
@@ -73,8 +87,8 @@ impl Spec for InsufficientReward {
     }
 
     // export data
-    // fn run(&self, net: &mut Net) {
-    //     let node = &mut net.nodes[0];
+    // fn run(&self, nodes: &mut Vec<Node>) {
+    //     let node = &mut nodes[0];
     //     let hashes = node.generate_blocks(100);
 
     //     for hash in hashes {
@@ -91,14 +105,4 @@ impl Spec for InsufficientReward {
     //     node.stop();
     //     node.export("${backup}".to_string());
     // }
-
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.params.initial_primary_epoch_reward = Capacity::shannons(2000_00000000);
-            spec_config.params.secondary_epoch_reward = Capacity::shannons(100_00000000);
-            spec_config.params.primary_epoch_reward_halving_interval = 2;
-            spec_config.params.epoch_duration_target = 80;
-            spec_config.params.genesis_epoch_length = 20;
-        })
-    }
 }

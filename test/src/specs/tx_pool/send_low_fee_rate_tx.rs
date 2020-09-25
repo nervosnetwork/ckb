@@ -1,6 +1,6 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::CKBAppConfig;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
@@ -8,10 +8,8 @@ use log::info;
 pub struct SendLowFeeRateTx;
 
 impl Spec for SendLowFeeRateTx {
-    crate::name!("send_low_fee_rate_tx");
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let tx_hash_0 = node0.generate_transaction();
@@ -74,9 +72,7 @@ impl Spec for SendLowFeeRateTx {
             .send_transaction(tx_high_fee.data().into());
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
-        Box::new(|config| {
-            config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
-        })
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
     }
 }

@@ -1,5 +1,6 @@
-use crate::{utils::sleep, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::CKBAppConfig;
+use crate::node::{connect_all, exit_ibd_mode};
+use crate::utils::sleep;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
@@ -11,13 +12,14 @@ const COUNT: usize = 10;
 pub struct TxsRelayOrder;
 
 impl Spec for TxsRelayOrder {
-    crate::name!("txs_relay_order");
     crate::setup!(num_nodes: 2);
 
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        connect_all(nodes);
+        exit_ibd_mode(nodes);
+
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         node1.waiting_for_sync(node0, node0.get_tip_block().header().number());
@@ -53,9 +55,7 @@ impl Spec for TxsRelayOrder {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
-        Box::new(|config| {
-            config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
-        })
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
     }
 }

@@ -1,7 +1,7 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
 use crate::utils::wait_until;
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::CKBAppConfig;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::{
@@ -33,21 +33,17 @@ impl SendLargeCyclesTxInBlock {
 }
 
 impl Spec for SendLargeCyclesTxInBlock {
-    crate::name!("send_large_cycles_tx_in_block");
-    crate::setup!(num_nodes: 2, connect_all: false);
+    crate::setup!(num_nodes: 2);
 
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         // high cycle limit node
-        let mut node0 = net.nodes.remove(0);
+        let mut node0 = nodes.remove(0);
         // low cycle limit node
-        let node1 = &net.nodes[0];
+        let node1 = &nodes[0];
         node0.stop();
-        node0.edit_config_file(
-            Box::new(|_| ()),
-            Box::new(move |config| {
-                config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
-            }),
-        );
+        node0.modify_app_config(|config| {
+            config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
+        });
         node0.start();
 
         node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -79,15 +75,12 @@ impl Spec for SendLargeCyclesTxInBlock {
         assert!(result, "block can't relay to node1");
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let lock_arg = self.lock_arg.clone();
-        Box::new(move |config| {
-            config.network.connect_outbound_interval_secs = 0;
-            config.tx_pool.max_tx_verify_cycles = 5000u64;
-            let block_assembler =
-                new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
-            config.block_assembler = Some(block_assembler);
-        })
+        config.network.connect_outbound_interval_secs = 0;
+        config.tx_pool.max_tx_verify_cycles = 5000u64;
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
     }
 }
 
@@ -108,21 +101,17 @@ impl SendLargeCyclesTxToRelay {
 }
 
 impl Spec for SendLargeCyclesTxToRelay {
-    crate::name!("send_large_cycles_tx_to_relay");
-    crate::setup!(num_nodes: 2, connect_all: false);
+    crate::setup!(num_nodes: 2);
 
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         // high cycle limit node
-        let mut node0 = net.nodes.remove(0);
+        let mut node0 = nodes.remove(0);
         // low cycle limit node
-        let node1 = &net.nodes[0];
+        let node1 = &nodes[0];
         node0.stop();
-        node0.edit_config_file(
-            Box::new(|_| ()),
-            Box::new(move |config| {
-                config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
-            }),
-        );
+        node0.modify_app_config(|config| {
+            config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
+        });
         node0.start();
 
         node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -147,15 +136,12 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(!result, "Node1 should ignore tx");
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let lock_arg = self.lock_arg.clone();
-        Box::new(move |config| {
-            config.network.connect_outbound_interval_secs = 0;
-            config.tx_pool.max_tx_verify_cycles = 5000u64;
-            let block_assembler =
-                new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
-            config.block_assembler = Some(block_assembler);
-        })
+        config.network.connect_outbound_interval_secs = 0;
+        config.tx_pool.max_tx_verify_cycles = 5000u64;
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
     }
 }
 

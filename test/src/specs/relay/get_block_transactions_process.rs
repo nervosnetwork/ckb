@@ -1,4 +1,5 @@
-use crate::{Net, Spec, TestProtocol};
+use crate::node::exit_ibd_mode;
+use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
     core::UncleBlockView,
@@ -9,14 +10,15 @@ use ckb_types::{
 pub struct MissingUncleRequest;
 
 impl Spec for MissingUncleRequest {
-    crate::name!("missing_uncle_request");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: Send to node GetBlockTransactions with missing uncle index, node should response BlockTransactions with uncles
-    fn run(&self, net: &mut Net) {
-        net.exit_ibd_mode();
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        exit_ibd_mode(nodes);
+        let node = &nodes[0];
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 

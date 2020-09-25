@@ -1,6 +1,6 @@
 use super::utils::wait_get_blocks;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
-use crate::{Net, Spec, TestProtocol};
+use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 use ckb_types::{
     core::{BlockView, TransactionBuilder},
@@ -12,13 +12,7 @@ use std::time::Duration;
 pub struct ChainContainsInvalidBlock;
 
 impl Spec for ChainContainsInvalidBlock {
-    crate::name!("chain_contains_invalid_block");
-
-    crate::setup!(
-        connect_all: false,
-        num_nodes: 3,
-        protocols: vec![TestProtocol::sync()],
-    );
+    crate::setup!(num_nodes: 3);
 
     // Case:
     //   1. `bad_node` generate a long chain `CN` contains an invalid block
@@ -28,10 +22,10 @@ impl Spec for ChainContainsInvalidBlock {
     //   3. `good_node` mines a new block B[i]', i < `CN.length`.
     //   4. `fresh_node` synchronizes from `bad_node` and `good_node`. We expect
     //      that `fresh_node` synchronizes the valid chain.
-    fn run(&self, net: &mut Net) {
-        let bad_node = net.nodes.pop().unwrap();
-        let good_node = net.nodes.pop().unwrap();
-        let fresh_node = net.nodes.pop().unwrap();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let bad_node = nodes.pop().unwrap();
+        let good_node = nodes.pop().unwrap();
+        let fresh_node = nodes.pop().unwrap();
 
         // Build invalid chain on bad_node
         bad_node.generate_blocks(3);
@@ -82,20 +76,14 @@ impl Spec for ChainContainsInvalidBlock {
 pub struct ForkContainsInvalidBlock;
 
 impl Spec for ForkContainsInvalidBlock {
-    crate::name!("fork_contains_invalid_block");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        connect_all: false,
-        num_nodes: 2,
-        protocols: vec![TestProtocol::sync()],
-    );
-
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         // Build bad forks
         let invalid_number = 4;
         let bad_chain: Vec<BlockView> = {
             let tip_number = invalid_number * 2;
-            let bad_node = net.nodes.pop().unwrap();
+            let bad_node = nodes.pop().unwrap();
             bad_node.generate_blocks(invalid_number - 1);
             let invalid_block = bad_node
                 .new_block_builder(None, None, None)
@@ -114,8 +102,13 @@ impl Spec for ForkContainsInvalidBlock {
             .collect();
 
         // Sync headers of bad forks
-        let good_node = net.nodes.pop().unwrap();
+        let good_node = nodes.pop().unwrap();
         good_node.generate_block();
+        let net = Net::new(
+            self.name(),
+            good_node.consensus().clone(),
+            vec![SupportProtocols::Sync],
+        );
         net.connect(&good_node);
         let (pi, _, _) = net.receive();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header()).collect();

@@ -1,18 +1,14 @@
 use crate::utils::{build_compact_block, wait_until};
-use crate::{Net, Spec, TestProtocol};
+use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 
 pub struct LastCommonHeaderForPeerWithWorseChain;
 
 impl Spec for LastCommonHeaderForPeerWithWorseChain {
-    crate::name!("last_common_header_for_peer_with_worse_chain");
-
-    crate::setup!(num_nodes: 1, connect_all: false, protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // As for the peers of which main chain is worse than ours, we should ensure the
     // last_common_header updating as well.
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
 
         // Node0's main chain tip is 5
         node0.generate_blocks(5);
@@ -21,6 +17,11 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
             .collect::<Vec<_>>();
 
         // Net relay blocks[1..4] to node0, let node0 knows our best chain is at 4.
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node0);
         let (peer_id, _, _) = net.receive();
         for block in worse {

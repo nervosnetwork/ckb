@@ -1,7 +1,6 @@
 use crate::node::Node;
-use crate::utils::{node_log, sleep, tweaked_duration};
-
-use std::fs::File;
+use crate::utils::{sleep, tweaked_duration};
+use std::fs::{metadata, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Instant;
 
@@ -34,10 +33,10 @@ where
 {
     let timeout = tweaked_duration(timeout);
     let start = Instant::now();
-    let filename = node_log(node.working_dir().to_str().unwrap());
-    let mut file = File::open(&filename).unwrap();
+    let filepath = node.log_path();
+    let mut file = File::open(&filepath).unwrap();
     loop {
-        let file_size = node.log_size();
+        let file_size = metadata(&filepath).unwrap().len();
         if seek_from != file_size {
             file.seek(SeekFrom::Start(seek_from)).unwrap();
             let file_reader = BufReader::new(&file);

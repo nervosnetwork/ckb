@@ -1,8 +1,6 @@
-use crate::utils::{
-    build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
-    build_header, build_headers, clear_messages, wait_until,
-};
-use crate::{Net, Spec, TestProtocol, DEFAULT_TX_PROPOSAL_WINDOW};
+use std::collections::HashSet;
+use std::time::Duration;
+
 use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_test_chain_utils::MockStore;
@@ -16,21 +14,27 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use std::collections::HashSet;
-use std::time::Duration;
+
+use crate::node::exit_ibd_mode;
+use crate::utils::{
+    build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
+    build_header, build_headers, clear_messages, wait_until,
+};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
 pub struct CompactBlockEmptyParentUnknown;
 
 impl Spec for CompactBlockEmptyParentUnknown {
-    crate::name!("compact_block_empty_parent_unknown");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
-    fn run(&self, net: &mut Net) {
-        net.exit_ibd_mode();
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        exit_ibd_mode(nodes);
+        let node = &nodes[0];
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -68,14 +72,15 @@ impl Spec for CompactBlockEmptyParentUnknown {
 pub struct CompactBlockEmpty;
 
 impl Spec for CompactBlockEmpty {
-    crate::name!("compact_block_empty");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -93,14 +98,15 @@ impl Spec for CompactBlockEmpty {
 pub struct CompactBlockPrefilled;
 
 impl Spec for CompactBlockPrefilled {
-    crate::name!("compact_block_prefilled");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -136,16 +142,17 @@ impl Spec for CompactBlockPrefilled {
 pub struct CompactBlockMissingFreshTxs;
 
 impl Spec for CompactBlockMissingFreshTxs {
-    crate::name!("compact_block_missing_fresh_txs");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: Send to node0 a block which missing a tx, which is a fresh tx for
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -197,19 +204,20 @@ impl Spec for CompactBlockMissingFreshTxs {
 pub struct CompactBlockMissingNotFreshTxs;
 
 impl Spec for CompactBlockMissingNotFreshTxs {
-    crate::name!("compact_block_missing_not_fresh_txs");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: As for the missing transactions of a compact block, we should try to find it from
     //       tx_pool. If we find out, we can reconstruct the target block without any requests
     //       to the peer.
     // 1. Put the target tx into tx_pool, and proposal it. Then move it into proposal window
     // 2. Relay target block which contains the target transaction as committed transaction. Expect
     //    successful to reconstruct the target block and grow up.
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -248,20 +256,19 @@ impl Spec for CompactBlockMissingNotFreshTxs {
 pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {
-    crate::name!("compact_block_lose_get_block_transactions");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
-    );
-
-    fn run(&self, net: &mut Net) {
-        net.exit_ibd_mode();
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        exit_ibd_mode(nodes);
+        let node0 = &nodes[0];
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node0);
         let (peer_id0, _, _) = net.receive();
-        let node1 = &net.nodes[1];
+        let node1 = &nodes[1];
         net.connect(node1);
         let _ = net.receive();
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -322,17 +329,13 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 pub struct CompactBlockRelayParentOfOrphanBlock;
 
 impl Spec for CompactBlockRelayParentOfOrphanBlock {
-    crate::name!("compact_block_relay_parent_of_orphan_block");
-
-    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
-
     // Case: A <- B, A == B.parent
     // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
     // orphan_block_pool now
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        exit_ibd_mode(nodes);
 
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // Proposal a tx, and grow up into proposal window
@@ -429,6 +432,11 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .build();
         let old_tip = node.get_tip_block().header().number();
 
+        let net = Net::new(
+            self.name(),
+            node.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -475,21 +483,20 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 pub struct CompactBlockRelayLessThenSharedBestKnown;
 
 impl Spec for CompactBlockRelayLessThenSharedBestKnown {
-    crate::name!("compact_block_relay_less_then_shared_best_known");
-
-    crate::setup!(
-        num_nodes: 2,
-        connect_all: false,
-        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
-    );
+    crate::setup!(num_nodes: 2);
 
     // Case: Relay a compact block which has lower total difficulty than shared_best_known
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        exit_ibd_mode(nodes);
+        let net = Net::new(
+            self.name(),
+            node0.consensus().clone(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
         net.connect(node0);
         let (peer_id, _, _) = net.receive();
 

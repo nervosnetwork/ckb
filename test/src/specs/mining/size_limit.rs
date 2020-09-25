@@ -1,20 +1,18 @@
 use crate::generic::GetCommitTxIds;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::Unpack;
 use log::info;
 
 pub struct TemplateSizeLimit;
 
 impl Spec for TemplateSizeLimit {
-    crate::name!("template_size_limit");
-
     // Case: txs number could be contained in new block limit by template size
     //    1. generate 6 txs;
     //    2. passing different bytes_limit when generate new block,
     //       check how many txs will be included.
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         node.generate_blocks_until_contains_valid_cellbase();
 
         // get blank block size

@@ -1,5 +1,5 @@
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{
     bytes::Bytes,
@@ -12,13 +12,11 @@ use ckb_types::{
 pub struct BootstrapCellbase;
 
 impl Spec for BootstrapCellbase {
-    crate::name!("bootstrap_cellbase");
-
     // Since mining reward is delay sent in ckb, the 0 - PROPOSAL_WINDOW.furthest blocks'
     //    cellbase's outputs is empty, which called as bootstrap_cellbase
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         let blk_hashes = node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 1) as usize);
 
@@ -62,14 +60,12 @@ impl Spec for BootstrapCellbase {
         )
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
-        Box::new(|config| {
-            config.block_assembler = Some(BlockAssemblerConfig {
-                code_hash: h256!("0xa2"),
-                args: JsonBytes::from_bytes(Bytes::from(vec![2, 1])),
-                hash_type: ScriptHashType::Data.into(),
-                message: Default::default(),
-            });
-        })
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.block_assembler = Some(BlockAssemblerConfig {
+            code_hash: h256!("0xa2"),
+            args: JsonBytes::from_bytes(Bytes::from(vec![2, 1])),
+            hash_type: ScriptHashType::Data.into(),
+            message: Default::default(),
+        });
     }
 }

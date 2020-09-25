@@ -6,6 +6,7 @@ use p2p::{
 };
 use tokio_util::codec::length_delimited;
 
+#[derive(Clone, Debug)]
 pub enum SupportProtocols {
     Ping,
     Discovery,
