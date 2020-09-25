@@ -1,4 +1,4 @@
-use crate::{BlockNumber, Timestamp, Uint64};
+use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,14 @@ pub struct TxPoolInfo {
     pub total_tx_cycles: Uint64,
     pub min_fee_rate: Uint64,
     pub last_txs_updated_at: Timestamp,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct PoolTransactionEntry {
+    pub transaction: TransactionView,
+    pub cycles: Cycle,
+    pub size: Uint64,
+    pub fee: Capacity,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

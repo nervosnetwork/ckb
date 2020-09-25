@@ -9,6 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
+use ckb_notify::NotifyController;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
@@ -307,6 +308,7 @@ impl TxPoolServiceBuilder {
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
+        notify_controller: NotifyController,
     ) -> TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = snapshot.cloned_consensus();
@@ -321,6 +323,7 @@ impl TxPoolServiceBuilder {
                 txs_verify_cache,
                 last_txs_updated_at,
                 snapshot_mgr,
+                notify_controller,
             )),
         }
     }
@@ -361,6 +364,7 @@ pub struct TxPoolService {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
+    pub(crate) notify_controller: NotifyController,
 }
 
 impl TxPoolService {
@@ -371,6 +375,7 @@ impl TxPoolService {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
+        notify_controller: NotifyController,
     ) -> Self {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
@@ -381,6 +386,7 @@ impl TxPoolService {
             txs_verify_cache,
             last_txs_updated_at,
             snapshot_mgr,
+            notify_controller,
         }
     }
 

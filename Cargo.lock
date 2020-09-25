@@ -1133,6 +1133,7 @@ dependencies = [
  "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-notify",
  "ckb-reward-calculator",
  "ckb-snapshot",
  "ckb-stop-handler",

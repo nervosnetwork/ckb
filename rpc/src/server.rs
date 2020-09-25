@@ -44,7 +44,7 @@ impl RpcServer {
             .as_ref()
             .map(|tcp_listen_address| {
                 let subscription_rpc_impl =
-                    SubscriptionRpcImpl::new(notify_controller.clone(), Some("TcpSubscription"));
+                    SubscriptionRpcImpl::new(notify_controller.clone(), "TcpSubscription");
                 let mut handler = io_handler.clone();
                 if config.subscription_enable() {
                     handler.extend_with(subscription_rpc_impl.to_delegate());
@@ -72,7 +72,7 @@ impl RpcServer {
 
         let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
             let subscription_rpc_impl =
-                SubscriptionRpcImpl::new(notify_controller.clone(), Some("WsSubscription"));
+                SubscriptionRpcImpl::new(notify_controller.clone(), "WsSubscription");
             let mut handler = io_handler.clone();
             if config.subscription_enable() {
                 handler.extend_with(subscription_rpc_impl.to_delegate());
