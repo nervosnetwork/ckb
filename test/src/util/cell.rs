@@ -1,3 +1,4 @@
+use crate::util::mining::mine_until_bool;
 use crate::Node;
 use ckb_types::core::cell::{CellMeta, CellMetaBuilder};
 use ckb_types::core::{BlockView, TransactionInfo};
@@ -5,19 +6,13 @@ use ckb_types::packed::{Byte32, CellInput, CellOutput, OutPoint};
 use ckb_types::prelude::*;
 use std::collections::HashMap;
 use std::ops::Range;
-use crate::util::mining::mine;
 
 pub fn gen_spendable(node: &Node, count: usize) -> Vec<CellMeta> {
-    // TODO optimize based on `out_of_boostrap_period`
-    loop {
-        let mut spendable = get_spendable(node);
-        if count > spendable.len() {
-            let gap = count - spendable.len();
-            mine(node, gap as u64);
-        } else {
-            break spendable.split_off(spendable.len() - count);
-        }
-    }
+    let farthest = node.consensus().tx_proposal_window().farthest();
+    let out_bootstrap_period = farthest + 2;
+    let predicate = || node.get_tip_block_number() >= out_bootstrap_period + count as u64 - 1;
+    mine_until_bool(node, predicate);
+    get_spendable(node)
 }
 
 pub fn get_spendable(node: &Node) -> Vec<CellMeta> {

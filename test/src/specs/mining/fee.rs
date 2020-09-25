@@ -2,8 +2,8 @@ use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::util::cell::{as_input, gen_spendable};
 use crate::util::check::is_transaction_committed;
-use crate::util::transaction::always_success_transaction;
 use crate::util::mining::mine;
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
 use ckb_types::core::TransactionBuilder;
@@ -34,7 +34,7 @@ impl Spec for FeeOfTransaction {
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
         let number_to_propose = node.get_tip_block_number() + 1;
         let number_to_commit = number_to_propose + closest;
-        mine(node, 2 * FINALIZATION_DELAY_LENGTH );
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -203,7 +203,7 @@ impl Spec for ProposeDuplicated {
         let node = &nodes[0];
         let cells = gen_spendable(node, 1);
         let tx = always_success_transaction(node, &cells[0]);
-        let txs = vec![tx.clone()];
+        let txs = vec![tx];
         let tx = &txs[0];
 
         let uncle1 = {

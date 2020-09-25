@@ -1,12 +1,11 @@
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::util::cell::gen_spendable;
-use crate::util::transaction::always_success_transaction;
 use crate::util::mining::mine;
+use crate::util::transaction::always_success_transaction;
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_types::{core::BlockView, prelude::*};
-use std::convert::Into;
+use ckb_types::prelude::*;
 
 pub struct MiningBasic;
 

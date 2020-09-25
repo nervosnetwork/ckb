@@ -1,8 +1,8 @@
 use crate::node::{disconnect_all, waiting_for_sync};
-use crate::util::cell::{as_inputs, as_outputs, gen_spendable};
+use crate::util::cell::gen_spendable;
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
+use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::util::transaction::always_success_transaction;
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},

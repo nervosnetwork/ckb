@@ -1,5 +1,6 @@
-use crate::node::{connect_all, exit_ibd_mode, waiting_for_sync};
+use crate::node::{connect_all, waiting_for_sync};
 use crate::util::cell::gen_spendable;
+use crate::util::mining::{mine, out_ibd_mode};
 use crate::util::transaction::{always_success_transaction, always_success_transactions};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};

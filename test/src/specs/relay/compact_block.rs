@@ -1,5 +1,6 @@
 use crate::node::waiting_for_sync;
-use crate::util::cell::{as_inputs, as_outputs, gen_spendable};
+use crate::util::cell::gen_spendable;
+use crate::util::mining::{mine, out_ibd_mode};
 use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,

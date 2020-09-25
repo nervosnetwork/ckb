@@ -1,5 +1,6 @@
 use crate::generic::GetCommitTxIds;
 use crate::util::cell::gen_spendable;
+use crate::util::mining::mine;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
