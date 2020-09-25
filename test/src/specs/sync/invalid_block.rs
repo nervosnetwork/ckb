@@ -1,4 +1,3 @@
-use super::utils::wait_get_blocks;
 use crate::util::mining::mine;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Node, Spec};
@@ -126,7 +125,7 @@ impl Spec for ForkContainsInvalidBlock {
 
         // Sync first part of bad fork which contains an invalid block
         // Good_node cannot detect the invalid block since "block delay verification".
-        let (bad_chain1, bad_chain2) = bad_chain.split_at(invalid_number + 1);
+        let (bad_chain1, bad_chain2) = bad_chain.split_at(invalid_number as usize + 1);
         bad_chain1
             .iter()
             .for_each(|block| net.send(&good_node, SupportProtocols::Sync, build_block(block)));

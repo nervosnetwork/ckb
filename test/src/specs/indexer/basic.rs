@@ -1,3 +1,4 @@
+use crate::node::waiting_for_sync;
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
@@ -94,7 +95,7 @@ impl Spec for IndexerBasic {
         info!("Generate 5 blocks on node1 and connect node0 to switch fork");
         mine(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
+        waiting_for_sync(nodes);
         info!("Live cells size should be 5, cell transactions size should be 5");
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);

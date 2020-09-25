@@ -1,6 +1,7 @@
+use crate::node::{connect_all, waiting_for_sync};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 use ckb_sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
 use ckb_types::{
@@ -45,7 +46,7 @@ impl Spec for TransactionRelayMultiple {
 
         let node0 = &nodes[0];
         (0..node0.consensus().tx_proposal_window().farthest() + 2).for_each(|_| {
-            exit_ibd_mode(nodes);
+            out_ibd_mode(nodes);
         });
 
         info!("Use generated block's cellbase as tx input");
@@ -225,14 +226,14 @@ impl Spec for TransactionRelayEmptyPeers {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
         node0.connect(node1);
         mine_until_out_bootstrap_period(node0);
-        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        waiting_for_sync(nodes);
         info!("Disconnect node1 and generate new transaction on node0");
         node0.disconnect(&node1);
         let hash = node0.generate_transaction();

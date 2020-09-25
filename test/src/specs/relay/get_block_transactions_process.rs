@@ -1,7 +1,4 @@
-use crate::node::exit_ibd_mode;
-use crate::util::mining::mine;
-use crate::util::mining::out_ibd_mode;
-use crate::util::sugar::out_ibd_mode;
+use crate::util::mining::{mine, out_ibd_mode};
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
@@ -15,7 +12,7 @@ pub struct MissingUncleRequest;
 impl Spec for MissingUncleRequest {
     // Case: Send to node GetBlockTransactions with missing uncle index, node should response BlockTransactions with uncles
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node = &nodes[0];
         let mut net = Net::new(
             self.name(),

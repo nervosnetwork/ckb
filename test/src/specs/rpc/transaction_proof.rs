@@ -1,3 +1,4 @@
+use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::*;
 
@@ -6,11 +7,11 @@ pub struct RpcTransactionProof;
 impl Spec for RpcTransactionProof {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine(&node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         let tx_hash = node0.generate_transaction().unpack();
         let tx_hashes = vec![tx_hash];
-        node0.generate_blocks(3);
+        mine(&node0, 3);
         let proof = node0
             .rpc_client()
             .inner()

@@ -1,11 +1,8 @@
 use crate::global::binary;
 use crate::rpc::RpcClient;
-use crate::utils::wait_until;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
-use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
@@ -18,14 +15,14 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
+use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Child, Command, Stdio};
 use std::thread::sleep;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 struct ProcessGuard(pub Child);
 
@@ -266,23 +263,6 @@ impl Node {
         });
         if !disconnected {
             panic!("Disconnect timeout, node {}", peer.node_id());
-        }
-    }
-
-    // TODO it will be removed out later, in another PR
-    pub fn waiting_for_sync(&self, peer: &Self, target: BlockNumber) {
-        let (mut self_tip_number, mut peer_tip_number) = (0, 0);
-        // 60 seconds is a reasonable timeout to sync, even for poor CI server
-        let synced = wait_until(60, || {
-            self_tip_number = self.get_tip_block_number();
-            peer_tip_number = peer.get_tip_block_number();
-            self_tip_number == peer_tip_number && target == self_tip_number
-        });
-        if !synced {
-            panic!(
-                "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
-                self_tip_number, peer_tip_number
-            );
         }
     }
 
@@ -598,23 +578,15 @@ pub fn disconnect_all(nodes: &[Node]) {
 }
 
 // TODO it will be removed out later, in another PR
-// generate a same block on all nodes, exit IBD mode and return the tip block
-pub fn exit_ibd_mode(nodes: &[Node]) -> BlockView {
-    let block = nodes[0].new_block(None, None, None);
-    nodes.iter().for_each(|node| {
-        node.submit_block(&block);
-    });
-    block
-}
-
-// TODO it will be removed out later, in another PR
-pub fn waiting_for_sync(nodes: &[Node]) {
-    let mut tip_headers: HashSet<HeaderView> = HashSet::with_capacity(nodes.len());
+pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
+    let mut tip_headers: HashSet<ckb_jsonrpc_types::HeaderView> =
+        HashSet::with_capacity(nodes.len());
     // 60 seconds is a reasonable timeout to sync, even for poor CI server
     let synced = wait_until(60, || {
         tip_headers = nodes
+            .as_ref()
             .iter()
-            .map(|node| node.rpc_client().get_tip_header().into())
+            .map(|node| node.borrow().rpc_client().get_tip_header())
             .collect();
         tip_headers.len() == 1
     });

@@ -1,6 +1,6 @@
 use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::mining::mine;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use log::info;
 
 pub struct SyncTimeout;
@@ -33,7 +33,7 @@ impl Spec for SyncTimeout {
 
         node0.connect(node1);
         info!("Waiting for node0 and node1 sync");
-        node0.waiting_for_sync(node1, 202);
+        waiting_for_sync(&[node0, node1]);
 
         info!("Generate 200 blocks on node1");
         mine(node1, 200);

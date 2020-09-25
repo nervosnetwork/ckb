@@ -1,6 +1,6 @@
 use crate::generic::GetProposalTxIds;
 use crate::util::mining::mine_until_out_bootstrap_period;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use ckb_types::prelude::*;
 
 pub struct AvoidDuplicatedProposalsWithUncles;

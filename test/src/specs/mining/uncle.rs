@@ -1,5 +1,5 @@
 use crate::util::mining::mine;
-use crate::{Net, Node, Spec};
+use crate::{Node, Spec};
 use ckb_types::core::{BlockView, EpochNumberWithFraction};
 use ckb_types::prelude::*;
 

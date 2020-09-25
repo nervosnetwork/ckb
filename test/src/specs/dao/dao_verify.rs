@@ -1,7 +1,6 @@
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::util::mining::mine;
 use crate::{Node, Spec};
-use ckb_chain_spec::ChainSpec;
 
 pub struct DAOVerify;
 

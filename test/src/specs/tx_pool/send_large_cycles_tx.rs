@@ -1,7 +1,7 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::{

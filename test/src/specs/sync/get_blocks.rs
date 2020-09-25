@@ -1,4 +1,3 @@
-use super::utils::wait_get_blocks;
 use crate::util::mining::mine;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Node, Spec};

@@ -1,6 +1,6 @@
 use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{
     bytes::Bytes,

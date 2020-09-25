@@ -2,7 +2,6 @@ use super::new_block_assembler_config;
 use crate::util::check::is_transaction_committed;
 use crate::util::mining::mine;
 use crate::{Node, Spec};
-use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::{

@@ -6,10 +6,10 @@ use ckb_types::{core::TransactionView, packed::OutPoint};
 
 /// Send the given transaction and make it committed
 pub(crate) fn ensure_committed(node: &Node, transaction: &TransactionView) -> OutPoint {
-    let commit_elapsed = node.consensus().tx_proposal_window().closest() as usize + 2;
+    let commit_elapsed = node.consensus().tx_proposal_window().closest() + 2;
     node.rpc_client()
         .send_transaction(transaction.data().into());
-    node.generate_blocks(commit_elapsed);
+    mine(&node, commit_elapsed);
     assert!(is_transaction_committed(node, transaction));
     OutPoint::new(transaction.hash(), 0)
 }

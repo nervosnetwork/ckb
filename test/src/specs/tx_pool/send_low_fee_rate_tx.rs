@@ -1,6 +1,6 @@
 use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::utils::wait_until;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;

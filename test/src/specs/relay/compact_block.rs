@@ -1,10 +1,11 @@
+use crate::node::waiting_for_sync;
 use crate::util::mining::out_ibd_mode;
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
-    build_header, build_headers, clear_messages, wait_until,
+    build_header, build_headers, wait_until,
 };
-use crate::{Net, Node, Spec, TestProtocol};
+use crate::{Net, Node, Spec};
 use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_test_chain_utils::MockStore;
@@ -27,7 +28,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node = &nodes[0];
         let mut net = Net::new(
             self.name(),
@@ -73,7 +74,7 @@ impl Spec for CompactBlockEmpty {
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -98,7 +99,7 @@ impl Spec for CompactBlockPrefilled {
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -143,7 +144,7 @@ impl Spec for CompactBlockMissingFreshTxs {
     // these missing txs
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -201,7 +202,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     //    successful to reconstruct the target block and grow up.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -246,7 +247,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node0 = &nodes[0];
         let mut net = Net::new(
             self.name(),
@@ -271,7 +272,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         // Make node0 and node1 reach the same height
         mine(&node1, 1);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, node0.get_tip_block().header().number());
+        waiting_for_sync(&[node0, node1]);
 
         // Construct a new block contains one transaction
         let block = node0
@@ -299,7 +300,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
         node1.submit_block(&block);
-        node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
+        waiting_for_sync(&[node0, node1]);
     }
 }
 
@@ -312,7 +313,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // orphan_block_pool now
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         mine_until_out_bootstrap_period(node);
         // Proposal a tx, and grow up into proposal window
@@ -469,7 +470,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node0.consensus(),

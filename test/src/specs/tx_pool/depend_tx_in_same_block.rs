@@ -1,5 +1,5 @@
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_types::{core::TransactionView, packed::ProposalShortId};
 use log::info;
 

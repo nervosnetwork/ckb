@@ -1,10 +1,7 @@
 use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
-use crate::utils::is_committed;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::CKBAppConfig;
-use ckb_jsonrpc_types::{TransactionWithStatus, TxStatus};
+use crate::{Node, Spec};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
@@ -33,7 +30,7 @@ impl Spec for ChainFork1 {
 
         info!("Connect node0 to node1");
         node1.connect(node0);
-        node0.waiting_for_sync(node1, 2);
+        waiting_for_sync(nodes);
         info!("Disconnect node1");
         node0.disconnect(node1);
 
@@ -81,7 +78,7 @@ impl Spec for ChainFork2 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -89,7 +86,7 @@ impl Spec for ChainFork2 {
         mine(node1, 2);
         info!("Reconnect node1");
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 4);
+        waiting_for_sync(&[node0, node1]);
 
         info!("Generate 2 blocks (F, G) on node2");
         mine(node2, 2);
@@ -129,7 +126,7 @@ impl Spec for ChainFork3 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -159,13 +156,13 @@ impl Spec for ChainFork3 {
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
-
-        info!("Generate 1 block (G) on node2");
-        mine(node2, 1);
-        info!("Reconnect node2");
-        node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
+
+        info!("Generate 2 block (G) on node2");
+        info!("Reconnect node2");
+        mine(node2, 2);
+        node2.connect(node0);
+        waiting_for_sync(&[node0, node2]);
     }
 }
 
@@ -177,7 +174,7 @@ impl Spec for ChainFork4 {
     // Test invalid cellbase capacity overflow fork (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
-    // node1                 \ -> D -> E -> F
+    // node1                 \ -> D -> E -> F(F is invalid cellbase capacity overflow)
     // node2                 \ -> C -> G
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -198,7 +195,7 @@ impl Spec for ChainFork4 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -227,12 +224,13 @@ impl Spec for ChainFork4 {
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
 
-        info!("Generate 1 block (G) on node2");
-        mine(node2, 1);
         info!("Reconnect node2");
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
+
+        info!("Generate 1 block (G) on node2");
+        mine(node2, 2);
+        waiting_for_sync(&[node0, node2]);
     }
 }
 
@@ -268,7 +266,7 @@ impl Spec for ChainFork5 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -297,13 +295,13 @@ impl Spec for ChainFork5 {
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
-
-        info!("Generate 1 block (G) on node2");
-        mine(node2, 1);
-        info!("Reconnect node2");
-        node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 5);
+
+        info!("Generate 2 block (G) on node2");
+        info!("Reconnect node2");
+        mine(node2, 2);
+        node2.connect(node0);
+        waiting_for_sync(&[node0, node2]);
     }
 }
 
@@ -336,7 +334,7 @@ impl Spec for ChainFork6 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -354,13 +352,12 @@ impl Spec for ChainFork6 {
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
-
-        info!("Generate 1 block (G) on node2");
-        mine(node2, 1);
-        info!("Reconnect node2");
-        node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+
+        info!("Generate 2 block (G) on node2");
+        mine(node2, 2);
+        node2.connect(node0);
+        waiting_for_sync(&[node0, node2]);
     }
 }
 
@@ -393,7 +390,7 @@ impl Spec for ChainFork7 {
         info!("Generate 1 block (C) on node0");
         mine(node0, 1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -423,12 +420,13 @@ impl Spec for ChainFork7 {
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
 
-        info!("Generate 1 block (G) on node2");
-        mine(node2, 1);
         info!("Reconnect node2");
-        node2.connect(node0);
         node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, DEFAULT_TX_PROPOSAL_WINDOW.1 + 4);
+
+        info!("Generate 1 block (G) on node2");
+        node2.connect(node0);
+        mine(node2, 2);
+        waiting_for_sync(&[node0, node2]);
     }
 }
 
@@ -440,9 +438,9 @@ impl Spec for LongForks {
     // Case: Two nodes has different long forks should be able to convergence
     // based on sync mechanism
     fn run(&self, nodes: &mut Vec<Node>) {
-        const PER_FETCH_BLOCK_LIMIT: usize = 128;
+        const PER_FETCH_BLOCK_LIMIT: u64 = 128;
 
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let test_node = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
@@ -450,19 +448,19 @@ impl Spec for LongForks {
         // test_node == node1 == chain1, height = 139 = PER_FETCH_BLOCK_LIMIT + 10 + 1
         mine(node1, PER_FETCH_BLOCK_LIMIT + 10);
         test_node.connect(node1);
-        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT + 10 + 1);
+        waiting_for_sync(&[test_node, node1]);
         test_node.disconnect(node1);
 
         // test_node == node2 == chain2, height = 149 = PER_FETCH_BLOCK_LIMIT + 20 + 1
         mine(node2, PER_FETCH_BLOCK_LIMIT + 20);
         test_node.connect(node2);
-        test_node.waiting_for_sync(node2, PER_FETCH_BLOCK_LIMIT + 20 + 1);
+        waiting_for_sync(&[test_node, node2]);
         test_node.disconnect(node2);
 
         // test_node == node1 == chain1, height = 169 = PER_FETCH_BLOCK_LIMIT + 10 + 30 + 1
         mine(node1, 30);
         test_node.connect(node1);
-        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT + 10 + 30 + 1);
+        waiting_for_sync(&[test_node, node1]);
     }
 }
 
@@ -477,7 +475,7 @@ impl Spec for ForksContainSameTransactions {
     //   3. Initialize node holds `chain0` as the main chain, then switch to `chain2`, finally to
     //      `chain1`. We expect `get_transaction(tx)` returns successfully.
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
@@ -521,19 +519,19 @@ impl Spec for ForksContainSameTransactions {
 
         // `target_node` holds `chain0` as the main chain
         target_node.connect(node0);
-        target_node.waiting_for_sync(node0, node0.get_tip_block_number());
+        waiting_for_sync(&[target_node, node0]);
         target_node.disconnect(node0);
         is_transaction_committed(target_node, &transaction);
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
-        target_node.waiting_for_sync(node2, 61);
+        waiting_for_sync(&[target_node, node2]);
         target_node.disconnect(node2);
         is_transaction_committed(target_node, &transaction);
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
-        target_node.waiting_for_sync(node1, 71);
+        waiting_for_sync(&[target_node, node1]);
         target_node.disconnect(node1);
         is_transaction_committed(target_node, &transaction);
     }
@@ -559,7 +557,7 @@ impl Spec for ForksContainSameUncle {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node_a = &nodes[0];
         let node_b = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         info!("(1) Construct an uncle before fork point");
         let uncle = node_a.construct_uncle();
