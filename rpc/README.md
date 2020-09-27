@@ -2422,7 +2422,6 @@ Response
 
 ## RPC Errors
 
-
 CKB RPC error codes.
 
 CKB RPC follows the JSON RPC specification about the [error object](https://www.jsonrpc.org/specification#error_object).
@@ -2560,3 +2559,435 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
 
 ## RPC Types
+
+### Type `Alert`
+
+An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
+
+#### Examples
+
+An example in JSON
+
+
+```
+{
+  "id": "0x1",
+  "cancel": "0x0",
+  "min_version": "0.1.0",
+  "max_version": "1.0.0",
+  "priority": "0x1",
+  "message": "An example alert message!",
+  "notice_until": "0x24bcca57c00",
+  "signatures": [
+    "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
+    "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
+  ]
+}
+```
+
+
+### Type `BannedAddr`
+
+A banned P2P address.
+
+### Type `Block`
+
+The JSON view of a Block used as a parameter in the RPC.
+
+### Type `BlockEconomicState`
+
+Block base rewards.
+
+### Type `BlockNumber`
+
+Consecutive block number starting from 0.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `BlockReward`
+
+Breakdown of miner rewards issued by block cellbase transaction.
+
+### Type `BlockTemplate`
+
+A block template for miners.
+
+Miners optional pick transactions and then assemble the final block.
+
+### Type `BlockView`
+
+The JSON view of a Block including header and body.
+
+### Type `Capacity`
+
+The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `CellOutputWithOutPoint`
+
+This is used as return value of `get_cells_by_lock_hash` RPC.
+
+It contains both OutPoint data used for referencing a cell, as well as cell's own data such as lock and capacity
+
+#### Examples
+
+```
+# serde_json::from_str::<ckb_jsonrpc_types::CellOutputWithOutPoint>(r#"
+{
+  "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
+  "capacity": "0x2ca86f2642",
+  "cellbase": true,
+  "lock": {
+    "args": "0x",
+    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    "hash_type": "data"
+  },
+  "out_point": {
+    "index": "0x0",
+    "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
+  },
+  "output_data_len": "0x0",
+  "type": null
+}
+# "#).unwrap();
+```
+
+### Type `CellTransaction`
+
+Cell related transaction information.
+
+### Type `CellWithStatus`
+
+The JSON view of a cell with its status information.
+
+#### Examples
+
+
+```
+{
+  "cell": {
+    "data": {
+      "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+      "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+    },
+    "output": {
+      "capacity": "0x802665800",
+      "lock": {
+        "args": "0x",
+        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "hash_type": "data"
+      },
+      "type": null
+    }
+  },
+  "status": "live"
+}
+```
+
+
+
+```
+{
+  "cell": null,
+  "status": "unknown"
+}
+```
+
+
+### Type `ChainInfo`
+
+Chain information.
+
+### Type `DryRunResult`
+
+Response result of the RPC method `dry_run_transaction`.
+
+### Type `EpochNumber`
+
+Consecutive epoch number starting from 0.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `EpochView`
+
+JSON view of an epoch.
+
+CKB adjusts difficulty based on epoch.
+
+#### Examples
+
+
+```
+{
+  "compact_target": "0x1e083126",
+  "length": "0x708",
+  "number": "0x1",
+  "start_number": "0x3e8"
+}
+```
+
+
+### Type `EstimateResult`
+
+The estimated fee rate.
+
+### Type `H256`
+
+The 32-byte fixed length binary data.
+
+The name comes from the number of bits in the data.
+
+In JSONRPC, it is encoded as 0x-prefixed hex string.
+
+### Type `HeaderView`
+
+The JSON view of a Header.
+
+This structure is serialized into a JSON object with field `hash` and all the fields in[`Header`](struct.Header.html).
+
+#### Examples
+
+
+```
+{
+  "compact_target": "0x1e083126",
+  "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+  "epoch": "0x7080018000001",
+  "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+  "nonce": "0x0",
+  "number": "0x400",
+  "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+  "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "timestamp": "0x5cd2b117",
+  "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+  "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "version": "0x0"
+}
+```
+
+
+### Type `LiveCell`
+
+An indexed live cell.
+
+### Type `LocalNode`
+
+Information of node itself.
+
+#### Examples
+
+
+```
+{
+  "active": true,
+  "addresses": [
+    {
+      "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+      "score": "0xff"
+    },
+    {
+      "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+      "score": "0x1"
+    }
+  ],
+  "connections": "0xb",
+  "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+  "protocols": [
+    {
+      "id": "0x0",
+      "name": "/ckb/ping",
+      "support_versions": [
+        "0.0.1"
+      ]
+    },
+    {
+      "id": "0x1",
+      "name": "/ckb/discovery",
+      "support_versions": [
+        "0.0.1"
+      ]
+    }
+  ],
+  "version": "0.34.0 (f37f598 2020-07-17)"
+}
+```
+
+
+### Type `LockHashCapacity`
+
+Accumulated capacity of a set of cells.
+
+### Type `LockHashIndexState`
+
+Cell script lock hash index state.
+
+### Type `OutPoint`
+
+Reference to a cell via transaction hash and output index.
+
+#### Examples
+
+
+```
+{
+  "index": "0x0",
+  "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+}
+```
+
+
+### Type `OutputsValidator`
+
+Transaction output validators that prevent common mistakes.
+
+### Type `PeerState`
+
+The type returned in the event of a conversion error.
+
+### Type `RemoteNode`
+
+Information of a remote node.
+
+A remote node connects to the local node via the P2P network. It is often called a peer.
+
+#### Examples
+
+
+```
+{
+  "addresses": [
+    {
+      "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+      "score": "0x64"
+    },
+    {
+      "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+      "score": "0x64"
+    }
+  ],
+  "connected_duration": "0x2f",
+  "is_outbound": true,
+  "last_ping_duration": "0x1a",
+  "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+  "protocols": [
+    {
+      "id": "0x4",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x2",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x1",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x64",
+      "version": "1"
+    },
+    {
+      "id": "0x6e",
+      "version": "1"
+    },
+    {
+      "id": "0x66",
+      "version": "1"
+    },
+    {
+      "id": "0x65",
+      "version": "1"
+    },
+    {
+      "id": "0x0",
+      "version": "0.0.1"
+    }
+  ],
+  "sync_state": {
+    "best_known_header_hash": null,
+    "best_known_header_number": null,
+    "can_fetch_count": "0x80",
+    "inflight_count": "0xa",
+    "last_common_header_hash": null,
+    "last_common_header_number": null,
+    "unknown_header_list_size": "0x20"
+  },
+  "version": "0.34.0 (f37f598 2020-07-17)"
+}
+```
+
+
+### Type `Script`
+
+Describes the lock script and type script for a cell.
+
+#### Examples
+
+
+```
+{
+  "args": "0x",
+  "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+  "hash_type": "data"
+}
+```
+
+
+### Type `SyncState`
+
+The overall chain synchronization state of this local node.
+
+### Type `Timestamp`
+
+The Unix timestamp in milliseconds (1 second is 1000 milliseconds).
+
+For example, 1588233578000 is Thu, 30 Apr 2020 07:59:38 +0000
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `Transaction`
+
+The transaction.
+
+Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
+
+### Type `TransactionWithStatus`
+
+JSON view of a transaction as well as its status.
+
+### Type `TxPoolInfo`
+
+Transaction pool information.
+
+### Type `Uint32`
+
+The  32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+
+#### Examples
+
+|  JSON | Decimal Value |
+| --- |--- |
+|  "0x0" | 0 |
+|  "0x10" | 16 |
+|  "10" | Invalid, 0x is required |
+|  "0x01" | Invalid, redundant leading 0 |
+
+### Type `Uint64`
+
+The  64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+
+#### Examples
+
+|  JSON | Decimal Value |
+| --- |--- |
+|  "0x0" | 0 |
+|  "0x10" | 16 |
+|  "10" | Invalid, 0x is required |
+|  "0x01" | Invalid, redundant leading 0 |
+
+### Type `Version`
+
+The simple increasing integer version.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).

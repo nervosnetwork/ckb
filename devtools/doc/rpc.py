@@ -51,6 +51,9 @@ def transform_href(href):
     elif ('#' + TYMETHOD_DOT) in href:
         # trait.ChainRpc.html#tymethod.get_block
         return '#method-' + href.split(TYMETHOD_DOT)[-1]
+    elif href.startswith('type.'):
+        type_name = href.split('.')[1]
+        return '#type-{}'.format(type_name.lower())
 
     return href
 
@@ -149,6 +152,8 @@ class MarkdownParser():
         if tag == 'li':
             self.indent_level -= 4
         elif tag == 'pre':
+            if not self.chunks[-1].endswith('\n'):
+                self.indent('\n')
             self.indent("```\n")
             self.preserve_whitespaces = False
         elif tag in ['strong', 'b']:
@@ -183,6 +188,8 @@ class MarkdownParser():
         if not self.preserve_whitespaces:
             self.append(' '.join(data.splitlines()))
         else:
+            if self.chunks[-1] == '```\n' and data[0] == '\n':
+                data = data[1:]
             self.indent(data)
 
     def write(self, file):
@@ -420,11 +427,86 @@ class RPCErrorParser(HTMLParser):
             file.write('\n\n')
 
 
+class EnumSchema(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        pass
+
+    def handle_endtag(self, tag):
+        pass
+
+    def handle_data(self, data):
+        pass
+
+    def write(self, file):
+        pass
+
+
+class StructSchema(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        pass
+
+    def handle_endtag(self, tag):
+        pass
+
+    def handle_data(self, data):
+        pass
+
+    def write(self, file):
+        pass
+
+
+class RPCType(HTMLParser):
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self.module_doc = None
+
+        if '/enum.' in path:
+            self.schema = EnumSchema()
+        elif '/struct.' in path:
+            self.schema = StructSchema()
+        else:
+            self.schema = None
+
+    def handle_starttag(self, tag, attrs):
+        if self.module_doc is None:
+            if tag == 'div' and attrs == [("class", "docblock")]:
+                self.module_doc = MarkdownParser(title_level=3)
+        elif not self.module_doc.completed():
+            self.module_doc.handle_starttag(tag, attrs)
+        elif self.schema is not None:
+            self.schema.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if self.module_doc is None:
+            return
+        elif not self.module_doc.completed():
+            self.module_doc.handle_endtag(tag)
+        elif self.schema is not None:
+            self.schema.handle_endtag(tag)
+
+    def handle_data(self, data):
+        if self.module_doc is None:
+            return
+        elif not self.module_doc.completed():
+            self.module_doc.handle_data(data)
+        elif self.schema is not None:
+            self.schema.handle_data(data)
+
+    def write(self, file):
+        # if self.schema is not None:
+        #     self.schema.write(file)
+        #     file.write('\n')
+        self.module_doc.write(file)
+        file.write('\n')
+
+
 class RPCDoc(object):
     def __init__(self):
         self.modules = []
-        self.types = dict()
+        self.types = []
         self.errors = RPCErrorParser()
+        self.parsed_types = set()
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -437,6 +519,40 @@ class RPCDoc(object):
         with open('target/doc/ckb_rpc/enum.RPCError.html') as file:
             self.errors.feed(file.read())
 
+        global PENDING_TYPES
+        while len(PENDING_TYPES) > 0:
+            pending = PENDING_TYPES
+            PENDING_TYPES = set()
+
+            for path in pending:
+                self.collect_type(path)
+
+        self.types.sort(key=lambda t: t[0])
+
+    def collect_type(self, path):
+        while path.startswith('../'):
+            path = path[3:]
+        path = 'target/doc/' + path
+
+        if path in self.parsed_types:
+            return
+        if 'ckb_types/packed' in path:
+            return
+        self.parsed_types.add(path)
+
+        with open(path) as file:
+            content = file.read()
+
+        if 'http-equiv="refresh"' in content:
+            path = content.split('0;URL=')[1].split('"')[0]
+            return self.collect_type(path)
+
+        name = path.split('.')[1]
+        parser = RPCType(path)
+        parser.feed(content)
+
+        self.types.append((name, parser))
+
     def write(self, file):
         file.write(PREAMBLE)
         file.write("\n## RPC Methods\n\n")
@@ -445,10 +561,13 @@ class RPCDoc(object):
             m.write(file)
             file.write("\n")
 
-        file.write("\n## RPC Errors\n\n")
+        file.write("\n## RPC Errors\n")
         self.errors.write(file)
 
         file.write("\n## RPC Types\n")
+        for (name, ty) in self.types:
+            file.write("\n### Type `{}`\n".format(name))
+            ty.write(file)
 
 
 def main():
