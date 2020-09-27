@@ -45,10 +45,6 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
         * [Method `get_block_economic_state`](#method-get_block_economic_state)
         * [Method `get_transaction_proof`](#method-get_transaction_proof)
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
-    * [Module Debug](#module-debug)
-        * [Method `jemalloc_profiling_dump`](#method-jemalloc_profiling_dump)
-        * [Method `update_main_logger`](#method-update_main_logger)
-        * [Method `set_extra_logger`](#method-set_extra_logger)
     * [Module Experiment](#module-experiment)
         * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
         * [Method `compute_script_hash`](#method-compute_script_hash)
@@ -118,7 +114,6 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `EstimateResult`](#type-estimateresult)
-    * [Type `ExtraLoggerConfig`](#type-extraloggerconfig)
     * [Type `FeeRate`](#type-feerate)
     * [Type `H256`](#type-h256)
     * [Type `Header`](#type-header)
@@ -129,7 +124,6 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `LocalNodeProtocol`](#type-localnodeprotocol)
     * [Type `LockHashCapacity`](#type-lockhashcapacity)
     * [Type `LockHashIndexState`](#type-lockhashindexstate)
-    * [Type `MainLoggerConfig`](#type-mainloggerconfig)
     * [Type `MerkleProof`](#type-merkleproof)
     * [Type `MinerReward`](#type-minerreward)
     * [Type `NodeAddress`](#type-nodeaddress)
@@ -1173,45 +1167,6 @@ Response
   ]
 }
 ```
-
-### Module Debug
-
-RPC Module Debug for internal RPC methods.
-
-**This module is for CKB developers and will not guarantee compatibility.** The methods here will be changed or removed without advanced notification.
-
-#### Method `jemalloc_profiling_dump`
-* `jemalloc_profiling_dump()`
-* result: `string`
-
-Dumps jemalloc memory profiling information into a file.
-
-The file is stored in the server running the CKB node.
-
-The RPC returns the path to the dumped file on success or returns an error on failure.
-
-#### Method `update_main_logger`
-* `update_main_logger(config)`
-    * `config`: [`MainLoggerConfig`](#type-mainloggerconfig)
-* result: `null`
-
-Changes main logger config options while CKB is running.
-
-#### Method `set_extra_logger`
-* `set_extra_logger(name, config_opt)`
-    * `name`: `string`
-    * `config_opt`: [`ExtraLoggerConfig`](#type-extraloggerconfig) `|` `null`
-* result: `null`
-
-Sets logger config options for extra loggers.
-
-CKB nodes allow setting up extra loggers. These loggers will have their own log files and they only append logs to their log files.
-
-##### Params
-
-*   `name` - Extra logger name
-
-*   `config_opt` - Adds a new logger or update an existing logger when this is not null. Removes the logger when this is null.
 
 ### Module Experiment
 
@@ -3399,31 +3354,6 @@ The estimated fee rate.
 *   `fee_rate`: [`FeeRate`](#type-feerate) - The resulting type after obtaining ownership.
 
 
-### Type `ExtraLoggerConfig`
-
-Runtime logger config for extra loggers.
-
-#### Fields
-
-`ExtraLoggerConfig` is a JSON object with following fields.
-
-*   `filter`: `string` - Sets log levels for different modules.
-
-    #### Examples
-
-    Set the log level to info for all modules
-
-    ```
-    info
-    ```
-
-    Set the log level to debug for listed modules and info for other modules.
-
-    ```
-    info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
-    ```
-
-
 ### Type `FeeRate`
 
 The fee rate is the ratio between fee and transaction weight in unit Shannon per 1,000 bytes.
@@ -3689,45 +3619,6 @@ Cell script lock hash index state.
 *   `block_number`: [`BlockNumber`](#type-blocknumber) - The max block number this index has already scanned.
 
 *   `block_hash`: [`H256`](#type-h256) - The hash of the block with the max block number that this index has already scanned.
-
-
-### Type `MainLoggerConfig`
-
-Runtime logger config.
-
-#### Fields
-
-`MainLoggerConfig` is a JSON object with following fields.
-
-*   `filter`: `string` `|` `null` - Sets log levels for different modules.
-
-    **Optional**, null means keeping the current option unchanged.
-
-    #### Examples
-
-    Set the log level to info for all modules
-
-    ```
-    info
-    ```
-
-    Set the log level to debug for listed modules and info for other modules.
-
-    ```
-    info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
-    ```
-
-*   `to_stdout`: `boolean` `|` `null` - Whether printing the logs to the process stdout.
-
-    **Optional**, null means keeping the current option unchanged.
-
-*   `to_file`: `boolean` `|` `null` - Whether appending the logs to the log file.
-
-    **Optional**, null means keeping the current option unchanged.
-
-*   `color`: `boolean` `|` `null` - Whether using color when printing the logs to the process stdout.
-
-    **Optional**, null means keeping the current option unchanged.
 
 
 ### Type `MerkleProof`
