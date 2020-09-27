@@ -2,6 +2,13 @@ use ckb_types::{packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
+/// Fixed-length 32 bytes binary encoded as 0x-prefixed hex string in JSON.
+///
+/// ## Example
+///
+/// ```text
+/// 0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000
+/// ```
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
 pub struct Byte32(pub [u8; 32]);
 

@@ -525,6 +525,9 @@ class StructSchema(HTMLParser):
             self.field_parser.handle_data(data)
 
     def write(self, file):
+        if len(self.fields) == 0:
+            return
+
         file.write('#### Fields\n\n')
         file.write(
             '`{}` is a JSON object with following fields.\n'.format(self.name))

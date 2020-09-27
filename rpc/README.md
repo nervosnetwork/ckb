@@ -2915,11 +2915,14 @@ The JSON view of a Block including header and body.
 
 ### Type `Byte32`
 
-The resulting type after obtaining ownership.
+Fixed-length 32 bytes binary encoded as 0x-prefixed hex string in JSON.
 
-#### Fields
+#### Example
 
-`Byte32` is a JSON object with following fields.
+```
+0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000
+```
+
 
 
 ### Type `Capacity`
@@ -3370,9 +3373,6 @@ The name comes from the number of bits in the data.
 
 In JSONRPC, it is encoded as 0x-prefixed hex string.
 
-#### Fields
-
-`H256` is a JSON object with following fields.
 
 
 ### Type `Header`
@@ -3480,9 +3480,6 @@ Variable-length binary encoded as 0x-prefixed hex string in JSON.
 |  "00" | Invalid, 0x is required |
 |  "0x0" | Invalid, each byte requires 2 digits |
 
-#### Fields
-
-`JsonBytes` is a JSON object with following fields.
 
 
 ### Type `LiveCell`
@@ -3714,11 +3711,17 @@ Transaction output validators that prevent common mistakes.
 
 ### Type `PeerState`
 
-The type returned in the event of a conversion error.
+Peer (remote node) state.
 
 #### Fields
 
 `PeerState` is a JSON object with following fields.
+
+*   `peer`: [`Uint32`](#type-uint32) - Peer session id.
+
+*   `last_updated`: [`Timestamp`](#type-timestamp) - last updated timestamp.
+
+*   `blocks_in_flight`: [`Uint32`](#type-uint32) - blocks count has request but not receive response yet.
 
 
 ### Type `PeerSyncState`
@@ -3758,9 +3761,12 @@ The chain synchronization state between the local node and a remote node.
 
 The 10-byte fixed-length binary encoded as 0x-prefixed hex string in JSON.
 
-#### Fields
+#### Example
 
-`ProposalShortId` is a JSON object with following fields.
+```
+0xa0ef4eb5f4ceeb08a4c8
+```
+
 
 
 ### Type `RemoteNode`
