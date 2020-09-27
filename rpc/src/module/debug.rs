@@ -9,6 +9,7 @@ use std::time;
 /// **This module is for CKB developers and will not guarantee compatibility.** The methods here
 /// will be changed or removed without advanced notification.
 #[rpc(server)]
+#[doc(hidden)]
 pub trait DebugRpc {
     /// Dumps jemalloc memory profiling information into a file.
     ///
