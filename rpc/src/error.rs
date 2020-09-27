@@ -26,7 +26,7 @@ use std::fmt::{Debug, Display};
 /// * -1000 ~ -2999 are module specific errors. Each module generally gets 100 reserved error
 /// codes.
 ///
-/// Unless otherwise noted, all the errors returns optional detailed information in the error
+/// Unless otherwise noted, all the errors returns optional detailed information as `string` in the error
 /// object `data` field.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RPCError {
@@ -88,7 +88,7 @@ pub enum RPCError {
     /// (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue
     /// link in the error message for details.
     PoolRejectedTransactionByIllTransactionChecker = -1103,
-    /// (-1104): The transaction fee rate must >= config option `tx_pool.min_fee_rate`
+    /// (-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
     ///
     /// The fee rate is calculated as:
     ///
@@ -96,7 +96,7 @@ pub enum RPCError {
     /// fee / (1000 * tx_serialization_size_in_block_in_bytes)
     /// ```
     PoolRejectedTransactionByMinFeeRate = -1104,
-    /// (-1105): The in-pool ancestors count must <= config option `tx_pool.max_ancestors_count`
+    /// (-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
     ///
     /// Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
     PoolRejectedTransactionByMaxAncestorsCountLimit = -1105,

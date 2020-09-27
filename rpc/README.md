@@ -32,6 +32,7 @@ RPC Module Alert for network alerts.
 An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
 
 The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code and belong to early CKB developers.
+
 #### Method `send_alert`
 * `send_alert(alert)`
     * `alert`: [`Alert`](#type-alert)
@@ -43,9 +44,9 @@ This RPC returns `null` on success.
 
 ##### Errors
 
-*   [`AlertFailedToVerifySignatures (-1000)`](#error-AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
+*   [`AlertFailedToVerifySignatures (-1000)`](#error-alertfailedtoverifysignatures) - Some signatures in the request are invalid.
 
-*   [`P2PFailedToBroadcast (-101)`](#error-P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
+*   [`P2PFailedToBroadcast (-101)`](#error-p2pfailedtobroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
 
 *   `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
 
@@ -110,6 +111,7 @@ A cell is live if
 *   it is found as an output in any transaction in the [canonical chain](#canonical-chain), and
 
 *   it is not found as an input in any transaction in the canonical chain.
+
 #### Method `get_block`
 * `get_block(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
@@ -219,6 +221,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 #### Method `get_block_by_number`
 * `get_block_by_number(block_number, verbosity)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
@@ -245,9 +248,9 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 ##### Errors
 
-*   [`ChainIndexIsInconsistent (-201)`](#error-ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
+*   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
 
-*   [`DatabaseIsCorrupt (-202)`](#error-DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
+*   [`DatabaseIsCorrupt (-202)`](#error-databaseiscorrupt) - The data read from database is dirty. Please report it as a bug.
 
 ##### Examples
 
@@ -334,6 +337,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 #### Method `get_header`
 * `get_header(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
@@ -405,6 +409,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 #### Method `get_header_by_number`
 * `get_header_by_number(block_number, verbosity)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
@@ -431,7 +436,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 ##### Errors
 
-*   [`ChainIndexIsInconsistent (-201)`](#error-ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
+*   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
 
 ##### Examples
 
@@ -480,6 +485,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 #### Method `get_transaction`
 * `get_transaction(tx_hash)`
     * `tx_hash`: [`H256`](#type-h256)
@@ -566,6 +572,7 @@ Response
   }
 }
 ```
+
 #### Method `get_block_hash`
 * `get_block_hash(block_number)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
@@ -607,6 +614,7 @@ Response
   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
+
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
@@ -671,6 +679,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 #### Method `get_cells_by_lock_hash`
 * `get_cells_by_lock_hash(lock_hash, from, to)`
     * `lock_hash`: [`H256`](#type-h256)
@@ -680,6 +689,7 @@ The response looks like below when `verbosity` is 0.
 
 👎 Deprecated since 0.36.0:
 (Disabled since 0.36.0) This method is deprecated for reasons of flexibility. Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
+
 
 #### Method `get_live_cell`
 * `get_live_cell(out_point, with_data)`
@@ -748,6 +758,7 @@ Response
   }
 }
 ```
+
 #### Method `get_tip_block_number`
 * `get_tip_block_number()`
 * result: [`BlockNumber`](#type-blocknumber)
@@ -778,6 +789,7 @@ Response
   "result": "0x400"
 }
 ```
+
 #### Method `get_current_epoch`
 * `get_current_epoch()`
 * result: [`EpochView`](#type-epochview)
@@ -813,6 +825,7 @@ Response
   }
 }
 ```
+
 #### Method `get_epoch_by_number`
 * `get_epoch_by_number(epoch_number)`
     * `epoch_number`: [`EpochNumber`](#type-epochnumber)
@@ -859,6 +872,7 @@ Response
   }
 }
 ```
+
 #### Method `get_cellbase_output_capacity_details`
 * `get_cellbase_output_capacity_details(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
@@ -866,6 +880,7 @@ Response
 
 👎 Deprecated since 0.36.0:
 Please use the RPC method [`get_block_economic_state`](#method-get_block_economic_state) instead
+
 
 #### Method `get_block_economic_state`
 * `get_block_economic_state(block_hash)`
@@ -927,6 +942,7 @@ Response
   }
 }
 ```
+
 #### Method `get_transaction_proof`
 * `get_transaction_proof(tx_hashes, block_hash)`
     * `tx_hashes`: `Array<`[`H256`](#type-h256)`>`
@@ -972,6 +988,7 @@ Response
   }
 }
 ```
+
 #### Method `verify_transaction_proof`
 * `verify_transaction_proof(tx_proof)`
     * `tx_proof`: [`TransactionProof`](#type-transactionproof)
@@ -1022,6 +1039,7 @@ Response
 RPC Module Debug for internal RPC methods.
 
 **This module is for CKB developers and will not guarantee compatibility.** The methods here will be changed or removed without advanced notification.
+
 #### Method `jemalloc_profiling_dump`
 * `jemalloc_profiling_dump()`
 * result: `string`
@@ -1031,12 +1049,14 @@ Dumps jemalloc memory profiling information into a file.
 The file is stored in the server running the CKB node.
 
 The RPC returns the path to the dumped file on success or returns an error on failure.
+
 #### Method `update_main_logger`
 * `update_main_logger(config)`
     * `config`: [`MainLoggerConfig`](#type-mainloggerconfig)
 * result: `null`
 
 Changes main logger config options while CKB is running.
+
 #### Method `set_extra_logger`
 * `set_extra_logger(name, config_opt)`
     * `name`: `string`
@@ -1060,6 +1080,7 @@ RPC Module Experiment for experimenting methods.
 **EXPERIMENTAL warning**
 
 The methods here may be removed or changed in future releases without prior notifications.
+
 #### Method `compute_transaction_hash`
 * `compute_transaction_hash(tx)`
     * `tx`: [`Transaction`](#type-transaction)
@@ -1068,6 +1089,7 @@ The methods here may be removed or changed in future releases without prior noti
 👎 Deprecated since 0.36.0:
 Please implement molecule and compute the transaction hash in clients.
 
+
 #### Method `compute_script_hash`
 * `compute_script_hash(script)`
     * `script`: [`Script`](#type-script)
@@ -1075,6 +1097,7 @@ Please implement molecule and compute the transaction hash in clients.
 
 👎 Deprecated since 0.36.0:
 Please implement molecule and compute the script hash in clients.
+
 
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
@@ -1089,9 +1112,9 @@ It is used to debug transaction scripts and query how many cycles the scripts co
 
 ##### Errors
 
-*   [`TransactionFailedToResolve (-301)`](#error-TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+*   [`TransactionFailedToResolve (-301)`](#error-transactionfailedtoresolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 
-*   [`TransactionFailedToVerify (-302)`](#error-TransactionFailedToVerify) - There is a script returns with an error.
+*   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - There is a script returns with an error.
 
 ##### Examples
 
@@ -1157,6 +1180,7 @@ Response
   }
 }
 ```
+
 #### Method `calculate_dao_maximum_withdraw`
 * `calculate_dao_maximum_withdraw(out_point, block_hash)`
     * `out_point`: [`OutPoint`](#type-outpoint)
@@ -1179,9 +1203,9 @@ In CKB, scripts cannot get the information about in which block the transaction 
 
 ##### Errors
 
-*   [`DaoError (-5)`](#error-DaoError) - The given out point is not a valid cell for DAO computation.
+*   [`DaoError (-5)`](#error-daoerror) - The given out point is not a valid cell for DAO computation.
 
-*   [`CKBInternalError (-1)`](#error-CKBInternalError) - Mathematics overflow.
+*   [`CKBInternalError (-1)`](#error-ckbinternalerror) - Mathematics overflow.
 
 ##### Examples
 
@@ -1211,6 +1235,7 @@ Response
   "result": "0x4a8b4e8a4"
 }
 ```
+
 #### Method `estimate_fee_rate`
 * `estimate_fee_rate(expect_confirm_blocks)`
     * `expect_confirm_blocks`: [`Uint64`](#type-uint64)
@@ -1225,6 +1250,7 @@ This method is deprecated because of the performance issue. It always returns an
 RPC Module Indexer which index cells by lock script hash.
 
 The index is disabled by default, which **must** be enabled by calling [`index_lock_hash`](#method-index_lock_hash) first.
+
 #### Method `get_live_cells_by_lock_hash`
 * `get_live_cells_by_lock_hash(lock_hash, page, per_page, reverse_order)`
     * `lock_hash`: [`H256`](#type-h256)
@@ -1235,6 +1261,7 @@ The index is disabled by default, which **must** be enabled by calling [`index_l
 
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
+
 
 #### Method `get_transactions_by_lock_hash`
 * `get_transactions_by_lock_hash(lock_hash, page, per_page, reverse_order)`
@@ -1247,6 +1274,7 @@ Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alt
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
+
 #### Method `index_lock_hash`
 * `index_lock_hash(lock_hash, index_from)`
     * `lock_hash`: [`H256`](#type-h256)
@@ -1256,6 +1284,7 @@ Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alt
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
+
 #### Method `deindex_lock_hash`
 * `deindex_lock_hash(lock_hash)`
     * `lock_hash`: [`H256`](#type-h256)
@@ -1264,12 +1293,14 @@ Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alt
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
+
 #### Method `get_lock_hash_index_states`
 * `get_lock_hash_index_states()`
 * result: `Array<`[`LockHashIndexState`](#type-lockhashindexstate)`>`
 
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
+
 
 #### Method `get_capacity_by_lock_hash`
 * `get_capacity_by_lock_hash(lock_hash)`
@@ -1285,6 +1316,7 @@ Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alt
 RPC Module Miner for miners.
 
 A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and submits the found new block.
+
 #### Method `get_block_template`
 * `get_block_template(bytes_limit, proposals_limit, max_version)`
     * `bytes_limit`: [`Uint64`](#type-uint64) `|` `null`
@@ -1380,6 +1412,7 @@ Response
   }
 }
 ```
+
 #### Method `submit_block`
 * `submit_block(work_id, block)`
     * `work_id`: `string`
@@ -1472,6 +1505,7 @@ Response
 ### Module Net
 
 RPC Module Net for P2P network.
+
 #### Method `local_node_info`
 * `local_node_info()`
 * result: [`LocalNode`](#type-localnode)
@@ -1533,6 +1567,7 @@ Response
   }
 }
 ```
+
 #### Method `get_peers`
 * `get_peers()`
 * result: `Array<`[`RemoteNode`](#type-remotenode)`>`
@@ -1678,6 +1713,7 @@ Response
   ]
 }
 ```
+
 #### Method `get_banned_addresses`
 * `get_banned_addresses()`
 * result: `Array<`[`BannedAddr`](#type-bannedaddr)`>`
@@ -1713,6 +1749,7 @@ Response
   ]
 }
 ```
+
 #### Method `clear_banned_addresses`
 * `clear_banned_addresses()`
 * result: `null`
@@ -1741,6 +1778,7 @@ Response
   "result": null
 }
 ```
+
 #### Method `set_ban`
 * `set_ban(address, command, ban_time, absolute, reason)`
     * `address`: `string`
@@ -1770,7 +1808,7 @@ Inserts or deletes an IP/Subnet from the banned list
 
 ##### Errors
 
-*   [`InvalidParams (-32602)`](#error-InvalidParams)
+*   [`InvalidParams (-32602)`](#error-invalidparams)
     *   Expected `address` to be a valid IP address with an optional netmask.
 
     *   Expected `command` to be in the list [insert, delete].
@@ -1804,6 +1842,7 @@ Response
   "result": null
 }
 ```
+
 #### Method `sync_state`
 * `sync_state()`
 * result: [`SyncState`](#type-syncstate)
@@ -1841,6 +1880,7 @@ Response
   }
 }
 ```
+
 #### Method `set_network_active`
 * `set_network_active(state)`
     * `state`: `boolean`
@@ -1876,6 +1916,7 @@ Response
   "result": null
 }
 ```
+
 #### Method `add_node`
 * `add_node(peer_id, address)`
     * `peer_id`: `string`
@@ -1941,6 +1982,7 @@ Response
   "result": null
 }
 ```
+
 #### Method `remove_node`
 * `remove_node(peer_id)`
     * `peer_id`: `string`
@@ -1978,6 +2020,7 @@ Response
   "result": null
 }
 ```
+
 #### Method `ping_peers`
 * `ping_peers()`
 * result: `null`
@@ -2010,6 +2053,7 @@ Response
 ### Module Pool
 
 RPC Module Pool for transaction memory pool.
+
 #### Method `send_transaction`
 * `send_transaction(tx, outputs_validator)`
     * `tx`: [`Transaction`](#type-transaction)
@@ -2026,21 +2070,21 @@ Submits a new transaction into the transaction pool.
 
 ##### Errors
 
-*   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+*   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
 
-*   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-PoolRejectedTransactionByIllTransactionChecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
+*   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-poolrejectedtransactionbyilltransactionchecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
 
-*   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+*   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-poolrejectedtransactionbyminfeerate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 
-*   [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](#error-PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+*   [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](#error-poolrejectedtransactionbymaxancestorscountlimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
 
-*   [`PoolIsFull (-1106)`](#error-PoolIsFull) - Pool is full.
+*   [`PoolIsFull (-1106)`](#error-poolisfull) - Pool is full.
 
-*   [`PoolRejectedDuplicatedTransaction (-1107)`](#error-PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+*   [`PoolRejectedDuplicatedTransaction (-1107)`](#error-poolrejectedduplicatedtransaction) - The transaction is already in the pool.
 
-*   [`TransactionFailedToResolve (-301)`](#error-TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+*   [`TransactionFailedToResolve (-301)`](#error-transactionfailedtoresolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 
-*   [`TransactionFailedToVerify (-302)`](#error-TransactionFailedToVerify) - Failed to verify the transaction.
+*   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - Failed to verify the transaction.
 
 ##### Examples
 
@@ -2105,6 +2149,7 @@ Response
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
 }
 ```
+
 #### Method `tx_pool_info`
 * `tx_pool_info()`
 * result: [`TxPoolInfo`](#type-txpoolinfo)
@@ -2143,6 +2188,7 @@ Response
   }
 }
 ```
+
 #### Method `clear_tx_pool`
 * `clear_tx_pool()`
 * result: `null`
@@ -2175,6 +2221,7 @@ Response
 ### Module Stats
 
 RPC Module Stats for getting various statistic data.
+
 #### Method `get_blockchain_info`
 * `get_blockchain_info()`
 * result: [`ChainInfo`](#type-chaininfo)
@@ -2217,6 +2264,7 @@ Response
   }
 }
 ```
+
 #### Method `get_peers_state`
 * `get_peers_state()`
 * result: `Array<`[`PeerState`](#type-peerstate)`>`
@@ -2261,6 +2309,7 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_
 
 socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
 ```
+
 #### Method `subscribe`
 * `subscribe(topic)`
     * `topic`: `string`
@@ -2333,6 +2382,7 @@ Response
   "result": "0x2a"
 }
 ```
+
 #### Method `unsubscribe`
 * `unsubscribe(id)`
     * `id`: `string`
@@ -2371,6 +2421,142 @@ Response
 
 
 ## RPC Errors
+
+
+CKB RPC error codes.
+
+CKB RPC follows the JSON RPC specification about the [error object](https://www.jsonrpc.org/specification#error_object).
+
+Besides the pre-defined errors, all CKB defined errors are listed here.
+
+Here is a reference to the pre-defined errors:
+
+|  code | message | meaning |
+| --- |--- |--- |
+|  -32700 | Parse error | Invalid JSON was received by the server. |
+|  -32600 | Invalid Request | The JSON sent is not a valid Request object. |
+|  -32601 | Method not found | The method does not exist / is not available. |
+|  -32602 | Invalid params | Invalid method parameter(s). |
+|  -32603 | Internal error | Internal JSON-RPC error. |
+|  -32000 to -32099 | Server error | Reserved for implementation-defined server-errors. |
+
+CKB application defined errors follow some patterns to assign the codes:
+
+*   -1 ~ -999 are general errors
+
+*   -1000 ~ -2999 are module specific errors. Each module generally gets 100 reserved error codes.
+
+Unless otherwise noted, all the errors returns optional detailed information as `string` in the error object `data` field.
+
+### Error `CKBInternalError`
+
+(-1): CKB internal errors which are considered to never happen or only happen when the system resources are exhausted.
+
+### Error `Deprecated`
+
+(-2): The CKB method has been deprecated and disabled.
+
+Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated methods.
+
+### Error `Invalid`
+
+(-3): Error code -3 is no longer used.
+
+Prior to v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses -3 since v0.35.0.
+
+### Error `RPCModuleIsDisabled`
+
+(-4): The RPC method is not enabled.
+
+CKB groups RPC methods into modules, and a method is enabled only when the module is explicitly enabled in the config file.
+
+### Error `DaoError`
+
+(-5): DAO related errors.
+
+### Error `IntegerOverflow`
+
+(-6): Integer operation overflow.
+
+### Error `ConfigError`
+
+(-7): The erorr is caused by a config file option.
+
+User has to edit the config file to fix the error.
+
+### Error `P2PFailedToBroadcast`
+
+(-101): The CKB local node failed to broadcast a message to its peers.
+
+### Error `DatabaseError`
+
+(-200): Internal database error.
+
+The CKB node persists data to the database. This is the error from the underlying database module.
+
+### Error `ChainIndexIsInconsistent`
+
+(-201): The chain index is inconsistent.
+
+An example of inconsistent index is that the chain index says a block hash is in the chain but the block cannot be read from the database.
+
+This is a fatal error usually due to a serious bug. Please back up the data directory and re-sync the chain from scratch.
+
+### Error `DatabaseIsCorrupt`
+
+(-202): The underlying database is corrupt.
+
+This is a fatal error usually caused by the underlying database used by CKB. Please back up the data directory and re-sync the chain from scratch.
+
+### Error `TransactionFailedToResolve`
+
+(-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+
+### Error `TransactionFailedToVerify`
+
+(-302): Failed to verify the transaction.
+
+### Error `AlertFailedToVerifySignatures`
+
+(-1000): Some signatures in the submit alert are invalid.
+
+### Error `PoolRejectedTransactionByOutputsValidator`
+
+(-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
+
+### Error `PoolRejectedTransactionByIllTransactionChecker`
+
+(-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
+
+### Error `PoolRejectedTransactionByMinFeeRate`
+
+(-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
+
+The fee rate is calculated as:
+
+```
+fee / (1000 * tx_serialization_size_in_block_in_bytes)
+```
+
+### Error `PoolRejectedTransactionByMaxAncestorsCountLimit`
+
+(-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
+
+Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
+
+### Error `PoolIsFull`
+
+(-1106): The transaction is rejected because the pool has reached its limit.
+
+### Error `PoolRejectedDuplicatedTransaction`
+
+(-1107): The transaction is already in the pool.
+
+### Error `PoolRejectedMalformedTransaction`
+
+(-1108): The transaction is rejected because it does not make sense in the context.
+
+For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
 
 ## RPC Types

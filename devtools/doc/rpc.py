@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 import os
+import io
 import sys
 import glob
 import textwrap
@@ -46,7 +47,7 @@ NAME_PREFIX_SELF = '(&self, '
 
 def transform_href(href):
     if href.startswith(HREF_PREFIX_RPCERROR):
-        return '#error-' + href[len(HREF_PREFIX_RPCERROR):]
+        return '#error-' + href[len(HREF_PREFIX_RPCERROR):].lower()
     elif ('#' + TYMETHOD_DOT) in href:
         # trait.ChainRpc.html#tymethod.get_block
         return '#method-' + href.split(TYMETHOD_DOT)[-1]
@@ -80,6 +81,7 @@ class MarkdownParser():
         self.is_first_paragraph = False
         self.preserve_whitespaces = False
         self.pending_href = None
+        self.table_cols = 0
 
     def append(self, text):
         self.chunks.append(text)
@@ -94,13 +96,13 @@ class MarkdownParser():
         return self.nested_level < 0
 
     def handle_startblock(self, tag):
-        if tag in ['p', 'li', 'pre', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+        if tag in ['p', 'li', 'pre', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr']:
             self.append("\n")
             if self.indent_level > 0:
                 self.append(' ' * self.indent_level)
 
     def handle_endblock(self, tag):
-        if tag in ['p', 'li', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+        if tag in ['p', 'li', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table']:
             self.append("\n")
 
     def handle_starttag(self, tag, attrs):
@@ -108,6 +110,7 @@ class MarkdownParser():
             self.nested_level += 1
 
         self.handle_startblock(tag)
+
         if tag == 'li':
             self.append('*   ')
             self.indent_level += 4
@@ -128,6 +131,12 @@ class MarkdownParser():
             if self.chunks[-1].strip().replace('#', '') != '':
                 self.pending_href = transform_href(dict(attrs)['href'])
                 self.append('[')
+        elif tag == 'thead':
+            self.table_cols = 0
+        elif tag == 'tr':
+            self.append('| ')
+        elif tag == 'th' or tag == 'td':
+            self.append(' ')
 
     def handle_endtag(self, tag):
         if tag not in ['hr', 'br']:
@@ -136,6 +145,7 @@ class MarkdownParser():
             return
 
         self.handle_endblock(tag)
+
         if tag == 'li':
             self.indent_level -= 4
         elif tag == 'pre':
@@ -153,6 +163,18 @@ class MarkdownParser():
                 self.append(self.pending_href)
                 self.append(')')
                 self.pending_href = None
+        elif tag == 'thead':
+            self.append("\n")
+            if self.indent_level > 0:
+                self.append(' ' * self.indent_level)
+            self.append('| ')
+            for i in range(self.table_cols):
+                self.append('--- |')
+        elif tag == 'th':
+            self.table_cols += 1
+            self.append(' |')
+        elif tag == 'td':
+            self.append(' |')
 
     def handle_data(self, data):
         if self.nested_level < 0:
@@ -296,7 +318,7 @@ class RPCMethod():
         return self.doc_parser is not None and self.doc_parser.completed()
 
     def write(self, file):
-        file.write("#### Method `{}`\n".format(self.name))
+        file.write("\n#### Method `{}`\n".format(self.name))
         write_method_signature(file, self.name, self.params[1:])
         if self.doc_parser is not None:
             self.doc_parser.write(file)
@@ -342,10 +364,67 @@ class RPCModule(HTMLParser):
             m.write(file)
 
 
+class RPCErrorParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.variants = []
+
+        self.module_doc = None
+        self.next_variant = None
+        self.variant_parser = None
+
+    def handle_starttag(self, tag, attrs):
+        if self.module_doc is None:
+            if tag == 'div' and attrs == [("class", "docblock")]:
+                self.module_doc = MarkdownParser(title_level=3)
+        elif not self.module_doc.completed():
+            self.module_doc.handle_starttag(tag, attrs)
+        elif self.next_variant is None:
+            if tag == 'div':
+                attrs_dict = dict(attrs)
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.'):
+                    self.next_variant = attrs_dict['id'].split('.')[1]
+        elif self.variant_parser is None:
+            if tag == 'div' and attrs == [("class", "docblock")]:
+                self.variant_parser = MarkdownParser(title_level=3)
+        else:
+            self.variant_parser.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if self.module_doc is None:
+            return
+        elif not self.module_doc.completed():
+            self.module_doc.handle_endtag(tag)
+        elif self.variant_parser is not None:
+            self.variant_parser.handle_endtag(tag)
+            if self.variant_parser.completed():
+                self.variants.append((self.next_variant, self.variant_parser))
+                self.next_variant = None
+                self.variant_parser = None
+
+    def handle_data(self, data):
+        if self.module_doc is None:
+            return
+        elif not self.module_doc.completed():
+            self.module_doc.handle_data(data)
+        elif self.variant_parser is not None:
+            self.variant_parser.handle_data(data)
+
+    def write(self, file):
+        self.module_doc.write(file)
+        file.write('\n\n')
+
+        for (name, variant) in self.variants:
+            file.write('### Error `{}`\n'.format(name))
+            variant.write(file)
+            file.write('\n\n')
+
+
 class RPCDoc(object):
     def __init__(self):
         self.modules = []
         self.types = dict()
+        self.errors = RPCErrorParser()
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -354,6 +433,9 @@ class RPCDoc(object):
             self.modules.append(module)
             with open(path) as file:
                 module.feed(file.read())
+
+        with open('target/doc/ckb_rpc/enum.RPCError.html') as file:
+            self.errors.feed(file.read())
 
     def write(self, file):
         file.write(PREAMBLE)
@@ -364,6 +446,7 @@ class RPCDoc(object):
             file.write("\n")
 
         file.write("\n## RPC Errors\n\n")
+        self.errors.write(file)
 
         file.write("\n## RPC Types\n")
 
