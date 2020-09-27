@@ -14,7 +14,7 @@ use ckb_system_scripts::{
 fn main() {
     let mut bundled = includedir_codegen::start("BUNDLED");
 
-    for f in &["ckb.toml", "ckb-miner.toml"] {
+    for f in &["ckb.toml", "ckb-miner.toml", "default.db-options"] {
         bundled
             .add_file(f, Compression::Gzip)
             .expect("add files to resource bundle");
