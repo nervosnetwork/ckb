@@ -122,10 +122,12 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 	# https://rustsec.org/advisories/RUSTSEC-2019-0031: spin is no longer actively maintained, it's not a problem
 	# https://rustsec.org/advisories/RUSTSEC-2020-0016: net2 has been deprecated, but still a lot of required crates are dependent on it
 	# https://rustsec.org/advisories/RUSTSEC-2020-0036: failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
+	# https://rustsec.org/advisories/RUSTSEC-2020-0043: ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
 	cargo audit \
 		--ignore RUSTSEC-2019-0031 \
 		--ignore RUSTSEC-2020-0016 \
 		--ignore RUSTSEC-2020-0036 \
+		--ignore RUSTSEC-2020-0043 \
 		--deny-warnings
 	# expecting to see "Success No vulnerable packages found"
 
