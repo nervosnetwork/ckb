@@ -32,8 +32,10 @@ RPC Module Alert for network alerts.
 An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
 
 The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code and belong to early CKB developers.
-
 #### Method `send_alert`
+* `send_alert(alert)`
+    * `alert`: [`Alert`](#type-alert)
+* result: `null`
 
 Sends an alert.
 
@@ -87,7 +89,6 @@ Response
 }
 ```
 
-
 ### Module Chain
 
 RPC Module Chain for methods related to the canonical chain.
@@ -109,8 +110,11 @@ A cell is live if
 *   it is found as an output in any transaction in the [canonical chain](#canonical-chain), and
 
 *   it is not found as an input in any transaction in the canonical chain.
-
 #### Method `get_block`
+* `get_block(block_hash, verbosity)`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`BlockView`](#type-blockview) `|` [`SerializedBlock`](#type-serializedblock) `|` `null`
 
 Returns the information about a block by hash.
 
@@ -215,8 +219,11 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
 #### Method `get_block_by_number`
+* `get_block_by_number(block_number, verbosity)`
+    * `block_number`: [`BlockNumber`](#type-blocknumber)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`BlockView`](#type-blockview) `|` [`SerializedBlock`](#type-serializedblock) `|` `null`
 
 Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
@@ -327,8 +334,11 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
 #### Method `get_header`
+* `get_header(block_hash, verbosity)`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`HeaderView`](#type-headerview) `|` [`SerializedHeader`](#type-serializedheader) `|` `null`
 
 Returns the information about a block header by hash.
 
@@ -395,8 +405,11 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
 #### Method `get_header_by_number`
+* `get_header_by_number(block_number, verbosity)`
+    * `block_number`: [`BlockNumber`](#type-blocknumber)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`HeaderView`](#type-headerview) `|` [`SerializedHeader`](#type-serializedheader) `|` `null`
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block number.
 
@@ -467,8 +480,10 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
 #### Method `get_transaction`
+* `get_transaction(tx_hash)`
+    * `tx_hash`: [`H256`](#type-h256)
+* result: [`TransactionWithStatus`](#type-transactionwithstatus) `|` `null`
 
 Returns the information about a transaction requested by transaction hash.
 
@@ -551,8 +566,10 @@ Response
   }
 }
 ```
-
 #### Method `get_block_hash`
+* `get_block_hash(block_number)`
+    * `block_number`: [`BlockNumber`](#type-blocknumber)
+* result: [`H256`](#type-h256) `|` `null`
 
 Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified`block_number`.
 
@@ -590,8 +607,10 @@ Response
   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
-
 #### Method `get_tip_header`
+* `get_tip_header(verbosity)`
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`HeaderView`](#type-headerview) `|` [`SerializedHeader`](#type-serializedheader)
 
 Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
@@ -652,14 +671,21 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
 #### Method `get_cells_by_lock_hash`
+* `get_cells_by_lock_hash(lock_hash, from, to)`
+    * `lock_hash`: [`H256`](#type-h256)
+    * `from`: [`BlockNumber`](#type-blocknumber)
+    * `to`: [`BlockNumber`](#type-blocknumber)
+* result: `Array<`[`CellOutputWithOutPoint`](#type-celloutputwithoutpoint)`>`
 
-Returns the information about [live cell](#live-cell)s collection by the hash of lock script.
-
-This method will be removed. It always returns an error now.
+👎 Deprecated since 0.36.0:
+(Disabled since 0.36.0) This method is deprecated for reasons of flexibility. Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
 
 #### Method `get_live_cell`
+* `get_live_cell(out_point, with_data)`
+    * `out_point`: [`OutPoint`](#type-outpoint)
+    * `with_data`: `boolean`
+* result: [`CellWithStatus`](#type-cellwithstatus)
 
 Returns the status about a cell. The RPC returns extra information if it is a [live cell] (#live-cell).
 
@@ -722,8 +748,9 @@ Response
   }
 }
 ```
-
 #### Method `get_tip_block_number`
+* `get_tip_block_number()`
+* result: [`BlockNumber`](#type-blocknumber)
 
 Returns the highest block number in the [canonical chain](#canonical-chain).
 
@@ -751,8 +778,9 @@ Response
   "result": "0x400"
 }
 ```
-
 #### Method `get_current_epoch`
+* `get_current_epoch()`
+* result: [`EpochView`](#type-epochview)
 
 Returns the epoch with the highest number in the [canonical chain](#canonical-chain).
 
@@ -785,8 +813,10 @@ Response
   }
 }
 ```
-
 #### Method `get_epoch_by_number`
+* `get_epoch_by_number(epoch_number)`
+    * `epoch_number`: [`EpochNumber`](#type-epochnumber)
+* result: [`EpochView`](#type-epochview) `|` `null`
 
 Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
 
@@ -829,59 +859,18 @@ Response
   }
 }
 ```
-
 #### Method `get_cellbase_output_capacity_details`
+* `get_cellbase_output_capacity_details(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`BlockReward`](#type-blockreward) `|` `null`
 
-Returns each component of the created CKB in the block's cellbase.
-
-This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
-
-CKB delays CKB creation for miners. The output cells in the cellbase of block N are for the miner creating block `N - 1 - ProposalWindow.farthest`.
-
-In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for miner creating block 89.
-
-##### Params
-
-*   `block_hash` - Specifies the block hash which cellbase outputs should be analyzed.
-
-##### Returns
-
-If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and its block number is N, return the block rewards analysis for block `N
-
-*   1 - ProposalWindow.farthest`.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_cellbase_output_capacity_details",
-  "params": [
-    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": {
-    "primary": "0x18ce922bca",
-    "proposal_reward": "0x0",
-    "secondary": "0x17b93605",
-    "total": "0x18e64b61cf",
-    "tx_fee": "0x0"
-  }
-}
-```
+👎 Deprecated since 0.36.0:
+Please use the RPC method [`get_block_economic_state`](#method-get_block_economic_state) instead
 
 #### Method `get_block_economic_state`
+* `get_block_economic_state(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`BlockEconomicState`](#type-blockeconomicstate) `|` `null`
 
 Returns increased issuance, miner reward and total transaction fee of a block.
 
@@ -938,8 +927,11 @@ Response
   }
 }
 ```
-
 #### Method `get_transaction_proof`
+* `get_transaction_proof(tx_hashes, block_hash)`
+    * `tx_hashes`: `Array<`[`H256`](#type-h256)`>`
+    * `block_hash`: [`H256`](#type-h256) `|` `null`
+* result: [`TransactionProof`](#type-transactionproof)
 
 Returns a merkle proof that transaction was included in a block.
 
@@ -980,8 +972,10 @@ Response
   }
 }
 ```
-
 #### Method `verify_transaction_proof`
+* `verify_transaction_proof(tx_proof)`
+    * `tx_proof`: [`TransactionProof`](#type-transactionproof)
+* result: `Array<`[`H256`](#type-h256)`>`
 
 Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
@@ -1023,26 +1017,31 @@ Response
 }
 ```
 
-
 ### Module Debug
 
 RPC Module Debug for internal RPC methods.
 
 **This module is for CKB developers and will not guarantee compatibility.** The methods here will be changed or removed without advanced notification.
-
 #### Method `jemalloc_profiling_dump`
+* `jemalloc_profiling_dump()`
+* result: `string`
 
 Dumps jemalloc memory profiling information into a file.
 
 The file is stored in the server running the CKB node.
 
 The RPC returns the path to the dumped file on success or returns an error on failure.
-
 #### Method `update_main_logger`
+* `update_main_logger(config)`
+    * `config`: [`MainLoggerConfig`](#type-mainloggerconfig)
+* result: `null`
 
 Changes main logger config options while CKB is running.
-
 #### Method `set_extra_logger`
+* `set_extra_logger(name, config_opt)`
+    * `name`: `string`
+    * `config_opt`: [`ExtraLoggerConfig`](#type-extraloggerconfig) `|` `null`
+* result: `null`
 
 Sets logger config options for extra loggers.
 
@@ -1054,7 +1053,6 @@ CKB nodes allow setting up extra loggers. These loggers will have their own log 
 
 *   `config_opt` - Adds a new logger or update an existing logger when this is not null. Removes the logger when this is null.
 
-
 ### Module Experiment
 
 RPC Module Experiment for experimenting methods.
@@ -1062,108 +1060,26 @@ RPC Module Experiment for experimenting methods.
 **EXPERIMENTAL warning**
 
 The methods here may be removed or changed in future releases without prior notifications.
-
 #### Method `compute_transaction_hash`
+* `compute_transaction_hash(tx)`
+    * `tx`: [`Transaction`](#type-transaction)
+* result: [`H256`](#type-h256)
 
-Returns the transaction hash for the given transaction.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "_compute_transaction_hash",
-  "params": [
-    {
-      "cell_deps": [
-        {
-          "dep_type": "code",
-          "out_point": {
-            "index": "0x0",
-            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-          }
-        }
-      ],
-      "header_deps": [
-        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-      ],
-      "inputs": [
-        {
-          "previous_output": {
-            "index": "0x0",
-            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-          },
-          "since": "0x0"
-        }
-      ],
-      "outputs": [
-        {
-          "capacity": "0x2540be400",
-          "lock": {
-            "args": "0x",
-            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
-          },
-          "type": null
-        }
-      ],
-      "outputs_data": [
-        "0x"
-      ],
-      "version": "0x0",
-      "witnesses": []
-    }
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
-}
-```
+👎 Deprecated since 0.36.0:
+Please implement molecule and compute the transaction hash in clients.
 
 #### Method `compute_script_hash`
+* `compute_script_hash(script)`
+    * `script`: [`Script`](#type-script)
+* result: [`H256`](#type-h256)
 
-Returns the script hash for the given script.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "_compute_script_hash",
-  "params": [
-    {
-      "args": "0x",
-      "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-      "hash_type": "data"
-    }
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-}
-```
+👎 Deprecated since 0.36.0:
+Please implement molecule and compute the script hash in clients.
 
 #### Method `dry_run_transaction`
+* `dry_run_transaction(tx)`
+    * `tx`: [`Transaction`](#type-transaction)
+* result: [`DryRunResult`](#type-dryrunresult)
 
 Dry run transaction and return the execution cycles.
 
@@ -1241,8 +1157,11 @@ Response
   }
 }
 ```
-
 #### Method `calculate_dao_maximum_withdraw`
+* `calculate_dao_maximum_withdraw(out_point, block_hash)`
+    * `out_point`: [`OutPoint`](#type-outpoint)
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`Capacity`](#type-capacity)
 
 Calculates the maximum withdraw one can get, given a referenced DAO cell, and a withdraw block hash.
 
@@ -1292,10 +1211,13 @@ Response
   "result": "0x4a8b4e8a4"
 }
 ```
-
 #### Method `estimate_fee_rate`
+* `estimate_fee_rate(expect_confirm_blocks)`
+    * `expect_confirm_blocks`: [`Uint64`](#type-uint64)
+* result: [`EstimateResult`](#type-estimateresult)
 
-Estimates a fee rate (capacity/KB) for a transaction that to be committed within the expect number of blocks.
+👎 Deprecated since 0.34.0:
+This method is deprecated because of the performance issue. It always returns an error now.
 
 
 ### Module Indexer
@@ -1303,607 +1225,59 @@ Estimates a fee rate (capacity/KB) for a transaction that to be committed within
 RPC Module Indexer which index cells by lock script hash.
 
 The index is disabled by default, which **must** be enabled by calling [`index_lock_hash`](#method-index_lock_hash) first.
-
 #### Method `get_live_cells_by_lock_hash`
+* `get_live_cells_by_lock_hash(lock_hash, page, per_page, reverse_order)`
+    * `lock_hash`: [`H256`](#type-h256)
+    * `page`: [`Uint64`](#type-uint64)
+    * `per_page`: [`Uint64`](#type-uint64)
+    * `reverse_order`: `boolean` `|` `null`
+* result: `Array<`[`LiveCell`](#type-livecell)`>`
 
-Returns the live cells collection by the hash of lock script.
-
-This RPC requires [creating the index](#method-index_lock_hash) on `lock_hash` first. It returns all live cells only if the index is created starting from the genesis block.
-
-##### Params
-
-*   `lock_hash` - Cell lock script hash
-
-*   `page` - Page number, starting from 0
-
-*   `per` - Page size, max value is 50
-
-*   `reverse_order` - Returns the live cells collection in reverse order. (**Optional**, default is false)
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_live_cells_by_lock_hash",
-  "params": [
-    "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-    "0xa",
-    "0xe"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": [
-    {
-      "cell_output": {
-        "capacity": "0x2cb6562e4e",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x98",
-        "index": "0x0",
-        "tx_hash": "0x2d811f9ad7f2f7319171a6da4c842dd78e36682b4ac74da4f67b97c9f7d7a02b"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb66b2496",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x99",
-        "index": "0x0",
-        "tx_hash": "0x1ccf68bf7cb96a1a7f992c27bcfea6ebfc0fe32602196569aaa0cb3cd3e9f5ea"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb68006e8",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9a",
-        "index": "0x0",
-        "tx_hash": "0x74db38ad40184dd0528f4841e10599ff97bfbf2b5313754d1e96920d8523a5d4"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb694d55e",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9b",
-        "index": "0x0",
-        "tx_hash": "0xf7d0ecc70015b46c5ab1cc8462592ae612fdaada200f643f3e1ce633bcc5ad1d"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb6a99016",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9c",
-        "index": "0x0",
-        "tx_hash": "0xc3d232bb6b0e5d9a71a0978c9ab66c7a127ed37aeed6a2509dcc10d994c8c605"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb6be372c",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9d",
-        "index": "0x0",
-        "tx_hash": "0x10139a08beae170a35fbfcece6d50561ec61e13e4c6438435c1f2021331d7c4d"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb6d2cabb",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9e",
-        "index": "0x0",
-        "tx_hash": "0x39a083a1deb39b923a600a6f0714663085b5d2011b886b160962e20f1a28b550"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb6e74ae0",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0x9f",
-        "index": "0x0",
-        "tx_hash": "0x2899c066f80a04b9a168e4499760ad1d768f44a3d673779905d88edd86362ac6"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb6fbb7b4",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa0",
-        "index": "0x0",
-        "tx_hash": "0xe2579280875a5d14538b0cc2356707792189662d5f8292541d9856ef291e81bf"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb7101155",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa1",
-        "index": "0x0",
-        "tx_hash": "0xd6121e80237c79182d55ec0efb9fa75bc9cc592f818057ced51aac6bb625e016"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb72457dc",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa2",
-        "index": "0x0",
-        "tx_hash": "0x624eba1135e54a5988cb2ec70d42fa860d1d5658ed7f8d402615dff7d598e4b6"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb7388b65",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa3",
-        "index": "0x0",
-        "tx_hash": "0x7884b4cf85bc02cb73ec41d5cbbbf158eebca6ef855419ce57ff7c1d97b5be58"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb74cac0a",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa4",
-        "index": "0x0",
-        "tx_hash": "0xb613ba9b5f6177657493492dd523a63720d855ae9749887a0de881b894a1d6a6"
-      },
-      "output_data_len": "0x0"
-    },
-    {
-      "cell_output": {
-        "capacity": "0x2cb760b9e6",
-        "lock": {
-          "args": "0x",
-          "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-          "hash_type": "data"
-        },
-        "type": null
-      },
-      "cellbase": true,
-      "created_by": {
-        "block_number": "0xa5",
-        "index": "0x0",
-        "tx_hash": "0x701f4b962c1650810800ee6ed981841692c1939a4b597e9e7a726c5db77f6164"
-      },
-      "output_data_len": "0x0"
-    }
-  ]
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 #### Method `get_transactions_by_lock_hash`
+* `get_transactions_by_lock_hash(lock_hash, page, per_page, reverse_order)`
+    * `lock_hash`: [`H256`](#type-h256)
+    * `page`: [`Uint64`](#type-uint64)
+    * `per_page`: [`Uint64`](#type-uint64)
+    * `reverse_order`: `boolean` `|` `null`
+* result: `Array<`[`CellTransaction`](#type-celltransaction)`>`
 
-Returns the transactions collection by the hash of lock script.
-
-This RPC requires [creating the index](#method-index_lock_hash) on `lock_hash` first. It returns all matched transactions only if the index is created starting from the genesis block.
-
-##### Params
-
-*   `lock_hash` - Cell lock script hash
-
-*   `page` - Page number, starting from 0
-
-*   `per` - Page size, max value is 50
-
-*   `reverse_order` - Return the transactions collection in reverse order. (**Optional**, default is false)
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_transactions_by_lock_hash",
-  "params": [
-    "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-    "0xa",
-    "0xe"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": [
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x98",
-        "index": "0x0",
-        "tx_hash": "0x2d811f9ad7f2f7319171a6da4c842dd78e36682b4ac74da4f67b97c9f7d7a02b"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x99",
-        "index": "0x0",
-        "tx_hash": "0x1ccf68bf7cb96a1a7f992c27bcfea6ebfc0fe32602196569aaa0cb3cd3e9f5ea"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9a",
-        "index": "0x0",
-        "tx_hash": "0x74db38ad40184dd0528f4841e10599ff97bfbf2b5313754d1e96920d8523a5d4"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9b",
-        "index": "0x0",
-        "tx_hash": "0xf7d0ecc70015b46c5ab1cc8462592ae612fdaada200f643f3e1ce633bcc5ad1d"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9c",
-        "index": "0x0",
-        "tx_hash": "0xc3d232bb6b0e5d9a71a0978c9ab66c7a127ed37aeed6a2509dcc10d994c8c605"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9d",
-        "index": "0x0",
-        "tx_hash": "0x10139a08beae170a35fbfcece6d50561ec61e13e4c6438435c1f2021331d7c4d"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9e",
-        "index": "0x0",
-        "tx_hash": "0x39a083a1deb39b923a600a6f0714663085b5d2011b886b160962e20f1a28b550"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0x9f",
-        "index": "0x0",
-        "tx_hash": "0x2899c066f80a04b9a168e4499760ad1d768f44a3d673779905d88edd86362ac6"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa0",
-        "index": "0x0",
-        "tx_hash": "0xe2579280875a5d14538b0cc2356707792189662d5f8292541d9856ef291e81bf"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa1",
-        "index": "0x0",
-        "tx_hash": "0xd6121e80237c79182d55ec0efb9fa75bc9cc592f818057ced51aac6bb625e016"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa2",
-        "index": "0x0",
-        "tx_hash": "0x624eba1135e54a5988cb2ec70d42fa860d1d5658ed7f8d402615dff7d598e4b6"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa3",
-        "index": "0x0",
-        "tx_hash": "0x7884b4cf85bc02cb73ec41d5cbbbf158eebca6ef855419ce57ff7c1d97b5be58"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa4",
-        "index": "0x0",
-        "tx_hash": "0xb613ba9b5f6177657493492dd523a63720d855ae9749887a0de881b894a1d6a6"
-      }
-    },
-    {
-      "consumed_by": null,
-      "created_by": {
-        "block_number": "0xa5",
-        "index": "0x0",
-        "tx_hash": "0x701f4b962c1650810800ee6ed981841692c1939a4b597e9e7a726c5db77f6164"
-      }
-    }
-  ]
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 #### Method `index_lock_hash`
+* `index_lock_hash(lock_hash, index_from)`
+    * `lock_hash`: [`H256`](#type-h256)
+    * `index_from`: [`BlockNumber`](#type-blocknumber) `|` `null`
+* result: [`LockHashIndexState`](#type-lockhashindexstate)
 
-Creates index for live cells and transactions by the hash of lock script.
-
-The indices are disabled by default. Clients have to create indices first before querying.
-
-Creating index for the same `lock_hash` with different `index_from` is an undefined behaviour. Please [delete the index](#method-deindex_lock_hash) first.
-
-##### Params
-
-*   `lock_hash` - Cell lock script hash
-
-*   `index_from` - Create an index starting from this block number (exclusive). 0 is special which also indexes transactions in the genesis block. (**Optional**, the default is the max block number in the canonical chain, which means starting index from the next new block.)
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "index_lock_hash",
-  "params": [
-    "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412",
-    "0x400"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": {
-    "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-    "block_number": "0x400",
-    "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-  }
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 #### Method `deindex_lock_hash`
+* `deindex_lock_hash(lock_hash)`
+    * `lock_hash`: [`H256`](#type-h256)
+* result: `null`
 
-Removes index for live cells and transactions by the hash of lock script.
-
-##### Params
-
-*   `lock_hash` - Cell lock script hash
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "deindex_lock_hash",
-  "params": [
-    "0x214ccd7362ec77349bc8df11e6edb54173338a3f6ec312e314849296f23aaec4"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": null
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 #### Method `get_lock_hash_index_states`
+* `get_lock_hash_index_states()`
+* result: `Array<`[`LockHashIndexState`](#type-lockhashindexstate)`>`
 
-Returns states of all created lock hash indices.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_lock_hash_index_states",
-  "params": []
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": [
-    {
-      "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-      "block_number": "0x400",
-      "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-    }
-  ]
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 #### Method `get_capacity_by_lock_hash`
+* `get_capacity_by_lock_hash(lock_hash)`
+    * `lock_hash`: [`H256`](#type-h256)
+* result: [`LockHashCapacity`](#type-lockhashcapacity) `|` `null`
 
-Returns the total capacity by the hash of lock script.
-
-This RPC requires [creating the index](#method-index_lock_hash) on `lock_hash` first. It returns the correct balance only if the index is created starting from the genesis block.
-
-##### Params
-
-*   `lock_hash` - Cell lock script hash
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_capacity_by_lock_hash",
-  "params": [
-    "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": {
-    "block_number": "0x400",
-    "capacity": "0xb00fb84df292",
-    "cells_count": "0x3f5"
-  }
-}
-```
+👎 Deprecated since 0.36.0:
+Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
 
 
 ### Module Miner
@@ -1911,8 +1285,12 @@ Response
 RPC Module Miner for miners.
 
 A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and submits the found new block.
-
 #### Method `get_block_template`
+* `get_block_template(bytes_limit, proposals_limit, max_version)`
+    * `bytes_limit`: [`Uint64`](#type-uint64) `|` `null`
+    * `proposals_limit`: [`Uint64`](#type-uint64) `|` `null`
+    * `max_version`: [`Version`](#type-version) `|` `null`
+* result: [`BlockTemplate`](#type-blocktemplate)
 
 Returns block template for miners.
 
@@ -2002,8 +1380,11 @@ Response
   }
 }
 ```
-
 #### Method `submit_block`
+* `submit_block(work_id, block)`
+    * `work_id`: `string`
+    * `block`: [`Block`](#type-block)
+* result: [`H256`](#type-h256)
 
 Submit new block to network
 
@@ -2088,12 +1469,12 @@ Response
 }
 ```
 
-
 ### Module Net
 
 RPC Module Net for P2P network.
-
 #### Method `local_node_info`
+* `local_node_info()`
+* result: [`LocalNode`](#type-localnode)
 
 Returns the local node information.
 
@@ -2152,8 +1533,9 @@ Response
   }
 }
 ```
-
 #### Method `get_peers`
+* `get_peers()`
+* result: `Array<`[`RemoteNode`](#type-remotenode)`>`
 
 Returns the connected peers information.
 
@@ -2296,8 +1678,9 @@ Response
   ]
 }
 ```
-
 #### Method `get_banned_addresses`
+* `get_banned_addresses()`
+* result: `Array<`[`BannedAddr`](#type-bannedaddr)`>`
 
 Returns all banned IPs/Subnets.
 
@@ -2330,8 +1713,9 @@ Response
   ]
 }
 ```
-
 #### Method `clear_banned_addresses`
+* `clear_banned_addresses()`
+* result: `null`
 
 Clears all banned IPs/Subnets.
 
@@ -2357,8 +1741,14 @@ Response
   "result": null
 }
 ```
-
 #### Method `set_ban`
+* `set_ban(address, command, ban_time, absolute, reason)`
+    * `address`: `string`
+    * `command`: `string`
+    * `ban_time`: [`Timestamp`](#type-timestamp) `|` `null`
+    * `absolute`: `boolean` `|` `null`
+    * `reason`: `string` `|` `null`
+* result: `null`
 
 Inserts or deletes an IP/Subnet from the banned list
 
@@ -2414,8 +1804,9 @@ Response
   "result": null
 }
 ```
-
 #### Method `sync_state`
+* `sync_state()`
+* result: [`SyncState`](#type-syncstate)
 
 Returns chain synchronization state of this node.
 
@@ -2450,8 +1841,10 @@ Response
   }
 }
 ```
-
 #### Method `set_network_active`
+* `set_network_active(state)`
+    * `state`: `boolean`
+* result: `null`
 
 Disable/enable all p2p network activity
 
@@ -2483,8 +1876,11 @@ Response
   "result": null
 }
 ```
-
 #### Method `add_node`
+* `add_node(peer_id, address)`
+    * `peer_id`: `string`
+    * `address`: `string`
+* result: `null`
 
 Attempts to add a node to the peers list and try connecting to it.
 
@@ -2545,8 +1941,10 @@ Response
   "result": null
 }
 ```
-
 #### Method `remove_node`
+* `remove_node(peer_id)`
+    * `peer_id`: `string`
+* result: `null`
 
 Attempts to remove a node from the peers list and try disconnecting from it.
 
@@ -2580,8 +1978,9 @@ Response
   "result": null
 }
 ```
-
 #### Method `ping_peers`
+* `ping_peers()`
+* result: `null`
 
 Requests that a ping be sent to all connected peers, to measure ping time.
 
@@ -2608,12 +2007,14 @@ Response
 }
 ```
 
-
 ### Module Pool
 
 RPC Module Pool for transaction memory pool.
-
 #### Method `send_transaction`
+* `send_transaction(tx, outputs_validator)`
+    * `tx`: [`Transaction`](#type-transaction)
+    * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
+* result: [`H256`](#type-h256)
 
 Submits a new transaction into the transaction pool.
 
@@ -2629,9 +2030,9 @@ Submits a new transaction into the transaction pool.
 
 *   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-PoolRejectedTransactionByIllTransactionChecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
 
-*   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must >= config option `tx_pool.min_fee_rate`.
+*   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 
-*   [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](#error-PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must <= config option `tx_pool.max_ancestors_count`.
+*   [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](#error-PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
 
 *   [`PoolIsFull (-1106)`](#error-PoolIsFull) - Pool is full.
 
@@ -2704,8 +2105,9 @@ Response
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
 }
 ```
-
 #### Method `tx_pool_info`
+* `tx_pool_info()`
+* result: [`TxPoolInfo`](#type-txpoolinfo)
 
 Returns the transaction pool information.
 
@@ -2741,8 +2143,9 @@ Response
   }
 }
 ```
-
 #### Method `clear_tx_pool`
+* `clear_tx_pool()`
+* result: `null`
 
 Removes all transactions from the transaction pool.
 
@@ -2769,12 +2172,12 @@ Response
 }
 ```
 
-
 ### Module Stats
 
 RPC Module Stats for getting various statistic data.
-
 #### Method `get_blockchain_info`
+* `get_blockchain_info()`
+* result: [`ChainInfo`](#type-chaininfo)
 
 Returns statistics about the chain.
 
@@ -2814,39 +2217,12 @@ Response
   }
 }
 ```
-
 #### Method `get_peers_state`
+* `get_peers_state()`
+* result: `Array<`[`PeerState`](#type-peerstate)`>`
 
-Return state info of peers
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_peers_state",
-  "params": []
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": [
-    {
-      "blocks_in_flight": "0x56",
-      "last_updated": "0x16a95af332d",
-      "peer": "0x1"
-    }
-  ]
-}
-```
+👎 Deprecated since 0.12.0:
+Please use RPC [`get_peers`](#method-get_peers) instead
 
 
 ### Module Subscription
@@ -2885,8 +2261,10 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_
 
 socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
 ```
-
 #### Method `subscribe`
+* `subscribe(topic)`
+    * `topic`: `string`
+* result: `string`
 
 Subscribes to a topic.
 
@@ -2955,8 +2333,10 @@ Response
   "result": "0x2a"
 }
 ```
-
 #### Method `unsubscribe`
+* `unsubscribe(id)`
+    * `id`: `string`
+* result: `boolean`
 
 Unsubscribes from a subscribed topic.
 
@@ -2990,9 +2370,7 @@ Response
 ```
 
 
-
 ## RPC Errors
 
 
 ## RPC Types
-

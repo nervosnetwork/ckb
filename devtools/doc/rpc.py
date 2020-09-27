@@ -36,18 +36,39 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 """
 
+PENDING_TYPES = set()
+
 TYMETHOD_DOT = 'tymethod.'
-RPCERROR_HREF_PREFIX = '../enum.RPCError.html#variant.'
+HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
+
+NAME_PREFIX_SELF = '(&self, '
 
 
 def transform_href(href):
-    if href.startswith('../enum.RPCError.html#variant.'):
-        return '#error-' + href[len(RPCERROR_HREF_PREFIX):]
+    if href.startswith(HREF_PREFIX_RPCERROR):
+        return '#error-' + href[len(HREF_PREFIX_RPCERROR):]
     elif ('#' + TYMETHOD_DOT) in href:
         # trait.ChainRpc.html#tymethod.get_block
         return '#method-' + href.split(TYMETHOD_DOT)[-1]
 
     return href
+
+
+def write_method_signature(file, method_name, vars):
+    if method_name == 'subscribe':
+        file.write('* `subscribe(topic)`\n')
+        file.write('    * `topic`: `string`\n')
+    elif method_name == 'unsubscribe':
+        file.write('* `unsubscribe(id)`\n')
+        file.write('    * `id`: `string`\n')
+    elif len(vars) > 1:
+        file.write('* `{}({})`\n'.format(method_name,
+                                         ', '.join(v.name for v in vars[:-1])))
+        for var in vars[:-1]:
+            file.write('    * `{}`: {}\n'.format(var.name, var.ty))
+    else:
+        file.write('* `{}()`\n'.format(method_name))
+    file.write('* result: {}\n'.format(vars[-1].ty))
 
 
 class MarkdownParser():
@@ -143,25 +164,99 @@ class MarkdownParser():
             self.indent(data)
 
     def write(self, file):
-        for chunk in self.chunks:
-            file.write(chunk)
+        file.write('\n'.join(line.rstrip()
+                             for line in ''.join(self.chunks).splitlines()))
 
 
 class RPCVar():
     def __init__(self):
+        self.name = ''
+        self.ty = None
+        self.children = []
+        self.completed_children = 0
         pass
 
+    def require_children(self, n):
+        while len(self.children) < n:
+            self.children.append(RPCVar())
+
     def handle_starttag(self, tag, attrs):
-        pass
+        if tag != 'a':
+            return
+
+        if self.ty is None:
+            self.ty = dict(attrs)['href']
+
+            if self.ty == 'https://doc.rust-lang.org/nightly/std/primitive.unit.html':
+                self.ty = '`null`'
+            if self.ty == 'https://doc.rust-lang.org/nightly/std/primitive.bool.html':
+                self.ty = '`boolean`'
+            if self.ty == 'https://doc.rust-lang.org/nightly/alloc/string/struct.String.html':
+                self.ty = '`string`'
+            elif self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
+                self.require_children(1)
+            elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
+                self.require_children(1)
+            elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
+                self.require_children(2)
+            elif self.ty.startswith('../') and '/struct.' in self.ty:
+                PENDING_TYPES.add(self.ty)
+                type_name = self.ty.split('/struct.')[1][:-5]
+                self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                    type_name.lower())
+            elif self.ty.startswith('../') and '/type.' in self.ty:
+                PENDING_TYPES.add(self.ty)
+                type_name = self.ty.split('/type.')[1][:-5]
+                self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                    type_name.lower())
+            elif self.ty.startswith('../') and '/enum.' in self.ty:
+                PENDING_TYPES.add(self.ty)
+                type_name = self.ty.split('/enum.')[1][:-5]
+                self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                    type_name.lower())
+        else:
+            if self.completed_children >= len(self.children):
+                print(">>> {} {}[{}] => {} {} {}".format(
+                    self.name, self.ty, self.completed_children, self.completed(), tag, attrs))
+            self.children[self.completed_children].handle_starttag(tag, attrs)
+            if self.children[self.completed_children].completed():
+                if self.completed():
+                    if self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
+                        self.ty = '{} `|` `null`'.format(self.children[0].ty)
+                    elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
+                        self.ty = '`Array<`{}`>`'.format(self.children[0].ty)
+                    elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
+                        molecule_name = self.children[1].ty.split(
+                            '`](')[0][2:]
+                        self.ty = '{} `|` [`Serialized{}`](#type-serialized{})'.format(
+                            self.children[0].ty, molecule_name, molecule_name.lower())
+                else:
+                    self.completed_children += 1
 
     def handle_endtag(self, tag):
         pass
 
     def handle_data(self, data):
-        pass
+        if self.ty is None:
+            self.name = self.sanitize_name(data)
 
     def completed(self):
-        False
+        return self.ty is not None and (len(self.children) == 0 or self.children[-1].completed())
+
+    def sanitize_name(self, name):
+        name = name.strip()
+
+        if name.startswith(NAME_PREFIX_SELF):
+            name = name[len(NAME_PREFIX_SELF):]
+        if name.endswith(':'):
+            name = name[:-1]
+        if name.startswith(', '):
+            name = name[2:]
+
+        if name == ') -> Result<':
+            name = 'result'
+
+        return name
 
 
 class RPCMethod():
@@ -169,10 +264,11 @@ class RPCMethod():
         self.name = name
         self.rpc_var_parser = RPCVar()
         self.doc_parser = None
+        self.params = []
 
     def handle_starttag(self, tag, attrs):
         if self.rpc_var_parser is not None:
-            if tag == 'div' and attrs == [("class", "docblock")]:
+            if tag == 'div' and (attrs == [("class", "docblock")] or attrs == [("class", 'stability')]):
                 self.rpc_var_parser = None
                 self.doc_parser = MarkdownParser(title_level=4)
                 return
@@ -185,10 +281,7 @@ class RPCMethod():
         if self.rpc_var_parser is not None:
             self.rpc_var_parser.handle_endtag(tag)
             if self.rpc_var_parser.completed():
-                self.add_param(
-                    self.rpc_var_parser.name,
-                    self.rpc_var_parser.ty
-                )
+                self.params.append(self.rpc_var_parser)
                 self.rpc_var_parser = RPCVar()
         elif not self.doc_parser.completed():
             self.doc_parser.handle_endtag(tag)
@@ -204,8 +297,7 @@ class RPCMethod():
 
     def write(self, file):
         file.write("#### Method `{}`\n".format(self.name))
-        # TODO: signature
-        # name(a: Type, b: Type) : ReturnType | Error
+        write_method_signature(file, self.name, self.params[1:])
         if self.doc_parser is not None:
             self.doc_parser.write(file)
             file.write("\n")
@@ -273,7 +365,7 @@ class RPCDoc(object):
 
         file.write("\n## RPC Errors\n\n")
 
-        file.write("\n## RPC Types\n\n")
+        file.write("\n## RPC Types\n")
 
 
 def main():
