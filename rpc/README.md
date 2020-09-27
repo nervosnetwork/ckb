@@ -23,6 +23,144 @@ Once a deprecated method is disabled, the CKB dev team will remove it in a futur
 For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and removed in 0.37.0. The minor versions are released monthly, so there's at least two month buffer for a deprecated RPC method.
 
 
+## Table of Contents
+
+* [RPC Methods](#rpc-methods)
+    * [Module Alert](#module-alert)
+        * [Method `send_alert`](#method-send_alert)
+    * [Module Chain](#module-chain)
+        * [Method `get_block`](#method-get_block)
+        * [Method `get_block_by_number`](#method-get_block_by_number)
+        * [Method `get_header`](#method-get_header)
+        * [Method `get_header_by_number`](#method-get_header_by_number)
+        * [Method `get_transaction`](#method-get_transaction)
+        * [Method `get_block_hash`](#method-get_block_hash)
+        * [Method `get_tip_header`](#method-get_tip_header)
+        * [Method `get_cells_by_lock_hash`](#method-get_cells_by_lock_hash)
+        * [Method `get_live_cell`](#method-get_live_cell)
+        * [Method `get_tip_block_number`](#method-get_tip_block_number)
+        * [Method `get_current_epoch`](#method-get_current_epoch)
+        * [Method `get_epoch_by_number`](#method-get_epoch_by_number)
+        * [Method `get_cellbase_output_capacity_details`](#method-get_cellbase_output_capacity_details)
+        * [Method `get_block_economic_state`](#method-get_block_economic_state)
+        * [Method `get_transaction_proof`](#method-get_transaction_proof)
+        * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
+    * [Module Debug](#module-debug)
+        * [Method `jemalloc_profiling_dump`](#method-jemalloc_profiling_dump)
+        * [Method `update_main_logger`](#method-update_main_logger)
+        * [Method `set_extra_logger`](#method-set_extra_logger)
+    * [Module Experiment](#module-experiment)
+        * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
+        * [Method `compute_script_hash`](#method-compute_script_hash)
+        * [Method `dry_run_transaction`](#method-dry_run_transaction)
+        * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
+        * [Method `estimate_fee_rate`](#method-estimate_fee_rate)
+    * [Module Indexer](#module-indexer)
+        * [Method `get_live_cells_by_lock_hash`](#method-get_live_cells_by_lock_hash)
+        * [Method `get_transactions_by_lock_hash`](#method-get_transactions_by_lock_hash)
+        * [Method `index_lock_hash`](#method-index_lock_hash)
+        * [Method `deindex_lock_hash`](#method-deindex_lock_hash)
+        * [Method `get_lock_hash_index_states`](#method-get_lock_hash_index_states)
+        * [Method `get_capacity_by_lock_hash`](#method-get_capacity_by_lock_hash)
+    * [Module Miner](#module-miner)
+        * [Method `get_block_template`](#method-get_block_template)
+        * [Method `submit_block`](#method-submit_block)
+    * [Module Net](#module-net)
+        * [Method `local_node_info`](#method-local_node_info)
+        * [Method `get_peers`](#method-get_peers)
+        * [Method `get_banned_addresses`](#method-get_banned_addresses)
+        * [Method `clear_banned_addresses`](#method-clear_banned_addresses)
+        * [Method `set_ban`](#method-set_ban)
+        * [Method `sync_state`](#method-sync_state)
+        * [Method `set_network_active`](#method-set_network_active)
+        * [Method `add_node`](#method-add_node)
+        * [Method `remove_node`](#method-remove_node)
+        * [Method `ping_peers`](#method-ping_peers)
+    * [Module Pool](#module-pool)
+        * [Method `send_transaction`](#method-send_transaction)
+        * [Method `tx_pool_info`](#method-tx_pool_info)
+        * [Method `clear_tx_pool`](#method-clear_tx_pool)
+    * [Module Stats](#module-stats)
+        * [Method `get_blockchain_info`](#method-get_blockchain_info)
+        * [Method `get_peers_state`](#method-get_peers_state)
+    * [Module Subscription](#module-subscription)
+        * [Method `subscribe`](#method-subscribe)
+        * [Method `unsubscribe`](#method-unsubscribe)
+* [RPC Errors](#rpc-errors)
+* [RPC Types](#rpc-types)
+    * [Type `Alert`](#type-alert)
+    * [Type `AlertId`](#type-alertid)
+    * [Type `AlertMessage`](#type-alertmessage)
+    * [Type `AlertPriority`](#type-alertpriority)
+    * [Type `BannedAddr`](#type-bannedaddr)
+    * [Type `Block`](#type-block)
+    * [Type `BlockEconomicState`](#type-blockeconomicstate)
+    * [Type `BlockNumber`](#type-blocknumber)
+    * [Type `BlockReward`](#type-blockreward)
+    * [Type `BlockTemplate`](#type-blocktemplate)
+    * [Type `BlockView`](#type-blockview)
+    * [Type `Byte32`](#type-byte32)
+    * [Type `Capacity`](#type-capacity)
+    * [Type `CellData`](#type-celldata)
+    * [Type `CellDep`](#type-celldep)
+    * [Type `CellInfo`](#type-cellinfo)
+    * [Type `CellInput`](#type-cellinput)
+    * [Type `CellOutput`](#type-celloutput)
+    * [Type `CellOutputWithOutPoint`](#type-celloutputwithoutpoint)
+    * [Type `CellTransaction`](#type-celltransaction)
+    * [Type `CellWithStatus`](#type-cellwithstatus)
+    * [Type `CellbaseTemplate`](#type-cellbasetemplate)
+    * [Type `ChainInfo`](#type-chaininfo)
+    * [Type `Cycle`](#type-cycle)
+    * [Type `DepType`](#type-deptype)
+    * [Type `DryRunResult`](#type-dryrunresult)
+    * [Type `EpochNumber`](#type-epochnumber)
+    * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
+    * [Type `EpochView`](#type-epochview)
+    * [Type `EstimateResult`](#type-estimateresult)
+    * [Type `ExtraLoggerConfig`](#type-extraloggerconfig)
+    * [Type `FeeRate`](#type-feerate)
+    * [Type `H256`](#type-h256)
+    * [Type `Header`](#type-header)
+    * [Type `HeaderView`](#type-headerview)
+    * [Type `JsonBytes`](#type-jsonbytes)
+    * [Type `LiveCell`](#type-livecell)
+    * [Type `LocalNode`](#type-localnode)
+    * [Type `LocalNodeProtocol`](#type-localnodeprotocol)
+    * [Type `LockHashCapacity`](#type-lockhashcapacity)
+    * [Type `LockHashIndexState`](#type-lockhashindexstate)
+    * [Type `MainLoggerConfig`](#type-mainloggerconfig)
+    * [Type `MerkleProof`](#type-merkleproof)
+    * [Type `MinerReward`](#type-minerreward)
+    * [Type `NodeAddress`](#type-nodeaddress)
+    * [Type `OutPoint`](#type-outpoint)
+    * [Type `OutputsValidator`](#type-outputsvalidator)
+    * [Type `PeerState`](#type-peerstate)
+    * [Type `PeerSyncState`](#type-peersyncstate)
+    * [Type `ProposalShortId`](#type-proposalshortid)
+    * [Type `RemoteNode`](#type-remotenode)
+    * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
+    * [Type `Script`](#type-script)
+    * [Type `ScriptHashType`](#type-scripthashtype)
+    * [Type `Status`](#type-status)
+    * [Type `SyncState`](#type-syncstate)
+    * [Type `Timestamp`](#type-timestamp)
+    * [Type `Transaction`](#type-transaction)
+    * [Type `TransactionPoint`](#type-transactionpoint)
+    * [Type `TransactionProof`](#type-transactionproof)
+    * [Type `TransactionTemplate`](#type-transactiontemplate)
+    * [Type `TransactionView`](#type-transactionview)
+    * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TxPoolInfo`](#type-txpoolinfo)
+    * [Type `TxStatus`](#type-txstatus)
+    * [Type `Uint128`](#type-uint128)
+    * [Type `Uint32`](#type-uint32)
+    * [Type `Uint64`](#type-uint64)
+    * [Type `UncleBlock`](#type-uncleblock)
+    * [Type `UncleBlockView`](#type-uncleblockview)
+    * [Type `UncleTemplate`](#type-uncletemplate)
+    * [Type `Version`](#type-version)
+
 ## RPC Methods
 
 ### Module Alert
@@ -3259,6 +3397,31 @@ The estimated fee rate.
 *   `fee_rate`: [`FeeRate`](#type-feerate) - The resulting type after obtaining ownership.
 
 
+### Type `ExtraLoggerConfig`
+
+Runtime logger config for extra loggers.
+
+#### Fields
+
+`ExtraLoggerConfig` is a JSON object with following fields.
+
+*   `filter`: `string` - Sets log levels for different modules.
+
+    #### Examples
+
+    Set the log level to info for all modules
+
+    ```
+    info
+    ```
+
+    Set the log level to debug for listed modules and info for other modules.
+
+    ```
+    info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
+    ```
+
+
 ### Type `FeeRate`
 
 The fee rate is the ratio between fee and transaction weight in unit Shannon per 1,000 bytes.
@@ -3526,6 +3689,62 @@ Cell script lock hash index state.
 *   `block_hash`: [`H256`](#type-h256) - The hash of the block with the max block number that this index has already scanned.
 
 
+### Type `MainLoggerConfig`
+
+Runtime logger config.
+
+#### Fields
+
+`MainLoggerConfig` is a JSON object with following fields.
+
+*   `filter`: `string` `|` `null` - Sets log levels for different modules.
+
+    **Optional**, null means keeping the current option unchanged.
+
+    #### Examples
+
+    Set the log level to info for all modules
+
+    ```
+    info
+    ```
+
+    Set the log level to debug for listed modules and info for other modules.
+
+    ```
+    info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
+    ```
+
+*   `to_stdout`: `boolean` `|` `null` - Whether printing the logs to the process stdout.
+
+    **Optional**, null means keeping the current option unchanged.
+
+*   `to_file`: `boolean` `|` `null` - Whether appending the logs to the log file.
+
+    **Optional**, null means keeping the current option unchanged.
+
+*   `color`: `boolean` `|` `null` - Whether using color when printing the logs to the process stdout.
+
+    **Optional**, null means keeping the current option unchanged.
+
+
+### Type `MerkleProof`
+
+Proof of CKB Merkle Tree.
+
+CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
+
+#### Fields
+
+`MerkleProof` is a JSON object with following fields.
+
+*   `indices`: `Array<`[`Uint32`](#type-uint32)`>` - Leaves indices in the CBMT that are prooved present in the block.
+
+    These are indices in the CBMT tree not the transaction indices in the block.
+
+*   `lemmas`: `Array<`[`H256`](#type-h256)`>` - Hashes of all siblings along the pathes to root.
+
+
 ### Type `MinerReward`
 
 Block rewards for miners.
@@ -3570,7 +3789,7 @@ Node P2P address and score.
 
 Reference to a cell via transaction hash and output index.
 
-####            Examples
+#### Examples
 
 
 ```
@@ -3581,16 +3800,13 @@ Reference to a cell via transaction hash and output index.
 ```
 
 
-
 #### Fields
 
 `OutPoint` is a JSON object with following fields.
 
 *   `tx_hash`: [`H256`](#type-h256) - Transaction hash in which the cell is an output.
 
-
-*   `index`: [`Uint32`](#type-uint32) - The output index of the cell in the transaction specified by           `tx_hash`.
-
+*   `index`: [`Uint32`](#type-uint32) - The output index of the cell in the transaction specified by `tx_hash`.
 
 
 ### Type `OutputsValidator`
@@ -3920,6 +4136,21 @@ Reference to a cell by trnasction hash and output index, as well as in which blo
 *   `tx_hash`: [`H256`](#type-h256) - In which transaction this cell is an output.
 
 *   `index`: [`Uint64`](#type-uint64) - The index of this cell in the transaction. Based on the context, this is either input index or output index.
+
+
+### Type `TransactionProof`
+
+Merkle proof for transactions in a block.
+
+#### Fields
+
+`TransactionProof` is a JSON object with following fields.
+
+*   `block_hash`: [`H256`](#type-h256) - Block hash
+
+*   `witnesses_root`: [`H256`](#type-h256) - Merkle root of all transactions' witness hash
+
+*   `proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions' hash
 
 
 ### Type `TransactionTemplate`

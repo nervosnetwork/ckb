@@ -640,6 +640,21 @@ class RPCDoc(object):
 
     def write(self, file):
         file.write(PREAMBLE)
+        file.write("\n## Table of Contents\n\n")
+
+        file.write("* [RPC Methods](#rpc-methods)\n")
+        for m in self.modules:
+            file.write(
+                "    * [Module {}](#module-{})\n".format(m.name, m.name.lower()))
+            for f in m.methods:
+                file.write(
+                    "        * [Method `{}`](#method-{})\n".format(f.name, f.name.lower()))
+        file.write("* [RPC Errors](#rpc-errors)\n")
+        file.write("* [RPC Types](#rpc-types)\n")
+        for t in self.types:
+            file.write(
+                "    * [Type `{}`](#type-{})\n".format(t.name, t.name.lower()))
+
         file.write("\n## RPC Methods\n\n")
 
         for m in self.modules:
