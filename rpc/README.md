@@ -160,6 +160,8 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `UncleBlockView`](#type-uncleblockview)
     * [Type `UncleTemplate`](#type-uncletemplate)
     * [Type `Version`](#type-version)
+    * [Type `SerializedHeader`](#type-serializedheader)
+    * [Type `SerializedBlock`](#type-serializedblock)
 
 ## RPC Methods
 
@@ -4424,3 +4426,11 @@ The uncle block template of the new block for miners.
 The simple increasing integer version.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+
+### Type `SerializedHeader`
+
+This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.
+
+### Type `SerializedBlock`
+
+This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.

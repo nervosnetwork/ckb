@@ -654,6 +654,10 @@ class RPCDoc(object):
         for t in self.types:
             file.write(
                 "    * [Type `{}`](#type-{})\n".format(t.name, t.name.lower()))
+        file.write(
+            "    * [Type `SerializedHeader`](#type-serializedheader)\n")
+        file.write(
+            "    * [Type `SerializedBlock`](#type-serializedblock)\n")
 
         file.write("\n## RPC Methods\n\n")
 
@@ -668,6 +672,13 @@ class RPCDoc(object):
         for ty in self.types:
             file.write("\n### Type `{}`\n".format(ty.name))
             ty.write(file)
+
+        file.write("\n### Type `SerializedHeader`\n\n")
+        file.write(
+            "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.\n")
+        file.write("\n### Type `SerializedBlock`\n\n")
+        file.write(
+            "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.\n")
 
 
 def main():
