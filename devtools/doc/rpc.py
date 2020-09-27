@@ -5,6 +5,7 @@ import io
 import sys
 import glob
 import textwrap
+import re
 from html.parser import HTMLParser
 
 if sys.version_info < (3, 0, 0):
@@ -43,6 +44,12 @@ TYMETHOD_DOT = 'tymethod.'
 HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
 
 NAME_PREFIX_SELF = '(&self, '
+
+CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
+
+
+def camel_to_snake(name):
+    return CAMEL_TO_SNAKE_PATTERN.sub('_', name).lower()
 
 
 def transform_href(href):
@@ -215,6 +222,9 @@ class RPCVar():
 
         if self.ty is None:
             self.ty = dict(attrs)['href']
+            if self.ty.startswith('#'):
+                self.ty = None
+                return
 
             if self.ty == 'https://doc.rust-lang.org/nightly/std/primitive.unit.html':
                 self.ty = '`null`'
@@ -326,7 +336,7 @@ class RPCMethod():
 
     def write(self, file):
         file.write("\n#### Method `{}`\n".format(self.name))
-        write_method_signature(file, self.name, self.params[1:])
+        write_method_signature(file, self.name, self.params)
         if self.doc_parser is not None:
             self.doc_parser.write(file)
             file.write("\n")
@@ -428,43 +438,116 @@ class RPCErrorParser(HTMLParser):
 
 
 class EnumSchema(HTMLParser):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        self.variants = []
+        self.next_variant = None
+        self.variant_parser = None
+
     def handle_starttag(self, tag, attrs):
-        pass
+        if self.next_variant is None:
+            if tag == 'div':
+                attrs_dict = dict(attrs)
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.'):
+                    self.next_variant = camel_to_snake(
+                        attrs_dict['id'].split('.')[1])
+        elif self.variant_parser is None:
+            if tag == 'div' and attrs == [("class", "docblock")]:
+                self.variant_parser = MarkdownParser(title_level=3)
+                self.variant_parser.indent_level = 4
 
     def handle_endtag(self, tag):
-        pass
+        if self.variant_parser is not None:
+            self.variant_parser.handle_endtag(tag)
+            if self.variant_parser.completed():
+                self.variants.append((self.next_variant, self.variant_parser))
+                self.next_variant = None
+                self.variant_parser = None
 
     def handle_data(self, data):
-        pass
+        if self.variant_parser is not None:
+            self.variant_parser.handle_data(data)
 
     def write(self, file):
-        pass
+        file.write('`{}` is equivalent to `"{}"`.\n\n'.format(
+            self.name, '" | "'.join(v[0] for v in self.variants)))
+
+        for (name, v) in self.variants:
+            file.write('*   ')
+            out = io.StringIO()
+            v.write(out)
+            file.write(out.getvalue().lstrip())
+            file.write('\n')
 
 
 class StructSchema(HTMLParser):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        self.fields = []
+        self.next_field = None
+        self.type_parser = None
+        self.field_parser = None
+
     def handle_starttag(self, tag, attrs):
-        pass
+        if self.next_field is None:
+            if tag == 'span':
+                attrs_dict = dict(attrs)
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('structfield.'):
+                    self.next_field = attrs_dict['id'].split('.')[1]
+                    self.type_parser = RPCVar()
+        elif not self.type_parser.completed():
+            self.type_parser.handle_starttag(tag, attrs)
+        elif self.field_parser is None:
+            if tag == 'div' and attrs == [("class", "docblock")]:
+                self.field_parser = MarkdownParser(title_level=3)
+                self.field_parser.indent_level = 4
+        else:
+            self.field_parser.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
-        pass
+        if self.type_parser is not None and not self.type_parser.completed():
+            self.type_parser.handle_endtag(tag)
+        elif self.field_parser is not None:
+            self.field_parser.handle_endtag(tag)
+            if self.field_parser.completed():
+                self.fields.append(
+                    (self.next_field, self.type_parser, self.field_parser))
+                self.next_field = None
+                self.type_parser = None
+                self.field_parser = None
 
     def handle_data(self, data):
-        pass
+        if self.type_parser is not None and not self.type_parser.completed():
+            self.type_parser.handle_data(data)
+        elif self.field_parser is not None:
+            self.field_parser.handle_data(data)
 
     def write(self, file):
-        pass
+        file.write('#### Fields\n\n')
+        file.write(
+            '`{}` is a JSON object with following fields.\n'.format(self.name))
+
+        for t in self.fields:
+            file.write('\n*   `{}`: {} - '.format(t[0], t[1].ty))
+            out = io.StringIO()
+            t[2].write(out)
+            file.write(out.getvalue().lstrip())
+            file.write('\n')
 
 
 class RPCType(HTMLParser):
-    def __init__(self, path):
+    def __init__(self, name, path):
         super().__init__()
+        self.name = name
         self.path = path
         self.module_doc = None
 
         if '/enum.' in path:
-            self.schema = EnumSchema()
+            self.schema = EnumSchema(self.name)
         elif '/struct.' in path:
-            self.schema = StructSchema()
+            self.schema = StructSchema(self.name)
         else:
             self.schema = None
 
@@ -494,11 +577,13 @@ class RPCType(HTMLParser):
             self.schema.handle_data(data)
 
     def write(self, file):
-        # if self.schema is not None:
-        #     self.schema.write(file)
-        #     file.write('\n')
         self.module_doc.write(file)
         file.write('\n')
+
+        if self.schema is not None:
+            file.write('\n')
+            self.schema.write(file)
+            file.write('\n')
 
 
 class RPCDoc(object):
@@ -527,7 +612,7 @@ class RPCDoc(object):
             for path in pending:
                 self.collect_type(path)
 
-        self.types.sort(key=lambda t: t[0])
+        self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
         while path.startswith('../'):
@@ -548,10 +633,10 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        parser = RPCType(path)
+        parser = RPCType(name, path)
         parser.feed(content)
 
-        self.types.append((name, parser))
+        self.types.append(parser)
 
     def write(self, file):
         file.write(PREAMBLE)
@@ -565,8 +650,8 @@ class RPCDoc(object):
         self.errors.write(file)
 
         file.write("\n## RPC Types\n")
-        for (name, ty) in self.types:
-            file.write("\n### Type `{}`\n".format(name))
+        for ty in self.types:
+            file.write("\n### Type `{}`\n".format(ty.name))
             ty.write(file)
 
 

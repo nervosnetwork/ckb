@@ -2586,17 +2586,110 @@ An example in JSON
 ```
 
 
+#### Fields
+
+`Alert` is a JSON object with following fields.
+
+*   `id`: [`AlertId`](#type-alertid) - The identifier of the alert. Clients use id to filter duplicated alerts.
+
+*   `cancel`: [`AlertId`](#type-alertid) - Cancel a previous sent alert.
+
+*   `min_version`: `string` `|` `null` - Optionally set the minimal version of the target clients.
+
+    See [Semantic Version](https://semver.org/) about how to specify a version.
+
+*   `max_version`: `string` `|` `null` - Optionally set the maximal version of the target clients.
+
+    See [Semantic Version](https://semver.org/) about how to specify a version.
+
+*   `priority`: [`AlertPriority`](#type-alertpriority) - Alerts are sorted by priority, highest first.
+
+*   `notice_until`: [`Timestamp`](#type-timestamp) - The alert is expired after this timestamp.
+
+*   `message`: `string` - Alert message.
+
+*   `signatures`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - The list of required signatures.
+
+
+### Type `AlertId`
+
+Alert identifier is used to filter duplicated alerts.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+
+### Type `AlertMessage`
+
+An alert sent by RPC `send_alert`.
+
+#### Fields
+
+`AlertMessage` is a JSON object with following fields.
+
+*   `id`: [`AlertId`](#type-alertid) - The unique alert ID.
+
+*   `priority`: [`AlertPriority`](#type-alertpriority) - Alerts are sorted by priority, highest first.
+
+*   `notice_until`: [`Timestamp`](#type-timestamp) - The alert is expired after this timestamp.
+
+*   `message`: `string` - Alert message.
+
+
+### Type `AlertPriority`
+
+Alerts are sorted by priority. Greater integers means higher priorities.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+
 ### Type `BannedAddr`
 
 A banned P2P address.
+
+#### Fields
+
+`BannedAddr` is a JSON object with following fields.
+
+*   `address`: `string` - The P2P address.
+
+    Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
+
+*   `ban_until`: [`Timestamp`](#type-timestamp) - The address is banned until this time.
+
+*   `ban_reason`: `string` - The reason.
+
+*   `created_at`: [`Timestamp`](#type-timestamp) - When this address is banned.
+
 
 ### Type `Block`
 
 The JSON view of a Block used as a parameter in the RPC.
 
+#### Fields
+
+`Block` is a JSON object with following fields.
+
+*   `header`: [`Header`](#type-header) - The block header.
+
+*   `uncles`: `Array<`[`UncleBlock`](#type-uncleblock)`>` - The uncles blocks in the block body.
+
+*   `transactions`: `Array<`[`Transaction`](#type-transaction)`>` - The transactions in the block body.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposal IDs in the block body.
+
+
 ### Type `BlockEconomicState`
 
 Block base rewards.
+
+#### Fields
+
+`BlockEconomicState` is a JSON object with following fields.
+
+*   `miner_reward`: [`MinerReward`](#type-minerreward) - Block rewards for miners.
+
+*   `txs_fee`: [`Capacity`](#type-capacity) - The total fees of all transactions committed in the block.
+
+*   `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
+
 
 ### Type `BlockNumber`
 
@@ -2608,21 +2701,289 @@ This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in 
 
 Breakdown of miner rewards issued by block cellbase transaction.
 
+#### Fields
+
+`BlockReward` is a JSON object with following fields.
+
+*   `total`: [`Capacity`](#type-capacity) - The total block reward.
+
+*   `primary`: [`Capacity`](#type-capacity) - The primary base block reward allocated to miners.
+
+*   `secondary`: [`Capacity`](#type-capacity) - The secondary base block reward allocated to miners.
+
+*   `tx_fee`: [`Capacity`](#type-capacity) - The transaction fees rewarded to miner because the transaction is committed in the block.
+
+    **Attention**, this is not the total transaction fees in the block.
+
+    Miner get 60% of transaction fee for each transaction committed in the block.
+
+*   `proposal_reward`: [`Capacity`](#type-capacity) - The transaction fees rewarded to miner because the transaction is proposed in the block or its uncles.
+
+    Miner get 40% of transaction fee for each transaction proposed in the block and is committed later in its active commit window.
+
+
 ### Type `BlockTemplate`
 
 A block template for miners.
 
 Miners optional pick transactions and then assemble the final block.
 
+#### Fields
+
+`BlockTemplate` is a JSON object with following fields.
+
+*   `version`: [`Version`](#type-version) - Block version.
+
+    Miners must use it unchanged in the assembled block.
+
+*   `compact_target`: [`Uint32`](#type-uint32) - The compacted difficulty target for the new block.
+
+    Miners must use it unchanged in the assembled block.
+
+*   `current_time`: [`Timestamp`](#type-timestamp) - The timestamp for the new block.
+
+    CKB node guarantees that this timestamp is larger than the median of previous 37 blocks.
+
+    Miners can increase it to the current time. It is not recommended to decrease it, since it may vialate the median block timestamp consensus rule.
+
+*   `number`: [`BlockNumber`](#type-blocknumber) - The block number for the new block.
+
+    Miners must use it unchanged in the assembled block.
+
+*   `epoch`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The epoch progress information for the new block.
+
+    Miners must use it unchanged in the assembled block.
+
+*   `parent_hash`: [`H256`](#type-h256) - The parent block hash of the new block.
+
+    Miners must use it unchanged in the assembled block.
+
+*   `cycles_limit`: [`Cycle`](#type-cycle) - The cycles limit.
+
+    Miners must keep the total cycles below this limit, otherwise CKB node will reject the block submission.
+
+    It is guarenteed that the block does not exceed the limit if miners do not add new transactions to the block.
+
+*   `bytes_limit`: [`Uint64`](#type-uint64) - The block serialized size limit.
+
+    Miners must keep the block size below this limit, otherwise CKB node will reject the block submission.
+
+    It is guarenteed that the block does not exceed the limit if miners do not add new submission.
+
+*   `uncles_count_limit`: [`Uint64`](#type-uint64) - The uncle count limit.
+
+    Miners must keep the uncles count below this limit, otherwise CKB node will reject the block submission.
+
+*   `uncles`: `Array<`[`UncleTemplate`](#type-uncletemplate)`>` - Provided valid uncle blocks candidates for the new block.
+
+    Miners must include the uncles marked as `required` in the assembed new block.
+
+*   `transactions`: `Array<`[`TransactionTemplate`](#type-transactiontemplate)`>` - Provided valid transactions which can be committed in the new block.
+
+    Miners must include the transactions marked as `required` in the assembed new block.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Provided proposal ids list of transactions for the new block.
+
+*   `cellbase`: [`CellbaseTemplate`](#type-cellbasetemplate) - Provided cellbase transaction template.
+
+    Miners must use it as the cellbase transaction without changes in the assembled block.
+
+*   `work_id`: [`Uint64`](#type-uint64) - Work ID. Miner must submit the assembled and resolved new block using the same work ID.
+
+*   `dao`: [`Byte32`](#type-byte32) - Reference DAO field.
+
+    This field is only valid when miners use all and only use the provided transactions in the template. There are two fields that must be updated when miners want to select transactions:
+
+    *   `S_i`, bytes 16 to 23
+
+    *   `U_i`, bytes 24 to 31
+
+    See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
+
+
 ### Type `BlockView`
 
 The JSON view of a Block including header and body.
+
+#### Fields
+
+`BlockView` is a JSON object with following fields.
+
+*   `header`: [`HeaderView`](#type-headerview) - The block header.
+
+*   `uncles`: `Array<`[`UncleBlockView`](#type-uncleblockview)`>` - The uncles blocks in the block body.
+
+*   `transactions`: `Array<`[`TransactionView`](#type-transactionview)`>` - The transactions in the block body.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposal IDs in the block body.
+
+
+### Type `Byte32`
+
+The resulting type after obtaining ownership.
+
+#### Fields
+
+`Byte32` is a JSON object with following fields.
+
 
 ### Type `Capacity`
 
 The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `CellData`
+
+The cell data content and hash.
+
+#### Examples
+
+
+```
+{
+  "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+  "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+}
+```
+
+
+#### Fields
+
+`CellData` is a JSON object with following fields.
+
+*   `content`: [`JsonBytes`](#type-jsonbytes) - Cell content.
+
+*   `hash`: [`H256`](#type-h256) - Cell content hash.
+
+
+### Type `CellDep`
+
+The cell dependency of a transaction.
+
+#### Examples
+
+
+```
+{
+  "dep_type": "code",
+  "out_point": {
+    "index": "0x0",
+    "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+  }
+}
+```
+
+
+#### Fields
+
+`CellDep` is a JSON object with following fields.
+
+*   `out_point`: [`OutPoint`](#type-outpoint) - Reference to the cell.
+
+*   `dep_type`: [`DepType`](#type-deptype) - Dependency type.
+
+
+### Type `CellInfo`
+
+The JSON view of a cell combining the fields in cell output and cell data.
+
+#### Examples
+
+
+```
+{
+  "data": {
+    "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+    "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+  },
+  "output": {
+    "capacity": "0x802665800",
+    "lock": {
+      "args": "0x",
+      "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "hash_type": "data"
+    },
+    "type": null
+  }
+}
+```
+
+
+#### Fields
+
+`CellInfo` is a JSON object with following fields.
+
+*   `output`: [`CellOutput`](#type-celloutput) - Cell fields appears in the transaction `outputs` array.
+
+*   `data`: [`CellData`](#type-celldata) `|` `null` - Cell data.
+
+    This is `null` when the data is not requested, which does not mean the cell data is empty.
+
+
+### Type `CellInput`
+
+The input cell of a transaction.
+
+#### Examples
+
+
+```
+{
+  "previous_output": {
+    "index": "0x0",
+    "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+  },
+  "since": "0x0"
+}
+```
+
+
+#### Fields
+
+`CellInput` is a JSON object with following fields.
+
+*   `since`: [`Uint64`](#type-uint64) - Restrict when the transaction can be commit into the chain.
+
+    See the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
+
+*   `previous_output`: [`OutPoint`](#type-outpoint) - Reference to the input cell.
+
+
+### Type `CellOutput`
+
+The fields of a output cell except the cell data.
+
+#### Examples
+
+
+```
+{
+  "capacity": "0x2540be400",
+  "lock": {
+    "args": "0x",
+    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    "hash_type": "data"
+  },
+  "type": null
+}
+```
+
+
+#### Fields
+
+`CellOutput` is a JSON object with following fields.
+
+*   `capacity`: [`Capacity`](#type-capacity) - The cell capacity.
+
+    The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
+
+*   `lock`: [`Script`](#type-script) - The lock script.
+
+*   `type_`: [`Script`](#type-script) `|` `null` - The optional type script.
+
+    The JSON field name is "type".
+
 
 ### Type `CellOutputWithOutPoint`
 
@@ -2653,9 +3014,51 @@ It contains both OutPoint data used for referencing a cell, as well as cell's ow
 # "#).unwrap();
 ```
 
+#### Fields
+
+`CellOutputWithOutPoint` is a JSON object with following fields.
+
+*   `out_point`: [`OutPoint`](#type-outpoint) - Reference to a cell via transaction hash and output index.
+
+*   `block_hash`: [`H256`](#type-h256) - The block hash of the block which committed the transaction.
+
+*   `capacity`: [`Capacity`](#type-capacity) - The cell capacity.
+
+    The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
+
+*   `lock`: [`Script`](#type-script) - The lock script.
+
+*   `type_`: [`Script`](#type-script) `|` `null` - The optional type script.
+
+    The JSON field name is "type".
+
+*   `output_data_len`: [`Uint64`](#type-uint64) - The bytes count of the cell data.
+
+*   `cellbase`: `boolean` - Whether this is a cellbase transaction output.
+
+    The cellbase transaction is the first transaction in a block which issues rewards and fees to miners.
+
+    The cellbase transaction has a maturity period 4 epochs. Its output cells can only be used as inputs after 4 epochs.
+
+
 ### Type `CellTransaction`
 
 Cell related transaction information.
+
+#### Fields
+
+`CellTransaction` is a JSON object with following fields.
+
+*   `created_by`: [`TransactionPoint`](#type-transactionpoint) - Where this cell is created.
+
+    The cell is the `created_by.index`-th output in the transaction `created_by.tx_hash`, which has been committed in at the height `created_by.block_number` in the chain.
+
+*   `consumed_by`: [`TransactionPoint`](#type-transactionpoint) `|` `null` - Where this cell is consumed.
+
+    This is null if the cell is still live.
+
+    The cell is consumed as the `consumed_by.index`-th input in the transaction `consumed_by.tx_hash`, which has been committed in at the height `consumed_by.block_number` in the chain.
+
 
 ### Type `CellWithStatus`
 
@@ -2695,19 +3098,123 @@ The JSON view of a cell with its status information.
 ```
 
 
+#### Fields
+
+`CellWithStatus` is a JSON object with following fields.
+
+*   `cell`: [`CellInfo`](#type-cellinfo) `|` `null` - The cell information.
+
+    For performance issue, CKB only keeps the information for live cells.
+
+*   `status`: `string` - Status of the cell.
+
+    Allowed values: "live", "dead", "unknown".
+
+    *   `live` - The transaction creating this cell is in the chain, and there are no transactions found in the chain that uses this cell as an input.
+
+    *   `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not rely on the logic that differentiates dead and unknown cells.) The transaction creating this cell is in the chain, and a transaction is found in the chain which uses this cell as an input.
+
+    *   `unknown` - CKB does not know the status of the cell. Either the transaction creating this cell is not in the chain yet, or it is no longer live.
+
+
+### Type `CellbaseTemplate`
+
+The cellbase transaction template of the new block for miners.
+
+#### Fields
+
+`CellbaseTemplate` is a JSON object with following fields.
+
+*   `hash`: [`H256`](#type-h256) - The cellbase transaction hash.
+
+*   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The hint of how many cycles this transaction consumes.
+
+    Miners can ultilize this field to ensure that the total cycles does not exceed the limit while selecting transactions.
+
+*   `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
+
+
 ### Type `ChainInfo`
 
 Chain information.
 
+#### Fields
+
+`ChainInfo` is a JSON object with following fields.
+
+*   `chain`: `string` - The network name.
+
+    Examples:
+
+    *   "ckb" - Lina the mainnet.
+
+    *   "ckb_testnet" - Aggron the testnet.
+
+*   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks.
+
+*   `epoch`: [`EpochNumber`](#type-epochnumber) - Current epoch number.
+
+*   `difficulty`: `boolean` - Whether the local node is in IBD, Initial Block Download.
+
+    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.
+
+    During IBD, the local node only synchronize the chain with one selected remote node and stop responding most P2P requests.
+
+*   `alerts`: `Array<`[`AlertMessage`](#type-alertmessage)`>` - Active alerts stored in the local node.
+
+
+### Type `Cycle`
+
+Count of cycles consumed by CKB VM to run scripts.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `DepType`
+
+The dep cell type. Allowed values: "code" and "dep_group".
+
+`DepType` is equivalent to `"code" | "dep_group"`.
+
+*   Type "code".
+*   Type "dep_group".
+
+
 ### Type `DryRunResult`
 
 Response result of the RPC method `dry_run_transaction`.
+
+#### Fields
+
+`DryRunResult` is a JSON object with following fields.
+
+*   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
+
 
 ### Type `EpochNumber`
 
 Consecutive epoch number starting from 0.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `EpochNumberWithFraction`
+
+The epoch indicator of a block. It shows which epoch the block is in, and elapsed epoch fraction after adding this block.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+The lower 56 bits of the epoch field are split into 3 parts (listed in the order from higher bits to lower bits):
+
+*   The highest 16 bits represent the epoch length
+
+*   The next 16 bits represent the current block index in the epoch, starting from 0.
+
+*   The lowest 24 bits represent the current epoch number.
+
+Assume there's a block, which number is 11555 and in epoch 50. The epoch 50 starts from block 11000 and have 1000 blocks. The epoch field for this particular block will then be 1,099,520,939,130,930, which is calculated in the following way:
+
+```
+50 | ((11555 - 11000) << 24) | (1000 << 40)
+```
 
 ### Type `EpochView`
 
@@ -2728,9 +3235,37 @@ CKB adjusts difficulty based on epoch.
 ```
 
 
+#### Fields
+
+`EpochView` is a JSON object with following fields.
+
+*   `number`: [`EpochNumber`](#type-epochnumber) - Consecutive epoch number starting from 0.
+
+*   `start_number`: [`BlockNumber`](#type-blocknumber) - The block number of the first block in the epoch.
+
+    It also equals to the total count of blocks in the all the epochs which epoch number is less than this epoch.
+
+*   `length`: [`BlockNumber`](#type-blocknumber) - The resulting type after obtaining ownership.
+
+
 ### Type `EstimateResult`
 
 The estimated fee rate.
+
+#### Fields
+
+`EstimateResult` is a JSON object with following fields.
+
+*   `fee_rate`: [`FeeRate`](#type-feerate) - The resulting type after obtaining ownership.
+
+
+### Type `FeeRate`
+
+The fee rate is the ratio between fee and transaction weight in unit Shannon per 1,000 bytes.
+
+Based on the context, the weight is either the transaction virtual bytes or serialization size in block.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
 ### Type `H256`
 
@@ -2739,6 +3274,66 @@ The 32-byte fixed length binary data.
 The name comes from the number of bits in the data.
 
 In JSONRPC, it is encoded as 0x-prefixed hex string.
+
+#### Fields
+
+`H256` is a JSON object with following fields.
+
+
+### Type `Header`
+
+The block header.
+
+Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
+
+#### Fields
+
+`Header` is a JSON object with following fields.
+
+*   `version`: [`Version`](#type-version) - The block version.
+
+    It must equal to 0 now and is reserved for future upgrades.
+
+*   `compact_target`: [`Uint32`](#type-uint32) - The block difficulty target.
+
+    It can be converted to a 256-bit target. Miner must ensure the Eaglesong of the header is within the target.
+
+*   `timestamp`: [`Timestamp`](#type-timestamp) - The block timestamp.
+
+    It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
+
+    Miners should put the time when the block is created in the header, however, the precision is not guaranteed. A block with higher block number may even have a smaller timestamp.
+
+*   `number`: [`BlockNumber`](#type-blocknumber) - The consecutive block number starting from 0.
+
+*   `epoch`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The epoch information of this block.
+
+    See `EpochNumberWithFraction` for details.
+
+*   `parent_hash`: [`H256`](#type-h256) - The header hash of the parent block.
+
+*   `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
+
+    It is a hash on two Merkle Tree roots:
+
+    *   The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
+
+    *   The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
+
+*   `proposals_hash`: [`H256`](#type-h256) - The hash on `proposals` in the block body.
+
+    It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
+
+*   `uncles_hash`: [`H256`](#type-h256) - The hash on `uncles` in the block body.
+
+    It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+
+*   `dao`: [`Byte32`](#type-byte32) - DAO fields.
+
+    See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
+
+*   `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is within the target encoded from `compact_target`.
+
 
 ### Type `HeaderView`
 
@@ -2767,9 +3362,52 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 ```
 
 
+#### Fields
+
+`HeaderView` is a JSON object with following fields.
+
+*   `inner`: [`Header`](#type-header) - All the fields in `Header` are included in `HeaderView` in JSON.
+
+*   `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
+
+
+### Type `JsonBytes`
+
+Variable-length binary encoded as 0x-prefixed hex string in JSON.
+
+#### Example
+
+|  JSON | Binary |
+| --- |--- |
+|  "0x" | Empty binary |
+|  "0x00" | Single byte 0 |
+|  "0x636b62" | 3 bytes, UTF-8 encoding of ckb |
+|  "00" | Invalid, 0x is required |
+|  "0x0" | Invalid, each byte requires 2 digits |
+
+#### Fields
+
+`JsonBytes` is a JSON object with following fields.
+
+
 ### Type `LiveCell`
 
 An indexed live cell.
+
+#### Fields
+
+`LiveCell` is a JSON object with following fields.
+
+*   `created_by`: [`TransactionPoint`](#type-transactionpoint) - Where this cell is created.
+
+    The cell is the `created_by.index`-th output in the transaction `created_by.tx_hash`, which has been committed in at the height `created_by.block_number` in the chain.
+
+*   `cell_output`: [`CellOutput`](#type-celloutput) - The cell properties.
+
+*   `output_data_len`: [`Uint64`](#type-uint64) - The cell data length.
+
+*   `cellbase`: `boolean` - Whether this cell is an output of a cellbase transaction.
+
 
 ### Type `LocalNode`
 
@@ -2814,19 +3452,125 @@ Information of node itself.
 ```
 
 
+#### Fields
+
+`LocalNode` is a JSON object with following fields.
+
+*   `version`: `string` - CKB node version.
+
+    Example: "version": "0.34.0 (f37f598 2020-07-17)"
+
+*   `node_id`: `string` - The unique node ID derived from the p2p private key.
+
+    The private key is generated randomly on first boot.
+
+*   `active`: `boolean` - Whether this node is active.
+
+    An inactive node ignores incoming p2p messages and drops outgoing messages.
+
+*   `addresses`: `Array<`[`NodeAddress`](#type-nodeaddress)`>` - P2P addresses of this node.
+
+    A node can have multiple addresses.
+
+*   `protocols`: `Array<`[`LocalNodeProtocol`](#type-localnodeprotocol)`>` - Supported protocols.
+
+*   `connections`: [`Uint64`](#type-uint64) - Count of currently connected peers.
+
+
+### Type `LocalNodeProtocol`
+
+Information of a P2P protocol supported by the local node.
+
+#### Fields
+
+`LocalNodeProtocol` is a JSON object with following fields.
+
+*   `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
+
+*   `name`: `string` - Readable protocol name.
+
+*   `support_versions`: `Array<``string``>` - Supported versions.
+
+    See [Semantic Version](https://semver.org/) about how to specify a version.
+
+
 ### Type `LockHashCapacity`
 
 Accumulated capacity of a set of cells.
+
+#### Fields
+
+`LockHashCapacity` is a JSON object with following fields.
+
+*   `capacity`: [`Capacity`](#type-capacity) - Total capacity of all the cells in the set.
+
+*   `cells_count`: [`Uint64`](#type-uint64) - Count of cells in the set.
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - This information is calculated when the max block number in the chain is `block_number`.
+
 
 ### Type `LockHashIndexState`
 
 Cell script lock hash index state.
 
+#### Fields
+
+`LockHashIndexState` is a JSON object with following fields.
+
+*   `lock_hash`: [`H256`](#type-h256) - The script lock hash.
+
+    This index will index cells which lock script hash matches.
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - The max block number this index has already scanned.
+
+*   `block_hash`: [`H256`](#type-h256) - The hash of the block with the max block number that this index has already scanned.
+
+
+### Type `MinerReward`
+
+Block rewards for miners.
+
+#### Fields
+
+`MinerReward` is a JSON object with following fields.
+
+*   `primary`: [`Capacity`](#type-capacity) - The primary base block reward allocated to miners.
+
+*   `secondary`: [`Capacity`](#type-capacity) - The secondary base block reward allocated to miners.
+
+*   `committed`: [`Capacity`](#type-capacity) - The transaction fees rewarded to miner because the transaction is committed in the block.
+
+    Miner get 60% of transaction fee for each transaction committed in the block.
+
+*   `proposal`: [`Capacity`](#type-capacity) - The transaction fees rewarded to miner because the transaction is proposed in the block or its uncles.
+
+    Miner get 40% of transaction fee for each transaction proposed in the block and is committed later in its active commit window.
+
+
+### Type `NodeAddress`
+
+Node P2P address and score.
+
+#### Fields
+
+`NodeAddress` is a JSON object with following fields.
+
+*   `address`: `string` - P2P address.
+
+    This is the same address that used in the whitelist in ckb.toml.
+
+    Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
+
+*   `score`: [`Uint64`](#type-uint64) - Address score.
+
+    Higher score means higher probability of success connection.
+
+
 ### Type `OutPoint`
 
 Reference to a cell via transaction hash and output index.
 
-#### Examples
+####            Examples
 
 
 ```
@@ -2837,13 +3581,78 @@ Reference to a cell via transaction hash and output index.
 ```
 
 
+
+#### Fields
+
+`OutPoint` is a JSON object with following fields.
+
+*   `tx_hash`: [`H256`](#type-h256) - Transaction hash in which the cell is an output.
+
+
+*   `index`: [`Uint32`](#type-uint32) - The output index of the cell in the transaction specified by           `tx_hash`.
+
+
+
 ### Type `OutputsValidator`
 
 Transaction output validators that prevent common mistakes.
 
+`OutputsValidator` is equivalent to `"default" | "passthrough"`.
+
+*   "default": The default validator which restricts the lock script and type script usage.
+*   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
+
+
 ### Type `PeerState`
 
 The type returned in the event of a conversion error.
+
+#### Fields
+
+`PeerState` is a JSON object with following fields.
+
+
+### Type `PeerSyncState`
+
+The chain synchronization state between the local node and a remote node.
+
+#### Fields
+
+`PeerSyncState` is a JSON object with following fields.
+
+*   `best_known_header_hash`: [`Byte32`](#type-byte32) `|` `null` - Best known header hash of remote peer.
+
+    This is observed tip of the remote node's canonical chain.
+
+*   `best_known_header_number`: [`Uint64`](#type-uint64) `|` `null` - Best known header number of remote peer
+
+    This is the block number of the block with the hash `best_known_header_hash`.
+
+*   `last_common_header_hash`: [`Byte32`](#type-byte32) `|` `null` - Last common header hash of remote peer.
+
+    This is the common ancestor of local node canonical chain tip and the block`best_known_header_hash`.
+
+*   `last_common_header_number`: [`Uint64`](#type-uint64) `|` `null` - Last common header number of remote peer.
+
+    This is the block number of the block with the hash `last_common_header_hash`.
+
+*   `unknown_header_list_size`: [`Uint64`](#type-uint64) - The total size of unknown header list.
+
+    **Deprecated**: this is a internal state and will be removed in future release.
+
+*   `inflight_count`: [`Uint64`](#type-uint64) - The count of concurrency downloading blocks.
+
+*   `can_fetch_count`: [`Uint64`](#type-uint64) - The count of blocks are available for concurrency download.
+
+
+### Type `ProposalShortId`
+
+The 10-byte fixed-length binary encoded as 0x-prefixed hex string in JSON.
+
+#### Fields
+
+`ProposalShortId` is a JSON object with following fields.
+
 
 ### Type `RemoteNode`
 
@@ -2918,6 +3727,48 @@ A remote node connects to the local node via the P2P network. It is often called
 ```
 
 
+#### Fields
+
+`RemoteNode` is a JSON object with following fields.
+
+*   `version`: `string` - The remote node version.
+
+*   `node_id`: `string` - The remote node ID which is derived from its P2P private key.
+
+*   `addresses`: `Array<`[`NodeAddress`](#type-nodeaddress)`>` - The remote node addresses.
+
+*   `is_outbound`: `boolean` - Whether this is an outbound remote node.
+
+    If the connection is established by the local node, `is_outbound` is true.
+
+*   `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in seconds since the remote node is connected.
+
+*   `last_ping_duration`: [`Uint64`](#type-uint64) `|` `null` - Elapsed time in milliseconds since receiving the ping response from this remote node.
+
+    Null means no ping responses have been received yet.
+
+*   `sync_state`: [`PeerSyncState`](#type-peersyncstate) `|` `null` - Chain synchronization state.
+
+    Null means chain sync has not started with this remote node yet.
+
+*   `protocols`: `Array<`[`RemoteNodeProtocol`](#type-remotenodeprotocol)`>` - Active protocols.
+
+    CKB uses Tentacle multiplexed network framework. There are multiple protocols running simultaneously in the connection.
+
+
+### Type `RemoteNodeProtocol`
+
+The information about an active running protocol.
+
+#### Fields
+
+`RemoteNodeProtocol` is a JSON object with following fields.
+
+*   `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
+
+*   `version`: `string` - Active protocol version.
+
+
 ### Type `Script`
 
 Describes the lock script and type script for a cell.
@@ -2934,9 +3785,78 @@ Describes the lock script and type script for a cell.
 ```
 
 
+#### Fields
+
+`Script` is a JSON object with following fields.
+
+*   `code_hash`: [`H256`](#type-h256) - The hash used to match the script code.
+
+*   `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
+
+*   `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
+
+
+### Type `ScriptHashType`
+
+Specifies how the script `code_hash` is used to match the script code.
+
+Allowed values: "data" and "type".
+
+Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
+
+`ScriptHashType` is equivalent to `"data" | "type"`.
+
+*   Type "data" matches script code via cell data hash.
+*   Type "type" matches script code via cell type script hash.
+
+
+### Type `Status`
+
+Status for transaction
+
+`Status` is equivalent to `"pending" | "proposed" | "committed"`.
+
+*   Status "pending". Transaction is in the pool, and not proposed yet.
+*   Status "proposed". Transaction is in the pool and has been proposed.
+*   Status "committed". Transaction has been committed in the canonical chain.
+
+
 ### Type `SyncState`
 
 The overall chain synchronization state of this local node.
+
+#### Fields
+
+`SyncState` is a JSON object with following fields.
+
+*   `ibd`: `boolean` - Whether the local node is in IBD, Initial Block Download.
+
+    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.
+
+    During IBD, the local node only synchronize the chain with one selected remote node and stop responding most P2P requests.
+
+*   `best_known_block_number`: [`BlockNumber`](#type-blocknumber) - This is best known block number observed by the local node from the P2P network.
+
+    The best here means that the block leads a chain which has the best known accumulated difficulty.
+
+    This can be used to estimate the synchronization progress. If this RPC returns B, and the RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks.
+
+*   `best_known_block_timestamp`: [`Timestamp`](#type-timestamp) - This is timestamp of the same block described in `best_known_block_number`.
+
+*   `orphan_blocks_count`: [`Uint64`](#type-uint64) - Count of orphan blocks the local node has downloaded.
+
+    The local node download multiple blocks simultaneously but blocks must be connected consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan block.
+
+    If this number is too high, it indicates that block download has stuck at some block.
+
+*   `inflight_blocks_count`: [`Uint64`](#type-uint64) - Count of downloading blocks.
+
+*   `fast_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+
+*   `normal_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+
+*   `low_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+
 
 ### Type `Timestamp`
 
@@ -2952,13 +3872,224 @@ The transaction.
 
 Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
 
+#### Fields
+
+`Transaction` is a JSON object with following fields.
+
+*   `version`: [`Version`](#type-version) - Reserved for future usage. It must equal 0 in current version.
+
+*   `cell_deps`: `Array<`[`CellDep`](#type-celldep)`>` - An array of cell deps.
+
+    CKB locates lock script and type script code via cell deps. Script also can uses syscalls to read the cells here.
+
+    Unlike inputs, the live cells can be used as cell deps in multiple transactions.
+
+*   `header_deps`: `Array<`[`H256`](#type-h256)`>` - An array of header deps.
+
+    The block must already be in the canonical chain.
+
+    Lock script and type script can reads the header information of blocks listed here.
+
+*   `inputs`: `Array<`[`CellInput`](#type-cellinput)`>` - An array of input cells.
+
+    In the canonical chain, any cell can only appear as an input once.
+
+*   `outputs`: `Array<`[`CellOutput`](#type-celloutput)`>` - An array of output cells.
+
+*   `outputs_data`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - Output cells data.
+
+    This is a parallel array of outputs. The cell capacity, lock and type of the output i is`outputs[i]` and its data is `outputs_data[i]`.
+
+*   `witnesses`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - An array of variable-length binaries.
+
+    Lock script and type script can read data here to verify the transaction.
+
+    For example, the bundled secp256k1 lock script requires storing the signature in`witnesses`.
+
+
+### Type `TransactionPoint`
+
+Reference to a cell by trnasction hash and output index, as well as in which block this transaction is committed.
+
+#### Fields
+
+`TransactionPoint` is a JSON object with following fields.
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - In which block the transaction creating the cell is committed.
+
+*   `tx_hash`: [`H256`](#type-h256) - In which transaction this cell is an output.
+
+*   `index`: [`Uint64`](#type-uint64) - The index of this cell in the transaction. Based on the context, this is either input index or output index.
+
+
+### Type `TransactionTemplate`
+
+Transaction template which is ready to be commit in the new block.
+
+#### Fields
+
+`TransactionTemplate` is a JSON object with following fields.
+
+*   `hash`: [`H256`](#type-h256) - Transaction hash.
+
+*   `required`: `boolean` - Whether miner must include this transaction in the new block.
+
+*   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The hint of how many cycles this transaction consumes.
+
+    Miners can ultilize this field to ensure that the total cycles does not exceed the limit while selecting transactions.
+
+*   `depends`: `Array<`[`Uint64`](#type-uint64)`>` `|` `null` - Transaction dependencies.
+
+    This is a hint to help miners selecting transactions.
+
+    This transaction can only be commit if its depedencies are also commit in the new block.
+
+    This field is a list of indices into the array `transactions` in the block template.
+
+    For example, `depends = [1, 2]` means this transaction depends on`block_template.transactions[1]` and `block_template.transactions[2]`.
+
+*   `data`: [`Transaction`](#type-transaction) - The transaction.
+
+    Miners must keep it unchanged when including it in the new block.
+
+
+### Type `TransactionView`
+
+The JSON view of a Transaction.
+
+This structure is serialized into a JSON object with field `hash` and all the fields in[`Transaction`](struct.Transaction.html).
+
+#### Examples
+
+
+```
+{
+  "cell_deps": [
+    {
+      "dep_type": "code",
+      "out_point": {
+        "index": "0x0",
+        "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+      }
+    }
+  ],
+  "hash": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
+  "header_deps": [
+    "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+  ],
+  "inputs": [
+    {
+      "previous_output": {
+        "index": "0x0",
+        "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+      },
+      "since": "0x0"
+    }
+  ],
+  "outputs": [
+    {
+      "capacity": "0x2540be400",
+      "lock": {
+        "args": "0x",
+        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+        "hash_type": "data"
+      },
+      "type": null
+    }
+  ],
+  "outputs_data": [
+    "0x"
+  ],
+  "version": "0x0",
+  "witnesses": []
+}
+```
+
+
+#### Fields
+
+`TransactionView` is a JSON object with following fields.
+
+*   `inner`: [`Transaction`](#type-transaction) - All the fields in `Transaction` are included in `TransactionView` in JSON.
+
+*   `hash`: [`H256`](#type-h256) - The transaction hash.
+
+
 ### Type `TransactionWithStatus`
 
 JSON view of a transaction as well as its status.
 
+#### Fields
+
+`TransactionWithStatus` is a JSON object with following fields.
+
+*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
+
+*   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
+
+
 ### Type `TxPoolInfo`
 
 Transaction pool information.
+
+#### Fields
+
+`TxPoolInfo` is a JSON object with following fields.
+
+*   `tip_hash`: [`H256`](#type-h256) - The associated chain tip block hash.
+
+    Transaction pool is stateful. It manages the transactions which are valid to be commit after this block.
+
+*   `tip_number`: [`BlockNumber`](#type-blocknumber) - The block number of the block `tip_hash`.
+
+*   `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
+
+    The pending transactions must be proposed in a new block first.
+
+*   `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
+
+    The proposed transactions are ready to be commit in the new block after the block`tip_hash`.
+
+*   `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
+
+    An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
+
+*   `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states.
+
+*   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool.
+
+*   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+
+    The unit is Shannons per 1000 bytes transaction serialization size in block.
+
+*   `last_txs_updated_at`: [`Timestamp`](#type-timestamp) - Last updated time. This is the Unix timestamp in milliseconds.
+
+
+### Type `TxStatus`
+
+Transaction status and the block hash if it is committed.
+
+#### Fields
+
+`TxStatus` is a JSON object with following fields.
+
+*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
+
+*   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
+
+
+### Type `Uint128`
+
+The  128-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+
+#### Examples
+
+|  JSON | Decimal Value |
+| --- |--- |
+|  "0x0" | 0 |
+|  "0x10" | 16 |
+|  "10" | Invalid, 0x is required |
+|  "0x01" | Invalid, redundant leading 0 |
 
 ### Type `Uint32`
 
@@ -2985,6 +4116,77 @@ The  64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
 |  "0x10" | 16 |
 |  "10" | Invalid, 0x is required |
 |  "0x01" | Invalid, redundant leading 0 |
+
+### Type `UncleBlock`
+
+The uncle block used as a parameter in the RPC.
+
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because a block can commit transactions proposed in an uncle.
+
+A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+
+*   They are in the same epoch, sharing the same difficulty;
+
+*   B2 block number is larger than B1;
+
+*   B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+
+*   B2 is the first block in its chain to refer to B1.
+
+#### Fields
+
+`UncleBlock` is a JSON object with following fields.
+
+*   `header`: [`Header`](#type-header) - The uncle block header.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Proposal IDs in the uncle block body.
+
+
+### Type `UncleBlockView`
+
+The uncle block.
+
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because a block can commit transactions proposed in an uncle.
+
+A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+
+*   They are in the same epoch, sharing the same difficulty;
+
+*   B2 block number is larger than B1;
+
+*   B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+
+*   B2 is the first block in its chain to refer to B1.
+
+#### Fields
+
+`UncleBlockView` is a JSON object with following fields.
+
+*   `header`: [`HeaderView`](#type-headerview) - The uncle block header.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Proposal IDs in the uncle block body.
+
+
+### Type `UncleTemplate`
+
+The uncle block template of the new block for miners.
+
+#### Fields
+
+`UncleTemplate` is a JSON object with following fields.
+
+*   `hash`: [`H256`](#type-h256) - The uncle block hash.
+
+*   `required`: `boolean` - Whether miners must include this uncle in the submit block.
+
+*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposals of the uncle block.
+
+    Miners must keep this unchanged when including this uncle in the new block.
+
+*   `header`: [`Header`](#type-header) - The header of the uncle block.
+
+    Miners must keep this unchanged when including this uncle in the new block.
+
 
 ### Type `Version`
 
