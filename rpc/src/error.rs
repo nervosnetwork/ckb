@@ -20,17 +20,17 @@ use std::fmt::{Debug, Display};
 /// | -32603           | Internal error   | Internal JSON-RPC error.                           |
 /// | -32000 to -32099 | Server error     | Reserved for implementation-defined server-errors. |
 ///
-/// CKB application defined errors follow some patterns to assign the codes:
+/// CKB application-defined errors follow some patterns to assign the codes:
 ///
 /// * -1 ~ -999 are general errors
-/// * -1000 ~ -2999 are module specific errors. Each module generally gets 100 reserved error
+/// * -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
 /// codes.
 ///
-/// Unless otherwise noted, all the errors returns optional detailed information as `string` in the error
+/// Unless otherwise noted, all the errors return optional detailed information as `string` in the error
 /// object `data` field.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RPCError {
-    /// (-1): CKB internal errors which are considered to never happen or only happen when the system
+    /// (-1): CKB internal errors are considered to never happen or only happen when the system
     /// resources are exhausted.
     CKBInternalError = -1,
     /// (-2): The CKB method has been deprecated and disabled.
@@ -40,7 +40,7 @@ pub enum RPCError {
     Deprecated = -2,
     /// (-3): Error code -3 is no longer used.
     ///
-    /// Prior to v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses
+    /// Before v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses
     /// -3 since v0.35.0.
     Invalid = -3,
     /// (-4): The RPC method is not enabled.
@@ -52,9 +52,9 @@ pub enum RPCError {
     DaoError = -5,
     /// (-6): Integer operation overflow.
     IntegerOverflow = -6,
-    /// (-7): The erorr is caused by a config file option.
+    /// (-7): The error is caused by a config file option.
     ///
-    /// User has to edit the config file to fix the error.
+    /// Users have to edit the config file to fix the error.
     ConfigError = -7,
     /// (-101): The CKB local node failed to broadcast a message to its peers.
     P2PFailedToBroadcast = -101,
@@ -65,7 +65,7 @@ pub enum RPCError {
     DatabaseError = -200,
     /// (-201): The chain index is inconsistent.
     ///
-    /// An example of inconsistent index is that the chain index says a block hash is in the chain
+    /// An example of an inconsistent index is that the chain index says a block hash is in the chain
     /// but the block cannot be read from the database.
     ///
     /// This is a fatal error usually due to a serious bug. Please back up the data directory and

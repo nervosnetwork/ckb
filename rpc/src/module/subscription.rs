@@ -98,7 +98,7 @@ pub trait SubscriptionRpc {
     /// ## Returns
     ///
     /// This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
-    /// topics to current RPC connection. The subscript ID is also attached as
+    /// topics to the current RPC connection. The subscript ID is also attached as
     /// `params.subscription` in the push messages.
     ///
     /// Example push message:
@@ -118,21 +118,21 @@ pub trait SubscriptionRpc {
     ///
     /// ### `new_tip_header`
     ///
-    /// Whenever there's a block is appended to the canonical chain, CKB node will publish the
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
     /// block header to subscribers.
     ///
     /// The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
     ///
     /// ### `new_tip_block`
     ///
-    /// Whenever there's a block is appended to the canonical chain, CKB node will publish the
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
     /// whole block to subscribers.
     ///
     /// The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
     ///
     /// ### `new_transaction`
     ///
-    /// Subscriber will get notified when new transaction is submitted to pool.
+    /// Subscribers will get notified when a new transaction is submitted to the pool.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///

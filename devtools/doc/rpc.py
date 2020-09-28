@@ -20,7 +20,7 @@ The RPC interface shares the version of the node version, which is returned in `
 
 Allowing arbitrary machines to access the JSON-RPC port (using the `rpc.listen_address` configuration option) is **dangerous and strongly discouraged**. Please strictly limit the access to only trusted machines.
 
-CKB JSON-RPC only supports HTTP now. If you need SSL, please setup a proxy via Nginx or other HTTP servers.
+CKB JSON-RPC only supports HTTP now. If you need SSL, please set up a proxy via Nginx or other HTTP servers.
 
 Subscriptions require a full duplex connection. CKB offers such connections in the form of TCP (enable with `rpc.tcp_listen_address` configuration option) and WebSockets (enable with `rpc.ws_listen_address`).
 
@@ -28,13 +28,13 @@ Subscriptions require a full duplex connection. CKB offers such connections in t
 
 A CKB RPC method is deprecated in three steps.
 
-First the method is marked as deprecated in the CKB release notes and RPC document. However, the RPC method is still available. The RPC document will have the suggestion of the alternative solutions.
+First, the method is marked as deprecated in the CKB release notes and RPC document. However, the RPC method is still available. The RPC document will have the suggestion of alternative solutions.
 
 The CKB dev team will disable any deprecated RPC methods starting from the next minor version release. Users can enable the deprecated methods via the config file option rpc.enable_deprecated_rpc.
 
 Once a deprecated method is disabled, the CKB dev team will remove it in a future minor version release.
 
-For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and removed in 0.37.0. The minor versions are released monthly, so there's at least two month buffer for a deprecated RPC method.
+For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and removed in 0.37.0. The minor versions are released monthly, so there's at least a two-month buffer for a deprecated RPC method.
 
 """
 
@@ -530,7 +530,7 @@ class StructSchema(HTMLParser):
 
         file.write('#### Fields\n\n')
         file.write(
-            '`{}` is a JSON object with following fields.\n'.format(self.name))
+            '`{}` is a JSON object with the following fields.\n'.format(self.name))
 
         for t in self.fields:
             file.write('\n*   `{}`: {} - '.format(t[0], t[1].ty))

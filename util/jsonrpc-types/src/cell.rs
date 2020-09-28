@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// This is used as return value of `get_cells_by_lock_hash` RPC.
 ///
 /// It contains both OutPoint data used for referencing a cell, as well as
-/// cell's own data such as lock and capacity
+/// the cell's properties such as lock and capacity.
 ///
 /// ## Examples
 ///
@@ -42,7 +42,7 @@ pub struct CellOutputWithOutPoint {
     /// The cell capacity.
     ///
     /// The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of
-    /// the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
+    /// the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
     pub capacity: Capacity,
     /// The lock script.
     pub lock: Script,
@@ -58,7 +58,7 @@ pub struct CellOutputWithOutPoint {
     /// The cellbase transaction is the first transaction in a block which issues rewards and fees
     /// to miners.
     ///
-    /// The cellbase transaction has a maturity period 4 epochs. Its output cells can only be
+    /// The cellbase transaction has a maturity period of 4 epochs. Its output cells can only be
     /// used as inputs after 4 epochs.
     pub cellbase: bool,
 }
@@ -102,7 +102,7 @@ pub struct CellOutputWithOutPoint {
 pub struct CellWithStatus {
     /// The cell information.
     ///
-    /// For performance issue, CKB only keeps the information for live cells.
+    /// For performance issues, CKB only keeps the information for live cells.
     pub cell: Option<CellInfo>,
     /// Status of the cell.
     ///

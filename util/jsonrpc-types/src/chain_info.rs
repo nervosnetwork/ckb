@@ -25,8 +25,8 @@ pub struct ChainInfo {
     /// When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     /// the IBD until it catches up the synchronization.
     ///
-    /// During IBD, the local node only synchronize the chain with one selected remote node and
-    /// stop responding most P2P requests.
+    /// During IBD, the local node only synchronizes the chain with one selected remote node and
+    /// stops responding the most P2P requests.
     pub is_initial_block_download: bool,
     /// Active alerts stored in the local node.
     pub alerts: Vec<AlertMessage>,

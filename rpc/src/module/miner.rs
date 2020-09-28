@@ -22,7 +22,7 @@ pub trait MinerRpc {
     /// Returns block template for miners.
     ///
     /// Miners can assemble the new block from the template. The RPC is designed to allow miners
-    /// removing transactions and adding new transactions to the block.
+    /// to remove transactions and adding new transactions to the block.
     ///
     /// ## Params
     ///
@@ -117,12 +117,12 @@ pub trait MinerRpc {
         max_version: Option<Version>,
     ) -> Result<BlockTemplate>;
 
-    /// Submit new block to network
+    /// Submit new block to the network.
     ///
     /// ## Params
     ///
     /// * `work_id` - The same work ID returned from [`get_block_template`](#tymethod.get_block_template).
-    /// * `block` - The assembed block from the block template and which PoW puzzle has been resolved.
+    /// * `block` - The assembled block from the block template and which PoW puzzle has been resolved.
     ///
     /// ## Examples
     ///

@@ -21,9 +21,9 @@ pub struct BlockTemplate {
     pub compact_target: Uint32,
     /// The timestamp for the new block.
     ///
-    /// CKB node guarantees that this timestamp is larger than the median of previous 37 blocks.
+    /// CKB node guarantees that this timestamp is larger than the median of the previous 37 blocks.
     ///
-    /// Miners can increase it to the current time. It is not recommended to decrease it, since it may vialate the median block timestamp consensus rule.
+    /// Miners can increase it to the current time. It is not recommended to decrease it, since it may violate the median block timestamp consensus rule.
     pub current_time: Timestamp,
     /// The block number for the new block.
     ///
@@ -39,32 +39,32 @@ pub struct BlockTemplate {
     pub parent_hash: H256,
     /// The cycles limit.
     ///
-    /// Miners must keep the total cycles below this limit, otherwise CKB node will reject the block
+    /// Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block
     /// submission.
     ///
-    /// It is guarenteed that the block does not exceed the limit if miners do not add new
+    /// It is guaranteed that the block does not exceed the limit if miners do not add new
     /// transactions to the block.
     pub cycles_limit: Cycle,
     /// The block serialized size limit.
     ///
-    /// Miners must keep the block size below this limit, otherwise CKB node will reject the block
+    /// Miners must keep the block size below this limit, otherwise, the CKB node will reject the block
     /// submission.
     ///
-    /// It is guarenteed that the block does not exceed the limit if miners do not add new
-    /// submission.
+    /// It is guaranteed that the block does not exceed the limit if miners do not add new
+    /// transaction commitments.
     pub bytes_limit: Uint64,
     /// The uncle count limit.
     ///
-    /// Miners must keep the uncles count below this limit, otherwise CKB node will reject the
+    /// Miners must keep the uncles count below this limit, otherwise, the CKB node will reject the
     /// block submission.
     pub uncles_count_limit: Uint64,
     /// Provided valid uncle blocks candidates for the new block.
     ///
-    /// Miners must include the uncles marked as `required` in the assembed new block.
+    /// Miners must include the uncles marked as `required` in the assembled new block.
     pub uncles: Vec<UncleTemplate>,
     /// Provided valid transactions which can be committed in the new block.
     ///
-    /// Miners must include the transactions marked as `required` in the assembed new block.
+    /// Miners must include the transactions marked as `required` in the assembled new block.
     pub transactions: Vec<TransactionTemplate>,
     /// Provided proposal ids list of transactions for the new block.
     pub proposals: Vec<ProposalShortId>,
@@ -72,12 +72,12 @@ pub struct BlockTemplate {
     ///
     /// Miners must use it as the cellbase transaction without changes in the assembled block.
     pub cellbase: CellbaseTemplate,
-    /// Work ID. Miner must submit the assembled and resolved new block using the same work ID.
+    /// Work ID. The miner must submit the new assembled and resolved block using the same work ID.
     pub work_id: Uint64,
     /// Reference DAO field.
     ///
     /// This field is only valid when miners use all and only use the provided transactions in the
-    /// template. There are two fields that must be updated when miners want to select transactions:
+    /// template. Two fields must be updated when miners want to select transactions:
     ///
     /// * `S_i`, bytes 16 to 23
     /// * `U_i`, bytes 24 to 31
@@ -174,7 +174,7 @@ pub struct CellbaseTemplate {
     pub hash: H256,
     /// The hint of how many cycles this transaction consumes.
     ///
-    /// Miners can ultilize this field to ensure that the total cycles does not
+    /// Miners can utilize this field to ensure that the total cycles do not
     /// exceed the limit while selecting transactions.
     pub cycles: Option<Cycle>,
     /// The cellbase transaction.
@@ -188,7 +188,7 @@ impl From<CellbaseTemplate> for packed::Transaction {
     }
 }
 
-/// Transaction template which is ready to be commit in the new block.
+/// Transaction template which is ready to be committed in the new block.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionTemplate {
     /// Transaction hash.
@@ -197,14 +197,14 @@ pub struct TransactionTemplate {
     pub required: bool,
     /// The hint of how many cycles this transaction consumes.
     ///
-    /// Miners can ultilize this field to ensure that the total cycles does not
+    /// Miners can utilize this field to ensure that the total cycles do not
     /// exceed the limit while selecting transactions.
     pub cycles: Option<Cycle>,
     /// Transaction dependencies.
     ///
     /// This is a hint to help miners selecting transactions.
     ///
-    /// This transaction can only be commit if its depedencies are also commit in the new block.
+    /// This transaction can only be committed if its dependencies are also committed in the new block.
     ///
     /// This field is a list of indices into the array `transactions` in the block template.
     ///

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct TxPoolInfo {
     /// The associated chain tip block hash.
     ///
-    /// Transaction pool is stateful. It manages the transactions which are valid to be commit
-    /// after this block.
+    /// The transaction pool is stateful. It manages the transactions which are valid to be
+    /// committed after this block.
     pub tip_hash: H256,
     /// The block number of the block `tip_hash`.
     pub tip_number: BlockNumber,
@@ -18,7 +18,7 @@ pub struct TxPoolInfo {
     pub pending: Uint64,
     /// Count of transactions in the proposed state.
     ///
-    /// The proposed transactions are ready to be commit in the new block after the block
+    /// The proposed transactions are ready to be committed in the new block after the block
     /// `tip_hash`.
     pub proposed: Uint64,
     /// Count of orphan transactions.
@@ -32,7 +32,7 @@ pub struct TxPoolInfo {
     pub total_tx_cycles: Uint64,
     /// Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
     ///
-    /// The unit is Shannons per 1000 bytes transaction serialization size in block.
+    /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
     pub min_fee_rate: Uint64,
     /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: Timestamp,

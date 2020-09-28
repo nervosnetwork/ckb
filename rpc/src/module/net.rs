@@ -76,7 +76,7 @@ pub trait NetRpc {
     #[rpc(name = "local_node_info")]
     fn local_node_info(&self) -> Result<LocalNode>;
 
-    /// Returns the connected peers information.
+    /// Returns the connected peers' information.
     ///
     /// ## Examples
     ///
@@ -410,8 +410,8 @@ pub trait NetRpc {
     ///
     /// ## Params
     ///
-    /// * `peer_id` - The node id of node.
-    /// * `address` - The address of node
+    /// * `peer_id` - The node id of the node.
+    /// * `address` - The address of the node.
     ///
     /// The full P2P address is usually displayed as `address/peer_id`, for example in the log
     ///
@@ -470,7 +470,7 @@ pub trait NetRpc {
     ///
     /// ## Params
     ///
-    /// * `peer_id` - The peer id of node.
+    /// * `peer_id` - The peer id of the node.
     ///
     /// This is the last part of a full P2P address. For example, in address
     /// "/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS", the `peer_id`
@@ -503,7 +503,7 @@ pub trait NetRpc {
     #[rpc(name = "remove_node")]
     fn remove_node(&self, peer_id: String) -> Result<()>;
 
-    /// Requests that a ping be sent to all connected peers, to measure ping time.
+    /// Requests that a ping is sent to all connected peers, to measure ping time.
     ///
     /// ## Examples
     ///

@@ -8,7 +8,7 @@ pub struct LiveCell {
     /// Where this cell is created.
     ///
     /// The cell is the `created_by.index`-th output in the transaction `created_by.tx_hash`, which
-    /// has been committed in at the height `created_by.block_number` in the chain.
+    /// has been committed to at the height `created_by.block_number` in the chain.
     pub created_by: TransactionPoint,
     /// The cell properties.
     pub cell_output: CellOutput,
@@ -31,11 +31,11 @@ pub struct CellTransaction {
     /// This is null if the cell is still live.
     ///
     /// The cell is consumed as the `consumed_by.index`-th input in the transaction `consumed_by.tx_hash`, which
-    /// has been committed in at the height `consumed_by.block_number` in the chain.
+    /// has been committed to at the height `consumed_by.block_number` in the chain.
     pub consumed_by: Option<TransactionPoint>,
 }
 
-/// Reference to a cell by trnasction hash and output index, as well as in which block this
+/// Reference to a cell by transaction hash and output index, as well as in which block this
 /// transaction is committed.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TransactionPoint {
@@ -43,8 +43,8 @@ pub struct TransactionPoint {
     pub block_number: BlockNumber,
     /// In which transaction this cell is an output.
     pub tx_hash: H256,
-    /// The index of this cell in the transaction. Based on the context, this is either input index
-    /// or output index.
+    /// The index of this cell in the transaction. Based on the context, this is either an input index
+    /// or an output index.
     pub index: Uint64,
 }
 
@@ -53,7 +53,7 @@ pub struct TransactionPoint {
 pub struct LockHashIndexState {
     /// The script lock hash.
     ///
-    /// This index will index cells which lock script hash matches.
+    /// This index will index cells that lock script hash matches.
     pub lock_hash: H256,
     /// The max block number this index has already scanned.
     pub block_number: BlockNumber,
@@ -61,7 +61,7 @@ pub struct LockHashIndexState {
     pub block_hash: H256,
 }
 
-/// Accumulated capacity of a set of cells.
+/// The accumulated capacity of a set of cells.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LockHashCapacity {
     /// Total capacity of all the cells in the set.

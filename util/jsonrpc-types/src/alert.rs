@@ -2,11 +2,11 @@ use crate::{bytes::JsonBytes, Timestamp, Uint32};
 use ckb_types::{packed, prelude::*};
 use serde::{Deserialize, Serialize};
 
-/// Alert identifier is used to filter duplicated alerts.
+/// The alert identifier that is used to filter duplicated alerts.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 pub type AlertId = Uint32;
-/// Alerts are sorted by priority. Greater integers means higher priorities.
+/// Alerts are sorted by priority. Greater integers mean higher priorities.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 pub type AlertPriority = Uint32;

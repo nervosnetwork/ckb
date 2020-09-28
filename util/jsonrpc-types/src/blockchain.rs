@@ -109,7 +109,7 @@ impl From<packed::Script> for Script {
     }
 }
 
-/// The fields of a output cell except the cell data.
+/// The fields of an output cell except the cell data.
 ///
 /// ## Examples
 ///
@@ -132,7 +132,7 @@ pub struct CellOutput {
     /// The cell capacity.
     ///
     /// The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of
-    /// the cell occupied storage size where every 100,000,000 Shannons give 1 byte storage.
+    /// the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
     pub capacity: Capacity,
     /// The lock script.
     pub lock: Script,
@@ -234,7 +234,7 @@ impl From<OutPoint> for packed::OutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CellInput {
-    /// Restrict when the transaction can be commit into the chain.
+    /// Restrict when the transaction can be committed into the chain.
     ///
     /// See the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
     pub since: Uint64,
@@ -365,7 +365,7 @@ pub struct Transaction {
     pub version: Version,
     /// An array of cell deps.
     ///
-    /// CKB locates lock script and type script code via cell deps. Script also can uses syscalls
+    /// CKB locates lock script and type script code via cell deps. The script also can uses syscalls
     /// to read the cells here.
     ///
     /// Unlike inputs, the live cells can be used as cell deps in multiple transactions.
@@ -374,7 +374,7 @@ pub struct Transaction {
     ///
     /// The block must already be in the canonical chain.
     ///
-    /// Lock script and type script can reads the header information of blocks listed here.
+    /// Lock script and type script can read the header information of blocks listed here.
     pub header_deps: Vec<H256>,
     /// An array of input cells.
     ///
@@ -384,7 +384,7 @@ pub struct Transaction {
     pub outputs: Vec<CellOutput>,
     /// Output cells data.
     ///
-    /// This is a parallel array of outputs. The cell capacity, lock and type of the output i is
+    /// This is a parallel array of outputs. The cell capacity, lock, and type of the output i is
     /// `outputs[i]` and its data is `outputs_data[i]`.
     pub outputs_data: Vec<JsonBytes>,
     /// An array of variable-length binaries.
@@ -510,7 +510,7 @@ impl From<Transaction> for packed::Transaction {
     }
 }
 
-/// JSON view of a transaction as well as its status.
+/// The JSON view of a transaction as well as its status.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
     /// The transaction.
@@ -549,11 +549,11 @@ impl TransactionWithStatus {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
-    /// Status "pending". Transaction is in the pool, and not proposed yet.
+    /// Status "pending". The transaction is in the pool, and not proposed yet.
     Pending,
-    /// Status "proposed". Transaction is in the pool and has been proposed.
+    /// Status "proposed". The transaction is in the pool and has been proposed.
     Proposed,
-    /// Status "committed". Transaction has been committed in the canonical chain.
+    /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
 }
 
@@ -601,7 +601,7 @@ pub struct Header {
     pub version: Version,
     /// The block difficulty target.
     ///
-    /// It can be converted to a 256-bit target. Miner must ensure the Eaglesong of the header is
+    /// It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is
     /// within the target.
     pub compact_target: Uint32,
     /// The block timestamp.
@@ -609,7 +609,7 @@ pub struct Header {
     /// It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
     ///
     /// Miners should put the time when the block is created in the header, however, the precision
-    /// is not guaranteed. A block with higher block number may even have a smaller timestamp.
+    /// is not guaranteed. A block with a higher block number may even have a smaller timestamp.
     pub timestamp: Timestamp,
     /// The consecutive block number starting from 0.
     pub number: BlockNumber,
@@ -949,7 +949,7 @@ impl From<BlockView> for core::BlockView {
 
 /// JSON view of an epoch.
 ///
-/// CKB adjusts difficulty based on epoch.
+/// CKB adjusts difficulty based on epochs.
 ///
 /// ## Examples
 ///
@@ -969,7 +969,7 @@ pub struct EpochView {
     pub number: EpochNumber,
     /// The block number of the first block in the epoch.
     ///
-    /// It also equals to the total count of blocks in the all the epochs which epoch number is
+    /// It also equals the total count of blocks in all the epochs which epoch number is
     /// less than this epoch.
     pub start_number: BlockNumber,
     pub length: BlockNumber,
@@ -996,16 +996,16 @@ pub struct BlockReward {
     pub primary: Capacity,
     /// The secondary base block reward allocated to miners.
     pub secondary: Capacity,
-    /// The transaction fees rewarded to miner because the transaction is committed in the block.
+    /// The transaction fees that are rewarded to miners because the transaction is committed in the block.
     ///
-    /// **Attention**, this is not the total transaction fees in the block.
+    /// **Attention**, this is not the total transaction fee in the block.
     ///
-    /// Miner get 60% of transaction fee for each transaction committed in the block.
+    /// Miners get 60% of the transaction fee for each transaction committed in the block.
     pub tx_fee: Capacity,
-    /// The transaction fees rewarded to miner because the transaction is proposed in the block or
+    /// The transaction fees that are rewarded to miners because the transaction is proposed in the block or
     /// its uncles.
     ///
-    /// Miner get 40% of transaction fee for each transaction proposed in the block and is
+    /// Miners get 40% of the transaction fee for each transaction proposed in the block and
     /// committed later in its active commit window.
     pub proposal_reward: Capacity,
 }
@@ -1068,14 +1068,14 @@ pub struct MinerReward {
     pub primary: Capacity,
     /// The secondary base block reward allocated to miners.
     pub secondary: Capacity,
-    /// The transaction fees rewarded to miner because the transaction is committed in the block.
+    /// The transaction fees that are rewarded to miners because the transaction is committed in the block.
     ///
-    /// Miner get 60% of transaction fee for each transaction committed in the block.
+    /// Miners get 60% of the transaction fee for each transaction committed in the block.
     pub committed: Capacity,
-    /// The transaction fees rewarded to miner because the transaction is proposed in the block or
+    /// The transaction fees that are rewarded to miners because the transaction is proposed in the block or
     /// its uncles.
     ///
-    /// Miner get 40% of transaction fee for each transaction proposed in the block and is
+    /// Miners get 40% of the transaction fee for each transaction proposed in the block and
     /// committed later in its active commit window.
     pub proposal: Capacity,
 }
@@ -1152,11 +1152,11 @@ pub struct TransactionProof {
 /// CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct MerkleProof {
-    /// Leaves indices in the CBMT that are prooved present in the block.
+    /// Leaves indices in the CBMT that are proved present in the block.
     ///
     /// These are indices in the CBMT tree not the transaction indices in the block.
     pub indices: Vec<Uint32>,
-    /// Hashes of all siblings along the pathes to root.
+    /// Hashes of all siblings along the paths to root.
     pub lemmas: Vec<H256>,
 }
 

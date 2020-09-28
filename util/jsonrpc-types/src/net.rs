@@ -1,7 +1,7 @@
 use crate::{BlockNumber, Byte32, Timestamp, Uint64};
 use serde::{Deserialize, Serialize};
 
-/// Information of node itself.
+/// The information of the node itself.
 ///
 /// ## Examples
 ///
@@ -49,7 +49,7 @@ pub struct LocalNode {
     pub version: String,
     /// The unique node ID derived from the p2p private key.
     ///
-    /// The private key is generated randomly on first boot.
+    /// The private key is generated randomly on the first boot.
     pub node_id: String,
     /// Whether this node is active.
     ///
@@ -65,7 +65,7 @@ pub struct LocalNode {
     pub connections: Uint64,
 }
 
-/// Information of a P2P protocol supported by the local node.
+/// The information of a P2P protocol that is supported by the local node.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct LocalNodeProtocol {
     /// Unique protocol ID.
@@ -172,7 +172,7 @@ pub struct RemoteNode {
     pub sync_state: Option<PeerSyncState>,
     /// Active protocols.
     ///
-    /// CKB uses Tentacle multiplexed network framework. There are multiple protocols running
+    /// CKB uses Tentacle multiplexed network framework. Multiple protocols are running
     /// simultaneously in the connection.
     pub protocols: Vec<RemoteNodeProtocol>,
 }
@@ -191,7 +191,7 @@ pub struct RemoteNodeProtocol {
 pub struct PeerSyncState {
     /// Best known header hash of remote peer.
     ///
-    /// This is observed tip of the remote node's canonical chain.
+    /// This is the observed tip of the remote node's canonical chain.
     pub best_known_header_hash: Option<Byte32>,
     /// Best known header number of remote peer
     ///
@@ -199,7 +199,7 @@ pub struct PeerSyncState {
     pub best_known_header_number: Option<Uint64>,
     /// Last common header hash of remote peer.
     ///
-    /// This is the common ancestor of local node canonical chain tip and the block
+    /// This is the common ancestor of the local node canonical chain tip and the block
     /// `best_known_header_hash`.
     pub last_common_header_hash: Option<Byte32>,
     /// Last common header number of remote peer.
@@ -208,7 +208,7 @@ pub struct PeerSyncState {
     pub last_common_header_number: Option<Uint64>,
     /// The total size of unknown header list.
     ///
-    /// **Deprecated**: this is a internal state and will be removed in future release.
+    /// **Deprecated**: this is an internal state and will be removed in a future release.
     pub unknown_header_list_size: Uint64,
     /// The count of concurrency downloading blocks.
     pub inflight_count: Uint64,
@@ -221,13 +221,13 @@ pub struct PeerSyncState {
 pub struct NodeAddress {
     /// P2P address.
     ///
-    /// This is the same address that used in the whitelist in ckb.toml.
+    /// This is the same address used in the whitelist in ckb.toml.
     ///
     /// Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
     pub address: String,
     /// Address score.
     ///
-    /// Higher score means higher probability of success connection.
+    /// A higher score means a higher probability of a successful connection.
     pub score: Uint64,
 }
 
@@ -254,10 +254,10 @@ pub struct SyncState {
     /// When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     /// the IBD until it catches up the synchronization.
     ///
-    /// During IBD, the local node only synchronize the chain with one selected remote node and
-    /// stop responding most P2P requests.
+    /// During IBD, the local node only synchronizes the chain with one selected remote node and
+    /// stops responding to most P2P requests.
     pub ibd: bool,
-    /// This is best known block number observed by the local node from the P2P network.
+    /// This is the best known block number observed by the local node from the P2P network.
     ///
     /// The best here means that the block leads a chain which has the best known accumulated
     /// difficulty.
@@ -269,7 +269,7 @@ pub struct SyncState {
     pub best_known_block_timestamp: Timestamp,
     /// Count of orphan blocks the local node has downloaded.
     ///
-    /// The local node download multiple blocks simultaneously but blocks must be connected
+    /// The local node downloads multiple blocks simultaneously but blocks must be connected
     /// consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan
     /// block.
     ///

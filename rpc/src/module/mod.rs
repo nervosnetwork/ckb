@@ -45,8 +45,8 @@
 //!
 //! A CKB RPC method is deprecated in three steps.
 //!
-//! First the method is marked as deprecated in the CKB release notes and RPC document. However,
-//! the RPC method is still available. The RPC document will have the suggestion of the alternative
+//! First, the method is marked as deprecated in the CKB release notes and RPC document. However,
+//! the RPC method is still available. The RPC document will have the suggestion of alternative
 //! solutions.
 //!
 //! The CKB dev team will disable any deprecated RPC methods starting from the next minor version
@@ -55,7 +55,7 @@
 //! Once a deprecated method is disabled, the CKB dev team will remove it in a future minor version release.
 //!
 //! For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and
-//! removed in 0.37.0. The minor versions are released monthly, so there's at least two month
+//! removed in 0.37.0. The minor versions are released monthly, so there's at least a two-month
 //! buffer for a deprecated RPC method.
 //!
 //! ## JSON Cheatsheet

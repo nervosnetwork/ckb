@@ -2,7 +2,7 @@ use ckb_types::{bytes::Bytes, packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
-/// Variable-length binary encoded as 0x-prefixed hex string in JSON.
+/// Variable-length binary encoded as a 0x-prefixed hex string in JSON.
 ///
 /// ## Example
 ///

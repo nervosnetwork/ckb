@@ -30,7 +30,7 @@ use std::collections::HashSet;
 ///
 /// ## Chain Reorganization
 ///
-/// Chain Reorganization happens when CKB found a chain which has accumulated more work than the
+/// Chain Reorganization happens when CKB found a chain that has accumulated more work than the
 /// canonical chain. The reorganization reverts the blocks in the current canonical chain if needed,
 /// and switch the canonical chain to that better chain.
 ///
@@ -56,8 +56,8 @@ pub trait ChainRpc {
     /// the parameter `block_hash`.
     ///
     /// If the block is in the [canonical chain](#canonical-chain), the RPC must return the block
-    /// information. Otherwise the behavior is undefined. The RPC may return blocks found in local
-    /// storage, or simply returns null for all blocks that are not in the canonical chain. And
+    /// information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
+    /// storage or simply returns null for all blocks that are not in the canonical chain. And
     /// because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
     /// RPC may sometimes return null and sometimes return the block.
     ///
@@ -183,7 +183,7 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
     /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
     ///
     /// ## Examples
@@ -291,8 +291,8 @@ pub trait ChainRpc {
     /// the parameter `block_hash`.
     ///
     /// If the block is in the [canonical chain](#canonical-chain), the RPC must return the header
-    /// information. Otherwise the behavior is undefined. The RPC may return blocks found in local
-    /// storage, or simply returns null for all blocks that are not in the canonical chain. And
+    /// information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
+    /// storage or simply returns null for all blocks that are not in the canonical chain. And
     /// because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
     /// RPC may sometimes return null and sometimes return the block header.
     ///
@@ -381,7 +381,7 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from database.
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
     ///
     /// ## Examples
     ///
@@ -442,7 +442,7 @@ pub trait ChainRpc {
     /// ## Returns
     ///
     /// This RPC returns `null` if the transaction is not committed in the
-    /// [canonical chain](#canonical-chain) nor in the transaction memory pool.
+    /// [canonical chain](#canonical-chain) nor the transaction memory pool.
     ///
     /// If the transaction is in the chain, the block hash is also returned.
     ///
@@ -651,14 +651,14 @@ pub trait ChainRpc {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>>;
 
-    /// Returns the status about a cell. The RPC returns extra information if it is a [live cell]
+    /// Returns the status of a cell. The RPC returns extra information if it is a [live cell]
     /// (#live-cell).
     ///
     /// ## Returns
     ///
     /// This RPC tells whether a cell is live or not.
     ///
-    /// If the cell is live, the RPC will return details about the cell. Otherwise the field `cell` is
+    /// If the cell is live, the RPC will return details about the cell. Otherwise, the field `cell` is
     /// null in the result.
     ///
     /// If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the
@@ -667,7 +667,7 @@ pub trait ChainRpc {
     /// ## Params
     ///
     /// * `out_point` - Reference to the cell by transaction hash and output index.
-    /// * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if client
+    /// * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
     /// does not need the data, it should set this to `false` to save bandwidth.
     ///
     /// ## Examples
@@ -888,7 +888,7 @@ pub trait ChainRpc {
     fn get_cellbase_output_capacity_details(&self, block_hash: H256)
         -> Result<Option<BlockReward>>;
 
-    /// Returns increased issuance, miner reward and total transaction fee of a block.
+    /// Returns increased issuance, miner reward, and the total transaction fee of a block.
     ///
     /// This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
     ///
@@ -951,7 +951,7 @@ pub trait ChainRpc {
     #[rpc(name = "get_block_economic_state")]
     fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>>;
 
-    /// Returns a merkle proof that transaction was included in a block.
+    /// Returns a Merkle proof that transactions are included in a block.
     ///
     /// ## Params
     ///

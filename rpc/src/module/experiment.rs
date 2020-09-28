@@ -131,7 +131,7 @@ pub trait ExperimentRpc {
     #[rpc(name = "_compute_script_hash")]
     fn compute_script_hash(&self, script: Script) -> Result<H256>;
 
-    /// Dry run transaction and return the execution cycles.
+    /// Dry run a transaction and return the execution cycles.
     ///
     /// This method will not check the transaction validity, but only run the lock script
     /// and type script and then return the execution cycles.
@@ -210,13 +210,13 @@ pub trait ExperimentRpc {
     #[rpc(name = "dry_run_transaction")]
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult>;
 
-    /// Calculates the maximum withdraw one can get, given a referenced DAO cell, and a withdraw
-    /// block hash.
+    /// Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
+    /// a withdrawing block hash.
     ///
     /// ## Params
     ///
     /// * `out_point` - Reference to the DAO cell.
-    /// * `block_hash` - The assumed reference block for withdraw. This block must be in the
+    /// * `block_hash` - The assumed reference block for withdrawing. This block must be in the
     /// [canonical chain]('trait.ChainRpc.html#canonical-chain').
     ///
     /// ## Returns
