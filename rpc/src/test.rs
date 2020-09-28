@@ -323,9 +323,9 @@ fn find_rpc_method(line: &str) -> Option<&str> {
         && line.contains("name")
         && !line.contains("noexample")
     {
-        for w in line.split("=").collect::<Vec<_>>().windows(2) {
-            if w[0].trim().ends_with("name") && w[1].trim().starts_with("\"") {
-                let name = w[1].split("\"").collect::<Vec<_>>()[1];
+        for w in line.split('=').collect::<Vec<_>>().windows(2) {
+            if w[0].trim().ends_with("name") && w[1].trim().starts_with('"') {
+                let name = w[1].split('"').collect::<Vec<_>>()[1];
                 if name.starts_with("deprecated.") {
                     return Some(&name["deprecated.".len()..]);
                 } else {
