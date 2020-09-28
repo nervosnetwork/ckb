@@ -663,6 +663,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_blockchain_info" => {
             response.result["chain"] = example.response.result["chain"].clone()
         }
+        "send_alert" => response.error["data"] = example.response.error["data"].clone(),
         _ => {}
     }
 }
