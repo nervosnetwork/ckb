@@ -1,3 +1,4 @@
+use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
 use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -10,9 +11,11 @@ use ckb_types::{
     },
     prelude::*,
 };
+use core::sync::atomic::Ordering::SeqCst;
 use std::convert::Into;
 use std::env;
 use std::fs::read_to_string;
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -209,9 +212,9 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
 ///
 /// We use `tempdir` only for generating a random path, and expect the corresponding directory
 /// that `tempdir` creates be deleted when go out of this function.
-pub fn temp_path(case_name: &str) -> PathBuf {
+pub fn temp_path(case_name: &str, suffix: &str) -> PathBuf {
     let mut builder = tempfile::Builder::new();
-    let prefix = ["ckb-it", case_name, ""].join("-");
+    let prefix = ["ckb-it", case_name, suffix, ""].join("-");
     builder.prefix(&prefix);
     let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
         builder.tempdir_in(val)
@@ -296,20 +299,18 @@ pub fn blank(node: &Node) -> BlockView {
 }
 
 // grep "panicked at" $node_log_path
-pub fn nodes_panicked(node_dirs: &[String]) -> bool {
-    node_dirs.iter().any(|node_dir| {
-        read_to_string(&node_log(&node_dir))
-            .expect("failed to read node's log")
+pub fn nodes_panicked(node_log_paths: &[PathBuf]) -> bool {
+    node_log_paths.iter().any(|log_path| {
+        read_to_string(log_path)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to read node's log {}, error: {:?}",
+                    log_path.display(),
+                    err
+                )
+            })
             .contains("panicked at")
     })
-}
-
-// node_log=$node_dir/data/logs/run.log
-pub fn node_log(node_dir: &str) -> PathBuf {
-    PathBuf::from(node_dir)
-        .join("data")
-        .join("logs")
-        .join("run.log")
 }
 
 pub fn now_ms() -> u64 {
@@ -318,4 +319,16 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
     since_the_epoch.as_millis() as u64
+}
+
+// TODO move into utils
+pub fn find_available_port() -> u16 {
+    for _ in 0..2000 {
+        let port = PORT_COUNTER.fetch_add(1, SeqCst);
+        let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+        if TcpListener::bind(address).is_ok() {
+            return port;
+        }
+    }
+    panic!("failed to allocate available port")
 }

@@ -1,38 +1,30 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
-use log::info;
+use crate::{Node, Spec};
 
 pub struct Discovery;
 
 impl Spec for Discovery {
-    crate::name!("discovery");
-
     crate::setup!(num_nodes: 3);
 
-    fn run(&self, net: &mut Net) {
-        let node0_id = net.nodes[0].node_id();
-        let node2 = &net.nodes[2];
-        let rpc_client = node2.rpc_client();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        for i in 0..nodes.len() - 1 {
+            nodes[i].connect(&nodes[i + 1]);
+        }
 
-        info!("Waiting for discovering");
-        let ret = wait_until(10, || {
-            rpc_client
-                .get_peers()
+        let all_connected = wait_until(10, || {
+            nodes
                 .iter()
-                .any(|peer| peer.node_id == node0_id)
+                .all(|node| node.rpc_client().get_peers().len() == nodes.len() - 1)
         });
         assert!(
-            ret,
-            "the address of node0 should be discovered by node2 and connected"
+            all_connected,
+            "nodes should discover and connect each other",
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         // enable outbound peer service to connect discovered peers
-        Box::new(|config| {
-            config.network.connect_outbound_interval_secs = 1;
-            config.network.discovery_local_address = true;
-        })
+        config.network.connect_outbound_interval_secs = 1;
+        config.network.discovery_local_address = true;
     }
 }

@@ -1,17 +1,15 @@
-use crate::{Net, Node, Spec};
+use crate::{Node, Spec};
 use ckb_types::core::BlockNumber;
 use log::info;
 
 pub struct ProposalExpireRuleForCommittingAndExpiredAtOneTime;
 
 impl Spec for ProposalExpireRuleForCommittingAndExpiredAtOneTime {
-    crate::name!("proposal_expire_rule_for_committing_and_expired_at_one_time");
-
     // Case: Check the proposal expire rule works fine for the case that a transaction is both
     //       committed and expired. A transaction be committed at the end of its commit-window is
     //       committed and expired.
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         node.generate_blocks(window.farthest() as usize + 2);
 

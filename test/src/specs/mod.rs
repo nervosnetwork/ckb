@@ -20,19 +20,58 @@ pub use rpc::*;
 pub use sync::*;
 pub use tx_pool::*;
 
-use crate::Net;
+use crate::Node;
 use ckb_app_config::CKBAppConfig;
-use ckb_chain_spec::ChainSpec;
-use ckb_fee_estimator::FeeRate;
-use ckb_network::{ProtocolId, ProtocolVersion, SupportProtocols};
 
-#[macro_export]
-macro_rules! name {
-    ($name:literal) => {
-        fn name(&self) -> &'static str {
-            $name
+use ckb_chain_spec::ChainSpec;
+
+pub struct Setup {
+    pub num_nodes: usize,
+    pub retry_failed: usize,
+}
+
+pub trait Spec: Send {
+    fn name(&self) -> &str {
+        spec_name(self)
+    }
+
+    fn setup(&self) -> Setup {
+        Default::default()
+    }
+
+    fn before_run(&self) -> Vec<Node> {
+        let mut nodes = (0..self.setup().num_nodes)
+            .map(|i| Node::new(self.name(), &format!("node{}", i)))
+            .collect::<Vec<_>>();
+        nodes
+            .iter_mut()
+            .for_each(|node| node.modify_app_config(|config| self.modify_app_config(config)));
+        nodes
+            .iter_mut()
+            .for_each(|node| node.modify_chain_spec(|spec| self.modify_chain_spec(spec)));
+        nodes.iter_mut().for_each(|node| node.start());
+        nodes
+    }
+
+    fn run(&self, nodes: &mut Vec<Node>);
+
+    fn modify_app_config(&self, _config: &mut CKBAppConfig) {}
+
+    fn modify_chain_spec(&self, _spec: &mut ChainSpec) {}
+}
+
+pub fn spec_name<T: ?Sized>(_: &T) -> &str {
+    let type_name = ::std::any::type_name::<T>();
+    type_name.split_terminator("::").last().unwrap()
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Setup {
+            num_nodes: 1,
+            retry_failed: 0,
         }
-    };
+    }
 }
 
 #[macro_export]
@@ -53,90 +92,4 @@ macro_rules! setup_internal {
     ($field:ident: $value:expr, $($rest:tt)*) =>  {
         $crate::Setup{ $field: $value, ..crate::setup_internal!($($rest)*) }
     };
-}
-
-pub struct Setup {
-    pub num_nodes: usize,
-    pub connect_all: bool,
-    pub protocols: Vec<TestProtocol>,
-    pub retry_failed: usize,
-}
-
-impl Default for Setup {
-    fn default() -> Self {
-        Setup {
-            num_nodes: 1,
-            connect_all: true,
-            protocols: vec![],
-            retry_failed: 0,
-        }
-    }
-}
-
-pub trait Spec {
-    fn name(&self) -> &'static str;
-
-    fn setup(&self) -> Setup {
-        Setup::default()
-    }
-
-    fn init_config(&self, net: &mut Net) {
-        net.nodes.iter_mut().for_each(|node| {
-            node.edit_config_file(self.modify_chain_spec(), self.modify_ckb_config());
-        });
-    }
-
-    fn before_run(&self, _net: &mut Net) {}
-
-    fn run(&self, net: &mut Net);
-
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|_| ())
-    }
-
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
-        // disable outbound peer service
-        Box::new(|config| {
-            config.network.connect_outbound_interval_secs = 0;
-            config.network.discovery_local_address = true;
-            config.tx_pool.min_fee_rate = FeeRate::zero();
-        })
-    }
-
-    fn start_node(&self, net: &mut Net) {
-        // start all nodes
-        net.nodes.iter_mut().for_each(|node| {
-            node.start();
-        });
-
-        // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
-        if self.setup().connect_all {
-            net.connect_all();
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct TestProtocol {
-    pub id: ProtocolId,
-    pub protocol_name: String,
-    pub supported_versions: Vec<ProtocolVersion>,
-}
-
-impl TestProtocol {
-    pub fn sync() -> Self {
-        Self {
-            id: SupportProtocols::Sync.protocol_id(),
-            protocol_name: "syn".to_string(),
-            supported_versions: vec!["1".to_string()],
-        }
-    }
-
-    pub fn relay() -> Self {
-        Self {
-            id: SupportProtocols::Relay.protocol_id(),
-            protocol_name: "rel".to_string(),
-            supported_versions: vec!["1".to_string()],
-        }
-    }
 }

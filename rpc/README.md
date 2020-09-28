@@ -49,6 +49,7 @@ The system module is always enabled.
     *   [`local_node_info`](#local_node_info)
     *   [`get_peers`](#get_peers)
     *   [`get_banned_addresses`](#get_banned_addresses)
+    *   [`clear_banned_addresses`](#clear_banned_addresses)
     *   [`set_ban`](#set_ban)
     *   [`sync_state`](#sync_state)
     *   [`set_network_active`](#set_network_active)
@@ -2124,6 +2125,33 @@ http://localhost:8114
 }
 ```
 
+### `clear_banned_addresses`
+
+Clear all banned IPs/Subnets.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "clear_banned_addresses",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
 ### `set_ban`
 
 Insert or delete an IP/Subnet from the banned list
@@ -2557,7 +2585,10 @@ Subscribe to a topic, if successful it returns the subscription id. For each eve
 
 #### Parameters
 
-* topic - Subscription topic (enum: new_tip_header | new_tip_block)
+* topic - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction)
+    * new_tip_header: subscriber will get notified when new block is added to best chain tip
+    * new_tip_block: subscriber will get notified when new block is added to best chain tip
+    * new_transaction: subscriber will get notified when new transaction is submitted to pool
 #### Returns
 
 * id - Subscription id

@@ -1,6 +1,6 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec};
-use ckb_chain_spec::{ChainSpec, IssuedCell};
+use crate::{Node, Spec};
+use ckb_chain_spec::IssuedCell;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, ScriptHashType},
@@ -14,10 +14,8 @@ use log::info;
 pub struct GenesisIssuedCells;
 
 impl Spec for GenesisIssuedCells {
-    crate::name!("genesis_issued_cells");
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
 
         let lock_hash = Script::new_builder()
             .args(Bytes::from(vec![1, 2]).pack())
@@ -44,21 +42,19 @@ impl Spec for GenesisIssuedCells {
         }
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.genesis.issued_cells = vec![IssuedCell {
-                capacity: capacity_bytes!(5_000),
-                lock: Script::new_builder()
-                    .args(Bytes::from(vec![1, 2]).pack())
-                    .code_hash(
-                        // The second output's type_id script hash
-                        h256!("0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e")
-                            .pack(),
-                    )
-                    .hash_type(ScriptHashType::Type.into())
-                    .build()
-                    .into(),
-            }];
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.genesis.issued_cells = vec![IssuedCell {
+            capacity: capacity_bytes!(5_000),
+            lock: Script::new_builder()
+                .args(Bytes::from(vec![1, 2]).pack())
+                .code_hash(
+                    // The second output's type_id script hash
+                    h256!("0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e")
+                        .pack(),
+                )
+                .hash_type(ScriptHashType::Type.into())
+                .build()
+                .into(),
+        }];
     }
 }

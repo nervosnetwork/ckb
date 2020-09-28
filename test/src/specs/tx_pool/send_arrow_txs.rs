@@ -1,5 +1,5 @@
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_app_config::CKBAppConfig;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
@@ -11,10 +11,8 @@ pub struct SendArrowTxs;
 const MAX_ANCESTORS_COUNT: usize = 25;
 
 impl Spec for SendArrowTxs {
-    crate::name!("send_arrow_txs");
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
 
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // build arrow txs
@@ -43,10 +41,8 @@ impl Spec for SendArrowTxs {
         assert!(ret.is_err());
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
-        Box::new(|config| {
-            config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
-            config.tx_pool.max_ancestors_count = MAX_ANCESTORS_COUNT;
-        })
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
+        config.tx_pool.max_ancestors_count = MAX_ANCESTORS_COUNT;
     }
 }

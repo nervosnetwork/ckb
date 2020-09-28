@@ -489,6 +489,13 @@
         "skip": true
     },
     {
+        "description": "Clear all banned IPs/Subnets.",
+        "method": "clear_banned_addresses",
+        "module": "net",
+        "params": [],
+        "result": null
+    },
+    {
         "description": "Insert or delete an IP/Subnet from the banned list",
         "method": "set_ban",
         "module": "net",
@@ -1856,7 +1863,7 @@
         "skip": true,
         "types": [
             {
-                "topic": "Subscription topic (enum: new_tip_header | new_tip_block)"
+                "topic": "Subscription topic (enum: new_tip_header | new_tip_block | new_transaction)\n    * new_tip_header: subscriber will get notified when new block is added to best chain tip\n    * new_tip_block: subscriber will get notified when new block is added to best chain tip\n    * new_transaction: subscriber will get notified when new transaction is submitted to pool"
             }
         ]
     },

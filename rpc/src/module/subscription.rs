@@ -45,6 +45,7 @@ impl PubSubMetadata for SubscriptionSession {
 pub enum Topic {
     NewTipHeader,
     NewTipBlock,
+    NewTransaction,
 }
 
 #[allow(clippy::needless_return)]
@@ -126,17 +127,17 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 }
 
 impl SubscriptionRpcImpl {
-    pub fn new<S: ToString>(notify_controller: NotifyController, thread_name: Option<S>) -> Self {
-        let new_block_receiver =
-            notify_controller.subscribe_new_block(thread_name.as_ref().unwrap().to_string());
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
+    pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
+        let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
+        let new_transaction_receiver =
+            notify_controller.subscribe_new_transaction(name.to_string());
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
 
-        let mut thread_builder = thread::Builder::new();
-        if let Some(name) = thread_name {
-            thread_builder = thread_builder.name(name.to_string());
-        }
+        let thread_builder = thread::Builder::new().name(name.to_string());
         thread_builder
             .spawn(move || loop {
                 select! {
@@ -162,7 +163,28 @@ impl SubscriptionRpcImpl {
                             error!("new_block_receiver closed");
                             break;
                         },
-                    }
+                    },
+                    recv(new_transaction_receiver) -> msg => match msg {
+                        Ok(tx_entry) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
+                                let tx_entry = ckb_jsonrpc_types::PoolTransactionEntry {
+                                    transaction: tx_entry.transaction.into(),
+                                    cycles: tx_entry.cycles.into(),
+                                    size: (tx_entry.size as u64).into(),
+                                    fee: tx_entry.fee.into(),
+                                };
+                                let json_string = Ok(serde_json::to_string(&tx_entry).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("new_transaction_receiver closed");
+                            break;
+                        },
+                    },
                 }
             })
             .expect("Start SubscriptionRpc thread failed");

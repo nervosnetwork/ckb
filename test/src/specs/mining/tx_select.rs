@@ -1,14 +1,12 @@
 use crate::generic::GetCommitTxIds;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::core::Capacity;
 
 pub struct TemplateTxSelect;
 
 impl Spec for TemplateTxSelect {
-    crate::name!("template_tx_select");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         // prepare blocks
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 6) as usize);
         let number = node.get_tip_block_number();

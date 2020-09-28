@@ -1,16 +1,15 @@
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::node::waiting_for_sync;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use log::info;
 
 pub struct PoolResurrect;
 
 impl Spec for PoolResurrect {
-    crate::name!("pool_resurrect");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(num_nodes: 2, connect_all: false);
-
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
 
         info!("Generate 1 block on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -38,7 +37,7 @@ impl Spec for PoolResurrect {
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);
-        net.waiting_for_sync(DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
+        waiting_for_sync(nodes);
 
         info!("6 txs should be returned to node0 pending pool");
         node0.assert_tx_pool_size(txs_hash.len() as u64, 0);

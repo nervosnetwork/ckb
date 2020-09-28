@@ -1,7 +1,6 @@
 use crate::util::check::is_transaction_committed;
 use crate::utils::assert_send_transaction_fail;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_chain_spec::ChainSpec;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::core::EpochNumberWithFraction;
 use log::info;
 
@@ -10,10 +9,8 @@ const CELLBASE_MATURITY_VALUE: u64 = 3;
 pub struct ReferenceHeaderMaturity;
 
 impl Spec for ReferenceHeaderMaturity {
-    crate::name!("reference_header_maturity");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW + 2 block");
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
@@ -93,11 +90,9 @@ impl Spec for ReferenceHeaderMaturity {
         assert!(is_transaction_committed(node, &tx));
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
-            spec_config.params.epoch_duration_target = 30;
-            spec_config.params.genesis_epoch_length = 5;
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
+        spec.params.epoch_duration_target = 30;
+        spec.params.genesis_epoch_length = 5;
     }
 }

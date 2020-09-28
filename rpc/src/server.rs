@@ -46,10 +46,8 @@ impl RpcServer {
                 let mut handler = io_handler.clone();
                 if config.subscription_enable() {
                     if let Some(notify_controller) = notify_controller_opt {
-                        let subscription_rpc_impl = SubscriptionRpcImpl::new(
-                            notify_controller.clone(),
-                            Some("TcpSubscription"),
-                        );
+                        let subscription_rpc_impl =
+                            SubscriptionRpcImpl::new(notify_controller.clone(), "TcpSubscription");
                         handler.extend_with(subscription_rpc_impl.to_delegate());
                     }
                 }
@@ -79,7 +77,7 @@ impl RpcServer {
             if config.subscription_enable() {
                 if let Some(notify_controller) = notify_controller_opt {
                     let subscription_rpc_impl =
-                        SubscriptionRpcImpl::new(notify_controller.clone(), Some("WsSubscription"));
+                        SubscriptionRpcImpl::new(notify_controller.clone(), "WsSubscription");
                     handler.extend_with(subscription_rpc_impl.to_delegate());
                 }
             }

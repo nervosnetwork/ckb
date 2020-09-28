@@ -1,20 +1,18 @@
 use crate::generic::GetProposalTxIds;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use ckb_types::prelude::*;
 
 pub struct AvoidDuplicatedProposalsWithUncles;
 
 impl Spec for AvoidDuplicatedProposalsWithUncles {
-    crate::name!("avoid_duplicated_proposals_with_uncles");
-
     // Case: This is not a validation rule, but just an improvement for miner
     //       filling proposals: Don't re-propose the transactions which
     //       has already been proposed within the uncles.
     //    1. Submit `tx` into mempool, and `uncle` which proposed `tx` as an candidate uncle
     //    2. Get block template, expect empty proposals cause we already proposed `tx` within `uncle`
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         node.generate_blocks_until_contains_valid_cellbase();
 
         let tx = node.new_transaction_spend_tip_cellbase();
