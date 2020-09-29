@@ -1,15 +1,16 @@
 use crate::{Timestamp, Uint32};
 use serde::{Deserialize, Serialize};
 
+/// Peer (remote node) state.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PeerState {
     // TODO use peer_id
-    // peer session id
-    peer: Uint32,
-    // last updated timestamp
-    last_updated: Timestamp,
-    // blocks count has request but not receive response yet
-    blocks_in_flight: Uint32,
+    /// Peer session id.
+    pub peer: Uint32,
+    /// last updated timestamp.
+    pub last_updated: Timestamp,
+    /// blocks count has request but not receive response yet.
+    pub blocks_in_flight: Uint32,
 }
 
 impl PeerState {

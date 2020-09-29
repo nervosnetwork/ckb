@@ -8,11 +8,84 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
+/// RPC Module Stats for getting various statistic data.
 #[rpc(server)]
 pub trait StatsRpc {
+    /// Returns statistics about the chain.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_blockchain_info",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "alerts": [
+    ///       {
+    ///         "id": "0x2a",
+    ///         "message": "An example alert message!",
+    ///         "notice_until": "0x24bcca57c00",
+    ///         "priority": "0x1"
+    ///       }
+    ///     ],
+    ///     "chain": "ckb",
+    ///     "difficulty": "0x1f4003",
+    ///     "epoch": "0x7080018000001",
+    ///     "is_initial_block_download": true,
+    ///     "median_time": "0x5cd2b105"
+    ///   }
+    /// }
+    /// ```
     #[rpc(name = "get_blockchain_info")]
     fn get_blockchain_info(&self) -> Result<ChainInfo>;
 
+    /// Return state info of peers
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_peers_state",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": [
+    ///     {
+    ///       "blocks_in_flight": "0x56",
+    ///       "last_updated": "0x16a95af332d",
+    ///       "peer": "0x1"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    #[deprecated(
+        since = "0.12.0",
+        note = "Please use RPC [`get_peers`](trait.NetRpc.html#tymethod.get_peers) instead"
+    )]
     #[rpc(name = "get_peers_state")]
     fn get_peers_state(&self) -> Result<Vec<PeerState>>;
 }

@@ -11,6 +11,7 @@ pub use numext_fixed_uint::{u256, U128, U256};
 
 #[doc(hidden)]
 mod generated;
+
 pub use generated::packed;
 pub mod core;
 

@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 #[rpc(server)]
+#[doc(hidden)]
 pub trait IntegrationTestRpc {
     #[rpc(name = "process_block_without_verify")]
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>>;

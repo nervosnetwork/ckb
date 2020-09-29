@@ -1,10 +1,10 @@
+#![allow(deprecated)]
 use crate::error::RPCError;
 use crate::module::SubscriptionSession;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
     ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
-    MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc,
-    StatsRpcImpl,
+    MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
 use ckb_app_config::IndexerConfig;
@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 
+#[doc(hidden)]
 pub struct ServiceBuilder<'a> {
     config: &'a RpcConfig,
     io_handler: IoHandler,
@@ -89,7 +90,7 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
     ) -> Self {
-        let rpc_methods = NetworkRpcImpl {
+        let rpc_methods = NetRpcImpl {
             network_controller,
             sync_shared,
         }
