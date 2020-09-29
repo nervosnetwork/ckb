@@ -169,6 +169,23 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         "Expect the last cellbase tx hash matches the constant, which is used later in an example tx."
     );
 
+    // insert a fork block for rpc `get_fork_block` test
+    {
+        let fork_block = parent
+            .as_advanced_builder()
+            .header(
+                parent
+                    .header()
+                    .as_advanced_builder()
+                    .timestamp((parent.header().timestamp() + 1).pack())
+                    .build(),
+            )
+            .build();
+        chain_controller
+            .process_block(Arc::new(fork_block))
+            .expect("processing new block should be ok");
+    }
+
     // Start network services
     let dir = tempfile::tempdir()
         .expect("create tempdir failed")
