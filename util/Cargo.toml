@@ -4,6 +4,9 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 parking_lot = "=0.7.1"
@@ -11,8 +14,7 @@ linked-hash-map = "0.5"
 regex = "1.1.6"
 
 [dev-dependencies]
-ckb-fixed-hash = { path = "fixed-hash" }
-
+ckb-fixed-hash = { path = "fixed-hash", version = "= 0.37.0-pre" }
 
 [features]
 deadlock_detection = ["parking_lot/deadlock_detection"]

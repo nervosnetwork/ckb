@@ -4,12 +4,15 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-ckb-fixed-hash-core = { path = "../core" }
+ckb-fixed-hash-core = { path = "../core", version = "= 0.37.0-pre" }
 quote = "0.6"
 syn = "0.15"
 proc-macro2 = "0.4"

@@ -4,19 +4,22 @@ version = "0.37.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types" }
-ckb-chain-spec = { path = "../spec" }
-ckb-store = { path = "../store" }
-ckb-db = { path = "../db" }
-ckb-proposal-table = { path = "../util/proposal-table" }
+ckb-types = { path = "../util/types", version = "= 0.37.0-pre" }
+ckb-chain-spec = { path = "../spec", version = "= 0.37.0-pre" }
+ckb-store = { path = "../store", version = "= 0.37.0-pre" }
+ckb-db = { path = "../db", version = "= 0.37.0-pre" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.37.0-pre" }
 arc-swap = "0.4"
-ckb-error = { path = "../error" }
-ckb-snapshot = { path = "../util/snapshot" }
-ckb-tx-pool = { path = "../tx-pool" }
-ckb-verification = { path = "../verification" }
-ckb-notify = { path = "../notify" }
-ckb-app-config = { path = "../util/app-config" }
-ckb-db-migration = { path = "../db-migration" }
-ckb-chain-iter = { path = "../util/chain-iter" }
+ckb-error = { path = "../error", version = "= 0.37.0-pre" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.37.0-pre" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.37.0-pre" }
+ckb-verification = { path = "../verification", version = "= 0.37.0-pre" }
+ckb-notify = { path = "../notify", version = "= 0.37.0-pre" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.37.0-pre" }
+ckb-db-migration = { path = "../db-migration", version = "= 0.37.0-pre" }
+ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.37.0-pre" }
