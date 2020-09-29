@@ -27,6 +27,7 @@ include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
 pub const SPEC_DEV_FILE_NAME: &str = "specs/dev.toml";
+pub const DB_OPTIONS_FILE_NAME: &str = "default.db-options";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -61,12 +62,20 @@ impl Resource {
         Resource::file_system(root_dir.as_ref().join(MINER_CONFIG_FILE_NAME))
     }
 
+    pub fn db_options<P: AsRef<Path>>(root_dir: P) -> Resource {
+        Resource::file_system(root_dir.as_ref().join(DB_OPTIONS_FILE_NAME))
+    }
+
     pub fn bundled_ckb_config() -> Resource {
         Resource::bundled(CKB_CONFIG_FILE_NAME.to_string())
     }
 
     pub fn bundled_miner_config() -> Resource {
         Resource::bundled(MINER_CONFIG_FILE_NAME.to_string())
+    }
+
+    pub fn bundled_db_options() -> Resource {
+        Resource::bundled(DB_OPTIONS_FILE_NAME.to_string())
     }
 
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
