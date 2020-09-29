@@ -437,7 +437,8 @@ fn collect_rpc_examples_in_file(
                 let key = RpcTestExample::search(rpc_method.to_string(), 42);
                 assert!(
                     collected.contains(&key),
-                    "{}:{}: Expect an example with id=42 for RPC method {}",
+                    "{}:{}: Expect an example with id=42 for RPC method {}. \
+                    To skip the test, add a comment \"noexample\" after #[rpc]",
                     path.display(),
                     lineno,
                     rpc_method,
@@ -618,9 +619,16 @@ impl RpcTestSuite {
 /// Test cases are collected from code comments. Please put request and response JSON in their own code
 /// blocks and set the fenced code block type to "json".
 ///
+/// The first example must use id 42. And extra examples for the same method must use different
+/// ids.
+///
+/// Q. How to skip an RPC example test
+///
+/// Add noexample in the comment in the same line with `#[rpc(name = "...")]`.
+///
 /// Q. How to setup and teardown the test case?
 ///
-/// Edit `around_rpc_example`
+/// Edit `around_rpc_example`.
 #[test]
 fn test_rpc_examples() {
     let suite = setup_rpc_test_suite(TARGET_HEIGHT);
