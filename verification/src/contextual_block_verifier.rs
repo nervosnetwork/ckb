@@ -362,7 +362,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             let guard = txs_verify_cache.read().await;
             let ret = keys
                 .into_iter()
-                .filter_map(|hash| guard.get(&hash).cloned().map(|value| (hash, value)))
+                .filter_map(|hash| guard.peek(&hash).cloned().map(|value| (hash, value)))
                 .collect();
 
             if let Err(e) = sender.send(ret) {
@@ -443,7 +443,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in ret {
-                guard.insert(k, v);
+                guard.put(k, v);
             }
         });
 

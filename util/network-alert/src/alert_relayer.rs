@@ -15,7 +15,7 @@ use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerInde
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ const KNOWN_LIST_SIZE: usize = 64;
 
 /// AlertRelayer
 /// relay alert messages
-#[derive(Clone)]
+
 pub struct AlertRelayer {
     notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
@@ -58,12 +58,12 @@ impl AlertRelayer {
 
     // return true if it this first time the peer know this alert
     fn mark_as_known(&mut self, peer: PeerIndex, alert_id: u32) -> bool {
-        match self.known_lists.get_refresh(&peer) {
+        match self.known_lists.get_mut(&peer) {
             Some(alert_ids) => alert_ids.insert(alert_id),
             None => {
                 let mut alert_ids = HashSet::new();
                 alert_ids.insert(alert_id);
-                self.known_lists.insert(peer, alert_ids);
+                self.known_lists.put(peer, alert_ids);
                 true
             }
         }
