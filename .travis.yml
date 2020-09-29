@@ -104,6 +104,16 @@ matrix:
         - make check-whitespaces
         - make check-dirty-rpc-doc
         - make check-dirty-hashes-toml
+        - devtools/ci/check-cyclic-dependencies.py
+    - name: Cyclic dev-dependencies
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      os: linux
+      cache: false
+      addons: { apt: { packages: [] } }
+      # This is a trick to use stable Rust here to allow failure. There are cyclic dev-dependencies in the current code base and we hope to fix later.
+      rust: stable
+      script:
+        - devtools/ci/check-cyclic-dependencies.py --dev
     - name: Security Audit
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
