@@ -93,7 +93,7 @@ impl<'a> TransactionHashesProcess<'a> {
                 if let Some(next_ask_timeout) =
                     peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout)
                 {
-                    inflight_transactions.insert(tx_hash, next_ask_timeout);
+                    inflight_transactions.put(tx_hash, next_ask_timeout);
                 }
             }
         }

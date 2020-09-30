@@ -16,6 +16,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e522997b529f05601e05166c07ed17789691f562762c7f3b987263d2dedee5c"
 
 [[package]]
+name = "ahash"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8fd72866655d1904d6b0997d0b07ba561047d070fbe29de039031c641b61217"
+
+[[package]]
 name = "aho-corasick"
 version = "0.6.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -738,7 +744,7 @@ dependencies = [
  "hyper 0.12.35",
  "hyper-tls",
  "indicatif",
- "lru-cache",
+ "lru",
  "rand 0.6.5",
  "serde",
  "serde_json",
@@ -802,7 +808,7 @@ dependencies = [
  "ckb-util",
  "failure",
  "faketime",
- "lru-cache",
+ "lru",
  "semver",
 ]
 
@@ -1047,7 +1053,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-util",
- "lru-cache",
+ "lru",
 ]
 
 [[package]]
@@ -1078,7 +1084,7 @@ dependencies = [
  "failure",
  "faketime",
  "futures 0.3.4",
- "lru-cache",
+ "lru",
  "rand 0.6.5",
  "ratelimit_meter",
  "sentry",
@@ -1143,7 +1149,7 @@ dependencies = [
  "ckb-verification",
  "failure",
  "faketime",
- "lru-cache",
+ "lru",
  "tokio 0.2.22",
 ]
 
@@ -1200,7 +1206,7 @@ dependencies = [
  "enum-display-derive",
  "failure",
  "faketime",
- "lru-cache",
+ "lru",
  "rand 0.6.5",
  "rayon",
  "tokio 0.2.22",
@@ -1703,7 +1709,7 @@ version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fdb60074c9b82c91f8702fa5351b85d22b668dae7f73bf06b44a09bc372380f"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.5.0",
  "smallvec 0.6.10",
 ]
 
@@ -2021,6 +2027,16 @@ name = "hashbrown"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1de41fb8dba9714efd92241565cdff73f78508c95697dd56787d3cba27e2353"
+
+[[package]]
+name = "hashbrown"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91b62f79061a0bc2e046024cb7ba44b08419ed238ecbd9adbd787434b9e8c25"
+dependencies = [
+ "ahash",
+ "autocfg 1.0.0",
+]
 
 [[package]]
 name = "hdrhistogram"
@@ -2707,12 +2723,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "lru-cache"
-version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8#a35fdb81a309dd494c8edc02c0ff44e0597a4be4"
+name = "lru"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "111b945ac72ec09eb7bc62a0fbdc3cc6e80555a7245f52a69d3921a75b53b153"
 dependencies = [
- "fnv",
- "linked-hash-map",
+ "hashbrown 0.8.2",
 ]
 
 [[package]]

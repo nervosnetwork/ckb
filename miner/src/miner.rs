@@ -11,7 +11,7 @@ use ckb_types::{
     utilities::compact_to_target,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::sync::Arc;
 use std::thread;
 
@@ -78,7 +78,7 @@ impl Miner {
                     Ok(work) => {
                         let pow_hash= work.block.header().calc_pow_hash();
                         let (target, _,) = compact_to_target(work.block.header().raw().compact_target().unpack());
-                        self.works.insert(pow_hash.clone(), work);
+                        self.works.put(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
                     },
                     _ => {
@@ -103,7 +103,7 @@ impl Miner {
     }
 
     fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u128) {
-        if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
+        if let Some(work) = self.works.get(&pow_hash).cloned() {
             self.notify_workers(WorkerMessage::Stop);
             let raw_header = work.block.header().raw();
             let header = Header::new_builder()

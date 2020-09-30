@@ -3,7 +3,7 @@ use ckb_types::{
     packed::Byte32,
 };
 
-pub type TxVerifyCache = lru_cache::LruCache<Byte32, CacheEntry>;
+pub type TxVerifyCache = lru::LruCache<Byte32, CacheEntry>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CacheEntry {

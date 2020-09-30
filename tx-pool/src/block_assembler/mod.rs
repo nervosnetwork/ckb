@@ -19,7 +19,7 @@ use ckb_types::{
     prelude::*,
 };
 use failure::Error as FailureError;
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Mutex;

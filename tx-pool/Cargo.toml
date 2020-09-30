@@ -13,7 +13,7 @@ ckb-logger = {path = "../util/logger"}
 ckb-verification = { path = "../verification" }
 failure = "0.1.5"
 faketime = "0.2"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+lru = "0.6.0"
 ckb-dao = { path = "../util/dao" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-store = { path = "../store" }

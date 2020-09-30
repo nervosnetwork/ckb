@@ -66,7 +66,7 @@ impl TxPoolService {
             .last_uncles_updated_at
             .load(Ordering::SeqCst);
         let last_txs_updated_at = self.last_txs_updated_at.load(Ordering::SeqCst);
-        if let Some(template_cache) = block_assembler.template_caches.lock().await.get(&(
+        if let Some(template_cache) = block_assembler.template_caches.lock().await.peek(&(
             tip_hash,
             bytes_limit,
             proposals_limit,
@@ -246,7 +246,7 @@ impl TxPoolService {
         txs_updated_at: u64,
         template: BlockTemplate,
     ) {
-        block_assembler.template_caches.lock().await.insert(
+        block_assembler.template_caches.lock().await.put(
             key,
             TemplateCache {
                 time: template.current_time.into(),
@@ -376,7 +376,7 @@ impl TxPoolService {
         let guard = self.txs_verify_cache.read().await;
         txs.filter_map(|tx| {
             let hash = tx.hash();
-            guard.get(&hash).cloned().map(|value| (hash, value))
+            guard.peek(&hash).cloned().map(|value| (hash, value))
         })
         .collect()
     }
@@ -477,7 +477,7 @@ impl TxPoolService {
         tokio::spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in updated_cache {
-                guard.insert(k, v);
+                guard.put(k, v);
             }
         });
         Ok(cycles_vec)
@@ -517,7 +517,7 @@ impl TxPoolService {
         tokio::spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in updated_cache {
-                guard.insert(k, v);
+                guard.put(k, v);
             }
         });
     }
@@ -744,14 +744,18 @@ fn _update_tx_pool_for_reorg(
     });
 
     // try move conflict to proposed
-    for entry in tx_pool.conflict.entries() {
-        if snapshot.proposals().contains_proposed(entry.key()) {
-            let entry = entry.remove();
-            entries.push((entry.cache_entry, entry.size, entry.transaction));
-        } else if snapshot.proposals().contains_gap(entry.key()) {
-            let entry = entry.remove();
-            gaps.push((entry.cache_entry, entry.size, entry.transaction));
+    let mut removed_conflict = Vec::with_capacity(tx_pool.conflict.len());
+    for (key, entry) in tx_pool.conflict.iter() {
+        if snapshot.proposals().contains_proposed(key) {
+            removed_conflict.push(key.clone());
+            entries.push((entry.cache_entry, entry.size, entry.transaction.clone()));
+        } else if snapshot.proposals().contains_gap(key) {
+            removed_conflict.push(key.clone());
+            gaps.push((entry.cache_entry, entry.size, entry.transaction.clone()));
         }
+    }
+    for removed_key in removed_conflict {
+        tx_pool.conflict.pop(&removed_key);
     }
 
     for (cycles, size, tx) in entries {

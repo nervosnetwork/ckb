@@ -5,7 +5,7 @@ use ckb_types::{
     packed::{Byte32, ProposalShortIdVec},
 };
 use ckb_util::Mutex;
-use lru_cache::LruCache;
+use lru::LruCache;
 
 pub struct StoreCache {
     pub headers: Mutex<LruCache<Byte32, HeaderView>>,
