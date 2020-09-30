@@ -847,8 +847,7 @@ pub trait ChainRpc {
     /// ## Returns
     ///
     /// If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
-    /// its block number is N, return the block rewards analysis for block `N
-    /// - 1 - ProposalWindow.farthest`.
+    /// its block number is N, return the block rewards analysis for block `N - 1 - ProposalWindow.farthest`.
     ///
     /// ## Examples
     ///

@@ -80,6 +80,12 @@ function run-integration {
   popd
 }
 
+function run-gen-rpc-doc {
+  rm -ErrorAction SilentlyContinue -Force target/doc/ckb_rpc/module/trait.*.html
+  cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+  python3 ./devtools/doc/rpc.py > rpc/README.md
+}
+
 try {
   if ($env:CKB_TEST_ARGS -eq $null) {
     Set-Env CKB_TEST_ARGS "-c 4"
