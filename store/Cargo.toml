@@ -9,7 +9,7 @@ license = "MIT"
 ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+lru = "0.6.0"
 ckb-traits = { path = "../traits" }
 ckb-util = { path = "../util" }
 ckb-error = { path = "../error" }

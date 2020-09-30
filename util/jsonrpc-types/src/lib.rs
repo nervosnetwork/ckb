@@ -15,7 +15,7 @@ mod proposal_short_id;
 mod sync;
 mod uints;
 
-pub use self::alert::{Alert, AlertMessage};
+pub use self::alert::{Alert, AlertId, AlertMessage, AlertPriority};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
@@ -26,7 +26,7 @@ pub use self::blockchain::{
     TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
-pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
+pub use self::cell::{CellData, CellInfo, CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DryRunResult, EstimateResult};
@@ -48,10 +48,20 @@ pub use primitive::{
 };
 pub use serde::{Deserialize, Serialize};
 
+/// This is a wrapper for JSON serialization to select the format between Json and Hex.
+///
+/// ## Examples
+///
+/// `ResponseFormat<BlockView, Block>` returns the block in its Json format or molecule serialized
+/// Hex format.
 pub enum ResponseFormat<V, P> {
-    // ckb_jsonrpc_types::(BlockView / HeaderView / etc)
+    /// Serializes `V` as Json
     Json(V),
-    // ckb_types::packed::(Block / Header / etc)
+    /// Serializes `P` as Hex.
+    ///
+    /// `P` is first serialized by molecule into binary.
+    ///
+    /// The binary is then encoded as a 0x-prefixed hex string.
     Hex(P),
 }
 

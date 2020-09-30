@@ -12,7 +12,7 @@ ckb-script = { path = "../script" }
 ckb-pow = { path = "../pow" }
 faketime = "0.2.0"
 rayon = "1.0"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+lru = "0.6.0"
 ckb-traits = { path = "../traits" }
 ckb-chain-spec = { path = "../spec" }
 ckb-dao = { path = "../util/dao" }

@@ -54,8 +54,13 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	./devtools/doc/jsonfmt.py rpc/json/rpc.json
-	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+	rm -f target/doc/ckb_rpc/module/trait.*.html
+	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+	if command -v python3 &> /dev/null; then \
+		python3 ./devtools/doc/rpc.py > rpc/README.md; \
+	else \
+		python ./devtools/doc/rpc.py > rpc/README.md; \
+	fi
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
@@ -152,7 +157,7 @@ check-whitespaces:
 
 .PHONY: check-dirty-rpc-doc
 check-dirty-rpc-doc: gen-rpc-doc
-	git diff --exit-code rpc/README.md rpc/json/rpc.json
+	git diff --exit-code rpc/README.md
 
 .PHONY: check-dirty-hashes-toml
 check-dirty-hashes-toml: gen-hashes

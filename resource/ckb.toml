@@ -46,6 +46,11 @@ dsn = "" # {{
 # # Seconds between checking the process, 0 is disable, default is 0.
 # interval = 600
 
+[db]
+# Provide an options file to tune RocksDB for your workload and your system configuration.
+# More details can be found in [the official tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide).
+options_file = "default.db-options"
+
 [network]
 listen_addresses = ["/ip4/0.0.0.0/tcp/8115"] # {{
 # _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}"]

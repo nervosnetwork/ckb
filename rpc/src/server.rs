@@ -8,6 +8,7 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use std::net::{SocketAddr, ToSocketAddrs};
 
+#[doc(hidden)]
 pub struct RpcServer {
     pub(crate) http: jsonrpc_http_server::Server,
     pub(crate) _tcp: Option<jsonrpc_tcp_server::Server>,

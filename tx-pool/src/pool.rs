@@ -22,7 +22,7 @@ use ckb_types::{
 use ckb_verification::cache::CacheEntry;
 use ckb_verification::{TimeRelativeTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{
@@ -30,7 +30,6 @@ use std::sync::{
     Arc,
 };
 
-#[derive(Clone)]
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
     /// The short id that has not been proposed
@@ -54,15 +53,35 @@ pub struct TxPool {
     pub snapshot: Arc<Snapshot>,
 }
 
+/// Transaction pool information.
 #[derive(Clone, Debug)]
 pub struct TxPoolInfo {
+    /// The associated chain tip block hash.
+    ///
+    /// Transaction pool is stateful. It manages the transactions which are valid to be commit
+    /// after this block.
     pub tip_hash: Byte32,
+    /// The block number of the block `tip_hash`.
     pub tip_number: BlockNumber,
+    /// Count of transactions in the pending state.
+    ///
+    /// The pending transactions must be proposed in a new block first.
     pub pending_size: usize,
+    /// Count of transactions in the proposed state.
+    ///
+    /// The proposed transactions are ready to be commit in the new block after the block
+    /// `tip_hash`.
     pub proposed_size: usize,
+    /// Count of orphan transactions.
+    ///
+    /// An orphan transaction has an input cell from the transaction which is neither in the chain
+    /// nor in the transaction pool.
     pub orphan_size: usize,
+    /// Total count of transactions in the pool of all the different kinds of states.
     pub total_tx_size: usize,
+    /// Total consumed VM cycles of all the transactions in the pool.
     pub total_tx_cycles: Cycle,
+    /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: u64,
 }
 
@@ -192,7 +211,7 @@ impl TxPool {
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id)
-            || self.conflict.contains_key(id)
+            || self.conflict.contains(id)
             || self.proposed.contains_key(id)
             || self.orphan.contains_key(id)
     }
@@ -202,7 +221,7 @@ impl TxPool {
             || self.gap.contains_key(id)
             || self.proposed.contains_key(id)
             || self.orphan.contains_key(id)
-            || self.conflict.contains_key(id)
+            || self.conflict.contains(id)
     }
 
     pub fn get_tx_with_cycles(
@@ -233,7 +252,7 @@ impl TxPool {
             })
             .or_else(|| {
                 self.conflict
-                    .get(id)
+                    .peek(id)
                     .cloned()
                     .map(|entry| (entry.transaction, entry.cache_entry.map(|c| c.cycles)))
             })
@@ -245,7 +264,7 @@ impl TxPool {
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
-            .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
+            .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
 
@@ -268,7 +287,7 @@ impl TxPool {
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.pending.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
-            .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
+            .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
 
@@ -283,7 +302,7 @@ impl TxPool {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }
             self.committed_txs_hash_cache
-                .insert(tx.proposal_short_id(), hash.to_owned());
+                .put(tx.proposal_short_id(), hash.to_owned());
         }
     }
 
@@ -473,7 +492,7 @@ impl TxPool {
                             OutPointError::Dead(_) => {
                                 if self
                                     .conflict
-                                    .insert(short_id, DefectEntry::new(tx, 0, cache_entry, size))
+                                    .put(short_id, DefectEntry::new(tx, 0, cache_entry, size))
                                     .is_some()
                                 {
                                     self.update_statics_for_remove_tx(
@@ -689,7 +708,7 @@ impl TxPool {
         self.get_tx_from_proposed_and_others(proposal_id)
             .or_else(|| {
                 self.committed_txs_hash_cache
-                    .get(proposal_id)
+                    .peek(proposal_id)
                     .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
             })
     }

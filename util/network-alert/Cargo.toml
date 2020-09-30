@@ -16,7 +16,7 @@ ckb-logger = { path = "../logger"}
 ckb-app-config = { path = "../app-config" }
 faketime = "0.2.0"
 failure = "0.1.5"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+lru = "0.6"
 semver = "0.9"
 
 [dev-dependencies]

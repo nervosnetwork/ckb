@@ -23,7 +23,7 @@ ckb-chain-spec = { path = "../spec" }
 ckb-channel = { path = "../util/channel" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+lru = "0.6.0"
 sentry = "0.17.0"
 futures = "0.3"
 ckb-error = {path = "../error"}

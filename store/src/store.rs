@@ -49,7 +49,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get header by block header hash
     fn get_block_header(&'a self, hash: &packed::Byte32) -> Option<HeaderView> {
         if let Some(cache) = self.cache() {
-            if let Some(header) = cache.headers.lock().get_refresh(hash) {
+            if let Some(header) = cache.headers.lock().get(hash) {
                 return Some(header.clone());
             }
         };
@@ -60,7 +60,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|header| {
-                cache.headers.lock().insert(hash.clone(), header.clone());
+                cache.headers.lock().put(hash.clone(), header.clone());
                 header
             })
         } else {
@@ -86,7 +86,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache() {
-            if let Some(hashes) = cache.block_tx_hashes.lock().get_refresh(hash) {
+            if let Some(hashes) = cache.block_tx_hashes.lock().get(hash) {
                 return hashes.clone();
             }
         };
@@ -106,10 +106,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             .collect();
 
         if let Some(cache) = self.cache() {
-            cache
-                .block_tx_hashes
-                .lock()
-                .insert(hash.clone(), ret.clone());
+            cache.block_tx_hashes.lock().put(hash.clone(), ret.clone());
         }
 
         ret
@@ -121,7 +118,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         hash: &packed::Byte32,
     ) -> Option<packed::ProposalShortIdVec> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.block_proposals.lock().get_refresh(hash) {
+            if let Some(data) = cache.block_proposals.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -135,10 +132,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|data| {
-                cache
-                    .block_proposals
-                    .lock()
-                    .insert(hash.clone(), data.clone());
+                cache.block_proposals.lock().put(hash.clone(), data.clone());
                 data
             })
         } else {
@@ -149,7 +143,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get block uncles by block header hash
     fn get_block_uncles(&'a self, hash: &packed::Byte32) -> Option<UncleBlockVecView> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.block_uncles.lock().get_refresh(hash) {
+            if let Some(data) = cache.block_uncles.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -161,10 +155,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|uncles| {
-                cache
-                    .block_uncles
-                    .lock()
-                    .insert(hash.clone(), uncles.clone());
+                cache.block_uncles.lock().put(hash.clone(), uncles.clone());
                 uncles
             })
         } else {
@@ -247,7 +238,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     fn get_cell_data(&'a self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache() {
-            if let Some(cached) = cache.cell_data.lock().get_refresh(&key) {
+            if let Some(cached) = cache.cell_data.lock().get(&key) {
                 return Some(cached.clone());
             }
         };
@@ -274,7 +265,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|cached| {
-                cache.cell_data.lock().insert(key, cached.clone());
+                cache.cell_data.lock().put(key, cached.clone());
                 cached
             })
         } else {
@@ -326,7 +317,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     fn block_exists(&'a self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache() {
-            if cache.headers.lock().get_refresh(hash).is_some() {
+            if cache.headers.lock().get(hash).is_some() {
                 return true;
             }
         };
@@ -336,7 +327,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     // Get cellbase by block hash
     fn get_cellbase(&'a self, hash: &packed::Byte32) -> Option<TransactionView> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.cellbase.lock().get_refresh(hash) {
+            if let Some(data) = cache.cellbase.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -349,7 +340,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         });
         if let Some(cache) = self.cache() {
             ret.map(|data| {
-                cache.cellbase.lock().insert(hash.clone(), data.clone());
+                cache.cellbase.lock().put(hash.clone(), data.clone());
                 data
             })
         } else {

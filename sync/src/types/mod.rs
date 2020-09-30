@@ -28,7 +28,7 @@ use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::cmp;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -341,9 +341,14 @@ impl PeerState {
     }
 }
 
-#[derive(Default)]
 pub struct Filter<T: Eq + Hash> {
     inner: LruCache<T, ()>,
+}
+
+impl<T: Eq + Hash> Default for Filter<T> {
+    fn default() -> Self {
+        Filter::new(FILTER_SIZE)
+    }
 }
 
 impl<T: Eq + Hash> Filter<T> {
@@ -354,11 +359,11 @@ impl<T: Eq + Hash> Filter<T> {
     }
 
     pub fn contains(&self, item: &T) -> bool {
-        self.inner.contains_key(item)
+        self.inner.contains(item)
     }
 
     pub fn insert(&mut self, item: T) -> bool {
-        self.inner.insert(item, ()).is_none()
+        self.inner.put(item, ()).is_none()
     }
 }
 
@@ -374,7 +379,7 @@ impl KnownFilter {
     pub fn insert(&mut self, index: PeerIndex, hash: Byte32) -> bool {
         self.inner
             .entry(index)
-            .or_insert_with(|| Filter::new(FILTER_SIZE))
+            .or_insert_with(Filter::default)
             .insert(hash)
     }
 }
@@ -1555,7 +1560,7 @@ impl SyncState {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
             for hash in hashes.iter() {
-                inflight_transactions.remove(&hash);
+                inflight_transactions.pop(hash);
             }
         }
 
@@ -1918,7 +1923,7 @@ impl ActiveChain {
             .state
             .pending_get_headers
             .write()
-            .get_refresh(&(peer, header.hash()))
+            .get(&(peer, header.hash()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -1936,7 +1941,7 @@ impl ActiveChain {
         self.state
             .pending_get_headers
             .write()
-            .insert((peer, header.hash()), Instant::now());
+            .put((peer, header.hash()), Instant::now());
 
         debug!(
             "send_getheaders_to_peer peer={}, hash={}",

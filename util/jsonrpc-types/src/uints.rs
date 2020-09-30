@@ -89,7 +89,19 @@ impl<T: Uint> JsonUintVisitor<T> {
 }
 
 macro_rules! def_json_uint {
-    ($alias:ident, $inner:ident) => {
+    ($alias:ident, $inner:ident, $bits:expr) => {
+        #[doc = "The "]
+        #[doc = $bits]
+        #[doc = r#" unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+
+## Examples
+
+| JSON   | Decimal Value                |
+| -------| ---------------------------- |
+| "0x0"  | 0                            |
+| "0x10" | 16                           |
+| "10"   | Invalid, 0x is required      |
+| "0x01" | Invalid, redundant leading 0 |"#]
         pub type $alias = JsonUint<$inner>;
 
         impl Uint for $inner {
@@ -154,9 +166,9 @@ macro_rules! impl_pack_and_unpack {
     };
 }
 
-def_json_uint!(Uint32, u32);
-def_json_uint!(Uint64, u64);
-def_json_uint!(Uint128, u128);
+def_json_uint!(Uint32, u32, "32-bit");
+def_json_uint!(Uint64, u64, "64-bit");
+def_json_uint!(Uint128, u128, "128-bit");
 impl_serde_deserialize!(Uint32Visitor, u32);
 impl_serde_deserialize!(Uint64Visitor, u64);
 impl_serde_deserialize!(Uint128Visitor, u128);
