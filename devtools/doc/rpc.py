@@ -302,6 +302,7 @@ class RPCMethod():
     def __init__(self, name):
         self.name = name
         self.rpc_var_parser = RPCVar()
+        self.parsing_stability = False
         self.doc_parser = None
         self.params = []
 
@@ -310,10 +311,15 @@ class RPCMethod():
             if tag == 'div' and (attrs == [("class", "docblock")] or attrs == [("class", 'stability')]):
                 self.rpc_var_parser = None
                 self.doc_parser = MarkdownParser(title_level=4)
+                if attrs == [("class", "stability")]:
+                    self.parsing_stability = True
                 return
 
             self.rpc_var_parser.handle_starttag(tag, attrs)
         elif not self.doc_parser.completed():
+            self.doc_parser.handle_starttag(tag, attrs)
+        elif self.parsing_stability and tag == 'div' and attrs == [("class", "docblock")]:
+            self.parsing_stability = False
             self.doc_parser.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
@@ -332,7 +338,7 @@ class RPCMethod():
             self.doc_parser.handle_data(data)
 
     def completed(self):
-        return self.doc_parser is not None and self.doc_parser.completed()
+        return self.doc_parser is not None and not self.parsing_stability and self.doc_parser.completed()
 
     def write(self, file):
         file.write("\n#### Method `{}`\n".format(self.name))
