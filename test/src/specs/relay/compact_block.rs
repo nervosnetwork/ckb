@@ -1,9 +1,13 @@
-use std::collections::HashSet;
-use std::time::Duration;
-
+use crate::node::exit_ibd_mode;
+use crate::utils::{
+    build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
+    build_header, build_headers, wait_until,
+};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_test_chain_utils::MockStore;
+use ckb_types::packed::SyncMessageUnion::GetBlocks;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, ResolvedTransaction},
@@ -14,13 +18,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-
-use crate::node::exit_ibd_mode;
-use crate::utils::{
-    build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
-    build_header, build_headers, clear_messages, wait_until,
-};
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use std::collections::HashSet;
 
 pub struct CompactBlockEmptyParentUnknown;
 
@@ -30,16 +28,14 @@ impl Spec for CompactBlockEmptyParentUnknown {
     fn run(&self, nodes: &mut Vec<Node>) {
         exit_ibd_mode(nodes);
         let node = &nodes[0];
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
 
         node.generate_block();
-        let _ = net.receive();
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
@@ -51,20 +47,21 @@ impl Spec for CompactBlockEmptyParentUnknown {
             .build();
         let tip_block = node.get_tip_block();
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            node,
+            SupportProtocols::Relay,
             build_compact_block(&parent_unknown_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() != tip_block);
         assert!(!ret, "Node0 should reconstruct empty block failed");
 
-        net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
-                    .unwrap_or(false)
-            },
-            "Node0 should send back GetHeaders message for unknown parent header",
+        let ret = net.should_receive(node, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Node0 should send back GetHeaders message for unknown parent header"
         );
     }
 }
@@ -76,18 +73,17 @@ impl Spec for CompactBlockEmpty {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
 
         let new_empty_block = node.new_block(None, None, None);
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            node,
+            SupportProtocols::Relay,
             build_compact_block(&new_empty_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_empty_block);
@@ -102,13 +98,12 @@ impl Spec for CompactBlockPrefilled {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Proposal a tx, and grow up into proposal window
@@ -127,8 +122,8 @@ impl Spec for CompactBlockPrefilled {
             .transaction(new_tx)
             .build();
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            node,
+            SupportProtocols::Relay,
             build_compact_block_with_prefilled(&new_block, vec![1]),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
@@ -148,13 +143,12 @@ impl Spec for CompactBlockMissingFreshTxs {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
 
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
@@ -166,37 +160,31 @@ impl Spec for CompactBlockMissingFreshTxs {
         );
         node.generate_blocks(3);
 
-        // Net consume and ignore the recent blocks
-        (0..(DEFAULT_TX_PROPOSAL_WINDOW.1 + 6)).for_each(|_| {
-            net.receive();
-        });
-
         // Relay a block contains `new_tx` as committed, but not include in prefilled
         let new_block = node
             .new_block_builder(None, None, None)
             .transaction(new_tx)
             .build();
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            &node,
+            SupportProtocols::Relay,
             build_compact_block(&new_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
         assert!(!ret, "Node0 should be unable to reconstruct the block");
 
-        net.should_receive(
-            |data: &Bytes| {
-                let get_block_txns = RelayMessage::from_slice(&data)
-                    .map(|message| {
-                        message.to_enum().item_name() == packed::GetBlockTransactions::NAME
-                    })
-                    .unwrap_or(false);
-                let get_block = SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
-                    .unwrap_or(false);
-                get_block_txns || get_block
-            },
-            "Node0 should send GetBlockTransactions message for missing transactions",
+        let ret = net.should_receive(node, |data: &Bytes| {
+            let get_block_txns = RelayMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == packed::GetBlockTransactions::NAME)
+                .unwrap_or(false);
+            let get_block = SyncMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                .unwrap_or(false);
+            get_block_txns || get_block
+        });
+        assert!(
+            ret,
+            "Node0 should send GetBlockTransactions message for missing transactions"
         );
     }
 }
@@ -213,13 +201,12 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
         node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Build the target transaction
@@ -242,10 +229,9 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         node.rpc_client().send_transaction(new_tx.data().into());
 
         // Relay the target block
-        clear_messages(&net);
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            node,
+            SupportProtocols::Relay,
             build_compact_block(&new_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
@@ -261,16 +247,14 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
     fn run(&self, nodes: &mut Vec<Node>) {
         exit_ibd_mode(nodes);
         let node0 = &nodes[0];
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
-        let (peer_id0, _, _) = net.receive();
         let node1 = &nodes[1];
         net.connect(node1);
-        let _ = net.receive();
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash());
@@ -288,9 +272,6 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         node0.connect(node1);
         node0.waiting_for_sync(node1, node0.get_tip_block().header().number());
 
-        // Net consume and ignore the recent blocks
-        clear_messages(&net);
-
         // Construct a new block contains one transaction
         let block = node0
             .new_block_builder(None, None, None)
@@ -299,25 +280,20 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
         // Net send the compact block to node0, but dose not send the corresponding missing
         // block transactions. It will make node0 unable to reconstruct the complete block
-        net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id0,
-            build_compact_block(&block),
-        );
+        net.send(node0, SupportProtocols::Relay, build_compact_block(&block));
 
-        net.should_receive(
-            |data: &Bytes| {
-                let get_block_txns = RelayMessage::from_slice(&data)
-                    .map(|message| {
-                        message.to_enum().item_name() == packed::GetBlockTransactions::NAME
-                    })
-                    .unwrap_or(false);
-                let get_block = SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
-                    .unwrap_or(false);
-                get_block_txns || get_block
-            },
-            "Node0 should send GetBlockTransactions message for missing transactions",
+        let ret = net.should_receive(node0, |data: &Bytes| {
+            let get_block_txns = RelayMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == packed::GetBlockTransactions::NAME)
+                .unwrap_or(false);
+            let get_block = SyncMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                .unwrap_or(false);
+            get_block_txns || get_block
+        });
+        assert!(
+            ret,
+            "Node0 should send GetBlockTransactions message for missing transactions"
         );
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
@@ -432,51 +408,52 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .build();
         let old_tip = node.get_tip_block().header().number();
 
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
+        net.send(node, SupportProtocols::Relay, build_compact_block(&parent));
 
-        net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
-            build_compact_block(&parent),
-        );
+        net.send(node, SupportProtocols::Sync, build_header(&parent.header()));
+        net.send(node, SupportProtocols::Sync, build_header(&block.header()));
 
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            build_header(&parent.header()),
-        );
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            build_header(&block.header()),
-        );
-
-        net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
-            build_block_transactions(&parent),
-        );
-
-        clear_messages(&net);
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            build_block(&block),
-        );
-
-        let ret = wait_until(20, move || {
-            node.get_tip_block().header().number() == old_tip + 2
+        // Send block to node. Node will save it into orphan_block_pool since the parent is unknown.
+        let ret = net.should_receive(node, |data| {
+            SyncMessage::from_slice(data)
+                .map(|message| {
+                    if let GetBlocks(get_blocks) = message.to_enum() {
+                        for hash in get_blocks.block_hashes().into_iter() {
+                            if hash == block.hash() {
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                })
+                .unwrap_or(false)
         });
         assert!(
             ret,
-            "relayer should process the two blocks, including the orphan block"
+            "Node should receive GetBlocks which consists of `block`"
         );
+        net.send(node, SupportProtocols::Sync, build_block(&block));
+
+        net.send(
+            node,
+            SupportProtocols::Relay,
+            build_block_transactions(&parent),
+        );
+
+        let ret = wait_until(20, move || node.get_tip_block_number() == old_tip + 2);
+        if !ret {
+            assert_eq!(
+                node.get_tip_block_number(),
+                old_tip + 2,
+                "relayer should process the two blocks, including the orphan block"
+            );
+        }
     }
 }
 
@@ -492,13 +469,12 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         exit_ibd_mode(nodes);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node0.consensus().clone(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node0);
-        let (peer_id, _, _) = net.receive();
 
         assert_eq!(node0.get_tip_block(), node1.get_tip_block());
         let old_tip = node1.get_tip_block_number();
@@ -506,27 +482,19 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
             .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
             .collect();
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            build_headers(&headers),
-        );
-        {
-            let (_, _, data) = net.receive_timeout(Duration::from_secs(5)).expect("");
-            assert_eq!(
-                SyncMessage::from_slice(&data)
-                    .unwrap()
-                    .to_enum()
-                    .item_name(),
-                packed::GetBlocks::NAME,
-                "Node0 should send GetBlocks message",
-            );
-        }
+        net.send(node0, SupportProtocols::Sync, build_headers(&headers));
+
+        let ret = net.should_receive(node0, |data| {
+            SyncMessage::from_slice(data)
+                .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
+                .unwrap_or(false)
+        });
+        assert!(ret, "Node0 should send GetBlocks message");
 
         let new_block = node0.new_block(None, None, None);
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
+            node0,
+            SupportProtocols::Relay,
             build_compact_block(&new_block),
         );
         assert!(

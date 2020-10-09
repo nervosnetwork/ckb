@@ -159,6 +159,7 @@ impl Node {
     }
 
     pub fn node_id(&self) -> &str {
+        // peer_id.to_base58()
         self.node_id.as_ref().expect("uninitialized node_id")
     }
 

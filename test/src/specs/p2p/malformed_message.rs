@@ -16,34 +16,23 @@ impl Spec for MalformedMessage {
         info!("Connect node0");
         let node0 = &nodes[0];
         exit_ibd_mode(nodes);
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let peer_id = net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
-                    .unwrap_or(false)
-            },
-            "Test node should receive GetHeaders message from node0",
+        let ret = net.should_receive(node0, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Test node should receive GetHeaders message from node0"
         );
 
         info!("Send malformed message to node0 twice");
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            vec![0, 0, 0, 0].into(),
-        );
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            vec![0, 1, 2, 3].into(),
-        );
+        net.send(node0, SupportProtocols::Sync, vec![0, 0, 0, 0].into());
+        net.send(node0, SupportProtocols::Sync, vec![0, 1, 2, 3].into());
         let rpc_client = nodes[0].rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
@@ -67,21 +56,18 @@ impl Spec for MalformedMessageWithWhitelist {
         let node1 = nodes.pop().unwrap();
         exit_ibd_mode(nodes);
         let mut node0 = nodes.pop().unwrap();
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node0);
 
         info!("Test node should receive GetHeaders message from node0");
-        let peer_id = net.should_receive(
-            |data: &Bytes| {
-                SyncMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
-                    .unwrap_or(false)
-            },
-            "Test node should receive GetHeaders message from node0",
+        let ret = net.should_receive(&node0, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Test node should receive GetHeaders message from node0"
         );
 
         node0.stop();
@@ -96,16 +82,8 @@ impl Spec for MalformedMessageWithWhitelist {
         assert!(ret, "Node0 should connect test node");
 
         info!("Send malformed message to node0 twice");
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            vec![0, 0, 0, 0].into(),
-        );
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            peer_id,
-            vec![0, 1, 2, 3].into(),
-        );
+        net.send(&node0, SupportProtocols::Sync, vec![0, 0, 0, 0].into());
+        net.send(&node0, SupportProtocols::Sync, vec![0, 1, 2, 3].into());
 
         node1.connect(&node0);
 

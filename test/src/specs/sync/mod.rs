@@ -6,7 +6,6 @@ mod invalid_block;
 mod invalid_locator_size;
 mod last_common_header;
 mod sync_timeout;
-mod utils;
 
 pub use block_sync::*;
 pub use chain_forks::*;

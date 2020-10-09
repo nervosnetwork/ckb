@@ -18,14 +18,8 @@ impl Spec for InvalidLocatorSize {
         info!("Connect node0");
         exit_ibd_mode(nodes);
         let node0 = &nodes[0];
-        let net = Net::new(
-            self.name(),
-            node0.consensus().clone(),
-            vec![SupportProtocols::Sync],
-        );
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
-        // get peer_id from GetHeaders message
-        let (peer_id, _, _) = net.receive();
 
         let hashes: Vec<Byte32> = (0..=MAX_LOCATOR_SIZE)
             .map(|_| h256!("0x1").pack())
@@ -40,13 +34,25 @@ impl Spec for InvalidLocatorSize {
             .build()
             .as_bytes();
 
-        net.send(SupportProtocols::Sync.protocol_id(), peer_id, message);
+        net.send(node0, SupportProtocols::Sync, message);
 
         let rpc_client = nodes[0].rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
 
-        net.connect(node0);
+        let ret = wait_until(10, || {
+            net.controller()
+                .connected_peers()
+                .iter()
+                .find(|(_, peer)| peer.peer_id.to_base58() == node0.node_id())
+                .is_none()
+        });
+        assert!(
+            ret,
+            "Net should disconnect node0 because node0 already disconnect it"
+        );
+
+        net.connect_uncheck(node0);
         let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
         assert!(!ret, "Node0 should ban test node");
     }

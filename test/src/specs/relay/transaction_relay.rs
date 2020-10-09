@@ -9,7 +9,6 @@ use ckb_types::{
     prelude::*,
 };
 use log::info;
-use std::time::Duration;
 
 pub struct TransactionRelayBasic;
 
@@ -134,23 +133,22 @@ impl Spec for TransactionRelayTimeout {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
         node.generate_blocks(4);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(&node);
-        let (pi, _, _) = net.receive();
         let dummy_tx = TransactionBuilder::default().build();
         info!("Sending RelayTransactionHashes to node");
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            pi,
+            &node,
+            SupportProtocols::Relay,
             build_relay_tx_hashes(&[dummy_tx.hash()]),
         );
         info!("Receiving GetRelayTransactions message from node");
         assert!(
-            wait_get_relay_txs(&net),
+            wait_get_relay_txs(&net, &node),
             "timeout to wait GetRelayTransactions"
         );
 
@@ -160,7 +158,7 @@ impl Spec for TransactionRelayTimeout {
         // (not happened in current test case)
         sleep(wait_seconds);
         assert!(
-            !wait_get_relay_txs(&net),
+            !wait_get_relay_txs(&net, &node),
             "should not receive GetRelayTransactions again"
         );
     }
@@ -170,25 +168,24 @@ pub struct RelayInvalidTransaction;
 
 impl Spec for RelayInvalidTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
-        let node = nodes.pop().unwrap();
+        let node = &nodes.pop().unwrap();
         node.generate_blocks(4);
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
-        net.connect(&node);
-        let (pi, _, _) = net.receive();
+        net.connect(node);
         let dummy_tx = TransactionBuilder::default().build();
         info!("Sending RelayTransactionHashes to node");
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            pi,
+            node,
+            SupportProtocols::Relay,
             build_relay_tx_hashes(&[dummy_tx.hash()]),
         );
         info!("Receiving GetRelayTransactions message from node");
         assert!(
-            wait_get_relay_txs(&net),
+            wait_get_relay_txs(&net, node),
             "timeout to wait GetRelayTransactions"
         );
 
@@ -198,8 +195,8 @@ impl Spec for RelayInvalidTransaction {
         );
         info!("Sending RelayTransactions to node");
         net.send(
-            SupportProtocols::Relay.protocol_id(),
-            pi,
+            &node,
+            SupportProtocols::Relay,
             build_relay_txs(&[(dummy_tx, 333)]),
         );
 
@@ -214,14 +211,11 @@ impl Spec for RelayInvalidTransaction {
     }
 }
 
-fn wait_get_relay_txs(net: &Net) -> bool {
-    wait_until(10, || {
-        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
-            if let Ok(message) = RelayMessage::from_slice(&data) {
-                return message.to_enum().item_name() == GetRelayTransactions::NAME;
-            }
-        }
-        false
+fn wait_get_relay_txs(net: &Net, node: &Node) -> bool {
+    net.should_receive(node, |data| {
+        RelayMessage::from_slice(data)
+            .map(|message| message.to_enum().item_name() == GetRelayTransactions::NAME)
+            .unwrap_or(false)
     })
 }
 

@@ -14,16 +14,14 @@ impl Spec for MissingUncleRequest {
     fn run(&self, nodes: &mut Vec<Node>) {
         exit_ibd_mode(nodes);
         let node = &nodes[0];
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            node.consensus().clone(),
+            node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        let (peer_id, _, _) = net.receive();
 
         node.generate_block();
-        let _ = net.receive();
 
         let builder = node.new_block_builder(None, None, None);
         let block1 = builder.clone().nonce(0.pack()).build();
@@ -44,24 +42,14 @@ impl Spec for MissingUncleRequest {
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
-        (0..3).for_each(|_| {
-            net.receive(); // ignore three new block announce
+        net.send(node, SupportProtocols::Relay, message.as_bytes());
+
+        let ret = net.should_receive(node, |data: &Bytes| {
+            RelayMessage::from_slice(&data)
+                .map(|message| message.to_enum().item_name() == packed::BlockTransactions::NAME)
+                .unwrap_or(false)
         });
-
-        net.send(
-            SupportProtocols::Relay.protocol_id(),
-            peer_id,
-            message.as_bytes(),
-        );
-
-        net.should_receive(
-            |data: &Bytes| {
-                RelayMessage::from_slice(&data)
-                    .map(|message| message.to_enum().item_name() == packed::BlockTransactions::NAME)
-                    .unwrap_or(false)
-            },
-            "Node should response BlockTransactions message",
-        );
+        assert!(ret, "Node should response BlockTransactions message");
 
         if let packed::RelayMessageUnionReader::BlockTransactions(reader) =
             message.to_enum().as_reader()

@@ -1,7 +1,7 @@
-use super::utils::wait_get_blocks;
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
+use ckb_types::packed::GetBlocks;
 use ckb_types::{
     core::{BlockView, TransactionBuilder},
     packed::{self, Byte32, SyncMessage},
@@ -104,20 +104,20 @@ impl Spec for ForkContainsInvalidBlock {
         // Sync headers of bad forks
         let good_node = nodes.pop().unwrap();
         good_node.generate_block();
-        let net = Net::new(
+        let mut net = Net::new(
             self.name(),
-            good_node.consensus().clone(),
+            good_node.consensus(),
             vec![SupportProtocols::Sync],
         );
         net.connect(&good_node);
-        let (pi, _, _) = net.receive();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header()).collect();
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            pi,
-            build_headers(&headers),
-        );
-        assert!(wait_get_blocks(10, &net), "timeout to wait GetBlocks",);
+        net.send(&good_node, SupportProtocols::Sync, build_headers(&headers));
+        let ret = net.should_receive(&good_node, |data| {
+            SyncMessage::from_slice(data)
+                .map(|message| message.to_enum().item_name() == GetBlocks::NAME)
+                .unwrap_or(false)
+        });
+        assert!(ret, "timeout to wait GetBlocks");
 
         // Build good chain (good_chain.len < bad_chain.len)
         good_node.generate_blocks(invalid_number + 2);
@@ -126,16 +126,16 @@ impl Spec for ForkContainsInvalidBlock {
         // Sync first part of bad fork which contains an invalid block
         // Good_node cannot detect the invalid block since "block delay verification".
         let (bad_chain1, bad_chain2) = bad_chain.split_at(invalid_number + 1);
-        bad_chain1.iter().for_each(|block| {
-            net.send(SupportProtocols::Sync.protocol_id(), pi, build_block(block))
-        });
+        bad_chain1
+            .iter()
+            .for_each(|block| net.send(&good_node, SupportProtocols::Sync, build_block(block)));
         assert_eq!(good_node.get_tip_block(), tip_block);
 
         // Sync second part of bad fork.
         // Good_node detect the invalid block when fork.total_difficulty > tip.difficulty
-        bad_chain2.iter().for_each(|block| {
-            net.send(SupportProtocols::Sync.protocol_id(), pi, build_block(block))
-        });
+        bad_chain2
+            .iter()
+            .for_each(|block| net.send(&good_node, SupportProtocols::Sync, build_block(block)));
         let last_hash = bad_chain2.last().map(|b| b.hash()).unwrap();
         assert!(
             !wait_until(10, || good_node
@@ -148,12 +148,12 @@ impl Spec for ForkContainsInvalidBlock {
 
         // Additional testing: request an invalid fork via `GetBlock` should be failed
         net.send(
-            SupportProtocols::Sync.protocol_id(),
-            pi,
+            &good_node,
+            SupportProtocols::Sync,
             build_get_blocks(&bad_hashes),
         );
         let ret = wait_until(10, || {
-            if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+            if let Ok((_, _, data)) = net.receive_timeout(&good_node, Duration::from_secs(10)) {
                 if let Ok(message) = SyncMessage::from_slice(&data) {
                     return message.to_enum().item_name() == packed::SendBlock::NAME;
                 }

@@ -1,6 +1,6 @@
 use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
-use crate::{Net, Node, TXOSet};
+use crate::{Node, TXOSet};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_network::bytes::Bytes;
 use ckb_types::{
@@ -160,11 +160,6 @@ pub fn tweaked_duration(secs: u64) -> Duration {
     Duration::from_secs((secs as f64 * sec_coefficient) as u64)
 }
 
-// Clear net message channel
-pub fn clear_messages(net: &Net) {
-    while net.receive_timeout(Duration::new(3, 0)).is_ok() {}
-}
-
 pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {
     FLAG_SINCE_RELATIVE | FLAG_SINCE_BLOCK_NUMBER | block_number
 }
@@ -321,7 +316,6 @@ pub fn now_ms() -> u64 {
     since_the_epoch.as_millis() as u64
 }
 
-// TODO move into utils
 pub fn find_available_port() -> u16 {
     for _ in 0..2000 {
         let port = PORT_COUNTER.fetch_add(1, SeqCst);
@@ -331,4 +325,14 @@ pub fn find_available_port() -> u16 {
         }
     }
     panic!("failed to allocate available port")
+}
+
+pub fn message_name(data: &Bytes) -> String {
+    if let Ok(message) = SyncMessage::from_slice(data) {
+        message.to_enum().item_name().to_string()
+    } else if let Ok(message) = RelayMessage::from_slice(data) {
+        message.to_enum().item_name().to_string()
+    } else {
+        panic!("unknown message item");
+    }
 }
