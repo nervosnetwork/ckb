@@ -33,7 +33,7 @@ See more networks to join in the
 
 ## Mining
 
-CKB uses the [Eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md) mining algorithm. Please check [here](https://docs.nervos.org/getting-started/mine) for more information.
+CKB uses the [Eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md) mining algorithm.
 
 ## License [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb?ref=badge_shield)
 
