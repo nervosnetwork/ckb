@@ -7,7 +7,7 @@ This project is still under development, the primary goal at this stage is to im
 
 ## Reporting a vulnerability
 
-All security bugs should be reported by sending email to [Nervos Security Team <security@nervos.org>](mailto:security@nervos.org). Please encrypt your mail using GPG using following public key.
+All security bugs should be reported by sending email to [Nervos Security Team \<security@nervos.org>](mailto:security@nervos.org). Please encrypt your mail using GPG with the following public key.
 
 * Unique ID: `Nervos Security Team <security@nervos.org>`
 * Fingerprint: C3D9 CF8A 1450 D04B 997E  4E31 6CBD D93A 0C9F 6BCD
