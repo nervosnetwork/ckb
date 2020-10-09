@@ -449,23 +449,26 @@ impl EpochNumberWithFraction {
     }
 }
 
+/// Enum represent block received status
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BlockReceived {
-    // block attached to an ancestor of the current best block
+    /// block attached to an ancestor of the current best block
     Attached,
 
-    // block received but not active in best chain
+    /// block received but not active in best chain
     NonActive,
 
-    // duplicate block received
+    /// duplicate block received
     Duplicate,
 }
 
 impl BlockReceived {
+    /// Received block is duplicate
     pub fn is_duplicate(self) -> bool {
         self == Self::Duplicate
     }
 
+    /// Received block attached on main chain
     pub fn is_attached(self) -> bool {
         self == Self::Attached
     }

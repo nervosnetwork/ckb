@@ -43,6 +43,7 @@ impl From<OutPointError> for Error {
 }
 
 impl OutPointError {
+    /// OutPoint is unknown
     pub fn is_unknown(&self) -> bool {
         match *self {
             OutPointError::Unknown(_) => true,

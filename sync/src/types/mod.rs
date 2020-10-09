@@ -1294,27 +1294,19 @@ impl SyncShared {
         self.try_search_orphan_block_pool(chain, &block.as_ref().hash());
 
         // evict orphan tx pool entries based on a newly attached block
+        let state = Arc::clone(&self.state);
         if ret.is_attached() {
-            self.remove_orphan_tx_by_block_attached(&block);
+            self.shared
+                .async_handle()
+                .spawn(async move { state.remove_orphan_tx_by_block_attached(block).await });
         }
 
         Ok(!ret.is_duplicate())
     }
 
-    pub(crate) fn remove_orphan_tx_by_block_attached(&self, block: &core::BlockView) {
-        if !self.state.orphan_tx_pool.is_empty() {
-            let txs = block.transactions();
-            let remove_orphan = txs
-                .iter()
-                .filter_map(|tx| self.state.orphan_tx_pool.find_by_previous(&tx));
-
-            self.state.orphan_tx_pool.remove_orphan_txs(remove_orphan);
-        }
-    }
-
     /// Return orphan tx count in memory pool
-    pub fn orphan_tx_count(&self) -> usize {
-        self.state.orphan_tx_pool.len()
+    pub async fn orphan_tx_count(&self) -> usize {
+        self.state.orphan_tx_pool.len().await
     }
 
     pub(crate) fn try_search_orphan_block_pool(
@@ -1673,6 +1665,20 @@ impl SyncState {
             true
         } else {
             false
+        }
+    }
+
+    pub async fn remove_orphan_tx_by_block_attached(&self, block: Arc<core::BlockView>) {
+        if !self.orphan_tx_pool.is_empty().await {
+            let mut remove_orphan = Vec::new();
+            for tx in block.transactions() {
+                if let Some(hash) = self.orphan_tx_pool.find_by_previous(&tx).await {
+                    remove_orphan.push(hash);
+                }
+            }
+            self.orphan_tx_pool
+                .remove_orphan_txs(&remove_orphan[..])
+                .await;
         }
     }
 

@@ -794,7 +794,6 @@ dependencies = [
  "ckb-util",
  "metrics-core",
  "metrics-runtime",
- "tokio 0.2.23",
 ]
 
 [[package]]
@@ -1170,6 +1169,7 @@ dependencies = [
  "ratelimit_meter",
  "sentry",
  "tempfile",
+ "tokio 0.2.23",
 ]
 
 [[package]]

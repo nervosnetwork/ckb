@@ -4,20 +4,22 @@ use ckb_types::{
     core::TransactionView,
     packed::{self, OutPoint},
 };
-use ckb_util::{shrink_to_fit, RwLock};
+use ckb_util::shrink_to_fit;
 use std::collections::HashMap;
+use tokio::sync::RwLock;
 
 const SHRINK_THRESHOLD: usize = 100;
 pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 2 * 48; // double block interval
 pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 
+/// Orphan transaction entry
 #[derive(Debug, Clone)]
 pub struct Entry {
     /// Transaction
     pub tx: TransactionView,
-    // peer id
+    /// peer id
     pub peer: PeerIndex,
-    // Expire timestamp
+    /// Expire timestamp
     pub expires_at: u64,
 }
 
@@ -31,6 +33,7 @@ impl Entry {
     }
 }
 
+/// Orphan transaction pool
 #[derive(Debug)]
 pub struct OrphanTxPool {
     pub(crate) inner: RwLock<Inner>,
@@ -43,6 +46,7 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
+    /// Removes a orphan_tx from the pool, returning the entry co hash if hash was previously in the pool.
     pub fn remove_orphan_tx(&mut self, hash: &packed::Byte32) -> Option<Entry> {
         self.entries.remove(hash).map(|entry| {
             for out_point in entry.tx.input_pts_iter() {
@@ -52,6 +56,7 @@ impl Inner {
         })
     }
 
+    /// Evict entry, shrinks the pool to limit size.
     pub fn limit_size(&mut self) -> u64 {
         let mut evicted = 0u64;
         let now = faketime::unix_time().as_secs();
@@ -86,14 +91,17 @@ impl Inner {
         evicted
     }
 
+    /// Returns the length of self.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Returns true if the pool contains no entires.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Shrinks the capacity of inner map to threshold
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.entries, SHRINK_THRESHOLD);
         shrink_to_fit!(self.by_out_point, SHRINK_THRESHOLD);
@@ -107,14 +115,16 @@ impl Default for OrphanTxPool {
 }
 
 impl OrphanTxPool {
+    /// Create new OrphanTxPool.
     pub fn new() -> Self {
         OrphanTxPool {
             inner: RwLock::new(Inner::default()),
         }
     }
 
-    pub fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
-        let mut guard = self.inner.write();
+    /// Inserts a orphan tx into the pool.
+    pub async fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
+        let mut guard = self.inner.write().await;
 
         if guard.entries.contains_key(&tx.hash()) {
             return;
@@ -130,37 +140,43 @@ impl OrphanTxPool {
         guard.limit_size();
     }
 
-    pub fn get(&self, hash: &packed::Byte32) -> Option<Entry> {
-        let guard = self.inner.read();
+    /// Returns a orphan corresponding to the hash.
+    pub async fn get(&self, hash: &packed::Byte32) -> Option<Entry> {
+        let guard = self.inner.read().await;
         guard.entries.get(hash).cloned()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.inner.read().is_empty()
+    /// Returns true if the pool contains no entires.
+    pub async fn is_empty(&self) -> bool {
+        self.inner.read().await.is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        self.inner.read().len()
+    /// Returns the length of self.
+    pub async fn len(&self) -> usize {
+        self.inner.read().await.len()
     }
 
-    pub fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
-        let guard = self.inner.read();
+    /// Returns a orphan hash corresponding to the previous tx.
+    pub async fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
+        let guard = self.inner.read().await;
 
         tx.output_pts()
             .iter()
             .find_map(|out_point| guard.by_out_point.get(out_point).cloned())
     }
 
-    pub fn remove_orphan_txs(&self, hashes: impl Iterator<Item = packed::Byte32>) {
-        let mut guard = self.inner.write();
+    /// Remove orphan tx by hashes slice
+    pub async fn remove_orphan_txs(&self, hashes: &[packed::Byte32]) {
+        let mut guard = self.inner.write().await;
         for hash in hashes {
             guard.remove_orphan_tx(&hash);
         }
         guard.shrink_to_fit();
     }
 
-    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) {
-        let mut guard = self.inner.write();
+    /// Remove orphan tx by hash
+    pub async fn remove_orphan_tx(&self, hash: &packed::Byte32) {
+        let mut guard = self.inner.write().await;
         guard.remove_orphan_tx(hash);
         guard.shrink_to_fit();
     }

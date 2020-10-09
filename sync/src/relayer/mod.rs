@@ -624,24 +624,44 @@ impl Relayer {
         }
     }
 
-    pub fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
-        self.shared.state().orphan_tx_pool().add_orphan_tx(tx, peer)
+    /// Inserts a orphan tx into the pool.
+    pub async fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
+        self.shared
+            .state()
+            .orphan_tx_pool()
+            .add_orphan_tx(tx, peer)
+            .await
     }
 
-    pub fn get_orphan_tx_hash_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
-        self.shared.state().orphan_tx_pool().find_by_previous(tx)
+    /// Returns a orphan hash corresponding to the previous tx.
+    pub async fn get_orphan_tx_hash_by_previous(
+        &self,
+        tx: &TransactionView,
+    ) -> Option<packed::Byte32> {
+        self.shared
+            .state()
+            .orphan_tx_pool()
+            .find_by_previous(tx)
+            .await
     }
 
-    pub fn get_orphan_tx(&self, hash: &packed::Byte32) -> Option<TransactionView> {
+    /// Returns a orphan corresponding to the hash.
+    pub async fn get_orphan_tx(&self, hash: &packed::Byte32) -> Option<TransactionView> {
         self.shared
             .state()
             .orphan_tx_pool()
             .get(hash)
+            .await
             .map(|entry| entry.tx)
     }
 
-    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) {
-        self.shared.state().orphan_tx_pool().remove_orphan_tx(hash);
+    /// Remove orphan tx by hash
+    pub async fn remove_orphan_tx(&self, hash: &packed::Byte32) {
+        self.shared
+            .state()
+            .orphan_tx_pool()
+            .remove_orphan_tx(hash)
+            .await;
     }
 }
 

@@ -34,6 +34,7 @@ ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.0-pre" }
 ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.38.0-pre" }
 ratelimit_meter = "5.0"
 tempfile = "3.0"
+tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "macros"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.0-pre" }

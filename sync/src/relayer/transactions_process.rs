@@ -129,7 +129,7 @@ async fn handle_submit_result(
                 broadcast_tx(relayer, tx_hash, peer);
 
                 // Recursively process orphan transactions that depended on this one
-                if let Some(hash) = relayer.get_orphan_tx_hash_by_previous(&tx) {
+                if let Some(hash) = relayer.get_orphan_tx_hash_by_previous(&tx).await {
                     process_orphan_tx(nc, relayer, hash, peer).await
                 }
                 Ok(())
@@ -152,11 +152,11 @@ async fn handle_submit_result(
                 Err(())
             }
         }
-        Err(err) => handle_submit_error(nc, relayer, &err, tx, peer),
+        Err(err) => handle_submit_error(nc, relayer, &err, tx, peer).await,
     }
 }
 
-fn handle_submit_error(
+async fn handle_submit_error(
     nc: &(dyn CKBProtocolContext + Sync),
     relayer: &Relayer,
     error: &Error,
@@ -170,7 +170,7 @@ fn handle_submit_error(
         peer
     );
     if is_missing_input(error) {
-        relayer.add_orphan_tx(tx, peer);
+        relayer.add_orphan_tx(tx, peer).await;
     } else if is_malformed(error) {
         ban_malformed(nc, error, peer);
         return Err(());
@@ -189,19 +189,19 @@ async fn process_orphan_tx(
     orphan.push_back(hash);
 
     while let Some(tx_hash) = orphan.pop_front() {
-        if let Some(tx) = relayer.get_orphan_tx(&tx_hash) {
+        if let Some(tx) = relayer.get_orphan_tx(&tx_hash).await {
             match tx_pool.async_submit_tx(tx.clone()).await {
                 Ok(ret) => match ret {
                     Ok(_) => {
-                        relayer.remove_orphan_tx(&tx_hash);
+                        relayer.remove_orphan_tx(&tx_hash).await;
                         broadcast_tx(relayer, tx_hash, peer);
-                        if let Some(hash) = relayer.get_orphan_tx_hash_by_previous(&tx) {
+                        if let Some(hash) = relayer.get_orphan_tx_hash_by_previous(&tx).await {
                             orphan.push_back(hash);
                         }
                     }
                     Err(err) => {
                         if !is_missing_input(&err) {
-                            relayer.remove_orphan_tx(&tx_hash);
+                            relayer.remove_orphan_tx(&tx_hash).await;
                         }
                         if is_malformed(&err) {
                             ban_malformed(nc, &err, peer);
