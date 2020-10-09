@@ -13,15 +13,15 @@ After the initial reply to your report the security team will endeavor to keep y
 
 ## Disclosure process
 
-1. Security report received and is assigned a primary handler. This person will coordinate the fix and release process. Problem is confirmed and all affected versions is determinted. Code is audited to find any potential similar problems.
+1. Security report received and is assigned a primary handler. This person will coordinate the fix and release process. Problem is confirmed and all affected versions is determined. Code is audited to find any potential similar problems.
 2. Fixes are prepared for all supported releases. These fixes are not committed to the public repository but rather held locally pending the announcement.
 3. A suggested embargo date for this vulnerability is chosen. This notification will include patches for all supported versions.
-4. On the embargo date, the [Nervos security mailing list](#TBD) is sent a copy of the announcement. The changes are pushed to the public repository. At least 6 hours after the mailing list is notified, a copy of the advisory will be published on Nervos community channels.
+4. On the embargo date, the [Nervos security mailing list](https://groups.google.com/u/0/a/nervos.org/g/security-mailing-list) is sent a copy of the announcement. The changes are pushed to the public repository. At least 6 hours after the mailing list is notified, a copy of the advisory will be published on Nervos community channels.
 
 This process can take some time, especially when coordination is required with maintainers of other projects. Every effort will be made to handle the bug in as timely a manner as possible, however it's important that we follow the release process above to ensure that the disclosure is handled in a consistent manner.
 
 ## Receiving disclosures
 
-If you require prior notification of vulnerabilities please subscribe to the [Nervos Security mailing list](#TBD). The mailing list is very low traffic, and it receives the public notifications the moment the embargo is lifted.
+If you require prior notification of vulnerabilities please subscribe to the [Nervos Security mailing list](https://groups.google.com/u/0/a/nervos.org/g/security-mailing-list). The mailing list is very low traffic, and it receives the public notifications the moment the embargo is lifted.
 
 If you have any suggestions to improve this policy, please send an email to [Nervos Security Team](mailto:security@nervos.org).
