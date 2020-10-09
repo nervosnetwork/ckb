@@ -1093,6 +1093,7 @@ dependencies = [
  "ratelimit_meter",
  "sentry",
  "tempfile",
+ "tokio 0.2.22",
 ]
 
 [[package]]

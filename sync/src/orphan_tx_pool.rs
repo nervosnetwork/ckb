@@ -4,8 +4,9 @@ use ckb_types::{
     core::TransactionView,
     packed::{self, OutPoint},
 };
-use ckb_util::{shrink_to_fit, RwLock};
+use ckb_util::shrink_to_fit;
 use std::collections::HashMap;
+use tokio::sync::RwLock;
 
 const SHRINK_THRESHOLD: usize = 100;
 pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 2 * 48; // double block interval
@@ -113,8 +114,8 @@ impl OrphanTxPool {
         }
     }
 
-    pub fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
-        let mut guard = self.inner.write();
+    pub async fn add_orphan_tx(&self, tx: TransactionView, peer: PeerIndex) {
+        let mut guard = self.inner.write().await;
 
         if guard.entries.contains_key(&tx.hash()) {
             return;
@@ -130,37 +131,37 @@ impl OrphanTxPool {
         guard.limit_size();
     }
 
-    pub fn get(&self, hash: &packed::Byte32) -> Option<Entry> {
-        let guard = self.inner.read();
+    pub async fn get(&self, hash: &packed::Byte32) -> Option<Entry> {
+        let guard = self.inner.read().await;
         guard.entries.get(hash).cloned()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.inner.read().is_empty()
+    pub async fn is_empty(&self) -> bool {
+        self.inner.read().await.is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        self.inner.read().len()
+    pub async fn len(&self) -> usize {
+        self.inner.read().await.len()
     }
 
-    pub fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
-        let guard = self.inner.read();
+    pub async fn find_by_previous(&self, tx: &TransactionView) -> Option<packed::Byte32> {
+        let guard = self.inner.read().await;
 
         tx.output_pts()
             .iter()
             .find_map(|out_point| guard.by_out_point.get(out_point).cloned())
     }
 
-    pub fn remove_orphan_txs(&self, hashes: impl Iterator<Item = packed::Byte32>) {
-        let mut guard = self.inner.write();
+    pub async fn remove_orphan_txs(&self, hashes: &[packed::Byte32]) {
+        let mut guard = self.inner.write().await;
         for hash in hashes {
             guard.remove_orphan_tx(&hash);
         }
         guard.shrink_to_fit();
     }
 
-    pub fn remove_orphan_tx(&self, hash: &packed::Byte32) {
-        let mut guard = self.inner.write();
+    pub async fn remove_orphan_tx(&self, hash: &packed::Byte32) {
+        let mut guard = self.inner.write().await;
         guard.remove_orphan_tx(hash);
         guard.shrink_to_fit();
     }
