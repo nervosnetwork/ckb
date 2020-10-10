@@ -1,0 +1,49 @@
+[advisories]
+vulnerability = "deny"
+unmaintained = "deny"
+yanked = "deny"
+notice = "deny"
+ignore = [
+    "RUSTSEC-2020-0016", # TODO net2 has been deprecated, but still a lot of required crates are dependent on it
+    "RUSTSEC-2020-0036", # TODO failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
+    "RUSTSEC-2020-0043", # TODO ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
+]
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+]
+copyleft = "deny"
+default = "deny"
+exceptions = [
+    { allow = ["BSD-3-Clause", "Zlib"], name = "adler32", version = "*" },
+    { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
+    { allow = ["MIT", "ISC", "OpenSSL"], name = "ring", version = "*" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+version = "*"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+    # TODO fix RUSTSEC-2020-0041 temporarily
+    "https://github.com/nervosnetwork/metrics-rs",
+    "https://github.com/nervosnetwork/sentry-rust",
+]
