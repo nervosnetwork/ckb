@@ -15,7 +15,7 @@ ckb-util = { path = "../util", version = "= 0.38.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.38.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.38.0-pre" }
-tokio = { version = "0.2.11", features = ["time", "io-util", "tcp", "dns", "rt-threaded", "blocking", "stream"] }
+tokio = { version = "0.2.11", features = ["time", "io-util", "tcp", "dns", "rt-threaded", "blocking", "stream", "macros"] }
 tokio-util = { version = "0.3.0", features = ["codec"] }
 futures = "0.3"
 p2p = { version="0.3.3", package="tentacle", features = ["molc"] }
@@ -33,6 +33,7 @@ ckb-types = { path = "../util/types", version = "= 0.38.0-pre" }
 ipnetwork = "0.14"
 serde_json = "1.0"
 bloom-filters = "0.1"
+ckb-async-runtime = { path = "../util/runtime" }
 
 [features]
 with_sentry = ["sentry"]

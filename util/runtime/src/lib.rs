@@ -52,6 +52,7 @@ where
 /// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle
 pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
     let mut runtime = Builder::new()
+        .enable_all()
         .threaded_scheduler()
         .thread_name("ckb-global-runtime")
         .build()

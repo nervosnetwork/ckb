@@ -134,7 +134,7 @@ pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
         version.to_string(),
         exit_handler.clone(),
     )
-    .start(Some("NetworkService"))
+    .start(shared.async_handle())
     .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)

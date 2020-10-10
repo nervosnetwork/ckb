@@ -9,6 +9,9 @@ use ckb_network::{
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
+
+use ckb_async_runtime::new_global_runtime;
+use ckb_stop_handler::StopHandler;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +25,7 @@ pub struct Net {
     controller: NetworkController,
     register_rx: Receiver<(String, PeerIndex, Receiver<NetMessage>)>,
     receivers: HashMap<String, (PeerIndex, Receiver<NetMessage>)>,
+    _async_runtime_stop: StopHandler<()>,
 }
 
 impl Net {
@@ -59,6 +63,7 @@ impl Net {
                 )
             })
             .collect();
+        let (async_handle, async_runtime_stop) = new_global_runtime();
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
@@ -67,7 +72,7 @@ impl Net {
             "0.1.0".to_string(),
             DefaultExitHandler::default(),
         )
-        .start(Some("NetworkService"))
+        .start(&async_handle)
         .unwrap();
         Self {
             p2p_port,
@@ -76,6 +81,7 @@ impl Net {
             controller,
             register_rx,
             receivers: Default::default(),
+            _async_runtime_stop: async_runtime_stop,
         }
     }
 
