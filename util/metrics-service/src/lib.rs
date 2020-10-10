@@ -109,23 +109,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
             };
         }
@@ -137,23 +131,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
             };
         }

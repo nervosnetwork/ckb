@@ -48,6 +48,7 @@ where
 
 pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
     let mut runtime = Builder::new()
+        .enable_all()
         .threaded_scheduler()
         .thread_name("ckb-global-runtime")
         .build()

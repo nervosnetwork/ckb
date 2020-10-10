@@ -190,7 +190,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             "0.1.0".to_string(),
             DefaultExitHandler::default(),
         )
-        .start(Some("rpc-test-network"))
+        .start(shared.async_handle())
         .expect("Start network service failed")
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
