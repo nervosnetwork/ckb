@@ -4,10 +4,13 @@ version = "0.37.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 parking_lot = "=0.7.1"
-ckb-logger = { path = "../logger" }
+ckb-logger = { path = "../logger", version = "= 0.37.0-pre" }
 futures = "0.1"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
-ckb-channel = { path = "../channel" }
+ckb-channel = { path = "../channel", version = "= 0.37.0-pre" }

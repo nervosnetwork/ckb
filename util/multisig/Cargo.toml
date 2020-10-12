@@ -4,10 +4,13 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger" }
-ckb-crypto = { path = "../crypto" }
+ckb-logger = { path = "../logger", version = "= 0.37.0-pre" }
+ckb-crypto = { path = "../crypto", version = "= 0.37.0-pre" }
 failure = "0.1.5"
 
 [dev-dependencies]

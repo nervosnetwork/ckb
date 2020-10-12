@@ -4,14 +4,13 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types" }
-
-[dependencies.ckb-script]
-path = "../script"
-default-features = false
-features = []
+ckb-types = { path = "../util/types", version = "= 0.37.0-pre" }
+ckb-script = { path = "../script", version = "= 0.37.0-pre", default-features = false, features = [] }
 
 # Prevent this from interfering with workspaces
 [workspace]

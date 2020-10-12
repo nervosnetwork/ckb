@@ -4,9 +4,12 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types" }
-ckb-store = { path = "../../store" }
+ckb-types = { path = "../types", version = "= 0.37.0-pre" }
+ckb-store = { path = "../../store", version = "= 0.37.0-pre" }

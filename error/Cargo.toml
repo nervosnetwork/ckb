@@ -4,11 +4,14 @@ version = "0.37.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 failure = "0.1.5"
-ckb-occupied-capacity = { path = "../util/occupied-capacity" }
+ckb-occupied-capacity = { path = "../util/occupied-capacity", version = "= 0.37.0-pre" }
 enum-display-derive = "0.1.0"
 quote = "1.0.3"

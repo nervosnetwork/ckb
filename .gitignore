@@ -50,6 +50,8 @@ tags
 *.pyc
 /test/integration.log
 /test/integration.failure
+cargo-publish.log
+*.bak
 
 # generated files
 cobertura.xml
