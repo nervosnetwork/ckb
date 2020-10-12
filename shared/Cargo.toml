@@ -22,4 +22,4 @@ ckb-verification = { path = "../verification", version = "= 0.37.0-pre" }
 ckb-notify = { path = "../notify", version = "= 0.37.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.37.0-pre" }
 ckb-db-migration = { path = "../db-migration", version = "= 0.37.0-pre" }
-ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.37.0-pre" }
+num_cpus = "1.10"
