@@ -74,7 +74,7 @@ impl BlockFetchCMD {
                     } else {
                         let best_known = self.sync.shared.state().shared_best_header_ref();
                         let number = best_known.number();
-                        if number != self.number && number % 10000 == 0 {
+                        if number != self.number && (number - self.number) % 10000 == 0 {
                             self.number = number;
                             info!(
                                 "best known header number: {}, total difficulty: {:#x}, \
@@ -515,6 +515,7 @@ impl Synchronizer {
                     sender.send(FetchCMD::Fetch(peers)).unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
+                    let number = self.shared.state().shared_best_header_ref().number();
                     thread
                         .name("BlockDownload".to_string())
                         .spawn(move || {
@@ -522,7 +523,7 @@ impl Synchronizer {
                                 sync,
                                 p2p_control,
                                 recv,
-                                number: 0,
+                                number,
                                 can_start: false,
                             }
                             .run();
