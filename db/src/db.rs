@@ -1,14 +1,16 @@
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
+use crate::write_batch::RocksDBWriteBatch;
 use crate::{internal_error, Col, Result};
 use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{
     CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,
+    WriteOps,
 };
 use rocksdb::{
     ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
-    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteOptions,
+    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteBatch, WriteOptions,
 };
 use std::sync::Arc;
 
@@ -166,6 +168,17 @@ impl RocksDB {
             db: Arc::clone(&self.inner),
             inner: self.inner.transaction(&write_options, &transaction_options),
         }
+    }
+
+    pub fn new_write_batch(&self) -> RocksDBWriteBatch {
+        RocksDBWriteBatch {
+            db: Arc::clone(&self.inner),
+            inner: WriteBatch::default(),
+        }
+    }
+
+    pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        self.inner.write(&batch.inner).map_err(internal_error)
     }
 
     pub fn get_snapshot(&self) -> RocksDBSnapshot {

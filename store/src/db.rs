@@ -2,6 +2,7 @@ use crate::cache::StoreCache;
 use crate::cell::attach_block_cell;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
+use crate::write_batch::StoreWriteBatch;
 use crate::StoreSnapshot;
 use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
@@ -66,6 +67,16 @@ impl ChainDB {
             inner: self.db.get_snapshot(),
             cache: Arc::clone(&self.cache),
         }
+    }
+
+    pub fn new_write_batch(&self) -> StoreWriteBatch {
+        StoreWriteBatch {
+            inner: self.db.new_write_batch(),
+        }
+    }
+
+    pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
+        self.db.write(&write_batch.inner)
     }
 
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
