@@ -584,7 +584,7 @@ version = "0.37.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 1.0.7",
  "syn 0.15.29",
 ]
 
@@ -843,7 +843,7 @@ name = "ckb-occupied-capacity-macros"
 version = "0.37.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
- "quote 0.6.11",
+ "quote 1.0.7",
  "syn 0.15.29",
 ]
 
@@ -3133,7 +3133,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "983983b13ec50f55d5b9536faa553d7fadaa12fae9e0dfda76ba74aebfcc7522"
 dependencies = [
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "syn 0.15.29",
 ]
 
@@ -3170,7 +3170,7 @@ dependencies = [
  "numext-fixed-uint-core",
  "proc-macro-hack",
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "syn 0.15.29",
 ]
 
@@ -3583,9 +3583,9 @@ checksum = "7a6e920b65c65f10b2ae65c831a81a073a89edd28c7cce89475bff467ab4167a"
 
 [[package]]
 name = "quote"
-version = "0.6.11"
+version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdd8e04bd9c52e0342b406469d494fcb033be4bdbe5c606016defbb1681411e1"
+checksum = "6ce23b6b870e8f94f81fb0a363d65d86675884b34a09043c81e5562f11c1f8e1"
 dependencies = [
  "proc-macro2 0.4.27",
 ]
@@ -4331,7 +4331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1825685f977249735d510a242a6727b46efe914bb67e38d30c071b1b72b1d5c2"
 dependencies = [
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "unicode-xid 0.1.0",
 ]
 
@@ -5102,7 +5102,7 @@ dependencies = [
  "lazy_static",
  "log 0.4.11",
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "syn 0.15.29",
  "wasm-bindgen-shared",
 ]
@@ -5113,7 +5113,7 @@ version = "0.2.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f07d50f74bf7a738304f6b8157f4a581e1512cd9e9cdb5baad8c31bbe8ffd81d"
 dependencies = [
- "quote 0.6.11",
+ "quote 0.6.13",
  "wasm-bindgen-macro-support",
 ]
 
@@ -5124,7 +5124,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95cf8fe77e45ba5f91bc8f3da0c3aa5d464b3d8ed85d84f4d4c7cc106436b1d7"
 dependencies = [
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "syn 0.15.29",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
@@ -5146,7 +5146,7 @@ dependencies = [
  "heck",
  "log 0.4.11",
  "proc-macro2 0.4.27",
- "quote 0.6.11",
+ "quote 0.6.13",
  "syn 0.15.29",
  "wasm-bindgen-backend",
  "weedle",
