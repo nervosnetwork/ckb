@@ -583,7 +583,7 @@ name = "ckb-fixed-hash-macros"
 version = "0.37.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
- "proc-macro2 0.4.27",
+ "proc-macro2 1.0.8",
  "quote 0.6.11",
  "syn 0.15.29",
 ]
@@ -3132,7 +3132,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "983983b13ec50f55d5b9536faa553d7fadaa12fae9e0dfda76ba74aebfcc7522"
 dependencies = [
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "syn 0.15.29",
 ]
@@ -3169,7 +3169,7 @@ checksum = "aba196a4ea541560fb7e44d328c87f25f024c727eeb09df4bb53610a575cfed7"
 dependencies = [
  "numext-fixed-uint-core",
  "proc-macro-hack",
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "syn 0.15.29",
 ]
@@ -3508,9 +3508,9 @@ checksum = "369a6ed065f249a159e06c45752c780bda2fb53c995718f9e484d08daa9eb42e"
 
 [[package]]
 name = "proc-macro2"
-version = "0.4.27"
+version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d317f9caece796be1980837fd5cb3dfec5613ebdb04ad0956deea83ce168915"
+checksum = "cf3d2011ab5c909338f7887f4fc896d35932e29146c12c8d01da6b22a80ba759"
 dependencies = [
  "unicode-xid 0.1.0",
 ]
@@ -3587,7 +3587,7 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdd8e04bd9c52e0342b406469d494fcb033be4bdbe5c606016defbb1681411e1"
 dependencies = [
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
 ]
 
 [[package]]
@@ -4330,7 +4330,7 @@ version = "0.15.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1825685f977249735d510a242a6727b46efe914bb67e38d30c071b1b72b1d5c2"
 dependencies = [
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "unicode-xid 0.1.0",
 ]
@@ -5101,7 +5101,7 @@ dependencies = [
  "bumpalo",
  "lazy_static",
  "log 0.4.11",
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "syn 0.15.29",
  "wasm-bindgen-shared",
@@ -5123,7 +5123,7 @@ version = "0.2.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95cf8fe77e45ba5f91bc8f3da0c3aa5d464b3d8ed85d84f4d4c7cc106436b1d7"
 dependencies = [
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "syn 0.15.29",
  "wasm-bindgen-backend",
@@ -5145,7 +5145,7 @@ dependencies = [
  "failure",
  "heck",
  "log 0.4.11",
- "proc-macro2 0.4.27",
+ "proc-macro2 0.4.30",
  "quote 0.6.11",
  "syn 0.15.29",
  "wasm-bindgen-backend",
