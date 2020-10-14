@@ -1,36 +1,61 @@
-//! TODO(doc): @yangby-cryptape
+//! CKB logger configurations.
+//!
+//! This crate is used to configure the [CKB logger and logging service].
+//!
+//! [CKB logger and logging service]: ../ckb_logger_service/index.html
+
 use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// The whole CKB logger configuration.
+///
+/// This struct is used to build [`Logger`].
+///
+/// Include configurations of the main logger and any number of extra loggers.
+///
+/// [`Logger`]: ../ckb_logger_service/struct.Logger.html
 #[derive(Clone, Debug, Serialize, Deserialize)]
-/// TODO(doc): @yangby-cryptape
 pub struct Config {
-    /// TODO(doc): @yangby-cryptape
+    /// An optional string which is used to build [env_logger::Filter] for the main logger.
+    ///
+    /// If the value is `None`, no [env_logger::Filter] will be used.
+    ///
+    /// [env_logger::Filter]: https://docs.rs/env_logger/*/env_logger/filter/struct.Filter.html
     pub filter: Option<String>,
-    /// TODO(doc): @yangby-cryptape
+    /// Colorize the output which was written into the stdout.
     pub color: bool,
-    /// TODO(doc): @yangby-cryptape
+    /// The log file of the main loggger.
     #[serde(skip)]
     pub file: PathBuf,
-    /// TODO(doc): @yangby-cryptape
+    /// The directory where to store all log files.
     #[serde(skip)]
     pub log_dir: PathBuf,
-    /// TODO(doc): @yangby-cryptape
+    /// Output the log records of the main logger into a file or not.
     pub log_to_file: bool,
-    /// TODO(doc): @yangby-cryptape
+    /// Output the log records of the main logger into the stdout or not.
     pub log_to_stdout: bool,
-    /// TODO(doc): @yangby-cryptape
+    /// An optional bool to control whether or not emit [Sentry Breadcrumbs].
+    ///
+    /// if the value is `None`, not emit [Sentry Breadcrumbs].
+    ///
+    /// [Sentry Breadcrumbs]: https://sentry.io/features/breadcrumbs/
     pub emit_sentry_breadcrumbs: Option<bool>,
-    /// TODO(doc): @yangby-cryptape
+    /// Add extra loggers.
     #[serde(default)]
     pub extra: HashMap<String, ExtraLoggerConfig>,
 }
 
-/// TODO(doc): @yangby-cryptape
+/// The configuration of an extra CKB logger.
+///
+/// This struct is used to build [`ExtraLogger`].
+///
+/// [`ExtraLogger`]: ../ckb_logger_service/struct.ExtraLogger.html
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExtraLoggerConfig {
-    /// TODO(doc): @yangby-cryptape
+    /// A string which is used to build [env_logger::Filter] for the extra logger.
+    ///
+    /// [env_logger::Filter]: https://docs.rs/env_logger/*/env_logger/filter/struct.Filter.html
     pub filter: String,
 }
 
