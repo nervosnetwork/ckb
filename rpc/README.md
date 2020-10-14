@@ -820,7 +820,7 @@ The response looks like below when `verbosity` is 0.
     * `lock_hash`: [`H256`](#type-h256)
     * `from`: [`BlockNumber`](#type-blocknumber)
     * `to`: [`BlockNumber`](#type-blocknumber)
-* result: `Array<`[`CellOutputWithOutPoint`](#type-celloutputwithoutpoint)`>`
+* result: `Array<` [`CellOutputWithOutPoint`](#type-celloutputwithoutpoint) `>`
 
 👎 Deprecated since 0.36.0:
 (Disabled since 0.36.0) This method is deprecated for reasons of flexibility. Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
@@ -1133,7 +1133,7 @@ Response
 
 #### Method `get_transaction_proof`
 * `get_transaction_proof(tx_hashes, block_hash)`
-    * `tx_hashes`: `Array<`[`H256`](#type-h256)`>`
+    * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
     * `block_hash`: [`H256`](#type-h256) `|` `null`
 * result: [`TransactionProof`](#type-transactionproof)
 
@@ -1180,7 +1180,7 @@ Response
 #### Method `verify_transaction_proof`
 * `verify_transaction_proof(tx_proof)`
     * `tx_proof`: [`TransactionProof`](#type-transactionproof)
-* result: `Array<`[`H256`](#type-h256)`>`
+* result: `Array<` [`H256`](#type-h256) `>`
 
 Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
@@ -1507,7 +1507,7 @@ The index is disabled by default, which **must** be enabled by calling [`index_l
     * `page`: [`Uint64`](#type-uint64)
     * `per_page`: [`Uint64`](#type-uint64)
     * `reverse_order`: `boolean` `|` `null`
-* result: `Array<`[`LiveCell`](#type-livecell)`>`
+* result: `Array<` [`LiveCell`](#type-livecell) `>`
 
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
@@ -1814,7 +1814,7 @@ Response
     * `page`: [`Uint64`](#type-uint64)
     * `per_page`: [`Uint64`](#type-uint64)
     * `reverse_order`: `boolean` `|` `null`
-* result: `Array<`[`CellTransaction`](#type-celltransaction)`>`
+* result: `Array<` [`CellTransaction`](#type-celltransaction) `>`
 
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
@@ -2071,7 +2071,7 @@ Response
 
 #### Method `get_lock_hash_index_states`
 * `get_lock_hash_index_states()`
-* result: `Array<`[`LockHashIndexState`](#type-lockhashindexstate)`>`
+* result: `Array<` [`LockHashIndexState`](#type-lockhashindexstate) `>`
 
 👎 Deprecated since 0.36.0:
 Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution.
@@ -2415,7 +2415,7 @@ Response
 
 #### Method `get_peers`
 * `get_peers()`
-* result: `Array<`[`RemoteNode`](#type-remotenode)`>`
+* result: `Array<` [`RemoteNode`](#type-remotenode) `>`
 
 Returns the connected peers' information.
 
@@ -2561,7 +2561,7 @@ Response
 
 #### Method `get_banned_addresses`
 * `get_banned_addresses()`
-* result: `Array<`[`BannedAddr`](#type-bannedaddr)`>`
+* result: `Array<` [`BannedAddr`](#type-bannedaddr) `>`
 
 Returns all banned IPs/Subnets.
 
@@ -3112,7 +3112,7 @@ Response
 
 #### Method `get_peers_state`
 * `get_peers_state()`
-* result: `Array<`[`PeerState`](#type-peerstate)`>`
+* result: `Array<` [`PeerState`](#type-peerstate) `>`
 
 👎 Deprecated since 0.12.0:
 Please use RPC [`get_peers`](#method-get_peers) instead
@@ -3485,7 +3485,7 @@ An example in JSON
 
 *   `message`: `string` - Alert message.
 
-*   `signatures`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - The list of required signatures.
+*   `signatures`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - The list of required signatures.
 
 
 ### Type `AlertId`
@@ -3546,11 +3546,11 @@ The JSON view of a Block used as a parameter in the RPC.
 
 *   `header`: [`Header`](#type-header) - The block header.
 
-*   `uncles`: `Array<`[`UncleBlock`](#type-uncleblock)`>` - The uncles blocks in the block body.
+*   `uncles`: `Array<` [`UncleBlock`](#type-uncleblock) `>` - The uncles blocks in the block body.
 
-*   `transactions`: `Array<`[`Transaction`](#type-transaction)`>` - The transactions in the block body.
+*   `transactions`: `Array<` [`Transaction`](#type-transaction) `>` - The transactions in the block body.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposal IDs in the block body.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
 
 
 ### Type `BlockEconomicState`
@@ -3651,15 +3651,15 @@ Miners optional pick transactions and then assemble the final block.
 
     Miners must keep the uncles count below this limit, otherwise, the CKB node will reject the block submission.
 
-*   `uncles`: `Array<`[`UncleTemplate`](#type-uncletemplate)`>` - Provided valid uncle blocks candidates for the new block.
+*   `uncles`: `Array<` [`UncleTemplate`](#type-uncletemplate) `>` - Provided valid uncle blocks candidates for the new block.
 
     Miners must include the uncles marked as `required` in the assembled new block.
 
-*   `transactions`: `Array<`[`TransactionTemplate`](#type-transactiontemplate)`>` - Provided valid transactions which can be committed in the new block.
+*   `transactions`: `Array<` [`TransactionTemplate`](#type-transactiontemplate) `>` - Provided valid transactions which can be committed in the new block.
 
     Miners must include the transactions marked as `required` in the assembled new block.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Provided proposal ids list of transactions for the new block.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Provided proposal ids list of transactions for the new block.
 
 *   `cellbase`: [`CellbaseTemplate`](#type-cellbasetemplate) - Provided cellbase transaction template.
 
@@ -3688,11 +3688,11 @@ The JSON view of a Block including header and body.
 
 *   `header`: [`HeaderView`](#type-headerview) - The block header.
 
-*   `uncles`: `Array<`[`UncleBlockView`](#type-uncleblockview)`>` - The uncles blocks in the block body.
+*   `uncles`: `Array<` [`UncleBlockView`](#type-uncleblockview) `>` - The uncles blocks in the block body.
 
-*   `transactions`: `Array<`[`TransactionView`](#type-transactionview)`>` - The transactions in the block body.
+*   `transactions`: `Array<` [`TransactionView`](#type-transactionview) `>` - The transactions in the block body.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposal IDs in the block body.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
 
 
 ### Type `Byte32`
@@ -4044,7 +4044,7 @@ Chain information.
 
     During IBD, the local node only synchronizes the chain with one selected remote node and stops responding the most P2P requests.
 
-*   `alerts`: `Array<`[`AlertMessage`](#type-alertmessage)`>` - Active alerts stored in the local node.
+*   `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Active alerts stored in the local node.
 
 
 ### Type `Cycle`
@@ -4346,11 +4346,11 @@ The information of the node itself.
 
     An inactive node ignores incoming p2p messages and drops outgoing messages.
 
-*   `addresses`: `Array<`[`NodeAddress`](#type-nodeaddress)`>` - P2P addresses of this node.
+*   `addresses`: `Array<` [`NodeAddress`](#type-nodeaddress) `>` - P2P addresses of this node.
 
     A node can have multiple addresses.
 
-*   `protocols`: `Array<`[`LocalNodeProtocol`](#type-localnodeprotocol)`>` - Supported protocols.
+*   `protocols`: `Array<` [`LocalNodeProtocol`](#type-localnodeprotocol) `>` - Supported protocols.
 
 *   `connections`: [`Uint64`](#type-uint64) - Count of currently connected peers.
 
@@ -4367,7 +4367,7 @@ The information of a P2P protocol that is supported by the local node.
 
 *   `name`: `string` - Readable protocol name.
 
-*   `support_versions`: `Array<``string``>` - Supported versions.
+*   `support_versions`: `Array<` `string` `>` - Supported versions.
 
     See [Semantic Version](https://semver.org/) about how to specify a version.
 
@@ -4414,11 +4414,11 @@ CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rf
 
 `MerkleProof` is a JSON object with the following fields.
 
-*   `indices`: `Array<`[`Uint32`](#type-uint32)`>` - Leaves indices in the CBMT that are proved present in the block.
+*   `indices`: `Array<` [`Uint32`](#type-uint32) `>` - Leaves indices in the CBMT that are proved present in the block.
 
     These are indices in the CBMT tree not the transaction indices in the block.
 
-*   `lemmas`: `Array<`[`H256`](#type-h256)`>` - Hashes of all siblings along the paths to root.
+*   `lemmas`: `Array<` [`H256`](#type-h256) `>` - Hashes of all siblings along the paths to root.
 
 
 ### Type `MinerReward`
@@ -4636,7 +4636,7 @@ A remote node connects to the local node via the P2P network. It is often called
 
 *   `node_id`: `string` - The remote node ID which is derived from its P2P private key.
 
-*   `addresses`: `Array<`[`NodeAddress`](#type-nodeaddress)`>` - The remote node addresses.
+*   `addresses`: `Array<` [`NodeAddress`](#type-nodeaddress) `>` - The remote node addresses.
 
 *   `is_outbound`: `boolean` - Whether this is an outbound remote node.
 
@@ -4652,7 +4652,7 @@ A remote node connects to the local node via the P2P network. It is often called
 
     Null means chain sync has not started with this remote node yet.
 
-*   `protocols`: `Array<`[`RemoteNodeProtocol`](#type-remotenodeprotocol)`>` - Active protocols.
+*   `protocols`: `Array<` [`RemoteNodeProtocol`](#type-remotenodeprotocol) `>` - Active protocols.
 
     CKB uses Tentacle multiplexed network framework. Multiple protocols are running simultaneously in the connection.
 
@@ -4787,29 +4787,29 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 *   `version`: [`Version`](#type-version) - Reserved for future usage. It must equal 0 in current version.
 
-*   `cell_deps`: `Array<`[`CellDep`](#type-celldep)`>` - An array of cell deps.
+*   `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
     CKB locates lock script and type script code via cell deps. The script also can uses syscalls to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
-*   `header_deps`: `Array<`[`H256`](#type-h256)`>` - An array of header deps.
+*   `header_deps`: `Array<` [`H256`](#type-h256) `>` - An array of header deps.
 
     The block must already be in the canonical chain.
 
     Lock script and type script can read the header information of blocks listed here.
 
-*   `inputs`: `Array<`[`CellInput`](#type-cellinput)`>` - An array of input cells.
+*   `inputs`: `Array<` [`CellInput`](#type-cellinput) `>` - An array of input cells.
 
     In the canonical chain, any cell can only appear as an input once.
 
-*   `outputs`: `Array<`[`CellOutput`](#type-celloutput)`>` - An array of output cells.
+*   `outputs`: `Array<` [`CellOutput`](#type-celloutput) `>` - An array of output cells.
 
-*   `outputs_data`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - Output cells data.
+*   `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
     This is a parallel array of outputs. The cell capacity, lock, and type of the output i is`outputs[i]` and its data is `outputs_data[i]`.
 
-*   `witnesses`: `Array<`[`JsonBytes`](#type-jsonbytes)`>` - An array of variable-length binaries.
+*   `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
 
@@ -4862,7 +4862,7 @@ Transaction template which is ready to be committed in the new block.
 
     Miners can utilize this field to ensure that the total cycles do not exceed the limit while selecting transactions.
 
-*   `depends`: `Array<`[`Uint64`](#type-uint64)`>` `|` `null` - Transaction dependencies.
+*   `depends`: `Array<` [`Uint64`](#type-uint64) `>` `|` `null` - Transaction dependencies.
 
     This is a hint to help miners selecting transactions.
 
@@ -5067,7 +5067,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 *   `header`: [`Header`](#type-header) - The uncle block header.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Proposal IDs in the uncle block body.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
 
 ### Type `UncleBlockView`
@@ -5092,7 +5092,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 *   `header`: [`HeaderView`](#type-headerview) - The uncle block header.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - Proposal IDs in the uncle block body.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
 
 ### Type `UncleTemplate`
@@ -5107,7 +5107,7 @@ The uncle block template of the new block for miners.
 
 *   `required`: `boolean` - Whether miners must include this uncle in the submit block.
 
-*   `proposals`: `Array<`[`ProposalShortId`](#type-proposalshortid)`>` - The proposals of the uncle block.
+*   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposals of the uncle block.
 
     Miners must keep this unchanged when including this uncle in the new block.
 

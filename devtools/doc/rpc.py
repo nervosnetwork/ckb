@@ -263,7 +263,7 @@ class RPCVar():
                     if self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
                         self.ty = '{} `|` `null`'.format(self.children[0].ty)
                     elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
-                        self.ty = '`Array<`{}`>`'.format(self.children[0].ty)
+                        self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                         molecule_name = self.children[1].ty.split(
                             '`](')[0][2:]
