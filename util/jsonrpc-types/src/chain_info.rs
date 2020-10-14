@@ -18,7 +18,7 @@ pub struct ChainInfo {
     pub epoch: EpochNumber,
     /// Current difficulty.
     ///
-    /// The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+    /// Decoded from the epoch `compact_target`.
     pub difficulty: U256,
     /// Whether the local node is in IBD, Initial Block Download.
     ///

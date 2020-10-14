@@ -278,6 +278,10 @@ class RPCVar():
     def handle_data(self, data):
         if self.ty is None:
             self.name = self.sanitize_name(data)
+            if self.name.endswith(': U256'):
+                parts = self.name.split(': ')
+                self.name = parts[0]
+                self.ty = '[`U256`](#type-u256)'
 
     def completed(self):
         return self.ty is not None and (len(self.children) == 0 or self.children[-1].completed())
@@ -595,12 +599,32 @@ class RPCType(HTMLParser):
             file.write('\n')
 
 
+class DummyRPCType():
+    def __init__(self, name, module_doc):
+        super().__init__()
+        self.name = name
+        self.module_doc = module_doc
+
+    def write(self, file):
+        file.write('\n')
+        file.write(self.module_doc)
+        file.write('\n')
+
+
 class RPCDoc(object):
     def __init__(self):
         self.modules = []
-        self.types = []
         self.errors = RPCErrorParser()
         self.parsed_types = set()
+
+        self.types = [
+            DummyRPCType(
+                "SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
+            DummyRPCType(
+                "SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
+            DummyRPCType(
+                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.")
+        ]
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -663,10 +687,6 @@ class RPCDoc(object):
         for t in self.types:
             file.write(
                 "    * [Type `{}`](#type-{})\n".format(t.name, t.name.lower()))
-        file.write(
-            "    * [Type `SerializedHeader`](#type-serializedheader)\n")
-        file.write(
-            "    * [Type `SerializedBlock`](#type-serializedblock)\n")
 
         file.write("\n## RPC Methods\n\n")
 
@@ -681,13 +701,6 @@ class RPCDoc(object):
         for ty in self.types:
             file.write("\n### Type `{}`\n".format(ty.name))
             ty.write(file)
-
-        file.write("\n### Type `SerializedHeader`\n\n")
-        file.write(
-            "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.\n")
-        file.write("\n### Type `SerializedBlock`\n\n")
-        file.write(
-            "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.\n")
 
 
 def main():

@@ -136,6 +136,8 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
+    * [Type `SerializedBlock`](#type-serializedblock)
+    * [Type `SerializedHeader`](#type-serializedheader)
     * [Type `Status`](#type-status)
     * [Type `SyncState`](#type-syncstate)
     * [Type `Timestamp`](#type-timestamp)
@@ -147,6 +149,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `TransactionWithStatus`](#type-transactionwithstatus)
     * [Type `TxPoolInfo`](#type-txpoolinfo)
     * [Type `TxStatus`](#type-txstatus)
+    * [Type `U256`](#type-u256)
     * [Type `Uint128`](#type-uint128)
     * [Type `Uint32`](#type-uint32)
     * [Type `Uint64`](#type-uint64)
@@ -154,8 +157,6 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `UncleBlockView`](#type-uncleblockview)
     * [Type `UncleTemplate`](#type-uncletemplate)
     * [Type `Version`](#type-version)
-    * [Type `SerializedHeader`](#type-serializedheader)
-    * [Type `SerializedBlock`](#type-serializedblock)
 
 ## RPC Methods
 
@@ -4033,7 +4034,11 @@ Chain information.
 
 *   `epoch`: [`EpochNumber`](#type-epochnumber) - Current epoch number.
 
-*   `difficulty`: `boolean` - Whether the local node is in IBD, Initial Block Download.
+*   `difficulty`: [`U256`](#type-u256) - Current difficulty.
+
+    Decoded from the epoch `compact_target`.
+
+*   `is_initial_block_download`: `boolean` - Whether the local node is in IBD, Initial Block Download.
 
     When a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.
 
@@ -4706,6 +4711,14 @@ Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/
 *   Type "type" matches script code via cell type script hash.
 
 
+### Type `SerializedBlock`
+
+This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.
+
+### Type `SerializedHeader`
+
+This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.
+
 ### Type `Status`
 
 Status for transaction
@@ -4989,6 +5002,10 @@ Transaction status and the block hash if it is committed.
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
 
 
+### Type `U256`
+
+The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+
 ### Type `Uint128`
 
 The  128-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
@@ -5104,11 +5121,3 @@ The uncle block template of the new block for miners.
 The simple increasing integer version.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
-
-### Type `SerializedHeader`
-
-This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.
-
-### Type `SerializedBlock`
-
-This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.
