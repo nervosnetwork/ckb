@@ -30,7 +30,7 @@ macro_rules! mib_read {
     };
 }
 
-/// TODO(doc): @yangby-cryptape
+/// Track the memory usage of the CKB process, Jemalloc and RocksDB through [ckb-metrics](../../ckb_metrics/index.html).
 pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send>(
     interval: u64,
     tracker_opt: Option<sync::Arc<Tracker>>,
@@ -89,7 +89,7 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                             metrics!(gauge, "ckb-sys.mem.jemalloc", metadata, "type" => "metadata");
 
                             if let Some(tracker) = tracker_opt.clone() {
-                                let _ignored = tracker.gather_memory_stats();
+                                tracker.gather_memory_stats();
                             }
                         } else {
                             error!("failed to fetch the memory information about current process");
