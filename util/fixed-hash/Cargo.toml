@@ -4,7 +4,7 @@ version = "0.38.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): @yangby-cryptape crate description"
+description = "Provide several simple fixed-sized hash data type and their static constructors."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
