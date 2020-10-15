@@ -68,7 +68,7 @@ pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
 pub const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
 // 1.5 * TWO_IN_TWO_OUT_COUNT
-const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
+pub const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
@@ -396,8 +396,15 @@ impl ConsensusBuilder {
         self
     }
 
+    #[must_use]
     pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
         self.inner.permanent_difficulty_in_dummy = permanent;
+        self
+    }
+
+    #[must_use]
+    pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
+        self.inner.max_block_proposals_limit = max_block_proposals_limit;
         self
     }
 }
