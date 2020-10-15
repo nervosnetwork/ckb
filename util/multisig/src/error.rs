@@ -19,7 +19,7 @@ pub enum ErrorKind {
     /// The verified signatures count is less than the threshold.
     #[fail(display = "Failed to meet threshold {:?}.", _0)]
     Threshold {
-        /// The required count of valid signatures.  
+        /// The required count of valid signatures.
         threshold: usize,
         /// The actual count of valid signatures.
         pass_sigs: usize,
