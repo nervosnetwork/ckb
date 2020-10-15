@@ -1,10 +1,10 @@
-//! A lightweight metrics facade.
+//! A lightweight metrics facade used in CKB.
 //!
 //! The `ckb-metrics` crate is a wrapper of [`metrics`]. The crate [`ckb-metrics-service`] is the
-//! runtime used in CKB to handle the metrics.
+//! runtime which handles the metrics data in CKB.
 //!
 //! [`metrics`]: https://docs.rs/metrics/*/metrics/index.html
-//! [`ckb-metrics-service`]: https://docs.rs/ckb-metrics-service/*/ckb-metrics-service/index.html
+//! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 //!
 //! ## Use
 //!
@@ -34,24 +34,22 @@ use std::time::{Duration, Instant};
 
 pub use metrics::{self as internal, SetRecorderError};
 
-/// TODO(doc): @yangby-cryptape
+/// A simple timer which is used to time how much time elapsed.
 pub struct Timer(Instant);
 
 impl Timer {
-    /// TODO(doc): @yangby-cryptape
+    /// Starts a new timer.
     pub fn start() -> Self {
         Self(Instant::now())
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Stops the timer and return how much time elapsed.
     pub fn stop(self) -> Duration {
         Instant::now() - self.0
     }
 }
 
 /// Reexports the macros from the crate `metrics`.
-///
-///
 ///
 /// See the list of available [metrics types](https://docs.rs/metrics/*/metrics/index.html#macros).
 #[macro_export(local_inner_macros)]
