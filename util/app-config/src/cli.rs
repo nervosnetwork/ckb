@@ -14,6 +14,7 @@ pub const CMD_RESET_DATA: &str = "reset-data";
 pub const CMD_PEERID: &str = "peer-id";
 pub const CMD_GEN_SECRET: &str = "gen";
 pub const CMD_FROM_SECRET: &str = "from-secret";
+pub const CMD_MIGRATE: &str = "migrate";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -77,6 +78,7 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(stats())
         .subcommand(reset_data())
         .subcommand(peer_id())
+        .subcommand(migrate())
 }
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
@@ -240,6 +242,10 @@ fn import() -> App<'static, 'static> {
                 .index(1)
                 .help("Specifies the exported data path."),
         )
+}
+
+fn migrate() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_MIGRATE).about("Runs ckb migration")
 }
 
 fn list_hashes() -> App<'static, 'static> {

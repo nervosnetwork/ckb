@@ -85,3 +85,7 @@ pub struct ResetDataArgs {
 pub struct PeerIDArgs {
     pub peer_id: secio::PeerId,
 }
+
+pub struct MigrateArgs {
+    pub config: Box<CKBAppConfig>,
+}
