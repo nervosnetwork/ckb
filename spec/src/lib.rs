@@ -66,6 +66,7 @@ pub mod default_params {
         CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
         GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_BYTES, MAX_BLOCK_CYCLES,
+        MAX_BLOCK_PROPOSALS_LIMIT,
     };
     use ckb_types::core::{Capacity, Cycle, EpochNumber};
 
@@ -100,6 +101,10 @@ pub mod default_params {
     pub fn genesis_epoch_length() -> u64 {
         GENESIS_EPOCH_LENGTH
     }
+
+    pub fn max_block_proposals_limit() -> u64 {
+        MAX_BLOCK_PROPOSALS_LIMIT
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -122,6 +127,8 @@ pub struct Params {
     pub genesis_epoch_length: BlockNumber,
     #[serde(default)]
     pub permanent_difficulty_in_dummy: bool,
+    #[serde(default = "default_params::max_block_proposals_limit")]
+    pub max_block_proposals_limit: u64,
 }
 
 impl Default for Params {
@@ -137,6 +144,7 @@ impl Default for Params {
             epoch_duration_target: default_params::epoch_duration_target(),
             genesis_epoch_length: default_params::genesis_epoch_length(),
             permanent_difficulty_in_dummy: false,
+            max_block_proposals_limit: default_params::max_block_proposals_limit(),
         }
     }
 }
@@ -291,6 +299,7 @@ impl ChainSpec {
             .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
             .epoch_duration_target(self.params.epoch_duration_target)
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy)
+            .max_block_proposals_limit(self.params.max_block_proposals_limit)
             .build();
 
         Ok(consensus)
@@ -889,6 +898,16 @@ pub mod test {
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
         expected.max_block_bytes = 100;
+
+        assert_eq!(params, expected);
+
+        let test_params: &str = r#"
+            max_block_proposals_limit = 100
+        "#;
+
+        let params: Params = toml::from_str(&test_params).unwrap();
+        let mut expected = Params::default();
+        expected.max_block_proposals_limit = 100;
 
         assert_eq!(params, expected);
     }

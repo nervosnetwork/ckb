@@ -7,8 +7,8 @@ mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs,
-    StatsArgs,
+    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
+    ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
@@ -54,6 +54,12 @@ impl Setup {
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
         })
+    }
+
+    pub fn migrate<'m>(self, _matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
+        let config = self.config.into_ckb()?;
+
+        Ok(MigrateArgs { config })
     }
 
     pub fn miner<'m>(self, matches: &ArgMatches<'m>) -> Result<MinerArgs, ExitCode> {
