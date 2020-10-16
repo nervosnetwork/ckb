@@ -1,52 +1,83 @@
 use crate::{core::Capacity, packed::Byte32};
 
-/// TODO(doc): @yangby-cryptape
+/// Details of miner rewards issued by block cellbase transaction.
+///
+/// # References:
+/// - [Token Issuance](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
+/// - [Miner Compensation](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#miner-compensation)
+/// - [Paying for Transaction Fees](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#paying-for-transaction-fees)
+/// - [`RewardCalculator::txs_fee(..)`](../../ckb_reward_calculator/struct.RewardCalculator.html#method.txs_fees)
+/// - [Collecting State Rent with Secondary Issuance and the NervosDAO](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#collecting-state-rent-with-secondary-issuance-and-the-nervosdao)
 #[derive(Debug, Default)]
 pub struct BlockReward {
-    /// TODO(doc): @yangby-cryptape
+    /// The total block reward.
     pub total: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The primary block reward.
     pub primary: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The secondary block reward.
+    ///
+    /// # Notice
+    /// Only 60% of the secondary issuance goes to the miners, 35% of the issuance goes to the NervosDAO
+    /// and the last 5% are kept liquid.
     pub secondary: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The transaction fees that are rewarded to miners because the transaction is committed in
+    /// the block.
+    ///
+    /// # Notice
+    /// Miners only get 60% of the transaction fee for each transaction committed in the block.
     pub tx_fee: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The transaction fees that are rewarded to miners because the transaction is proposed in the
+    /// block or its uncles.
+    ///
+    /// # Notice
+    /// Miners only get 40% of the transaction fee for each transaction proposed in the block
+    /// and committed later in its active commit window.
     pub proposal_reward: Capacity,
 }
 
-/// TODO(doc): @yangby-cryptape
+/// Native token issuance.
+///
+/// # References:
+/// - [Token Issuance](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct BlockIssuance {
-    /// TODO(doc): @yangby-cryptape
+    /// The primary issuance.
     pub primary: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The secondary issuance.
     pub secondary: Capacity,
 }
 
-/// TODO(doc): @yangby-cryptape
+/// Miner reward.
+///
+/// # References:
+/// - [Token Issuance](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
+/// - [Miner Compensation](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#miner-compensation)
+/// - [Paying for Transaction Fees](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#paying-for-transaction-fees)
+/// - [`RewardCalculator::txs_fee(..)`](../../ckb_reward_calculator/struct.RewardCalculator.html#method.txs_fees)
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MinerReward {
-    /// TODO(doc): @yangby-cryptape
+    /// The miner receives all the primary issuance.
     pub primary: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The miner receives part of the secondary issuance.
     pub secondary: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The miner recevies 60% of the transaction fee for each transaction committed in the block.
     pub committed: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    /// The miner recevies 40% of the transaction fee for each transaction proposed in the block,
+    /// and committed later in its active commit window.
     pub proposal: Capacity,
 }
 
-/// TODO(doc): @yangby-cryptape
+/// Includes the rewards details for a block and when the block is finalized.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct BlockEconomicState {
-    /// TODO(doc): @yangby-cryptape
+    /// Native token issuance in the block.
     pub issuance: BlockIssuance,
-    /// TODO(doc): @yangby-cryptape
+    /// Miner reward in the block.
     pub miner_reward: MinerReward,
-    /// TODO(doc): @yangby-cryptape
+    /// The total fees of all transactions committed in the block.
     pub txs_fee: Capacity,
-    /// TODO(doc): @yangby-cryptape
+    ///  The block hash of the block which creates the rewards as cells in its cellbase
+    ///  transaction.
     pub finalized_at: Byte32,
 }
 

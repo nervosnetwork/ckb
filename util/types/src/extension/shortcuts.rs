@@ -9,48 +9,48 @@ use crate::{
 };
 
 impl packed::Byte32 {
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `Bytes32` whose bits are all zeros.
     pub fn zero() -> Self {
         Self::default()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `Byte32` whose bits are all ones.
     pub fn max_value() -> Self {
         [u8::max_value(); 32].pack()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Checks whether all bits in self are zeros.
     pub fn is_zero(&self) -> bool {
         self.as_slice().iter().all(|x| *x == 0)
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `Bytes32`.
     pub fn new(v: [u8; 32]) -> Self {
         v.pack()
     }
 }
 
 impl packed::ProposalShortId {
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `ProposalShortId` from a transaction hash.
     pub fn from_tx_hash(h: &packed::Byte32) -> Self {
         let mut inner = [0u8; 10];
         inner.copy_from_slice(&h.as_slice()[..10]);
         inner.pack()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `ProposalShortId` whose bits are all zeros.
     pub fn zero() -> Self {
         Self::default()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `ProposalShortId`.
     pub fn new(v: [u8; 10]) -> Self {
         v.pack()
     }
 }
 
 impl packed::OutPoint {
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `OutPoint`.
     pub fn new(tx_hash: packed::Byte32, index: u32) -> Self {
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash)
@@ -58,19 +58,34 @@ impl packed::OutPoint {
             .build()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new null `OutPoint`.
     pub fn null() -> Self {
         packed::OutPoint::new_builder()
             .index(u32::max_value().pack())
             .build()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Checks whether self is a null `OutPoint`.
     pub fn is_null(&self) -> bool {
         self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Generates a binary data to be used as a key for indexing cells in storage.
+    ///
+    /// # Notice
+    ///
+    /// The difference between [`Self::as_slice()`](../prelude/trait.Entity.html#tymethod.as_slice)
+    /// and [`Self::to_cell_key()`](#method.to_cell_key) is the byteorder of the field `index`.
+    ///
+    /// - Uses little endian for the field `index` in serialization.
+    ///
+    ///   Because in the real world, the little endian machines make up the majority, we can cast
+    ///   it as a number without re-order the bytes.
+    ///
+    /// - Uses big endian for the field `index` to index cells in storage.
+    ///
+    ///   So we can use `tx_hash` as key prefix to seek the cells from storage in the forward
+    ///   order, so as to traverse cells in the forward order too.
     pub fn to_cell_key(&self) -> Vec<u8> {
         let mut key = Vec::with_capacity(36);
         let index: u32 = self.index().unpack();
@@ -81,21 +96,21 @@ impl packed::OutPoint {
 }
 
 impl packed::CellInput {
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `CellInput`.
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
         packed::CellInput::new_builder()
             .since(block_number.pack())
             .previous_output(previous_output)
             .build()
     }
-    /// TODO(doc): @yangby-cryptape
+    /// Creates a new `CellInput` with a null `OutPoint`.
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         Self::new(packed::OutPoint::null(), block_number)
     }
 }
 
 impl packed::Script {
-    /// TODO(doc): @yangby-cryptape
+    /// Converts self into bytes of [`CellbaseWitness`](struct.CellbaseWitness.html).
     pub fn into_witness(self) -> packed::Bytes {
         packed::CellbaseWitness::new_builder()
             .lock(self)
@@ -104,21 +119,22 @@ impl packed::Script {
             .pack()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Converts from bytes of [`CellbaseWitness`](struct.CellbaseWitness.html).
     pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
         packed::CellbaseWitness::from_slice(&witness.raw_data())
             .map(|cellbase_witness| cellbase_witness.lock())
             .ok()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Checks whether the own [`hash_type`](#method.hash_type) is
+    /// [`Type`](../core/enum.ScriptHashType.html#variant.Type).
     pub fn is_hash_type_type(&self) -> bool {
         Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Type)
     }
 }
 
 impl packed::Transaction {
-    /// TODO(doc): @yangby-cryptape
+    /// Checks whether self is a cellbase.
     pub fn is_cellbase(&self) -> bool {
         let raw_tx = self.raw();
         raw_tx.inputs().len() == 1
@@ -131,28 +147,28 @@ impl packed::Transaction {
                 .is_null()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Generates a proposal short id after calculating the transaction hash.
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.calc_tx_hash())
     }
 }
 
 impl packed::RawHeader {
-    /// TODO(doc): @yangby-cryptape
+    /// Calculates the difficulty from compact target.
     pub fn difficulty(&self) -> U256 {
         compact_to_difficulty(self.compact_target().unpack())
     }
 }
 
 impl packed::Header {
-    /// TODO(doc): @yangby-cryptape
+    /// Calculates the difficulty from compact target.
     pub fn difficulty(&self) -> U256 {
         self.raw().difficulty()
     }
 }
 
 impl packed::Block {
-    /// TODO(doc): @yangby-cryptape
+    /// Converts self to an uncle block.
     pub fn as_uncle(&self) -> packed::UncleBlock {
         packed::UncleBlock::new_builder()
             .header(self.header())
@@ -160,7 +176,7 @@ impl packed::Block {
             .build()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Recalculates all hashes and merkle roots in the header.
     pub fn reset_header(self) -> packed::Block {
         let tx_hashes = self.as_reader().calc_tx_hashes();
         let tx_witness_hashes = self.as_reader().calc_tx_witness_hashes();
@@ -191,7 +207,7 @@ impl packed::Block {
 }
 
 impl packed::CompactBlock {
-    /// TODO(doc): @yangby-cryptape
+    /// Builds a `CompactBlock` from block and prefilled transactions indexes.
     pub fn build_from_block(
         block: &core::BlockView,
         prefilled_transactions_indexes: &HashSet<usize>,
@@ -230,7 +246,7 @@ impl packed::CompactBlock {
             .build()
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Takes proposal short ids for the transactions which are not prefilled.
     pub fn block_short_ids(&self) -> Vec<Option<packed::ProposalShortId>> {
         let txs_len = self.txs_len();
         let mut block_short_ids: Vec<Option<packed::ProposalShortId>> = Vec::with_capacity(txs_len);
@@ -252,19 +268,18 @@ impl packed::CompactBlock {
         block_short_ids
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Calculates the length of transactions.
     pub fn txs_len(&self) -> usize {
         self.prefilled_transactions().len() + self.short_ids().len()
     }
 
-    /// TODO(doc): @yangby-cryptape
-    pub fn prefilled_indexes_iter(&self) -> impl Iterator<Item = usize> {
+    fn prefilled_indexes_iter(&self) -> impl Iterator<Item = usize> {
         self.prefilled_transactions()
             .into_iter()
             .map(|i| i.index().unpack())
     }
 
-    /// TODO(doc): @yangby-cryptape
+    /// Collects the short id indexes.
     pub fn short_id_indexes(&self) -> Vec<usize> {
         let prefilled_indexes: HashSet<usize> = self.prefilled_indexes_iter().collect();
 
