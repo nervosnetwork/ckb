@@ -27,3 +27,4 @@ ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.38.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.0-pre" }
 num_cpus = "1.10"
+once_cell = "1.3.1"

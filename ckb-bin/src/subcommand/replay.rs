@@ -1,4 +1,5 @@
 use ckb_app_config::{ExitCode, ReplayArgs};
+use ckb_async_runtime::Handle;
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
@@ -6,8 +7,8 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use std::sync::Arc;
 
-pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
-    let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
+pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
+    let (shared, _table) = SharedBuilder::new(&args.config.db, async_handle.clone())
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
         .build()
@@ -31,7 +32,7 @@ pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
         let mut tmp_db_config = args.config.db.clone();
         tmp_db_config.path = tmp_db_dir.path().to_path_buf();
 
-        let (tmp_shared, table) = SharedBuilder::with_db_config(&tmp_db_config)
+        let (tmp_shared, table) = SharedBuilder::new(&tmp_db_config, async_handle)
             .consensus(args.consensus)
             .tx_pool_config(args.config.tx_pool)
             .build()

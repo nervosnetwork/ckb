@@ -37,6 +37,7 @@ ckb-build-info = { path = "../util/build-info", version = "= 0.38.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.38.0-pre" }
 ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.38.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.38.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0-pre" }
 base64 = "0.10.1"
 tempfile = "3.0"
 rayon = "1.0"

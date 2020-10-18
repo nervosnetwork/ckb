@@ -10,5 +10,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
-ckb-stop-handler = { path = "../stop-handler" }
-ckb-logger = { path = "../logger" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.38.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.38.0-pre" }

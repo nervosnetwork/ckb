@@ -450,6 +450,7 @@ version = "0.38.0-pre"
 dependencies = [
  "base64",
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-build-info",
  "ckb-chain",
  "ckb-chain-iter",
@@ -790,7 +791,6 @@ version = "0.38.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-metrics-config",
- "ckb-stop-handler",
  "ckb-util",
  "metrics-core",
  "metrics-runtime",
@@ -1093,6 +1093,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "num_cpus",
+ "once_cell",
 ]
 
 [[package]]

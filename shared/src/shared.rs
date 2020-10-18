@@ -20,6 +20,7 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
+use once_cell::sync::OnceCell;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -33,13 +34,6 @@ pub struct Shared {
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
-    pub(crate) async_runtime_stop: StopHandler<()>,
-}
-
-impl Drop for Shared {
-    fn drop(&mut self) {
-        self.async_runtime_stop.try_send();
-    }
 }
 
 impl Shared {
@@ -50,6 +44,7 @@ impl Shared {
         tx_pool_config: TxPoolConfig,
         notify_config: NotifyConfig,
         block_assembler_config: Option<BlockAssemblerConfig>,
+        async_handle: Handle,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -83,8 +78,6 @@ impl Shared {
             notify_controller.clone(),
         );
 
-        let (async_handle, async_runtime_stop) = new_global_runtime();
-
         let tx_pool_controller = tx_pool_builder.start(&async_handle);
 
         let shared = Shared {
@@ -95,7 +88,6 @@ impl Shared {
             tx_pool_controller,
             notify_controller,
             async_handle,
-            async_runtime_stop,
         };
 
         Ok((shared, proposal_table))
@@ -243,6 +235,14 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     migrations: Migrations,
+    async_handle: Handle,
+}
+
+static RUNTIME: OnceCell<(Handle, StopHandler<()>)> = OnceCell::new();
+
+fn static_runtime_handle() -> Handle {
+    let runtime = RUNTIME.get_or_init(new_global_runtime);
+    runtime.0.clone()
 }
 
 impl Default for SharedBuilder {
@@ -255,6 +255,7 @@ impl Default for SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             migrations: Migrations::default(),
+            async_handle: static_runtime_handle(),
         }
     }
 }
@@ -263,7 +264,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     /// TODO(doc): @quake
-    pub fn with_db_config(config: &DBConfig) -> Self {
+    pub fn new(config: &DBConfig, async_handle: Handle) -> Self {
         let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
@@ -278,6 +279,7 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             migrations,
+            async_handle,
         }
     }
 }
@@ -321,6 +323,12 @@ impl SharedBuilder {
     }
 
     /// TODO(doc): @quake
+    pub fn async_handle(mut self, async_handle: Handle) -> Self {
+        self.async_handle = async_handle;
+        self
+    }
+
+    /// TODO(doc): @quake
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
@@ -335,6 +343,7 @@ impl SharedBuilder {
             tx_pool_config,
             notify_config,
             self.block_assembler_config,
+            self.async_handle,
         )
     }
 }
