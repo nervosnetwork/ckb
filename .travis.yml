@@ -114,13 +114,15 @@ matrix:
       rust: stable
       script:
         - devtools/ci/check-cyclic-dependencies.py --dev
-    - name: Security Audit
+    - name: Security Audit & Licenses
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
-        - cargo audit --version || travis_retry cargo install cargo-audit --locked
+        - cargo deny --version || travis_retry cargo install cargo-deny --locked
       script:
         - make security-audit
+        - make check-crates
+        - make check-licenses
 
     - name: WASM build
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'

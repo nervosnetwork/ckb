@@ -123,18 +123,16 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: security-audit
-security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
-	# https://rustsec.org/advisories/RUSTSEC-2019-0031: spin is no longer actively maintained, it's not a problem
-	# https://rustsec.org/advisories/RUSTSEC-2020-0016: net2 has been deprecated, but still a lot of required crates are dependent on it
-	# https://rustsec.org/advisories/RUSTSEC-2020-0036: failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
-	# https://rustsec.org/advisories/RUSTSEC-2020-0043: ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
-	cargo audit \
-		--ignore RUSTSEC-2019-0031 \
-		--ignore RUSTSEC-2020-0016 \
-		--ignore RUSTSEC-2020-0036 \
-		--ignore RUSTSEC-2020-0043 \
-		--deny-warnings
-	# expecting to see "Success No vulnerable packages found"
+security-audit: ## Use cargo-deny to audit Cargo.lock for crates with security vulnerabilities.
+	cargo deny check --hide-inclusion-graph --show-stats advisories sources
+
+.PHONY: check-crates
+check-crates: ## Use cargo-deny to check specific crates, detect and handle multiple versions of the same crate and wildcards version requirement.
+	cargo deny check --hide-inclusion-graph --show-stats bans
+
+.PHONY: check-licenses
+check-licenses: ## Use cargo-deny to check licenses for all dependencies.
+	cargo deny check --hide-inclusion-graph --show-stats licenses
 
 .PHONY: bench-test
 bench-test:
@@ -144,7 +142,7 @@ bench-test:
 
 .PHONY: ci
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit
+ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
 	git diff --exit-code Cargo.lock
 
 .PHONY: check-cargotoml
