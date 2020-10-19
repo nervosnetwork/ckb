@@ -4,7 +4,7 @@ use ckb_logger::{error, info};
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub const VERSION_KEY: &[u8] = b"db-version";
 
@@ -55,7 +55,7 @@ impl Migrations {
                     }
                 }
 
-                let mpb = Rc::new(MultiProgress::new());
+                let mpb = Arc::new(MultiProgress::new());
                 let migrations: BTreeMap<_, _> = self
                     .migrations
                     .iter()
@@ -63,14 +63,14 @@ impl Migrations {
                     .collect();
                 let migrations_count = migrations.len();
                 for (idx, (_, m)) in migrations.iter().enumerate() {
-                    let mpbc = Rc::clone(&mpb);
+                    let mpbc = Arc::clone(&mpb);
                     let pb = move |count: u64| -> ProgressBar {
                         let pb = mpbc.add(ProgressBar::new(count));
                         pb.set_draw_target(ProgressDrawTarget::to_term(Term::stdout(), None));
                         pb.set_prefix(&format!("[{}/{}]", idx + 1, migrations_count));
                         pb
                     };
-                    db = m.migrate(db, Box::new(pb))?;
+                    db = m.migrate(db, Arc::new(pb))?;
                     db.put_default(VERSION_KEY, m.version()).map_err(|err| {
                         internal_error(format!("failed to migrate the database: {}", err))
                     })?;
@@ -95,7 +95,7 @@ pub trait Migration {
     fn migrate(
         &self,
         _db: RocksDB,
-        _pb: Box<dyn FnMut(u64) -> ProgressBar>,
+        _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB, Error>;
 
     /// returns migration version, use `date +'%Y%m%d%H%M%S'` timestamp format
@@ -118,7 +118,7 @@ impl Migration for DefaultMigration {
     fn migrate(
         &self,
         db: RocksDB,
-        _pb: Box<dyn FnMut(u64) -> ProgressBar>,
+        _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB, Error> {
         Ok(db)
     }
@@ -174,7 +174,7 @@ mod tests {
             fn migrate(
                 &self,
                 db: RocksDB,
-                _pb: Box<dyn FnMut(u64) -> ProgressBar>,
+                _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
             ) -> Result<RocksDB, Error> {
                 let txn = db.transaction();
                 // append 1u8 to each value of column `0`
