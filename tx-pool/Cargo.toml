@@ -1,6 +1,6 @@
 [package]
 name = "ckb-tx-pool"
-version = "0.37.0-pre"
+version = "0.38.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,23 +11,23 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.37.0-pre" }
-ckb-logger = {path = "../util/logger", version = "= 0.37.0-pre"}
-ckb-verification = { path = "../verification", version = "= 0.37.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.38.0-pre" }
+ckb-logger = {path = "../util/logger", version = "= 0.38.0-pre"}
+ckb-verification = { path = "../verification", version = "= 0.38.0-pre" }
 failure = "0.1.5"
 faketime = "0.2"
 lru = "0.6.0"
-ckb-dao = { path = "../util/dao", version = "= 0.37.0-pre" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.37.0-pre" }
-ckb-store = { path = "../store", version = "= 0.37.0-pre" }
-ckb-util = { path = "../util", version = "= 0.37.0-pre" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.37.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.37.0-pre" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.37.0-pre" }
-ckb-error = { path = "../error", version = "= 0.37.0-pre" }
+ckb-dao = { path = "../util/dao", version = "= 0.38.0-pre" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.38.0-pre" }
+ckb-store = { path = "../store", version = "= 0.38.0-pre" }
+ckb-util = { path = "../util", version = "= 0.38.0-pre" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.38.0-pre" }
+ckb-chain-spec = { path = "../spec", version = "= 0.38.0-pre" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.38.0-pre" }
+ckb-error = { path = "../error", version = "= 0.38.0-pre" }
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "macros"] }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.37.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.37.0-pre" }
-ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.37.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.37.0-pre" }
-ckb-notify = { path = "../notify", version = "= 0.37.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.0-pre" }
+ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.38.0-pre" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.38.0-pre" }
+ckb-notify = { path = "../notify", version = "= 0.38.0-pre" }
