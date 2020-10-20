@@ -415,13 +415,13 @@ impl BlockBuilder {
         }
     }
 
-    /// Converts into [`BlockView`](struct.BlockView.html) and rcalculates all hashes and merkle
+    /// Converts into [`BlockView`](struct.BlockView.html) and recalculates all hashes and merkle
     /// roots in the header.
     pub fn build(self) -> core::BlockView {
         self.build_internal(true)
     }
 
-    /// Converts into [`BlockView`](struct.BlockView.html) but do not refresh all hashes and all
+    /// Converts into [`BlockView`](struct.BlockView.html) but does not refresh all hashes and all
     /// merkle roots in the header.
     ///
     /// # Notice

@@ -8,6 +8,7 @@ use crate::{core::Capacity, packed::Byte32};
 /// - [Paying for Transaction Fees](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#paying-for-transaction-fees)
 /// - [`RewardCalculator::txs_fee(..)`](../../ckb_reward_calculator/struct.RewardCalculator.html#method.txs_fees)
 /// - [Collecting State Rent with Secondary Issuance and the NervosDAO](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#collecting-state-rent-with-secondary-issuance-and-the-nervosdao)
+/// - [Calculation of Nervos DAO and Examples](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation)
 #[derive(Debug, Default)]
 pub struct BlockReward {
     /// The total block reward.
@@ -17,19 +18,28 @@ pub struct BlockReward {
     /// The secondary block reward.
     ///
     /// # Notice
-    /// Only 60% of the secondary issuance goes to the miners, 35% of the issuance goes to the NervosDAO
-    /// and the last 5% are kept liquid.
+    ///
+    /// - A part of the secondary issuance goes to the miners, the ratio depends on how many CKB
+    ///   are used to store state.
+    /// - And a part of the secondary issuance goes to the NervosDAO, the ratio depends on how many
+    ///   CKB are deposited and locked in the NervosDAO.
+    /// - The rest of the secondary issuance is determined by the community through the governance
+    ///   mechanism.
+    ///   Before the community can reach agreement, this part of the secondary issuance is going to
+    ///   be burned.
     pub secondary: Capacity,
     /// The transaction fees that are rewarded to miners because the transaction is committed in
     /// the block.
     ///
     /// # Notice
+    ///
     /// Miners only get 60% of the transaction fee for each transaction committed in the block.
     pub tx_fee: Capacity,
     /// The transaction fees that are rewarded to miners because the transaction is proposed in the
     /// block or its uncles.
     ///
     /// # Notice
+    ///
     /// Miners only get 40% of the transaction fee for each transaction proposed in the block
     /// and committed later in its active commit window.
     pub proposal_reward: Capacity,
