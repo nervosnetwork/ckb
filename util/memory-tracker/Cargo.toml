@@ -1,6 +1,6 @@
 [package]
 name = "ckb-memory-tracker"
-version = "0.37.0-pre"
+version = "0.37.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.37.0-pre" }
-ckb-metrics = { path = "../metrics", version = "= 0.37.0-pre" }
-ckb-db = { path = "../../db", version = "= 0.37.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.37.0" }
+ckb-metrics = { path = "../metrics", version = "= 0.37.0" }
+ckb-db = { path = "../../db", version = "= 0.37.0" }
 
 # TODO Why don't disable this crate by "target.*" in the crates which are dependent on this crate?
 #
