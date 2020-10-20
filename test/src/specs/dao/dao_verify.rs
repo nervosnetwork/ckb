@@ -1,20 +1,15 @@
 use crate::specs::dao::dao_verifier::DAOVerifier;
-use crate::{Net, Spec};
-use ckb_chain_spec::ChainSpec;
+use crate::{Node, Spec};
 
 pub struct DAOVerify;
 
 impl Spec for DAOVerify {
-    crate::name!("dao_verify");
-
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(|spec_config| {
-            spec_config.params.genesis_epoch_length = 20;
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.genesis_epoch_length = 20;
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let genesis_epoch_length = node.consensus().genesis_epoch_ext().length();
         node.generate_blocks(genesis_epoch_length as usize * 5);
         DAOVerifier::init(node).verify();

@@ -1,0 +1,23 @@
+# This is a RocksDB option file.
+#
+# For detailed file format spec, please refer to the official documents
+# in https://rocksdb.org/docs/
+#
+
+[DBOptions]
+bytes_per_sync=1048576
+max_background_compactions=4
+max_background_flushes=2
+max_total_wal_size=134217728
+keep_log_file_num=32
+
+[CFOptions "default"]
+level_compaction_dynamic_level_bytes=true
+write_buffer_size=8388608
+min_write_buffer_number_to_merge=1
+max_write_buffer_number=2
+max_write_buffer_size_to_maintain=-1
+
+[TableOptions/BlockBasedTable "default"]
+cache_index_and_filter_blocks=true
+pin_l0_filter_and_index_blocks_in_cache=true

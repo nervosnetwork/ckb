@@ -1,5 +1,5 @@
 use ckb_hash::new_blake2b;
-use merkle_cbt::{merkle_tree::Merge, CBMT as ExCBMT};
+use merkle_cbt::{merkle_tree::Merge, MerkleProof as ExMerkleProof, CBMT as ExCBMT};
 
 use crate::{packed::Byte32, prelude::*};
 
@@ -19,6 +19,7 @@ impl Merge for MergeByte32 {
 }
 
 pub type CBMT = ExCBMT<Byte32, MergeByte32>;
+pub type MerkleProof = ExMerkleProof<Byte32, MergeByte32>;
 
 pub fn merkle_root(leaves: &[Byte32]) -> Byte32 {
     CBMT::build_merkle_root(leaves)

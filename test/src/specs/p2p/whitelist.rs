@@ -1,35 +1,31 @@
 use crate::utils::{sleep, wait_until};
-use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
+use crate::{Node, Spec};
+
 use log::info;
 use std::collections::HashSet;
 
 pub struct WhitelistOnSessionLimit;
 
 impl Spec for WhitelistOnSessionLimit {
-    crate::name!("whitelist_on_session_limit");
+    crate::setup!(num_nodes: 5);
 
-    crate::setup!(num_nodes: 5, connect_all: false);
-
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         // disable outbound peer service
-        Box::new(|config| {
-            config.network.connect_outbound_interval_secs = 0;
-            config.network.discovery_local_address = true;
-            config.network.max_peers = 2;
-            config.network.max_outbound_peers = 1;
-        })
+        config.network.connect_outbound_interval_secs = 0;
+        config.network.discovery_local_address = true;
+        config.network.max_peers = 2;
+        config.network.max_outbound_peers = 1;
     }
 
-    fn run(&self, net: &mut Net) {
+    fn run(&self, nodes: &mut Vec<Node>) {
         info!("Running whitelist on session limit");
 
         // with no whitelist
-        let node4 = net.nodes.pop().unwrap();
-        let node3 = net.nodes.pop().unwrap();
-        let node2 = net.nodes.pop().unwrap();
-        let node1 = net.nodes.pop().unwrap();
-        let mut node0 = net.nodes.pop().unwrap();
+        let node4 = nodes.pop().unwrap();
+        let node3 = nodes.pop().unwrap();
+        let node2 = nodes.pop().unwrap();
+        let node1 = nodes.pop().unwrap();
+        let mut node0 = nodes.pop().unwrap();
 
         let mut id_set = HashSet::new();
         id_set.insert(node1.node_id());
@@ -59,20 +55,11 @@ impl Spec for WhitelistOnSessionLimit {
         }
 
         // restart node0, set node1 to node0's whitelist
-        let node1_listen = format!(
-            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
-            node1.p2p_port(),
-            node1.node_id()
-        );
-
         node0.stop();
 
-        node0.edit_config_file(
-            Box::new(|_| ()),
-            Box::new(move |config| {
-                config.network.whitelist_peers = vec![node1_listen.parse().unwrap()]
-            }),
-        );
+        node0.modify_app_config(|config| {
+            config.network.whitelist_peers = vec![node1.p2p_address().parse().unwrap()]
+        });
         node0.start();
 
         // with whitelist

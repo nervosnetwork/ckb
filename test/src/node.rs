@@ -1,7 +1,8 @@
+use crate::global::binary;
 use crate::rpc::RpcClient;
-use crate::utils::{temp_path, wait_until};
+use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
@@ -14,28 +15,14 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
-use failure::Error;
-use failure::_core::time::Duration;
+use std::collections::HashSet;
 use std::convert::Into;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::{self, Child, Command, Stdio};
+use std::thread::sleep;
+use std::time::Duration;
 use std::time::Instant;
-
-pub struct Node {
-    binary: String,
-    working_dir: String,
-    p2p_port: u16,
-    rpc_port: u16,
-    rpc_client: RpcClient,
-    node_id: Option<String>,
-    genesis_cellbase_hash: Byte32,
-    dep_group_tx_hash: Byte32,
-    always_success_code_hash: Byte32,
-    guard: Option<ProcessGuard>,
-    consensus: Option<Consensus>,
-    spec: Option<ChainSpec>,
-}
 
 struct ProcessGuard(pub Child);
 
@@ -49,163 +36,201 @@ impl Drop for ProcessGuard {
     }
 }
 
+pub struct Node {
+    working_dir: PathBuf,
+    consensus: Consensus,
+    p2p_listen: String,
+    rpc_client: RpcClient,
+
+    node_id: Option<String>,     // initialize when starts node
+    guard: Option<ProcessGuard>, // initialize when starts node
+}
+
 impl Node {
-    pub fn new(
-        binary: &str,
-        p2p_port: u16,
-        rpc_port: u16,
-        case_name: &str,
-        node_index: &str,
-    ) -> Self {
-        let rpc_client = RpcClient::new(&format!("http://127.0.0.1:{}/", rpc_port));
+    pub fn new(spec_name: &str, node_name: &str) -> Self {
+        let working_dir = temp_path(spec_name, node_name);
+        // log::info!("New {}-{} on: {}", spec_name, node_name, working_dir);
+
+        // Copy node template into node's working directory
+        let cells_dir = working_dir.join("specs").join("cells");
+        fs::create_dir_all(cells_dir).expect("create node's dir");
+        for file in &[
+            "ckb.toml",
+            "specs/integration.toml",
+            "specs/cells/always_success",
+        ] {
+            let src = PathBuf::from("template").join(file);
+            let dest = working_dir.join(file);
+            fs::copy(&src, &dest)
+                .unwrap_or_else(|_| panic!("cp {:?} {}", src.display(), dest.display()));
+        }
+
+        // Allocate rpc port and p2p port, and fill into app config
+        let mut node = Self::init(working_dir);
+        node.modify_app_config(|app_config| {
+            let rpc_port = find_available_port();
+            let p2p_port = find_available_port();
+            app_config.rpc.listen_address = format!("127.0.0.1:{}", rpc_port);
+            app_config.network.listen_addresses =
+                vec![format!("/ip4/127.0.0.1/tcp/{}", p2p_port).parse().unwrap()];
+        });
+
+        node
+    }
+
+    pub fn modify_app_config<M>(&mut self, modifier: M)
+    where
+        M: Fn(&mut CKBAppConfig),
+    {
+        let app_config_path = self.working_dir().join("ckb.toml");
+        let mut app_config: CKBAppConfig = {
+            let toml = fs::read(&app_config_path).unwrap();
+            toml::from_slice(&toml).unwrap()
+        };
+        modifier(&mut app_config);
+        fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
+
+        *self = Self::init(self.working_dir());
+    }
+
+    pub fn modify_chain_spec<M>(&mut self, modifier: M)
+    where
+        M: Fn(&mut ChainSpec),
+    {
+        let ckb_spec_path = self.working_dir().join("specs/integration.toml");
+        let mut chain_spec = {
+            let toml = fs::read(&ckb_spec_path).unwrap();
+            toml::from_slice(&toml).unwrap()
+        };
+        modifier(&mut chain_spec);
+        fs::write(&ckb_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
+
+        *self = Self::init(self.working_dir());
+    }
+
+    // Initialize Node instance based on working directory
+    fn init(working_dir: PathBuf) -> Self {
+        let app_config: CKBAppConfig = {
+            let app_config_path = working_dir.join("ckb.toml");
+            let toml = fs::read(app_config_path).unwrap();
+            toml::from_slice(&toml).unwrap()
+        };
+        let mut chain_spec: ChainSpec = {
+            let chain_spec_path = working_dir.join("specs/integration.toml");
+            let toml = fs::read(chain_spec_path).unwrap();
+            toml::from_slice(&toml).unwrap()
+        };
+
+        let p2p_listen = app_config.network.listen_addresses[0].to_string();
+        let rpc_address = app_config.rpc.listen_address;
+        let rpc_client = RpcClient::new(&format!("http://{}/", rpc_address));
+        let consensus = {
+            // Ensure the data path is available because chain_spec.build_consensus() needs to access the
+            // system-cell data.
+            chain_spec
+                .genesis
+                .system_cells
+                .iter_mut()
+                .for_each(|system_cell| {
+                    system_cell.file.absolutize(&working_dir.join("specs"));
+                });
+            chain_spec.build_consensus().unwrap()
+        };
         Self {
-            binary: binary.to_string(),
-            working_dir: temp_path(case_name, node_index),
-            p2p_port,
-            rpc_port,
+            working_dir,
+            consensus,
+            p2p_listen,
             rpc_client,
             node_id: None,
             guard: None,
-            genesis_cellbase_hash: Default::default(),
-            dep_group_tx_hash: Default::default(),
-            always_success_code_hash: Default::default(),
-            consensus: None,
-            spec: None,
         }
     }
 
+    pub fn rpc_client(&self) -> &RpcClient {
+        &self.rpc_client
+    }
+
+    fn working_dir(&self) -> PathBuf {
+        self.working_dir.clone()
+    }
+
+    pub fn log_path(&self) -> PathBuf {
+        self.working_dir().join("data/logs/run.log")
+    }
+
     pub fn node_id(&self) -> &str {
+        // peer_id.to_base58()
         self.node_id.as_ref().expect("uninitialized node_id")
     }
 
     pub fn consensus(&self) -> &Consensus {
-        self.consensus.as_ref().expect("uninitialized consensus")
+        &self.consensus
     }
 
-    pub fn spec(&self) -> &ChainSpec {
-        self.spec.as_ref().expect("uninitialized spec")
+    pub fn p2p_listen(&self) -> String {
+        self.p2p_listen.clone()
     }
 
-    pub fn p2p_port(&self) -> u16 {
-        self.p2p_port
-    }
-
-    pub fn working_dir(&self) -> &str {
-        &self.working_dir
+    pub fn p2p_address(&self) -> String {
+        format!("{}/p2p/{}", self.p2p_listen(), self.node_id())
     }
 
     pub fn dep_group_tx_hash(&self) -> Byte32 {
-        self.dep_group_tx_hash.clone()
+        self.consensus().genesis_block().transactions()[1].hash()
     }
 
-    pub fn export(&self, target: String) {
-        Command::new(self.binary.to_owned())
-            .args(&["export", "-C", self.working_dir(), &target])
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .output()
-            .expect("failed to execute process");
+    pub fn always_success_script(&self) -> Script {
+        let always_success_raw = self.consensus().genesis_block().transactions()[0]
+            .outputs_data()
+            .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
+            .unwrap()
+            .raw_data();
+        let always_success_code_hash = CellOutput::calc_data_hash(&always_success_raw);
+        Script::new_builder()
+            .code_hash(always_success_code_hash)
+            .hash_type(ScriptHashType::Data.into())
+            .build()
     }
 
-    pub fn import(&self, target: String) {
-        Command::new(self.binary.to_owned())
-            .args(&["import", "-C", self.working_dir(), &target])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .output()
-            .expect("failed to execute process");
+    pub fn always_success_cell_dep(&self) -> CellDep {
+        let genesis_cellbase_hash = self.consensus().genesis_block().transactions()[0].hash();
+        let always_success_out_point =
+            OutPoint::new(genesis_cellbase_hash, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX);
+        CellDep::new_builder()
+            .out_point(always_success_out_point)
+            .build()
     }
 
-    pub fn start(&mut self) {
-        let child_process = Command::new(self.binary.to_owned())
-            .env("RUST_BACKTRACE", "full")
-            .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("failed to run binary");
-        self.guard = Some(ProcessGuard(child_process));
-
-        loop {
-            let result = { self.rpc_client().inner().local_node_info() };
-            if let Ok(local_node_info) = result {
-                self.node_id = Some(local_node_info.node_id);
-                let _ = self.rpc_client().tx_pool_info();
-                break;
-            } else if let Some(ref mut child) = self.guard {
-                match child.0.try_wait() {
-                    Ok(Some(exit)) => {
-                        log::error!("Error: node crashed, {}", exit);
-                        process::exit(exit.code().unwrap());
-                    }
-                    Ok(None) => {
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                    }
-                    Err(error) => {
-                        log::error!("Error: node crashed with reason: {}", error);
-                        process::exit(255);
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn stop(&mut self) {
-        drop(self.guard.take())
-    }
-
-    pub fn connect(&self, outbound_peer: &Node) {
-        let node_info = outbound_peer.rpc_client().local_node_info();
-
-        let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.add_node(
-            node_id.clone(),
-            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
-        );
-
-        let result = wait_until(5, || {
-            let peers = rpc_client.get_peers();
-            peers.iter().any(|peer| peer.node_id == node_id)
+    pub fn connect(&self, peer: &Self) {
+        self.rpc_client()
+            .add_node(peer.node_id().to_string(), peer.p2p_address());
+        let connected = wait_until(5, || {
+            self.rpc_client()
+                .get_peers()
+                .iter()
+                .any(|p| p.node_id == peer.node_id())
         });
-
-        if !result {
-            panic!("Connect outbound peer timeout, node id: {}", node_id);
+        if !connected {
+            panic!("Connect outbound peer timeout, node id: {}", peer.node_id());
         }
     }
 
-    pub fn connect_uncheck(&self, outbound_peer: &Node) {
-        let node_info = outbound_peer.rpc_client().local_node_info();
-
-        let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.add_node(
-            node_id,
-            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
-        );
+    pub fn connect_uncheck(&self, peer: &Self) {
+        self.rpc_client()
+            .add_node(peer.node_id().to_string(), peer.p2p_address());
     }
 
     // workaround for banned address checking (because we are using loopback address)
     // 1. checking banned addresses is empty
     // 2. connecting outbound peer and checking banned addresses is not empty
     // 3. clear banned addresses
-    pub fn connect_and_wait_ban(&self, outbound_peer: &Node) {
-        let node_info = outbound_peer.rpc_client().local_node_info();
-        let node_id = node_info.node_id;
+    pub fn connect_and_wait_ban(&self, peer: &Self) {
         let rpc_client = self.rpc_client();
-
         assert!(
             rpc_client.get_banned_addresses().is_empty(),
             "banned addresses should be empty"
         );
-        rpc_client.add_node(
-            node_id.clone(),
-            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
-        );
-
+        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_address());
         let result = wait_until(10, || {
             let banned_addresses = rpc_client.get_banned_addresses();
             let result = !banned_addresses.is_empty();
@@ -214,75 +239,60 @@ impl Node {
             });
             result
         });
-
         if !result {
             panic!(
                 "Connect and wait ban outbound peer timeout, node id: {}",
-                node_id
+                peer.node_id()
             );
         }
     }
 
-    pub fn disconnect(&self, node: &Node) {
-        let node_info = node.rpc_client().local_node_info();
-
-        let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.remove_node(node_id.clone());
-
-        let result = wait_until(5, || {
-            let peers = rpc_client.get_peers();
-            peers.iter().all(|peer| peer.node_id != node_id)
+    // TODO it will be removed out later, in another PR
+    pub fn disconnect(&self, peer: &Self) {
+        self.rpc_client().remove_node(peer.node_id().to_string());
+        let disconnected = wait_until(5, || {
+            self.rpc_client()
+                .get_peers()
+                .iter()
+                .all(|p| p.node_id != peer.node_id())
+                && peer
+                    .rpc_client()
+                    .get_peers()
+                    .iter()
+                    .all(|p| p.node_id != self.node_id())
         });
-
-        if !result {
-            panic!("Disconnect timeout, node {}", node_id);
-        }
-
-        let rpc_client = node.rpc_client();
-        let node_id = self.node_id();
-        let result = wait_until(5, || {
-            let peers = rpc_client.get_peers();
-            peers.iter().all(|peer| peer.node_id != node_id)
-        });
-        if !result {
-            panic!("Disconnect timeout, node {}", node_id);
+        if !disconnected {
+            panic!("Disconnect timeout, node {}", peer.node_id());
         }
     }
 
-    pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber) {
-        let self_rpc_client = self.rpc_client();
-        let node_rpc_client = node.rpc_client();
-        let (mut self_tip_number, mut node_tip_number) = (0, 0);
+    // TODO it will be removed out later, in another PR
+    pub fn waiting_for_sync(&self, peer: &Self, target: BlockNumber) {
+        let (mut self_tip_number, mut peer_tip_number) = (0, 0);
         // 60 seconds is a reasonable timeout to sync, even for poor CI server
-        let result = wait_until(60, || {
-            self_tip_number = self_rpc_client.get_tip_block_number();
-            node_tip_number = node_rpc_client.get_tip_block_number();
-            self_tip_number == node_tip_number && target == self_tip_number
+        let synced = wait_until(60, || {
+            self_tip_number = self.get_tip_block_number();
+            peer_tip_number = peer.get_tip_block_number();
+            self_tip_number == peer_tip_number && target == self_tip_number
         });
-
-        if !result {
+        if !synced {
             panic!(
                 "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
-                self_tip_number, node_tip_number
+                self_tip_number, peer_tip_number
             );
         }
-    }
-
-    pub fn rpc_client(&self) -> &RpcClient {
-        &self.rpc_client
     }
 
     pub fn submit_block(&self, block: &BlockView) -> Byte32 {
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
-            .expect("submit_block failed")
+            .unwrap()
     }
 
     pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
         self.rpc_client()
             .process_block_without_verify(block.data().into(), broadcast)
-            .expect("process_block_without_verify result none")
+            .unwrap()
     }
 
     pub fn generate_blocks(&self, blocks_num: usize) -> Vec<Byte32> {
@@ -471,140 +481,6 @@ impl Node {
             .build()
     }
 
-    pub fn always_success_script(&self) -> Script {
-        Script::new_builder()
-            .code_hash(self.always_success_code_hash.clone())
-            .hash_type(ScriptHashType::Data.into())
-            .build()
-    }
-
-    pub fn always_success_cell_dep(&self) -> CellDep {
-        CellDep::new_builder()
-            .out_point(OutPoint::new(
-                self.genesis_cellbase_hash.clone(),
-                SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
-            ))
-            .build()
-    }
-
-    fn prepare_chain_spec(
-        &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
-    ) -> Result<(), Error> {
-        let integration_spec = include_bytes!("../integration.toml");
-        let always_success_cell = include_bytes!("../../script/testdata/always_success");
-        let always_success_path = Path::new(self.working_dir()).join("specs/cells/always_success");
-        fs::create_dir_all(format!("{}/specs", self.working_dir()))?;
-        fs::create_dir_all(format!("{}/specs/cells", self.working_dir()))?;
-        fs::write(&always_success_path, &always_success_cell[..])?;
-
-        let mut spec: ChainSpec =
-            toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        for r in spec.genesis.system_cells.iter_mut() {
-            r.file
-                .absolutize(Path::new(self.working_dir()).join("specs"));
-        }
-        modify_chain_spec(&mut spec);
-
-        let consensus = spec.build_consensus().expect("build consensus");
-        self.genesis_cellbase_hash
-            .clone_from(&consensus.genesis_block().transactions()[0].hash());
-        self.dep_group_tx_hash
-            .clone_from(&consensus.genesis_block().transactions()[1].hash());
-        self.always_success_code_hash = CellOutput::calc_data_hash(
-            &consensus.genesis_block().transactions()[0]
-                .outputs_data()
-                .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
-                .unwrap()
-                .raw_data(),
-        );
-
-        self.consensus = Some(consensus);
-        self.spec = Some(spec.clone());
-
-        // write to dir
-        fs::write(
-            Path::new(self.working_dir()).join("specs/integration.toml"),
-            toml::to_string(&spec).expect("chain spec serialize"),
-        )
-        .map_err(Into::into)
-    }
-
-    fn rewrite_spec(&self, modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>) -> Result<(), Error> {
-        // rewrite ckb.toml
-        let ckb_config_path = format!("{}/ckb.toml", self.working_dir());
-        let mut ckb_config: CKBAppConfig =
-            toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
-        ckb_config.block_assembler = Some(BlockAssemblerConfig {
-            code_hash: self.always_success_code_hash.unpack(),
-            args: Default::default(),
-            hash_type: ScriptHashType::Data.into(),
-            message: Default::default(),
-        });
-
-        modify_ckb_config(&mut ckb_config);
-        fs::write(
-            &ckb_config_path,
-            toml::to_string(&ckb_config).expect("ckb config serialize"),
-        )
-        .map_err(Into::into)
-    }
-
-    pub fn edit_config_file(
-        &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpec)>,
-        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig)>,
-    ) {
-        let rpc_port = format!("{}", self.rpc_port);
-        let p2p_port = format!("{}", self.p2p_port);
-
-        let init_output = Command::new(self.binary.to_owned())
-            .args(&[
-                "-C",
-                self.working_dir(),
-                "init",
-                "--chain",
-                "integration",
-                "--rpc-port",
-                &rpc_port,
-                "--p2p-port",
-                &p2p_port,
-                "--force",
-            ])
-            .output()
-            .unwrap_or_else(|e| {
-                panic!(
-                    "init working_dir {} command fail: {}",
-                    self.working_dir(),
-                    e
-                );
-            });
-
-        if !init_output.status.success() {
-            panic!(
-                "init working_dir {} output not success: {}",
-                self.working_dir(),
-                String::from_utf8_lossy(init_output.stderr.as_slice())
-            );
-        }
-
-        self.prepare_chain_spec(modify_chain_spec)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "prepare chain spec working_dir {} fail: {}",
-                    self.working_dir(),
-                    e,
-                );
-            });
-        self.rewrite_spec(modify_ckb_config).unwrap_or_else(|e| {
-            panic!(
-                "write chain spec working_dir {} fail: {}",
-                self.working_dir(),
-                e,
-            );
-        });
-    }
-
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
         let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), pending_size);
@@ -625,5 +501,134 @@ impl Node {
     pub fn assert_tx_pool_serialized_size(&self, total_tx_size: u64) {
         let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
+    }
+
+    pub fn start(&mut self) {
+        let mut child_process = Command::new(binary())
+            .env("RUST_BACKTRACE", "full")
+            .args(&[
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                "run",
+                "--ba-advanced",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("failed to run binary");
+
+        // Wait to ensure the node threads up
+        let node_info = loop {
+            if let Ok(local_node_info) = self.rpc_client().inner().local_node_info() {
+                let _ = self.rpc_client().tx_pool_info();
+                break local_node_info;
+            }
+
+            match child_process.try_wait() {
+                Ok(None) => sleep(std::time::Duration::from_secs(1)),
+                Ok(Some(status)) => {
+                    log::error!(
+                        "Error: node crashed: {}, log_path: {}",
+                        status,
+                        self.log_path().display()
+                    );
+                    process::exit(status.code().unwrap());
+                }
+                Err(error) => {
+                    log::error!(
+                        "Error: node crashed with reason: {}, log_path: {}",
+                        error,
+                        self.log_path().display()
+                    );
+                    process::exit(255);
+                }
+            }
+        };
+
+        self.guard = Some(ProcessGuard(child_process));
+        self.node_id = Some(node_info.node_id);
+    }
+
+    pub fn stop(&mut self) {
+        drop(self.guard.take())
+    }
+
+    pub fn export(&self, target: String) {
+        Command::new(binary())
+            .args(&[
+                "export",
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                &target,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("failed to execute process");
+    }
+
+    pub fn import(&self, target: String) {
+        Command::new(binary())
+            .args(&[
+                "import",
+                "-C",
+                &self.working_dir().to_string_lossy().to_string(),
+                &target,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("failed to execute process");
+    }
+}
+
+// TODO it will be removed out later, in another PR
+pub fn connect_all(nodes: &[Node]) {
+    for node_a in nodes.iter() {
+        for node_b in nodes.iter() {
+            if node_a.p2p_address() != node_b.p2p_address() {
+                node_a.connect(node_b);
+            }
+        }
+    }
+}
+
+// TODO it will be removed out later, in another PR
+pub fn disconnect_all(nodes: &[Node]) {
+    for node_a in nodes.iter() {
+        for node_b in nodes.iter() {
+            if node_a.p2p_address() != node_b.p2p_address() {
+                node_a.disconnect(node_b);
+            }
+        }
+    }
+}
+
+// TODO it will be removed out later, in another PR
+// generate a same block on all nodes, exit IBD mode and return the tip block
+pub fn exit_ibd_mode(nodes: &[Node]) -> BlockView {
+    let block = nodes[0].new_block(None, None, None);
+    nodes.iter().for_each(|node| {
+        node.submit_block(&block);
+    });
+    block
+}
+
+// TODO it will be removed out later, in another PR
+pub fn waiting_for_sync(nodes: &[Node]) {
+    let mut tip_headers: HashSet<HeaderView> = HashSet::with_capacity(nodes.len());
+    // 60 seconds is a reasonable timeout to sync, even for poor CI server
+    let synced = wait_until(60, || {
+        tip_headers = nodes
+            .iter()
+            .map(|node| node.rpc_client().get_tip_header().into())
+            .collect();
+        tip_headers.len() == 1
+    });
+    if !synced {
+        panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
     }
 }

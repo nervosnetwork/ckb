@@ -4,13 +4,18 @@ use ckb_store::{
     COLUMN_BLOCK_HEADER, COLUMN_EPOCH, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
     META_CURRENT_EPOCH_KEY,
 };
+use std::sync::Arc;
 
 pub struct ChangeMoleculeTableToStruct;
 
 const VERSION: &str = "20200703124523";
 
 impl Migration for ChangeMoleculeTableToStruct {
-    fn migrate(&self, db: RocksDB, mut pb: Box<dyn FnMut(u64) -> ProgressBar>) -> Result<RocksDB> {
+    fn migrate(
+        &self,
+        db: RocksDB,
+        pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
+    ) -> Result<RocksDB> {
         let pb = pb(9);
         let spinner_style = ProgressStyle::default_spinner()
             .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")

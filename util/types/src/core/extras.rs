@@ -371,7 +371,7 @@ impl EpochNumberWithFraction {
     }
 
     // One caveat here, is that if the user specifies a zero epoch length either
-    // delibrately, or by accident, calling to_rational() after that might
+    // deliberately, or by accident, calling to_rational() after that might
     // result in a division by zero panic. To prevent that, this method would
     // automatically rewrite the value to epoch index 0 with epoch length to
     // prevent panics

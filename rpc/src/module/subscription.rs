@@ -45,16 +45,154 @@ impl PubSubMetadata for SubscriptionSession {
 pub enum Topic {
     NewTipHeader,
     NewTipBlock,
+    NewTransaction,
 }
 
+/// RPC Module Subscription that CKB node will push new messages to subscribers.
+///
+/// RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
+/// TCP (enable with rpc.tcp_listen_address configuration option) and WebSocket (enable with
+/// rpc.ws_listen_address).
+///
+/// ## Examples
+///
+/// TCP RPC subscription:
+///
+/// ```text
+/// telnet localhost 18114
+/// > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
+/// < {"jsonrpc":"2.0","result":0,"id":2}
+/// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+///"subscription":0}}
+/// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+///"subscription":0}}
+/// < ...
+/// > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
+/// < {"jsonrpc":"2.0","result":true,"id":2}
+/// ```
+///
+/// WebSocket RPC subscription:
+///
+/// ```javascript
+/// let socket = new WebSocket("ws://localhost:28114")
+///
+/// socket.onmessage = function(event) {
+///   console.log(`Data received from server: ${event.data}`);
+/// }
+///
+/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
+///
+/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
+/// ```
 #[allow(clippy::needless_return)]
 #[rpc(server)]
 pub trait SubscriptionRpc {
     type Metadata;
 
+    /// Subscribes to a topic.
+    ///
+    /// ## Params
+    ///
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block)
+    ///
+    /// ## Returns
+    ///
+    /// This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
+    /// topics to the current RPC connection. The subscript ID is also attached as
+    /// `params.subscription` in the push messages.
+    ///
+    /// Example push message:
+    ///
+    /// ```json+skip
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "subscribe",
+    ///   "params": {
+    ///     "result": { ... },
+    ///     "subscription": "0x2a"
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Topics
+    ///
+    /// ### `new_tip_header`
+    ///
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
+    /// block header to subscribers.
+    ///
+    /// The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
+    ///
+    /// ### `new_tip_block`
+    ///
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
+    /// whole block to subscribers.
+    ///
+    /// The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
+    ///
+    /// ### `new_transaction`
+    ///
+    /// Subscribers will get notified when a new transaction is submitted to the pool.
+    ///
+    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "subscribe",
+    ///   "params": [
+    ///     "new_tip_header"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x2a"
+    /// }
+    /// ```
     #[pubsub(subscription = "subscribe", subscribe, name = "subscribe")]
     fn subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<String>, topic: Topic);
 
+    /// Unsubscribes from a subscribed topic.
+    ///
+    /// ## Params
+    ///
+    /// * `id` - Subscription ID
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "unsubscribe",
+    ///   "params": [
+    ///     "0x2a"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
     #[pubsub(subscription = "subscribe", unsubscribe, name = "unsubscribe")]
     fn unsubscribe(&self, meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool>;
 }
@@ -126,17 +264,17 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 }
 
 impl SubscriptionRpcImpl {
-    pub fn new<S: ToString>(notify_controller: NotifyController, thread_name: Option<S>) -> Self {
-        let new_block_receiver =
-            notify_controller.subscribe_new_block(thread_name.as_ref().unwrap().to_string());
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
+    pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
+        let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
+        let new_transaction_receiver =
+            notify_controller.subscribe_new_transaction(name.to_string());
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
 
-        let mut thread_builder = thread::Builder::new();
-        if let Some(name) = thread_name {
-            thread_builder = thread_builder.name(name.to_string());
-        }
+        let thread_builder = thread::Builder::new().name(name.to_string());
         thread_builder
             .spawn(move || loop {
                 select! {
@@ -162,7 +300,28 @@ impl SubscriptionRpcImpl {
                             error!("new_block_receiver closed");
                             break;
                         },
-                    }
+                    },
+                    recv(new_transaction_receiver) -> msg => match msg {
+                        Ok(tx_entry) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
+                                let tx_entry = ckb_jsonrpc_types::PoolTransactionEntry {
+                                    transaction: tx_entry.transaction.into(),
+                                    cycles: tx_entry.cycles.into(),
+                                    size: (tx_entry.size as u64).into(),
+                                    fee: tx_entry.fee.into(),
+                                };
+                                let json_string = Ok(serde_json::to_string(&tx_entry).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("new_transaction_receiver closed");
+                            break;
+                        },
+                    },
                 }
             })
             .expect("Start SubscriptionRpc thread failed");

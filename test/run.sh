@@ -21,7 +21,7 @@ cargo run "$@" 2>&1 | tee integration.log
 EXIT_CODE="${PIPESTATUS[0]}"
 set -e
 
-if [ "$EXIT_CODE" != 0 ]; then
+if [ "$EXIT_CODE" != 0 ] && [ "${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}" = "nervosnetwork/ckb" ]; then
   if ! command -v sentry-cli &> /dev/null; then
     curl -sL https://sentry.io/get-cli/ | bash
   fi
@@ -42,6 +42,6 @@ if [ "$EXIT_CODE" != 0 ]; then
 
   CKB_RELEASE="$("$CKB_BIN" --version)"
   cat "$CKB_INTEGRATION_FAILURE_FILE" | xargs -t -L 1 -I '%' sentry-cli send-event -m '%' -r "$CKB_RELEASE" --logfile integration.log
-
-  exit "$EXIT_CODE"
 fi
+
+exit "$EXIT_CODE"

@@ -16,7 +16,7 @@ use ckb_types::{
     packed::Byte32,
     prelude::*,
 };
-use lru_cache::LruCache;
+use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
@@ -565,14 +565,14 @@ where
     }
 
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
-        if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
+        if let Some(median_time) = self.median_timestamps_cache.borrow().peek(block_hash) {
             return *median_time;
         }
 
         let median_time = self.block_median_time_context.block_median_time(block_hash);
         self.median_timestamps_cache
             .borrow_mut()
-            .insert(block_hash.clone(), median_time);
+            .put(block_hash.clone(), median_time);
         median_time
     }
 

@@ -15,21 +15,158 @@ use jsonrpc_derive::rpc;
 use std::convert::TryInto;
 use std::sync::Arc;
 
+/// RPC Module Pool for transaction memory pool.
 #[rpc(server)]
 pub trait PoolRpc {
-    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"send_transaction","params": [{"version":2, "deps":[], "inputs":[], "outputs":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+    /// Submits a new transaction into the transaction pool.
+    ///
+    /// ## Params
+    ///
+    /// * `transaction` - The transaction.
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+    ///
+    /// ## Errors
+    ///
+    /// * [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+    /// * [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](../enum.RPCError.html#variant.PoolRejectedTransactionByIllTransactionChecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
+    /// * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+    /// * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+    /// * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+    /// * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+    /// * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+    /// * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "send_transaction",
+    ///   "params": [
+    ///     {
+    ///       "cell_deps": [
+    ///         {
+    ///           "dep_type": "code",
+    ///           "out_point": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "header_deps": [
+    ///         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+    ///       ],
+    ///       "inputs": [
+    ///         {
+    ///           "previous_output": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+    ///           },
+    ///           "since": "0x0"
+    ///         }
+    ///       ],
+    ///       "outputs": [
+    ///         {
+    ///           "capacity": "0x2540be400",
+    ///           "lock": {
+    ///             "args": "0x",
+    ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    ///             "hash_type": "data"
+    ///           },
+    ///           "type": null
+    ///         }
+    ///       ],
+    ///       "outputs_data": [
+    ///         "0x"
+    ///       ],
+    ///       "version": "0x0",
+    ///       "witnesses": []
+    ///     },
+    ///     "passthrough"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+    /// }
+    /// ```
     #[rpc(name = "send_transaction")]
     fn send_transaction(
         &self,
-        _tx: Transaction,
-        _outputs_validator: Option<OutputsValidator>,
+        tx: Transaction,
+        outputs_validator: Option<OutputsValidator>,
     ) -> Result<H256>;
 
-    // curl -d '{"params": [], "method": "tx_pool_info", "jsonrpc": "2.0", "id": 2}' -H 'content-type:application/json' http://localhost:8114
+    /// Returns the transaction pool information.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "tx_pool_info",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "last_txs_updated_at": "0x0",
+    ///     "min_fee_rate": "0x0",
+    ///     "orphan": "0x0",
+    ///     "pending": "0x1",
+    ///     "proposed": "0x0",
+    ///     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "tip_number": "0x400",
+    ///     "total_tx_cycles": "0x219",
+    ///     "total_tx_size": "0x112"
+    ///   }
+    /// }
+    /// ```
     #[rpc(name = "tx_pool_info")]
     fn tx_pool_info(&self) -> Result<TxPoolInfo>;
 
-    // curl -d '{"params": [], "method": "clear_tx_pool", "jsonrpc": "2.0", "id": 2}' -H 'content-type:application/json' http://localhost:8114
+    /// Removes all transactions from the transaction pool.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "clear_tx_pool",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
     #[rpc(name = "clear_tx_pool")]
     fn clear_tx_pool(&self) -> Result<()>;
 }

@@ -1,15 +1,14 @@
-use crate::assertion::{reward_assertion::*, tx_assertion::*};
+use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
+use crate::util::check::is_transaction_committed;
 use crate::utils::generate_utxo_set;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
 use ckb_types::prelude::*;
 
 pub struct FeeOfTransaction;
 
 impl Spec for FeeOfTransaction {
-    crate::name!("fee_of_transaction");
-
     // Case: Only submit 1 transaction, and then wait for its proposed and committed
     //
     //   1. Submit transaction `tx` into transactions_pool after height `i`
@@ -20,8 +19,8 @@ impl Spec for FeeOfTransaction {
     //   5. Expect that the miner receives the committed reward of `tx` from
     //      `block[i + 1 + PROPOSAL_WINDOW_CLOSEST + FINALIZATION_DELAY_LENGTH]`
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
 
         let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
@@ -49,16 +48,14 @@ impl Spec for FeeOfTransaction {
 pub struct FeeOfMaxBlockProposalsLimit;
 
 impl Spec for FeeOfMaxBlockProposalsLimit {
-    crate::name!("fee_of_max_block_proposals_limit");
-
     // Case: Submit `MAX_BLOCK_PROPOSALS_LIMIT` transactions, and then wait for its proposed and committed
     //
     //   1. Submit `MAX_BLOCK_PROPOSALS_LIMIT` transactions into transactions_pool after height `i`
     //   2. Expect that the miner receives the proposed reward of `tx` from
     //      `block[i + 1 + FINALIZATION_DELAY_LENGTH]`
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
         let txs = generate_utxo_set(node, max_block_proposals_limit as usize)
             .bang_random_fee(vec![node.always_success_cell_dep()]);
@@ -75,7 +72,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
                 .len(),
             txs.get_proposal_tx_ids().len()
         );
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
 
         assert_chain_rewards(node);
     }
@@ -84,16 +81,14 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
 pub struct FeeOfMultipleMaxBlockProposalsLimit;
 
 impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
-    crate::name!("fee_of_multiple_max_block_proposals_limit");
-
     // Case: Submit `3 * MAX_BLOCK_PROPOSALS_LIMIT` transactions, and then wait for its proposed and committed
     //
     //   1. Submit `3 * MAX_BLOCK_PROPOSALS_LIMIT` transactions into transactions_pool after height `i`
     //   2. Expect that the miner propose those transactions in the next `3` blocks, every block
     //      contains `MAX_BLOCK_PROPOSALS_LIMIT` transactions
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
 
         let multiple = 3;
@@ -115,7 +110,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         });
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
     }
 }
@@ -123,8 +118,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
 pub struct ProposeButNotCommit;
 
 impl Spec for ProposeButNotCommit {
-    crate::name!("propose_but_not_commit");
-    crate::setup!(num_nodes: 2, connect_all: false);
+    crate::setup!(num_nodes: 2);
 
     // Case: Propose a transaction but never commit it
     //     1. feed_node propose a tx in the latest block but not commit;
@@ -132,9 +126,9 @@ impl Spec for ProposeButNotCommit {
     //     3. target_node keep growing, but it will never commit 'tx'
     //        since its trasactions_pool does not have 'tx'
 
-    fn run(&self, net: &mut Net) {
-        let target_node = &net.nodes[0];
-        let feed_node = &net.nodes[1];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let target_node = &nodes[0];
+        let feed_node = &nodes[1];
 
         let txs = generate_utxo_set(feed_node, 1)
             .bang_random_fee(vec![feed_node.always_success_cell_dep()]);
@@ -150,19 +144,17 @@ impl Spec for ProposeButNotCommit {
         });
         target_node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transaction_not_committed(target_node, &txs[0]);
+        assert!(!is_transaction_committed(target_node, &txs[0]));
     }
 }
 
 pub struct ProposeDuplicated;
 
 impl Spec for ProposeDuplicated {
-    crate::name!("propose_duplicated");
-
     // Case: Uncle contains a proposal, and the new block contains the same one.
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
         let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
         let tx = &txs[0];
 
@@ -196,7 +188,7 @@ impl Spec for ProposeDuplicated {
 
         node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
 
-        assert_transactions_committed(node, &txs);
+        assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
     }
 }

@@ -2,8 +2,8 @@ use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp,
 };
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_chain_spec::ChainSpec;
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+
 use ckb_types::core::BlockNumber;
 use log::info;
 use std::thread::sleep;
@@ -13,22 +13,18 @@ pub struct ValidSince;
 
 // TODO add cases verify compact block(forks) including transaction of which since != 0
 impl Spec for ValidSince {
-    crate::name!("valid_since");
-
-    fn run(&self, net: &mut Net) {
-        self.test_since_relative_block_number(&net.nodes[0]);
-        self.test_since_absolute_block_number(&net.nodes[0]);
-        self.test_since_relative_median_time(&net.nodes[0]);
-        self.test_since_absolute_median_time(&net.nodes[0]);
+    fn run(&self, nodes: &mut Vec<Node>) {
+        self.test_since_relative_block_number(&nodes[0]);
+        self.test_since_absolute_block_number(&nodes[0]);
+        self.test_since_relative_median_time(&nodes[0]);
+        self.test_since_absolute_median_time(&nodes[0]);
 
         // TODO: Uncomment this case after proposed/pending pool tip verfiry logic changing
-        // self.test_since_and_proposal(&net.nodes[1]);
+        // self.test_since_and_proposal(&nodes[1]);
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec)> {
-        Box::new(move |spec_config: &mut ChainSpec| {
-            spec_config.params.cellbase_maturity = 0;
-        })
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.cellbase_maturity = 0;
     }
 }
 

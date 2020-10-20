@@ -6,8 +6,8 @@ use ckb_app_config::{ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
-    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
-    SPEC_DEV_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
+    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_types::{prelude::*, H256};
 
@@ -191,6 +191,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
     println!("create {}", MINER_CONFIG_FILE_NAME);
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
+    println!("create {}", DB_OPTIONS_FILE_NAME);
+    Resource::bundled_db_options().export(&context, &args.root_dir)?;
 
     Ok(())
 }

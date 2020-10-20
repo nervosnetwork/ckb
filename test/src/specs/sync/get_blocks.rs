@@ -1,26 +1,22 @@
-use super::utils::wait_get_blocks;
 use crate::utils::{build_headers, wait_until};
-use crate::{Net, Spec, TestProtocol};
+use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 use ckb_sync::BLOCK_DOWNLOAD_TIMEOUT;
 use ckb_types::core::HeaderView;
+use ckb_types::packed::{GetBlocks, SyncMessage};
+use ckb_types::prelude::*;
+use failure::_core::time::Duration;
 use log::info;
 use std::time::Instant;
 
 pub struct GetBlocksTimeout;
 
 impl Spec for GetBlocksTimeout {
-    crate::name!("get_blocks_timeout");
+    crate::setup!(num_nodes: 2);
 
-    crate::setup!(
-        connect_all: false,
-        num_nodes: 2,
-        protocols: vec![TestProtocol::sync()],
-    );
-
-    fn run(&self, net: &mut Net) {
-        let node1 = net.nodes.pop().unwrap();
-        let node2 = net.nodes.pop().unwrap();
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node1 = nodes.pop().unwrap();
+        let node2 = nodes.pop().unwrap();
         node1.generate_blocks(1);
         node2.generate_blocks(20);
 
@@ -28,20 +24,18 @@ impl Spec for GetBlocksTimeout {
             .map(|i| node2.get_header_by_number(i))
             .collect();
 
+        let mut net = Net::new(self.name(), node1.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node1);
-        let (pi, _, _) = net.receive();
         info!("Send Headers to node1");
-        net.send(
-            SupportProtocols::Sync.protocol_id(),
-            pi,
-            build_headers(&headers),
-        );
+        net.send(&node1, SupportProtocols::Sync, build_headers(&headers));
         info!("Receive GetBlocks from node1");
 
         let block_download_timeout_secs = BLOCK_DOWNLOAD_TIMEOUT / 1000;
-        let (first, received) = wait_get_blocks_point(block_download_timeout_secs * 2, &net);
+        let (first, received) =
+            wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2);
         assert!(received, "Should received GetBlocks");
-        let (second, received) = wait_get_blocks_point(block_download_timeout_secs * 2, &net);
+        let (second, received) =
+            wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2);
         assert!(!received, "Should not received GetBlocks");
         let elapsed = second.duration_since(first).as_secs();
         let error_margin = 2;
@@ -58,7 +52,14 @@ impl Spec for GetBlocksTimeout {
     }
 }
 
-fn wait_get_blocks_point(secs: u64, net: &Net) -> (Instant, bool) {
-    let flag = wait_get_blocks(secs, net);
+fn wait_get_blocks_point(net: &Net, node: &Node, secs: u64) -> (Instant, bool) {
+    let flag = wait_until(secs, || {
+        if let Ok((_, _, data)) = net.receive_timeout(node, Duration::from_secs(1)) {
+            if let Ok(message) = SyncMessage::from_slice(&data) {
+                return message.to_enum().item_name() == GetBlocks::NAME;
+            }
+        }
+        false
+    });
     (Instant::now(), flag)
 }

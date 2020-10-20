@@ -1,39 +1,42 @@
 [package]
 name = "ckb-bin"
-version = "0.36.0"
+version = "0.37.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 clap = { version = "2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_plain = "0.3.0"
 toml = "0.5"
-ckb-app-config = { path = "../util/app-config" }
-ckb-logger = { path = "../util/logger" }
-ckb-logger-service = { path = "../util/logger-service" }
-ckb-metrics-service = { path = "../util/metrics-service" }
-ckb-util = { path = "../util" }
-ckb-types = { path = "../util/types" }
-ckb-channel = { path = "../util/channel" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
-ckb-chain = { path = "../chain" }
-ckb-shared = { path = "../shared" }
-ckb-store = { path = "../store" }
-ckb-chain-spec = {path = "../spec"}
-ckb-miner = { path = "../miner" }
-ckb-network = { path = "../network"}
-ckb-rpc = { path = "../rpc"}
-ckb-resource = { path = "../resource"}
-ckb-network-alert = { path = "../util/network-alert" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.37.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.37.0" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.37.0" }
+ckb-metrics-service = { path = "../util/metrics-service", version = "= 0.37.0" }
+ckb-util = { path = "../util", version = "= 0.37.0" }
+ckb-types = { path = "../util/types", version = "= 0.37.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.37.0" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.37.0" }
+ckb-chain = { path = "../chain", version = "= 0.37.0" }
+ckb-shared = { path = "../shared", version = "= 0.37.0" }
+ckb-store = { path = "../store", version = "= 0.37.0" }
+ckb-chain-spec = {path = "../spec", version = "= 0.37.0"}
+ckb-miner = { path = "../miner", version = "= 0.37.0" }
+ckb-network = { path = "../network", version = "= 0.37.0"}
+ckb-rpc = { path = "../rpc", version = "= 0.37.0"}
+ckb-resource = { path = "../resource", version = "= 0.37.0"}
+ckb-network-alert = { path = "../util/network-alert", version = "= 0.37.0" }
 ctrlc = { version = "3.1", features = ["termination"] }
-ckb-sync = { path = "../sync"}
-ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
-ckb-build-info = { path = "../util/build-info" }
-ckb-memory-tracker = { path = "../util/memory-tracker" }
-ckb-chain-iter = { path = "../util/chain-iter" }
-ckb-verification = { path = "../verification" }
+ckb-sync = { path = "../sync", version = "= 0.37.0"}
+ckb-instrument = { path = "../util/instrument", version = "= 0.37.0", features = ["progress_bar"] }
+ckb-build-info = { path = "../util/build-info", version = "= 0.37.0" }
+ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.37.0" }
+ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.37.0" }
+ckb-verification = { path = "../verification", version = "= 0.37.0" }
 base64 = "0.10.1"
 tempfile = "3.0"
 rayon = "1.0"

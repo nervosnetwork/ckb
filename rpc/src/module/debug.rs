@@ -4,12 +4,33 @@ use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
 use jsonrpc_derive::rpc;
 use std::time;
 
+/// RPC Module Debug for internal RPC methods.
+///
+/// **This module is for CKB developers and will not guarantee compatibility.** The methods here
+/// will be changed or removed without advanced notification.
 #[rpc(server)]
+#[doc(hidden)]
 pub trait DebugRpc {
+    /// Dumps jemalloc memory profiling information into a file.
+    ///
+    /// The file is stored in the server running the CKB node.
+    ///
+    /// The RPC returns the path to the dumped file on success or returns an error on failure.
     #[rpc(name = "jemalloc_profiling_dump")]
     fn jemalloc_profiling_dump(&self) -> Result<String>;
+    /// Changes main logger config options while CKB is running.
     #[rpc(name = "update_main_logger")]
     fn update_main_logger(&self, config: MainLoggerConfig) -> Result<()>;
+    /// Sets logger config options for extra loggers.
+    ///
+    /// CKB nodes allow setting up extra loggers. These loggers will have their own log files and
+    /// they only append logs to their log files.
+    ///
+    /// ## Params
+    ///
+    /// * `name` - Extra logger name
+    /// * `config_opt` - Adds a new logger or update an existing logger when this is not null.
+    /// Removes the logger when this is null.
     #[rpc(name = "set_extra_logger")]
     fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()>;
 }

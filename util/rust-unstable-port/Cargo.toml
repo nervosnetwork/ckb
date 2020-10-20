@@ -1,9 +1,12 @@
 [package]
 name = "ckb-rust-unstable-port"
-version = "0.36.0"
+version = "0.37.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

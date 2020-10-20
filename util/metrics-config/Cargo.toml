@@ -1,9 +1,12 @@
 [package]
 name = "ckb-metrics-config"
-version = "0.36.0"
+version = "0.37.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 log = "0.4"

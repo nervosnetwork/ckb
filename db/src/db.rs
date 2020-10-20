@@ -1,12 +1,16 @@
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
+use crate::write_batch::RocksDBWriteBatch;
 use crate::{internal_error, Col, Result};
 use ckb_app_config::DBConfig;
 use ckb_logger::{info, warn};
-use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions};
+use rocksdb::ops::{
+    CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,
+    WriteOps,
+};
 use rocksdb::{
     ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
-    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteOptions,
+    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteBatch, WriteOptions,
 };
 use std::sync::Arc;
 
@@ -166,6 +170,17 @@ impl RocksDB {
         }
     }
 
+    pub fn new_write_batch(&self) -> RocksDBWriteBatch {
+        RocksDBWriteBatch {
+            db: Arc::clone(&self.inner),
+            inner: WriteBatch::default(),
+        }
+    }
+
+    pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        self.inner.write(&batch.inner).map_err(internal_error)
+    }
+
     pub fn get_snapshot(&self) -> RocksDBSnapshot {
         unsafe {
             let snapshot = ffi::rocksdb_create_snapshot(self.inner.base_db_ptr());
@@ -176,8 +191,22 @@ impl RocksDB {
     pub fn inner(&self) -> Arc<OptimisticTransactionDB> {
         Arc::clone(&self.inner)
     }
+
+    pub fn create_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
+        let opts = Options::default();
+        inner.create_cf(col, &opts).map_err(internal_error)
+    }
+
+    pub fn drop_cf(&mut self, col: Col) -> Result<()> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
+        inner.drop_cf(col).map_err(internal_error)
+    }
 }
 
+#[inline]
 pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&ColumnFamily> {
     db.cf_handle(col)
         .ok_or_else(|| internal_error(format!("column {} not found", col)))

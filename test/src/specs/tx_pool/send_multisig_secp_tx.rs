@@ -1,7 +1,6 @@
-use crate::utils::is_committed;
-use crate::{Net, Spec};
+use crate::util::check::is_transaction_committed;
+use crate::{Node, Spec};
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -39,8 +38,8 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         self.name
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);
@@ -102,28 +101,18 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             .build();
         info!("Send 1 multisig tx use dep group");
 
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        node.rpc_client().send_transaction(tx.data().into());
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let multi_sign_script = gen_multi_sign_script(&self.keys, self.keys.len() as u8, 0);
         let lock_arg = Bytes::from(blake160(&multi_sign_script).as_bytes().to_vec());
         let hash_type = self.hash_type;
-        Box::new(move |config| {
-            let block_assembler = new_block_assembler_config(lock_arg.clone(), hash_type);
-            config.block_assembler = Some(block_assembler);
-        })
+        let block_assembler = new_block_assembler_config(lock_arg, hash_type);
+        config.block_assembler = Some(block_assembler);
     }
 }
 

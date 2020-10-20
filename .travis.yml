@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.36.0
+    - CKB_CLI_VERSION=v0.37.0
 
 addons:
   apt:
@@ -104,6 +104,16 @@ matrix:
         - make check-whitespaces
         - make check-dirty-rpc-doc
         - make check-dirty-hashes-toml
+        - devtools/ci/check-cyclic-dependencies.py
+    - name: Cyclic dev-dependencies
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      os: linux
+      cache: false
+      addons: { apt: { packages: [] } }
+      # This is a trick to use stable Rust here to allow failure. There are cyclic dev-dependencies in the current code base and we hope to fix later.
+      rust: stable
+      script:
+        - devtools/ci/check-cyclic-dependencies.py --dev
     - name: Security Audit
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
@@ -162,6 +172,7 @@ matrix:
         - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
+        - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_TAG}_x86_64-unknown-linux-gnu"; fi
     - name: Package for Centos
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby

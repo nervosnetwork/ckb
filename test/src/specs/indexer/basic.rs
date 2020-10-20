@@ -1,18 +1,16 @@
 use crate::utils::wait_until;
-use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use log::info;
 
 pub struct IndexerBasic;
 
 impl Spec for IndexerBasic {
-    crate::name!("indexer_basic");
-
-    crate::setup!(num_nodes: 2, connect_all: false);
+    crate::setup!(num_nodes: 2);
 
     #[allow(clippy::cognitive_complexity)]
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
-        let node1 = &net.nodes[1];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node0");
         node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);

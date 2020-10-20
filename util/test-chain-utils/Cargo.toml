@@ -1,18 +1,21 @@
 [package]
 name = "ckb-test-chain-utils"
-version = "0.36.0"
+version = "0.37.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = {path = "../types"}
-ckb-db = { path = "../../db" }
-ckb-store = { path = "../../store" }
-ckb-chain-spec = { path = "../../spec" }
-ckb-dao-utils = { path = "../dao/utils" }
-ckb-traits = { path = "../../traits" }
-ckb-error = { path = "../../error" }
+ckb-types = {path = "../types", version = "= 0.37.0"}
+ckb-db = { path = "../../db", version = "= 0.37.0" }
+ckb-store = { path = "../../store", version = "= 0.37.0" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.37.0" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.37.0" }
+ckb-traits = { path = "../../traits", version = "= 0.37.0" }
+ckb-error = { path = "../../error", version = "= 0.37.0" }
 lazy_static = "1.3.0"
 faketime = "0.2.0"
-ckb-resource = { path = "../../resource" }
+ckb-resource = { path = "../../resource", version = "= 0.37.0" }

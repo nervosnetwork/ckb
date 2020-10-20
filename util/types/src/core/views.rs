@@ -186,6 +186,12 @@ impl TransactionView {
             .collect()
     }
 
+    pub fn output_pts_iter(&self) -> impl Iterator<Item = packed::OutPoint> {
+        let tx_hash = self.hash();
+        (0..self.data().raw().outputs().len())
+            .map(move |x| packed::OutPoint::new(tx_hash.clone(), x as u32))
+    }
+
     pub fn input_pts_iter(&self) -> impl Iterator<Item = packed::OutPoint> {
         self.data()
             .raw()
@@ -533,11 +539,11 @@ impl BlockView {
         ])
     }
 
-    fn calc_raw_transactions_root(&self) -> packed::Byte32 {
+    pub fn calc_raw_transactions_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_hashes[..])
     }
 
-    fn calc_witnesses_root(&self) -> packed::Byte32 {
+    pub fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
     }
 }

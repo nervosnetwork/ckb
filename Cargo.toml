@@ -1,74 +1,83 @@
 [package]
 name = "ckb"
-version = "0.36.0"
+version = "0.37.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 build = "build.rs"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info" }
+ckb-build-info = { path = "util/build-info", version = "= 0.37.0" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info" }
-ckb-bin = { path = "ckb-bin" }
+ckb-build-info = { path = "util/build-info", version = "= 0.37.0" }
+ckb-bin = { path = "ckb-bin", version = "= 0.37.0" }
 
 [dev-dependencies]
 
 [workspace]
+# To get a list sorted by dependencies, run devtools/ci/check-cyclic-dependencies.py
 members = [
-    # Members are ordered by dependencies. Crates at top has fewer dependencies.
+    "util",
+    "util/occupied-capacity/core",
+    "util/channel",
+    "util/fixed-hash/core",
     "util/build-info",
     "util/logger",
     "util/logger-config",
-    "util/logger-service",
     "util/metrics",
     "util/metrics-config",
-    "util/metrics-service",
-    "util/memory-tracker",
-    "util",
     "util/hash",
-    "util/fixed-hash",
-    "util/chain-iter",
-    "util/crypto",
     "util/rational",
-    "util/multisig",
-    "util/stop-handler",
-    "util/occupied-capacity",
-    "util/types",
     "util/runtime",
+    "util/rust-unstable-port",
+    "benches",
+    "util/occupied-capacity/macros",
+    "util/fixed-hash/macros",
+    "util/logger-service",
+    "util/stop-handler",
+    "util/metrics-service",
+    "util/fixed-hash",
+    "util/occupied-capacity",
+    "util/crypto",
+    "error",
+    "util/multisig",
+    "util/types",
     "util/jsonrpc-types",
     "util/fee-estimator",
-    "util/rust-unstable-port",
-    "db",
-    "db-migration",
     "resource",
     "pow",
-    "network",
-    "util/network-alert",
     "util/dao/utils",
+    "traits",
     "spec",
     "util/proposal-table",
-    "store",
     "script",
-    "traits",
+    "util/app-config",
+    "db",
+    "network",
+    "miner",
+    "notify",
+    "util/memory-tracker",
+    "db-migration",
+    "util/network-alert",
+    "store",
+    "util/chain-iter",
     "util/test-chain-utils",
     "util/dao",
     "util/reward-calculator",
+    "util/snapshot",
     "verification",
-    "shared",
     "tx-pool",
+    "shared",
     "chain",
     "indexer",
     "sync",
-    "miner",
-    "rpc",
     "util/instrument",
-    "util/app-config",
-    "ckb-bin",
-    "benches",
-    "error",
-    "notify",
+    "rpc",
+    "ckb-bin"
 ]
 
 [profile.release]

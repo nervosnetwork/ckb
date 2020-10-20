@@ -209,6 +209,10 @@ impl PeerStore {
         self.ban_list.get_mut()
     }
 
+    pub fn clear_ban_list(&self) {
+        self.ban_list.replace(Default::default());
+    }
+
     /// check and try delete addrs if reach limit
     /// return Err if peer_store is full and can't be purge
     fn check_purge(&mut self) -> Result<()> {

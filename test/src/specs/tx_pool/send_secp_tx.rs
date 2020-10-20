@@ -1,7 +1,6 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
-use crate::utils::is_committed;
-use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
+use crate::util::check::is_transaction_committed;
+use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_types::{
@@ -36,8 +35,8 @@ impl Spec for SendSecpTxUseDepGroup {
         self.name
     }
 
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);
@@ -90,21 +89,13 @@ impl Spec for SendSecpTxUseDepGroup {
             .build();
         info!("Send 1 secp tx use dep group");
 
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        node.rpc_client().send_transaction(tx.data().into());
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let pubkey_data = self
             .privkey
             .pubkey()
@@ -112,10 +103,8 @@ impl Spec for SendSecpTxUseDepGroup {
             .serialize();
         let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
         let hash_type = self.hash_type;
-        Box::new(move |config| {
-            let block_assembler = new_block_assembler_config(lock_arg.clone(), hash_type);
-            config.block_assembler = Some(block_assembler);
-        })
+        let block_assembler = new_block_assembler_config(lock_arg, hash_type);
+        config.block_assembler = Some(block_assembler);
     }
 }
 
@@ -141,10 +130,8 @@ impl CheckTypical2In2OutTx {
 }
 
 impl Spec for CheckTypical2In2OutTx {
-    crate::name!("check_typical_2_in_2_out_tx");
-
-    fn run(&self, net: &mut Net) {
-        let node = &net.nodes[0];
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
 
         info!("Generate 20 block on node");
         node.generate_blocks(20);
@@ -219,31 +206,19 @@ impl Spec for CheckTypical2In2OutTx {
             .build();
 
         info!("Send 1 secp tx use dep group");
-        let tx_hash = node
-            .rpc_client()
+        node.rpc_client()
             .inner()
             .send_transaction(tx.data().into(), None)
             .expect("should pass default outputs validator")
             .pack();
         node.generate_blocks(20);
 
-        let tx_status = node
-            .rpc_client()
-            .get_transaction(tx_hash.clone())
-            .expect("get sent transaction");
-        assert!(
-            is_committed(&tx_status),
-            "ensure_committed failed {:#x}",
-            tx_hash
-        );
+        assert!(is_transaction_committed(node, &tx));
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let lock_arg = self.lock_arg.clone();
-        Box::new(move |config| {
-            let block_assembler =
-                new_block_assembler_config(lock_arg.clone(), ScriptHashType::Type);
-            config.block_assembler = Some(block_assembler);
-        })
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
     }
 }

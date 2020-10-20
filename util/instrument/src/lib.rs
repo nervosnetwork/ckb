@@ -12,4 +12,5 @@ mod import;
 
 pub use crate::export::Export;
 pub use crate::import::Import;
+#[cfg(feature = "progress_bar")]
 pub use indicatif::{ProgressBar, ProgressStyle};

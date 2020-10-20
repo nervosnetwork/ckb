@@ -1,6 +1,7 @@
 use super::new_alert_config;
+use crate::node::connect_all;
 use crate::utils::wait_until;
-use crate::{Net, Spec};
+use crate::{Node, Spec};
 use ckb_app_config::{CKBAppConfig, NetworkAlertConfig, RpcModule};
 use ckb_crypto::secp::{Message, Privkey};
 use ckb_types::{
@@ -25,15 +26,16 @@ impl Default for AlertPropagation {
 }
 
 impl Spec for AlertPropagation {
-    crate::name!("alert_propagation");
     crate::setup!(num_nodes: 3);
+
     // Case: alert propagation in p2p network
     //    1. create and send alert via node0; all nodes should receive the alert;
     //    2. cancel previous alert via node0; all nodes should receive the alert;
     //    3. resend the first alert, all nodes should ignore the alert.
+    fn run(&self, nodes: &mut Vec<Node>) {
+        connect_all(nodes);
 
-    fn run(&self, net: &mut Net) {
-        let node0 = &net.nodes[0];
+        let node0 = &nodes[0];
         let notice_until = faketime::unix_time_as_millis() + 100_000;
 
         // create and relay alert
@@ -47,12 +49,12 @@ impl Spec for AlertPropagation {
         let alert = create_alert(raw_alert, &self.privkeys);
         node0.rpc_client().send_alert(alert.clone().into());
         let ret = wait_until(20, || {
-            net.nodes
+            nodes
                 .iter()
                 .all(|node| !node.rpc_client().get_blockchain_info().alerts.is_empty())
         });
         assert!(ret, "Alert should be relayed, but not");
-        for node in net.nodes.iter() {
+        for node in nodes.iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
             assert_eq!(
                 alerts.len(),
@@ -78,7 +80,7 @@ impl Spec for AlertPropagation {
         let alert2 = create_alert(raw_alert2, &self.privkeys);
         node0.rpc_client().send_alert(alert2.into());
         let ret = wait_until(20, || {
-            net.nodes.iter().all(|node| {
+            nodes.iter().all(|node| {
                 node.rpc_client()
                     .get_blockchain_info()
                     .alerts
@@ -87,7 +89,7 @@ impl Spec for AlertPropagation {
             })
         });
         assert!(ret, "Alert should be relayed, but not");
-        for node in net.nodes.iter() {
+        for node in nodes.iter() {
             let alerts = node.rpc_client().get_blockchain_info().alerts;
             assert_eq!(
                 alerts.len(),
@@ -104,7 +106,7 @@ impl Spec for AlertPropagation {
         // send canceled alert again, should ignore by all nodes
         node0.rpc_client().send_alert(alert.into());
         let ret = wait_until(20, || {
-            net.nodes.iter().all(|node| {
+            nodes.iter().all(|node| {
                 node.rpc_client()
                     .get_blockchain_info()
                     .alerts
@@ -126,15 +128,13 @@ impl Spec for AlertPropagation {
         );
     }
 
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig)> {
+    fn modify_app_config(&self, config: &mut CKBAppConfig) {
         let alert_config = self.alert_config.to_owned();
-        Box::new(move |config| {
-            config.network.discovery_local_address = true;
-            // set test alert config
-            config.alert_signature = Some(alert_config.clone());
-            // enable alert RPC
-            config.rpc.modules.push(RpcModule::Alert);
-        })
+        config.network.discovery_local_address = true;
+        // set test alert config
+        config.alert_signature = Some(alert_config);
+        // enable alert RPC
+        config.rpc.modules.push(RpcModule::Alert);
     }
 }
 

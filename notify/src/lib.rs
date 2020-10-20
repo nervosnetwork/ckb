@@ -3,7 +3,7 @@ use ckb_channel::{bounded, select, Receiver, RecvError, Sender};
 use ckb_logger::{debug, error, trace};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
-    core::{service::Request, BlockView},
+    core::{service::Request, BlockView, Capacity, Cycle, TransactionView},
     packed::Alert,
 };
 use std::collections::HashMap;
@@ -16,11 +16,21 @@ pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
 pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
 
+#[derive(Debug, Clone)]
+pub struct PoolTransactionEntry {
+    pub transaction: TransactionView,
+    pub cycles: Cycle,
+    pub size: usize,
+    pub fee: Capacity,
+}
+
 #[derive(Clone)]
 pub struct NotifyController {
     stop: StopHandler<()>,
     new_block_register: NotifyRegister<BlockView>,
     new_block_notifier: Sender<BlockView>,
+    new_transaction_register: NotifyRegister<PoolTransactionEntry>,
+    new_transaction_notifier: Sender<PoolTransactionEntry>,
     network_alert_register: NotifyRegister<Alert>,
     network_alert_notifier: Sender<Alert>,
 }
@@ -34,6 +44,7 @@ impl Drop for NotifyController {
 pub struct NotifyService {
     config: NotifyConfig,
     new_block_subscribers: HashMap<String, Sender<BlockView>>,
+    new_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     network_alert_subscribers: HashMap<String, Sender<Alert>>,
 }
 
@@ -42,6 +53,7 @@ impl NotifyService {
         Self {
             config,
             new_block_subscribers: HashMap::default(),
+            new_transaction_subscribers: HashMap::default(),
             network_alert_subscribers: HashMap::default(),
         }
     }
@@ -49,12 +61,15 @@ impl NotifyService {
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> NotifyController {
-        let (signal_sender, signal_receiver) = bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let (signal_sender, signal_receiver) = bounded(SIGNAL_CHANNEL_SIZE);
         let (new_block_register, new_block_register_receiver) = bounded(REGISTER_CHANNEL_SIZE);
-        let (new_block_sender, new_block_receiver) = bounded::<BlockView>(NOTIFY_CHANNEL_SIZE);
+        let (new_block_sender, new_block_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+        let (new_transaction_register, new_transaction_register_receiver) =
+            bounded(REGISTER_CHANNEL_SIZE);
+        let (new_transaction_sender, new_transaction_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
         let (network_alert_register, network_alert_register_receiver) =
             bounded(REGISTER_CHANNEL_SIZE);
-        let (network_alert_sender, network_alert_receiver) = bounded::<Alert>(NOTIFY_CHANNEL_SIZE);
+        let (network_alert_sender, network_alert_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
 
         let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
@@ -68,6 +83,8 @@ impl NotifyService {
                     }
                     recv(new_block_register_receiver) -> msg => self.handle_register_new_block(msg),
                     recv(new_block_receiver) -> msg => self.handle_notify_new_block(msg),
+                    recv(new_transaction_register_receiver) -> msg => self.handle_register_new_transaction(msg),
+                    recv(new_transaction_receiver) -> msg => self.handle_notify_new_transaction(msg),
                     recv(network_alert_register_receiver) -> msg => self.handle_register_network_alert(msg),
                     recv(network_alert_receiver) -> msg => self.handle_notify_network_alert(msg),
                 }
@@ -77,6 +94,8 @@ impl NotifyService {
         NotifyController {
             new_block_register,
             new_block_notifier: new_block_sender,
+            new_transaction_register,
+            new_transaction_notifier: new_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
             stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), join_handle),
@@ -93,7 +112,7 @@ impl NotifyService {
                 arguments: name,
             }) => {
                 debug!("Register new_block {:?}", name);
-                let (sender, receiver) = bounded::<BlockView>(NOTIFY_CHANNEL_SIZE);
+                let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
                 self.new_block_subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -124,6 +143,37 @@ impl NotifyService {
         }
     }
 
+    fn handle_register_new_transaction(
+        &mut self,
+        msg: Result<Request<String, Receiver<PoolTransactionEntry>>, RecvError>,
+    ) {
+        match msg {
+            Ok(Request {
+                responder,
+                arguments: name,
+            }) => {
+                debug!("Register new_transaction {:?}", name);
+                let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+                self.new_transaction_subscribers.insert(name, sender);
+                let _ = responder.send(receiver);
+            }
+            _ => debug!("Register new_transaction channel is closed"),
+        }
+    }
+
+    fn handle_notify_new_transaction(&mut self, msg: Result<PoolTransactionEntry, RecvError>) {
+        match msg {
+            Ok(tx_entry) => {
+                trace!("event new tx {:?}", tx_entry);
+                // notify all subscribers
+                for subscriber in self.new_transaction_subscribers.values() {
+                    let _ = subscriber.send(tx_entry.clone());
+                }
+            }
+            _ => debug!("new transaction channel is closed"),
+        }
+    }
+
     fn handle_register_network_alert(
         &mut self,
         msg: Result<Request<String, Receiver<Alert>>, RecvError>,
@@ -134,7 +184,7 @@ impl NotifyService {
                 arguments: name,
             }) => {
                 debug!("Register network_alert {:?}", name);
-                let (sender, receiver) = bounded::<Alert>(NOTIFY_CHANNEL_SIZE);
+                let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
                 self.network_alert_subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
@@ -180,6 +230,18 @@ impl NotifyController {
 
     pub fn notify_new_block(&self, block: BlockView) {
         let _ = self.new_block_notifier.send(block);
+    }
+
+    pub fn subscribe_new_transaction<S: ToString>(
+        &self,
+        name: S,
+    ) -> Receiver<PoolTransactionEntry> {
+        Request::call(&self.new_transaction_register, name.to_string())
+            .expect("Subscribe new transaction should be OK")
+    }
+
+    pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
+        let _ = self.new_transaction_notifier.send(tx_entry);
     }
 
     pub fn subscribe_network_alert<S: ToString>(&self, name: S) -> Receiver<Alert> {

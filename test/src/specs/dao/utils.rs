@@ -1,4 +1,4 @@
-use crate::utils::is_committed;
+use crate::util::check::is_transaction_committed;
 use crate::Node;
 use ckb_types::core::EpochNumberWithFraction;
 use ckb_types::{core::TransactionView, packed::OutPoint};
@@ -6,20 +6,11 @@ use ckb_types::{core::TransactionView, packed::OutPoint};
 /// Send the given transaction and make it committed
 pub(crate) fn ensure_committed(node: &Node, transaction: &TransactionView) -> OutPoint {
     let commit_elapsed = node.consensus().tx_proposal_window().closest() as usize + 2;
-    let tx_hash = node
-        .rpc_client()
+    node.rpc_client()
         .send_transaction(transaction.data().into());
     node.generate_blocks(commit_elapsed);
-    let tx_status = node
-        .rpc_client()
-        .get_transaction(tx_hash.clone())
-        .expect("get sent transaction");
-    assert!(
-        is_committed(&tx_status),
-        "ensure_committed failed {}",
-        tx_hash
-    );
-    OutPoint::new(tx_hash, 0)
+    assert!(is_transaction_committed(node, transaction));
+    OutPoint::new(transaction.hash(), 0)
 }
 
 /// A helper function keep the node growing until into the target EpochNumberWithFraction.

@@ -1,8 +1,8 @@
 use crate::cache::StoreCache;
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
-    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
 use ckb_chain_spec::consensus::Consensus;
@@ -15,7 +15,7 @@ use ckb_types::{
     core::{
         cell::{CellMeta, CellProvider, CellStatus},
         BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
-        TransactionMeta, TransactionView, UncleBlockVecView,
+        TransactionView, UncleBlockVecView,
     },
     packed::{self, OutPoint},
     prelude::*,
@@ -49,7 +49,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get header by block header hash
     fn get_block_header(&'a self, hash: &packed::Byte32) -> Option<HeaderView> {
         if let Some(cache) = self.cache() {
-            if let Some(header) = cache.headers.lock().get_refresh(hash) {
+            if let Some(header) = cache.headers.lock().get(hash) {
                 return Some(header.clone());
             }
         };
@@ -60,7 +60,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|header| {
-                cache.headers.lock().insert(hash.clone(), header.clone());
+                cache.headers.lock().put(hash.clone(), header.clone());
                 header
             })
         } else {
@@ -86,7 +86,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache() {
-            if let Some(hashes) = cache.block_tx_hashes.lock().get_refresh(hash) {
+            if let Some(hashes) = cache.block_tx_hashes.lock().get(hash) {
                 return hashes.clone();
             }
         };
@@ -106,10 +106,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             .collect();
 
         if let Some(cache) = self.cache() {
-            cache
-                .block_tx_hashes
-                .lock()
-                .insert(hash.clone(), ret.clone());
+            cache.block_tx_hashes.lock().put(hash.clone(), ret.clone());
         }
 
         ret
@@ -121,7 +118,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         hash: &packed::Byte32,
     ) -> Option<packed::ProposalShortIdVec> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.block_proposals.lock().get_refresh(hash) {
+            if let Some(data) = cache.block_proposals.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -135,10 +132,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|data| {
-                cache
-                    .block_proposals
-                    .lock()
-                    .insert(hash.clone(), data.clone());
+                cache.block_proposals.lock().put(hash.clone(), data.clone());
                 data
             })
         } else {
@@ -149,7 +143,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// Get block uncles by block header hash
     fn get_block_uncles(&'a self, hash: &packed::Byte32) -> Option<UncleBlockVecView> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.block_uncles.lock().get_refresh(hash) {
+            if let Some(data) = cache.block_uncles.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -161,10 +155,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.map(|uncles| {
-                cache
-                    .block_uncles
-                    .lock()
-                    .insert(hash.clone(), uncles.clone());
+                cache.block_uncles.lock().put(hash.clone(), uncles.clone());
                 uncles
             })
         } else {
@@ -210,27 +201,20 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, packed::Byte32)> {
-        self.get_transaction_info_packed(hash).map(|info| {
-            self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
-                .map(|slice| {
-                    let reader =
-                        packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    let hash = info.as_reader().key().block_hash().to_entity();
-                    (reader.unpack(), hash)
-                })
-                .expect("since tx info is existed, so tx data should be existed")
-        })
+        self.get_transaction_with_info(hash)
+            .map(|(tx, tx_info)| (tx, tx_info.block_hash))
     }
 
-    fn get_transaction_info_packed(
+    fn get_transaction_with_info(
         &'a self,
         hash: &packed::Byte32,
-    ) -> Option<packed::TransactionInfo> {
-        self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
+    ) -> Option<(TransactionView, TransactionInfo)> {
+        let tx_info = self.get_transaction_info(hash)?;
+        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
             .map(|slice| {
                 let reader =
-                    packed::TransactionInfoReader::from_slice_should_be_ok(&slice.as_ref());
-                reader.to_entity()
+                    packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
+                (reader.unpack(), tx_info)
             })
     }
 
@@ -243,91 +227,45 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
-    fn get_tx_meta(&'a self, tx_hash: &packed::Byte32) -> Option<TransactionMeta> {
-        self.get(COLUMN_CELL_SET, tx_hash.as_slice()).map(|slice| {
-            packed::TransactionMetaReader::from_slice_should_be_ok(&slice.as_ref()).unpack()
+    fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
+        let key = out_point.to_cell_key();
+        self.get(COLUMN_CELL, &key).map(|slice| {
+            let reader = packed::CellEntryReader::from_slice_should_be_ok(&slice.as_ref());
+            build_cell_meta_from_reader(out_point.clone(), reader)
         })
     }
 
-    fn get_cell_meta(&'a self, tx_hash: &packed::Byte32, index: u32) -> Option<CellMeta> {
-        self.get_transaction_info_packed(&tx_hash)
-            .and_then(|tx_info| {
-                self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-                    .and_then(|slice| {
-                        let reader =
-                            packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                        reader
-                            .data()
-                            .raw()
-                            .outputs()
-                            .get(index as usize)
-                            .map(|cell_output| {
-                                let cell_output = cell_output.to_entity();
-                                let data_bytes = reader
-                                    .data()
-                                    .raw()
-                                    .outputs_data()
-                                    .get(index as usize)
-                                    .expect("inconsistent index")
-                                    .raw_data()
-                                    .len() as u64;
-                                let out_point = packed::OutPoint::new_builder()
-                                    .tx_hash(tx_hash.to_owned())
-                                    .index(index.pack())
-                                    .build();
-                                // notice mem_cell_data is set to None, the cell data should be load in need
-                                CellMeta {
-                                    cell_output,
-                                    out_point,
-                                    transaction_info: Some(tx_info.unpack()),
-                                    data_bytes,
-                                    mem_cell_data: None,
-                                }
-                            })
-                    })
-            })
-    }
-
-    fn get_cell_data(
-        &'a self,
-        tx_hash: &packed::Byte32,
-        index: u32,
-    ) -> Option<(Bytes, packed::Byte32)> {
+    fn get_cell_data(&'a self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
+        let key = out_point.to_cell_key();
         if let Some(cache) = self.cache() {
-            if let Some(cached) = cache
-                .cell_data
-                .lock()
-                .get_refresh(&(tx_hash.clone(), index))
-            {
+            if let Some(cached) = cache.cell_data.lock().get(&key) {
                 return Some(cached.clone());
             }
         };
 
-        let ret = self.get_transaction_info_packed(tx_hash).and_then(|info| {
-            self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
-                .and_then(|slice| {
-                    let reader =
-                        packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    reader
-                        .data()
-                        .raw()
-                        .outputs_data()
-                        .get(index as usize)
-                        .map(|data| {
-                            (
-                                Unpack::<Bytes>::unpack(&data),
-                                packed::CellOutput::calc_data_hash(&data.raw_data()),
-                            )
-                        })
-                })
+        let ret = self.get(COLUMN_CELL_DATA, &key).map(|slice| {
+            if !slice.as_ref().is_empty() {
+                let reader = packed::CellDataEntryReader::from_slice_should_be_ok(&slice.as_ref());
+                let data = reader.output_data().unpack();
+                let data_hash = reader.output_data_hash().to_entity();
+                (data, data_hash)
+            } else {
+                // impl packed::CellOutput {
+                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
+                //         if data.is_empty() {
+                //             packed::Byte32::zero()
+                //         } else {
+                //             blake2b_256(data).pack()
+                //         }
+                //     }
+                // }
+                (Bytes::new(), packed::Byte32::zero())
+            }
         });
 
         if let Some(cache) = self.cache() {
             ret.map(|cached| {
-                cache
-                    .cell_data
-                    .lock()
-                    .insert((tx_hash.clone(), index), cached.clone());
+                cache.cell_data.lock().put(key, cached.clone());
                 cached
             })
         } else {
@@ -379,7 +317,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     fn block_exists(&'a self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache() {
-            if cache.headers.lock().get_refresh(hash).is_some() {
+            if cache.headers.lock().get(hash).is_some() {
                 return true;
             }
         };
@@ -389,7 +327,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     // Get cellbase by block hash
     fn get_cellbase(&'a self, hash: &packed::Byte32) -> Option<TransactionView> {
         if let Some(cache) = self.cache() {
-            if let Some(data) = cache.cellbase.lock().get_refresh(hash) {
+            if let Some(data) = cache.cellbase.lock().get(hash) {
                 return Some(data.clone());
             }
         };
@@ -402,7 +340,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         });
         if let Some(cache) = self.cache() {
             ret.map(|data| {
-                cache.cellbase.lock().insert(hash.clone(), data.clone());
+                cache.cellbase.lock().put(hash.clone(), data.clone());
                 data
             })
         } else {
@@ -472,28 +410,33 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 }
 
+fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryReader) -> CellMeta {
+    CellMeta {
+        out_point,
+        cell_output: reader.output().to_entity(),
+        transaction_info: Some(TransactionInfo {
+            block_number: reader.block_number().unpack(),
+            block_hash: reader.block_hash().to_entity(),
+            block_epoch: reader.block_epoch().unpack(),
+            index: reader.index().unpack(),
+        }),
+        data_bytes: reader.data_size().unpack(),
+        mem_cell_data: None,
+    }
+}
+
 impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
 where
     S: ChainStore<'a>,
 {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        let index = out_point.index().unpack();
-        match self.0.get_tx_meta(&tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
-                Some(false) => {
-                    let mut cell_meta = self
-                        .0
-                        .get_cell_meta(&tx_hash, index)
-                        .expect("store should be consistent with cell_set");
-                    if with_data {
-                        cell_meta.mem_cell_data = self.0.get_cell_data(&tx_hash, index);
-                    }
-                    CellStatus::live_cell(cell_meta)
+        match self.0.get_cell(out_point) {
+            Some(mut cell_meta) => {
+                if with_data {
+                    cell_meta.mem_cell_data = self.0.get_cell_data(out_point);
                 }
-                Some(true) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            },
+                CellStatus::live_cell(cell_meta)
+            }
             None => CellStatus::Unknown,
         }
     }

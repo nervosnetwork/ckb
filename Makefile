@@ -54,8 +54,13 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	./devtools/doc/jsonfmt.py rpc/json/rpc.json
-	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+	rm -f target/doc/ckb_rpc/module/trait.*.html
+	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+	if command -v python3 &> /dev/null; then \
+		python3 ./devtools/doc/rpc.py > rpc/README.md; \
+	else \
+		python ./devtools/doc/rpc.py > rpc/README.md; \
+	fi
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
@@ -122,10 +127,12 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 	# https://rustsec.org/advisories/RUSTSEC-2019-0031: spin is no longer actively maintained, it's not a problem
 	# https://rustsec.org/advisories/RUSTSEC-2020-0016: net2 has been deprecated, but still a lot of required crates are dependent on it
 	# https://rustsec.org/advisories/RUSTSEC-2020-0036: failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
+	# https://rustsec.org/advisories/RUSTSEC-2020-0043: ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
 	cargo audit \
 		--ignore RUSTSEC-2019-0031 \
 		--ignore RUSTSEC-2020-0016 \
 		--ignore RUSTSEC-2020-0036 \
+		--ignore RUSTSEC-2020-0043 \
 		--deny-warnings
 	# expecting to see "Success No vulnerable packages found"
 
@@ -150,7 +157,7 @@ check-whitespaces:
 
 .PHONY: check-dirty-rpc-doc
 check-dirty-rpc-doc: gen-rpc-doc
-	git diff --exit-code rpc/README.md rpc/json/rpc.json
+	git diff --exit-code rpc/README.md
 
 .PHONY: check-dirty-hashes-toml
 check-dirty-hashes-toml: gen-hashes

@@ -1,6 +1,8 @@
 use crate::cache::StoreCache;
+use crate::cell::attach_block_cell;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
+use crate::write_batch::StoreWriteBatch;
 use crate::StoreSnapshot;
 use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
@@ -9,10 +11,7 @@ use ckb_db::{
     Col, DBPinnableSlice, RocksDB,
 };
 use ckb_error::Error;
-use ckb_types::{
-    core::{BlockExt, TransactionMeta},
-    prelude::*,
-};
+use ckb_types::core::BlockExt;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -52,6 +51,10 @@ impl ChainDB {
         &self.db
     }
 
+    pub fn into_inner(self) -> RocksDB {
+        self.db
+    }
+
     pub fn begin_transaction(&self) -> StoreTransaction {
         StoreTransaction {
             inner: self.db.transaction(),
@@ -64,6 +67,16 @@ impl ChainDB {
             inner: self.db.get_snapshot(),
             cache: Arc::clone(&self.cache),
         }
+    }
+
+    pub fn new_write_batch(&self) -> StoreWriteBatch {
+        StoreWriteBatch {
+            inner: self.db.new_write_batch(),
+        }
+    }
+
+    pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
+        self.db.write(&write_batch.inner)
     }
 
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
@@ -79,32 +92,7 @@ impl ChainDB {
             txs_fees: vec![],
         };
 
-        let block_number = genesis.number();
-        let epoch_with_fraction = genesis.epoch();
-        let block_hash = genesis.hash();
-
-        for tx in genesis.transactions().iter() {
-            let outputs_len = tx.outputs().len();
-            let tx_meta = if tx.is_cellbase() {
-                TransactionMeta::new_cellbase(
-                    block_number,
-                    epoch_with_fraction.number(),
-                    block_hash.clone(),
-                    outputs_len,
-                    false,
-                )
-            } else {
-                TransactionMeta::new(
-                    block_number,
-                    epoch_with_fraction.number(),
-                    block_hash.clone(),
-                    outputs_len,
-                    false,
-                )
-            };
-            db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
-        }
-
+        attach_block_cell(&db_txn, &genesis)?;
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
@@ -125,7 +113,7 @@ mod tests {
     use super::*;
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_db::RocksDB;
-    use ckb_types::packed;
+    use ckb_types::{packed, prelude::*};
 
     fn setup_db(columns: u32) -> RocksDB {
         RocksDB::open_tmp(columns)

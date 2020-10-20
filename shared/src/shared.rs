@@ -59,6 +59,7 @@ impl Shared {
             Arc::clone(&consensus),
         ));
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
+        let notify_controller = NotifyService::new(notify_config).start(Some("NotifyService"));
 
         let tx_pool_builder = TxPoolServiceBuilder::new(
             tx_pool_config,
@@ -66,11 +67,10 @@ impl Shared {
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
             Arc::clone(&snapshot_mgr),
+            notify_controller.clone(),
         );
 
         let tx_pool_controller = tx_pool_builder.start();
-
-        let notify_controller = NotifyService::new(notify_config).start(Some("NotifyService"));
 
         let shared = Shared {
             store,
@@ -234,6 +234,7 @@ impl SharedBuilder {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
+        migrations.add_migration(Box::new(migrations::CellMigration));
 
         SharedBuilder {
             db,

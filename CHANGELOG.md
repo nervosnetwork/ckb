@@ -1,3 +1,48 @@
+# [v0.37.0](https://github.com/nervosnetwork/ckb/compare/v0.36.0...v0.37.0) (2020-10-20)
+
+### Features
+
+* #2270 **rpc:** Rework rpc doc (@doitian)
+* #2299: Add a default RocksDB options file (@yangby-cryptape)
+
+    The default options file limits the maximum memory usage.
+
+* #2276: Improve migration progress display (@zhangsoledad)
+* #2257 **rpc:** Add `ping_peers` rpc (@quake)
+* #2260 **rpc:** Add `get_transaction_proof` and `verify_transaction_proof` rpc (@quake)
+* #2259 **rpc:** Add `clear_banned_addresses` rpc (@quake)
+* #2265 **rpc:** Add `nMinimumChainWork` config (@driftluo)
+
+    The mainnet has been online for a long time, and it is time to add a minimum workload proof to prevent possible node attacks during the initial synchronization.
+
+* #2269: Redesign cell store (@zhangsoledad)
+
+    Previous cell storage is inefficient. This PR proposal a new live cell storage schema, which optimized the resolve transaction bottleneck.
+
+    Breaking Changes:
+
+    * This PR will migrate the database.
+    * The RPC `get_cells_by_lock_hash` is deprecated and now it only returns errors.
+
+* #2281 **rpc:** Add tx subscription RPC (@quake)
+
+    This PR added a `new_transaction` topic to subscription rpc, user will get notified when new transaction is submitted to pool.
+
+### Bug Fixes
+
+* #2285: Fix the problem of disconnection caused by uncertainty (@driftluo)
+* #2283: Resolve network background service cleanup issue when rpc tcp server is on (@quake)
+* #2298: Skip RUSTSEC-2020-0043 temporarily (@yangby-cryptape)
+
+### Improvements
+
+* #2236: Rewrite discovery (@driftluo)
+* #2303: Replace legacy crate `lru-cache` (@zhangsoledad)
+* #2282 **test:** Create log monitor for integration test check status between nodes (@chuijiaolianying)
+* #2286 **test:** Redesign the testing framework (@keroro520)
+* #2294 **test:** Redesign the way of Net communicate with peers (@keroro520)
+* #2268 **test:** Add some transaction checking utils (@keroro520)
+
 # [v0.36.0](https://github.com/nervosnetwork/ckb/compare/v0.35.0...v0.36.0) (2020-09-21)
 
 ### Breaking Changes

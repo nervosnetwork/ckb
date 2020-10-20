@@ -1,33 +1,36 @@
 [package]
 name = "ckb-verification"
-version = "0.36.0"
+version = "0.37.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+description = "TODO(doc): crate description"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types" }
-ckb-store = { path = "../store" }
-ckb-script = { path = "../script" }
-ckb-pow = { path = "../pow" }
+ckb-types = { path = "../util/types", version = "= 0.37.0" }
+ckb-store = { path = "../store", version = "= 0.37.0" }
+ckb-script = { path = "../script", version = "= 0.37.0" }
+ckb-pow = { path = "../pow", version = "= 0.37.0" }
 faketime = "0.2.0"
 rayon = "1.0"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
-ckb-traits = { path = "../traits" }
-ckb-chain-spec = { path = "../spec" }
-ckb-dao = { path = "../util/dao" }
-ckb-dao-utils = { path = "../util/dao/utils" }
-ckb-logger = {path = "../util/logger"}
-ckb-reward-calculator= { path = "../util/reward-calculator" }
+lru = "0.6.0"
+ckb-traits = { path = "../traits", version = "= 0.37.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.37.0" }
+ckb-dao = { path = "../util/dao", version = "= 0.37.0" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.37.0" }
+ckb-logger = {path = "../util/logger", version = "= 0.37.0"}
+ckb-reward-calculator= { path = "../util/reward-calculator", version = "= 0.37.0" }
 failure = "0.1.5"
-ckb-error = { path = "../error" }
+ckb-error = { path = "../error", version = "= 0.37.0" }
 enum-display-derive = "0.1.0"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
-ckb-async-runtime = { path = "../util/runtime" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.37.0" }
 
 [dev-dependencies]
-ckb-chain = { path = "../chain" }
-ckb-shared = { path = "../shared" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils" }
-ckb-resource = { path = "../resource" }
+ckb-chain = { path = "../chain", version = "= 0.37.0" }
+ckb-shared = { path = "../shared", version = "= 0.37.0" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.37.0" }
+ckb-resource = { path = "../resource", version = "= 0.37.0" }
 rand = "0.6"

@@ -1,8 +1,8 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
 use crate::{
-    calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
-    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+    calculate_block_reward, ChainSpec, OUTPUT_INDEX_DAO,
+    OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
@@ -82,6 +82,10 @@ pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
 // "TYPE_ID" in hex
 pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
+
+// 500_000 total difficulty
+const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// Two protocol parameters w_close and w_far define the closest
 /// and farthest on-chain distance between a transaction's proposal
@@ -245,6 +249,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
+                min_chain_work: u256!("0x0"),
             },
         }
     }
@@ -295,6 +300,17 @@ impl ConsensusBuilder {
                     .is_empty(),
             "genesis block must contain the witness for cellbase"
         );
+
+        let mainnet_genesis =
+            ChainSpec::load_from(&Resource::bundled("specs/mainnet.toml".to_string()))
+                .expect("load mainnet spec fail")
+                .build_genesis()
+                .expect("build mainnet genesis fail");
+        self.inner.min_chain_work = if self.inner.genesis_block.hash() == mainnet_genesis.hash() {
+            MIN_CHAIN_WORK_500K
+        } else {
+            u256!("0x0")
+        };
 
         self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
         self.inner.secp256k1_blake160_sighash_all_type_hash =
@@ -431,6 +447,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     // Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    // Proof of minimum work during synchronization
+    pub min_chain_work: U256,
 }
 
 // genesis difficulty should not be zero
