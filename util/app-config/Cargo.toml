@@ -25,8 +25,8 @@ ckb-resource = { path = "../../resource", version = "= 0.38.0-pre"}
 ckb-build-info = { path = "../build-info", version = "= 0.38.0-pre" }
 ckb-types = { path = "../types", version = "= 0.38.0-pre" }
 ckb-fee-estimator = { path = "../fee-estimator", version = "= 0.38.0-pre" }
-secio = { version="= 0.4.0", features = ["molc"], package="tentacle-secio" }
-multiaddr = { version="0.1.0", package="tentacle-multiaddr" }
+secio = { version="0.4.2", features = ["molc"], package="tentacle-secio" }
+multiaddr = { version="0.2.0", package="tentacle-multiaddr" }
 rand = "0.6"
 
 [dev-dependencies]

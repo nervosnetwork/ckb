@@ -111,7 +111,9 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             Some(item) => {
                 match item {
                     DiscoveryMessage::GetNodes {
-                        listen_port, count, ..
+                        listen_port,
+                        count,
+                        version,
                     } => {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
@@ -132,6 +134,9 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 if let RemoteAddress::Listen(ref addr) = state.remote_addr {
                                     self.addr_mgr.add_new_addr(session.id, addr.clone());
                                 }
+                            } else if version >= state::REUSE_PORT_VERSION {
+                                // after enable reuse port, it can be broadcast
+                                state.remote_addr.change_to_listen();
                             }
 
                             let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
