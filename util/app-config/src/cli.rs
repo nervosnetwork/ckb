@@ -102,6 +102,8 @@ pub const ARG_FULL_VERIFICATION: &str = "full-verification";
 pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
 /// assume valid target cli arg name
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
+/// Migrate check flag arg
+pub const ARG_MIGRATE_CHECK: &str = "check";
 
 /// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
@@ -321,7 +323,17 @@ fn import() -> App<'static, 'static> {
 }
 
 fn migrate() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MIGRATE).about("Runs ckb migration")
+    SubCommand::with_name(CMD_MIGRATE)
+        .about("Runs ckb migration")
+        .arg(
+            Arg::with_name(ARG_MIGRATE_CHECK)
+                .long(ARG_MIGRATE_CHECK)
+                .help(
+                    "Perform database version check without migrating, \
+                    if migration is in need ExitCode(0) is returned，\
+                    otherwise ExitCode(64) is returned",
+                ),
+        )
 }
 
 fn list_hashes() -> App<'static, 'static> {
