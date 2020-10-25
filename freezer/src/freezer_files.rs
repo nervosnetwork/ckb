@@ -1,11 +1,10 @@
-use crate::internal_error;
-use ckb_error::Error;
 use ckb_metrics::metrics;
 use fail::fail_point;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::{self, File};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::io::{Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -29,9 +28,9 @@ impl Head {
         Head { file, bytes }
     }
 
-    pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+    pub fn write(&mut self, data: &[u8]) -> Result<(), IoError> {
         fail_point!("write-head");
-        self.file.write_all(data).map_err(internal_error)?;
+        self.file.write_all(data)?;
         self.bytes += data.len() as u64;
         Ok(())
     }
@@ -83,18 +82,26 @@ impl IndexEntry {
         bytes
     }
 
-    pub fn decode(raw: &[u8]) -> Result<Self, Error> {
+    pub fn decode(raw: &[u8]) -> Result<Self, IoError> {
         fail_point!("IndexEntry decode");
         debug_assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
         let (raw_file_id, raw_offset) = raw.split_at(::std::mem::size_of::<u32>());
-        let file_id = u32::from_le_bytes(raw_file_id.try_into().map_err(internal_error)?);
-        let offset = u64::from_le_bytes(raw_offset.try_into().map_err(internal_error)?);
+        let file_id = u32::from_le_bytes(
+            raw_file_id
+                .try_into()
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode file_id {}", e)))?,
+        );
+        let offset = u64::from_le_bytes(
+            raw_offset
+                .try_into()
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode offset {}", e)))?,
+        );
         Ok(IndexEntry { offset, file_id })
     }
 }
 
 impl FreezerFiles {
-    pub fn open(file_path: PathBuf) -> Result<FreezerFiles, Error> {
+    pub fn open(file_path: PathBuf) -> Result<FreezerFiles, IoError> {
         let mut files = FreezerFilesBuilder::new(file_path).build()?;
         files.preopen()?;
         Ok(files)
@@ -105,14 +112,17 @@ impl FreezerFiles {
         self.number.load(Ordering::SeqCst)
     }
 
-    pub fn append(&mut self, number: u64, input: &[u8]) -> Result<(), Error> {
+    pub fn append(&mut self, number: u64, input: &[u8]) -> Result<(), IoError> {
         let expected = self.number.load(Ordering::SeqCst);
         fail_point!("append-unexpected-number");
         if expected != number {
-            return Err(internal_error(format!(
-                "appending unexpected block expected {} have {}",
-                expected, number
-            )));
+            return Err(IoError::new(
+                IoErrorKind::Other,
+                format!(
+                    "appending unexpected block expected {} have {}",
+                    expected, number
+                ),
+            ));
         }
 
         // https://github.com/rust-lang/rust/issues/49171
@@ -122,7 +132,7 @@ impl FreezerFiles {
         if self.enable_compression {
             compressed_data = SnappyEncoder::new()
                 .compress_vec(data)
-                .map_err(|e| internal_error(format!("compress error {}", e)))?;
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("compress error {}", e)))?;
             data = &compressed_data;
         };
 
@@ -154,13 +164,13 @@ impl FreezerFiles {
         Ok(())
     }
 
-    pub fn sync_all(&self) -> Result<(), Error> {
-        self.head.file.sync_all().map_err(internal_error)?;
-        self.index.sync_all().map_err(internal_error)?;
+    pub fn sync_all(&self) -> Result<(), IoError> {
+        self.head.file.sync_all()?;
+        self.index.sync_all()?;
         Ok(())
     }
 
-    pub fn retrieve(&self, item: u64) -> Result<Option<Vec<u8>>, Error> {
+    pub fn retrieve(&self, item: u64) -> Result<Option<Vec<u8>>, IoError> {
         if item < 1 {
             return Ok(None);
         }
@@ -170,23 +180,24 @@ impl FreezerFiles {
 
         let bounds = self.get_bounds(item)?;
         if let Some((start_offset, end_offset, file_id)) = bounds {
-            let mut file = self
-                .files
-                .get(&file_id)
-                .ok_or_else(|| internal_error(format!("missing blk file {}", file_id)))?;
+            let mut file = self.files.get(&file_id).ok_or_else(|| {
+                IoError::new(IoErrorKind::Other, format!("missing blk file {}", file_id))
+            })?;
 
             let size = (end_offset - start_offset) as usize;
             let mut data = vec![0u8; size];
-            file.seek(SeekFrom::Start(start_offset))
-                .map_err(internal_error)?;
-            file.read_exact(&mut data).map_err(internal_error)?;
+            file.seek(SeekFrom::Start(start_offset))?;
+            file.read_exact(&mut data)?;
 
             if self.enable_compression {
                 data = SnappyDecoder::new().decompress_vec(&data).map_err(|e| {
-                    internal_error(format!(
-                        "decompress file-id-{} offset-{} size-{}: error {}",
-                        file_id, start_offset, size, e
-                    ))
+                    IoError::new(
+                        IoErrorKind::Other,
+                        format!(
+                            "decompress file-id-{} offset-{} size-{}: error {}",
+                            file_id, start_offset, size, e
+                        ),
+                    )
                 })?;
             }
 
@@ -202,7 +213,7 @@ impl FreezerFiles {
         }
     }
 
-    fn get_bounds(&self, item: u64) -> Result<Option<(u64, u64, FileId)>, Error> {
+    fn get_bounds(&self, item: u64) -> Result<Option<(u64, u64, FileId)>, IoError> {
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
         let mut index = &self.index;
         if let Err(e) = index.seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE)) {
@@ -244,7 +255,7 @@ impl FreezerFiles {
     }
 
     // keeping the the provided threshold number item and dropping the rest.
-    pub fn truncate(&mut self, item: u64) -> Result<(), Error> {
+    pub fn truncate(&mut self, item: u64) -> Result<(), IoError> {
         // out of bound, this has no effect.
         if item < 1 || ((item + 1) >= self.number()) {
             return Ok(());
@@ -254,10 +265,8 @@ impl FreezerFiles {
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
         // truncate the index
         helper::truncate_file(&mut self.index, (item + 1) * INDEX_ENTRY_SIZE)?;
-        self.index
-            .seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE))
-            .map_err(internal_error)?;
-        self.index.read_exact(&mut buffer).map_err(internal_error)?;
+        self.index.seek(SeekFrom::Start(item * INDEX_ENTRY_SIZE))?;
+        self.index.read_exact(&mut buffer)?;
         let new_index = IndexEntry::decode(&buffer)?;
 
         // truncate files
@@ -276,26 +285,21 @@ impl FreezerFiles {
         Ok(())
     }
 
-    pub fn preopen(&mut self) -> Result<(), Error> {
+    pub fn preopen(&mut self) -> Result<(), IoError> {
         self.release_after(0);
 
         for id in self.tail_id..self.head_id {
             self.open_read_only(id)?;
         }
-        self.files.insert(
-            self.head_id,
-            self.head.file.try_clone().map_err(internal_error)?,
-        );
+        self.files.insert(self.head_id, self.head.file.try_clone()?);
         Ok(())
     }
 
-    fn write_index(&mut self, file_id: FileId, offset: u64) -> Result<(), Error> {
+    fn write_index(&mut self, file_id: FileId, offset: u64) -> Result<(), IoError> {
         fail_point!("write-index");
         let index = IndexEntry { file_id, offset };
-        self.index.seek(SeekFrom::End(0)).map_err(internal_error)?;
-        self.index
-            .write_all(&index.encode())
-            .map_err(internal_error)?;
+        self.index.seek(SeekFrom::End(0))?;
+        self.index.write_all(&index.encode())?;
         Ok(())
     }
 
@@ -307,49 +311,46 @@ impl FreezerFiles {
         self.files.split_off(&(id + 1));
     }
 
-    fn delete_after(&mut self, id: FileId) -> Result<(), Error> {
+    fn delete_after(&mut self, id: FileId) -> Result<(), IoError> {
         let released = self.files.split_off(&(id + 1));
         self.delete_files_by_id(released.keys().cloned())
     }
 
-    fn delete_files_by_id(&self, file_ids: impl Iterator<Item = FileId>) -> Result<(), Error> {
+    fn delete_files_by_id(&self, file_ids: impl Iterator<Item = FileId>) -> Result<(), IoError> {
         for file_id in file_ids {
             let path = self.file_path.join(helper::file_name(file_id));
-            fs::remove_file(path).map_err(internal_error)?;
+            fs::remove_file(path)?;
         }
         Ok(())
     }
 
-    fn open_read_only(&mut self, id: FileId) -> Result<File, Error> {
+    fn open_read_only(&mut self, id: FileId) -> Result<File, IoError> {
         fail_point!("open_read_only");
         let mut opt = fs::OpenOptions::new();
         opt.read(true);
         self.open_file(id, opt)
     }
 
-    fn open_truncated(&mut self, id: FileId) -> Result<File, Error> {
+    fn open_truncated(&mut self, id: FileId) -> Result<File, IoError> {
         fail_point!("open_truncated");
         let mut opt = fs::OpenOptions::new();
         opt.create(true).read(true).write(true).truncate(true);
         self.open_file(id, opt)
     }
 
-    fn open_append(&mut self, id: FileId) -> Result<(File, u64), Error> {
+    fn open_append(&mut self, id: FileId) -> Result<(File, u64), IoError> {
         fail_point!("open_append");
         let mut opt = fs::OpenOptions::new();
         opt.create(true).read(true).write(true);
         let mut file = self.open_file(id, opt)?;
-        let offset = file.seek(SeekFrom::End(0)).map_err(internal_error)?;
+        let offset = file.seek(SeekFrom::End(0))?;
         Ok((file, offset))
     }
 
-    fn open_file(&mut self, id: FileId, opt: fs::OpenOptions) -> Result<File, Error> {
+    fn open_file(&mut self, id: FileId, opt: fs::OpenOptions) -> Result<File, IoError> {
         let name = helper::file_name(id);
-        let file = opt
-            .open(self.file_path.join(name))
-            .map_err(internal_error)?;
-        self.files
-            .insert(id, file.try_clone().map_err(internal_error)?);
+        let file = opt.open(self.file_path.join(name))?;
+        self.files.insert(id, file.try_clone()?);
         Ok(file)
     }
 }
@@ -382,20 +383,18 @@ impl FreezerFilesBuilder {
         self
     }
 
-    pub fn build(self) -> Result<FreezerFiles, Error> {
-        fs::create_dir_all(&self.file_path).map_err(internal_error)?;
+    pub fn build(self) -> Result<FreezerFiles, IoError> {
+        fs::create_dir_all(&self.file_path)?;
         let (mut index, mut index_size) = self.open_index()?;
 
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
-        index.seek(SeekFrom::Start(0)).map_err(internal_error)?;
-        index.read_exact(&mut buffer).map_err(internal_error)?;
+        index.seek(SeekFrom::Start(0))?;
+        index.read_exact(&mut buffer)?;
         let tail_index = IndexEntry::decode(&buffer)?;
         let tail_id = tail_index.file_id;
 
-        index
-            .seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))
-            .map_err(internal_error)?;
-        index.read_exact(&mut buffer).map_err(internal_error)?;
+        index.seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))?;
+        index.read_exact(&mut buffer)?;
 
         ckb_logger::debug!("Freezer index_size {} head {:?}", index_size, buffer);
 
@@ -428,10 +427,8 @@ impl FreezerFilesBuilder {
                 helper::truncate_file(&mut index, index_size - INDEX_ENTRY_SIZE)?;
                 index_size -= INDEX_ENTRY_SIZE;
 
-                index
-                    .seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))
-                    .map_err(internal_error)?;
-                index.read_exact(&mut buffer).map_err(internal_error)?;
+                index.seek(SeekFrom::Start(index_size - INDEX_ENTRY_SIZE))?;
+                index.read_exact(&mut buffer)?;
                 let new_index = IndexEntry::decode(&buffer)?;
 
                 // slipped back into an earlier head-file
@@ -447,8 +444,8 @@ impl FreezerFilesBuilder {
         }
 
         // ensure flush to disk
-        head.sync_all().map_err(internal_error)?;
-        index.sync_all().map_err(internal_error)?;
+        head.sync_all()?;
+        index.sync_all()?;
 
         let number = index_size / INDEX_ENTRY_SIZE;
 
@@ -470,24 +467,21 @@ impl FreezerFilesBuilder {
     // after opening, and after every write,
     // the position for reading may be set at the end of the file.
     // it has differing behaviour on different OS
-    fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<(File, u64), Error> {
+    fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<(File, u64), IoError> {
         let mut file = fs::OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
-            .open(path)
-            .map_err(internal_error)?;
-        let offset = file.seek(SeekFrom::End(0)).map_err(internal_error)?;
+            .open(path)?;
+        let offset = file.seek(SeekFrom::End(0))?;
         Ok((file, offset))
     }
 
-    fn open_index(&self) -> Result<(File, u64), Error> {
+    fn open_index(&self) -> Result<(File, u64), IoError> {
         let (mut index, mut size) = self.open_append(self.file_path.join(INDEX_FILE_NAME))?;
         // fill a default entry within empty index
         if size == 0 {
-            index
-                .write_all(&IndexEntry::default().encode())
-                .map_err(internal_error)?;
+            index.write_all(&IndexEntry::default().encode())?;
             size += INDEX_ENTRY_SIZE;
         }
 
@@ -504,9 +498,9 @@ impl FreezerFilesBuilder {
 pub(crate) mod helper {
     use super::*;
 
-    pub(crate) fn truncate_file(file: &mut File, size: u64) -> Result<(), Error> {
-        file.set_len(size).map_err(internal_error)?;
-        file.seek(SeekFrom::End(0)).map_err(internal_error)?;
+    pub(crate) fn truncate_file(file: &mut File, size: u64) -> Result<(), IoError> {
+        file.set_len(size)?;
+        file.seek(SeekFrom::End(0))?;
         Ok(())
     }
 
