@@ -1551,7 +1551,7 @@ Calculates the maximum withdrawal one can get, given a referenced DAO cell, and 
 
 *   `out_point` - Reference to the DAO cell.
 
-*   `block_hash` - The assumed reference block for withdrawing. This block must be in the [canonical chain]('trait.ChainRpc.html#canonical-chain').
+*   `block_hash` - The assumed reference block for withdrawing. This block must be in the [canonical chain](#canonical-chain).
 
 ##### Returns
 
@@ -3351,19 +3351,19 @@ Example push message:
 
 Whenever there's a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
 
-The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
+The type of the `params.result` in the push message is [`HeaderView`](#type-headerview).
 
 ###### `new_tip_block`
 
 Whenever there's a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
 
-The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
+The type of the `params.result` in the push message is [`BlockView`](#type-blockview).
 
 ###### `new_transaction`
 
 Subscribers will get notified when a new transaction is submitted to the pool.
 
-The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
 
 ##### Examples
 
@@ -4350,7 +4350,7 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
 The JSON view of a Header.
 
-This structure is serialized into a JSON object with field `hash` and all the fields in [`Header`](struct.Header.html).
+This structure is serialized into a JSON object with field `hash` and all the fields in [`Header`](#type-header).
 
 #### Examples
 
@@ -5011,7 +5011,7 @@ Transaction template which is ready to be committed in the new block.
 
 The JSON view of a Transaction.
 
-This structure is serialized into a JSON object with field `hash` and all the fields in [`Transaction`](struct.Transaction.html).
+This structure is serialized into a JSON object with field `hash` and all the fields in [`Transaction`](#type-transaction).
 
 #### Examples
 

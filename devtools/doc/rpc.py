@@ -61,6 +61,11 @@ def transform_href(href):
     elif href.startswith('type.'):
         type_name = href.split('.')[1]
         return '#type-{}'.format(type_name.lower())
+    elif href == 'trait.ChainRpc.html#canonical-chain':
+        return '#canonical-chain'
+    elif ('struct.' in href or 'enum.' in href) and href.endswith('.html'):
+        type_name = href.split('.')[-2]
+        return '#type-{}'.format(type_name.lower())
 
     return href
 
