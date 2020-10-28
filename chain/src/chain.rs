@@ -1,4 +1,5 @@
-//! TODO(doc): @zhangsoledad
+//! CKB chain service.
+
 use crate::switch::Switch;
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
@@ -31,7 +32,11 @@ use std::{cmp, thread};
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
-/// TODO(doc): @zhangsoledad
+/// Controller to the chain service.
+///
+/// The controller is internally reference-counted and can be freely cloned.
+///
+/// A controller can invoke [`ChainService`] methods.
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
@@ -46,12 +51,20 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    /// TODO(doc): @zhangsoledad
+    /// Inserts the block into database.
+    ///
+    /// Expects the block's header to be valid and already verified.
+    ///
+    /// If the block already exists, does nothing and false is returned.
+    ///
+    /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
     pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
         self.internal_process_block(block, Switch::NONE)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Internal method insert block for test
+    ///
+    /// switch bit flags for particular verify, make easier to generating test data
     pub fn internal_process_block(
         &self,
         block: Arc<BlockView>,
@@ -64,8 +77,9 @@ impl ChainController {
         })
     }
 
-    /// Truncate the main chain
-    /// Use for testing only
+    /// Truncate chain to specified target
+    ///
+    /// Should use for testing only
     pub fn truncate(&self, target_tip_hash: Byte32) -> Result<(), Error> {
         Request::call(&self.truncate_sender, target_tip_hash).unwrap_or_else(|| {
             Err(InternalErrorKind::System
@@ -75,46 +89,46 @@ impl ChainController {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// The struct represent fork
 #[derive(Debug, Default)]
 pub struct ForkChanges {
-    // blocks attached to index after forks
+    /// Blocks attached to index after forks
     pub(crate) attached_blocks: VecDeque<BlockView>,
-    // blocks detached from index after forks
+    /// Blocks detached from index after forks
     pub(crate) detached_blocks: VecDeque<BlockView>,
-    // proposal_id detached to index after forks
+    /// HashSet with proposal_id detached to index after forks
     pub(crate) detached_proposal_id: HashSet<ProposalShortId>,
-    // to be updated exts
+    /// to be updated exts
     pub(crate) dirty_exts: VecDeque<BlockExt>,
 }
 
 impl ForkChanges {
-    /// TODO(doc): @zhangsoledad
+    /// blocks attached to index after forks
     pub fn attached_blocks(&self) -> &VecDeque<BlockView> {
         &self.attached_blocks
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// blocks detached from index after forks
     pub fn detached_blocks(&self) -> &VecDeque<BlockView> {
         &self.detached_blocks
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// proposal_id detached to index after forks
     pub fn detached_proposal_id(&self) -> &HashSet<ProposalShortId> {
         &self.detached_proposal_id
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// are there any block should be detached
     pub fn has_detached(&self) -> bool {
         !self.detached_blocks.is_empty()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// cached verified attached block num
     pub fn verified_len(&self) -> usize {
         self.attached_blocks.len() - self.dirty_exts.len()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// assertion for make sure attached_blocks and detached_blocks are sorted
     #[cfg(debug_assertions)]
     pub fn is_sorted(&self) -> bool {
         IsSorted::is_sorted_by_key(&mut self.attached_blocks().iter(), |blk| {
@@ -146,14 +160,16 @@ impl GlobalIndex {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Chain background service
+///
+/// The ChainService provides a single-threaded background executor.
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
 }
 
 impl ChainService {
-    /// TODO(doc): @zhangsoledad
+    /// Create a new ChainService instance with shared and initial proposal_table.
     pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         ChainService {
             shared,
@@ -161,8 +177,8 @@ impl ChainService {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    /// start background single-threaded service with specified thread_name.
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
         let (signal_sender, signal_receiver) = channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
@@ -209,11 +225,6 @@ impl ChainService {
             truncate_sender,
             stop,
         }
-    }
-
-    /// TODO(doc): @zhangsoledad
-    pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
-        self.process_block(block, Switch::NONE)
     }
 
     fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
@@ -274,9 +285,8 @@ impl ChainService {
         Ok(())
     }
 
-    /// TODO(doc): @zhangsoledad
-    // process_block will do block verify
-    // but invoker should guarantee block header be verified
+    // visible pub just for test
+    #[doc(hidden)]
     pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
         debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
