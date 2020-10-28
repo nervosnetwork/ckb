@@ -132,6 +132,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `OutputsValidator`](#type-outputsvalidator)
     * [Type `PeerState`](#type-peerstate)
     * [Type `PeerSyncState`](#type-peersyncstate)
+    * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
@@ -4671,6 +4672,23 @@ The chain synchronization state between the local node and a remote node.
 *   `inflight_count`: [`Uint64`](#type-uint64) - The count of concurrency downloading blocks.
 
 *   `can_fetch_count`: [`Uint64`](#type-uint64) - The count of blocks are available for concurrency download.
+
+
+### Type `PoolTransactionEntry`
+
+The transaction entry in the pool.
+
+#### Fields
+
+`PoolTransactionEntry` is a JSON object with the following fields.
+
+*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
+
+*   `cycles`: [`Cycle`](#type-cycle) - Consumed cycles.
+
+*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
+
+*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
 
 
 ### Type `ProposalShortId`

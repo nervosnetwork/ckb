@@ -651,6 +651,8 @@ class RPCDoc(object):
             for path in pending:
                 self.collect_type(path)
 
+        # PoolTransactionEntry is not used in RPC but in the Subscription events.
+        self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
