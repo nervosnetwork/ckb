@@ -1,15 +1,29 @@
 //! Bundles resources in the ckb binary.
-// Shields clippy errors in generated bundled.rs
-#![allow(clippy::unreadable_literal)]
+//!
+//! This crate bundles the files ckb.toml, ckb-miner.toml, default.db-options, and all files in the
+//! directory `specs` in the binary.
+//!
+//! The bundled files can be read via `Resource::Bundled`, for example:
+//!
+//! ```
+//! // Read bundled ckb.toml
+//! use ckb_resource::{Resource, CKB_CONFIG_FILE_NAME};
+//!
+//! let ckb_toml_bytes = Resource::bundled(CKB_CONFIG_FILE_NAME.to_string()).get().unwrap();
+//! println!("ckb.toml\n{}", String::from_utf8(ckb_toml_bytes.to_vec()).unwrap());
+//! ```
+//!
+//! These bundled files can be customized for different chains using spec branches.
+//! See [Template](struct.Template.html).
 
 mod template;
 
+pub use self::template::Template;
 pub use self::template::{
     TemplateContext, AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC,
 };
 pub use std::io::{Error, Result};
 
-use self::template::Template;
 use ckb_types::H256;
 use includedir::Files;
 use serde::{Deserialize, Serialize};
@@ -23,7 +37,7 @@ use tempfile::NamedTempFile;
 use ckb_system_scripts::BUNDLED_CELL;
 
 mod bundled {
-    #![allow(missing_docs)]
+    #![allow(missing_docs, clippy::unreadable_literal)]
     include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 }
 /// Bundled resources in ckb binary.
@@ -31,27 +45,28 @@ pub use bundled::BUNDLED;
 
 include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
 
-/// TODO(doc): @doitian
+/// CKB config file name.
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
-/// TODO(doc): @doitian
+/// CKB miner config file name.
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
-/// TODO(doc): @doitian
+/// The relative spec file path for the dev chain.
 pub const SPEC_DEV_FILE_NAME: &str = "specs/dev.toml";
-/// TODO(doc): @doitian
+/// The file name of the generated RocksDB options file.
 pub const DB_OPTIONS_FILE_NAME: &str = "default.db-options";
 
-/// TODO(doc): @doitian
+/// Represents a resource, which is either bundled in the CKB binary or resident in the local file
+/// system.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Resource {
-    /// TODO(doc): @doitian
+    /// A resource that bundled in the CKB binary.
     Bundled {
-        /// TODO(doc): @doitian
+        /// The identifier of the bundled resource.
         bundled: String,
     },
-    /// TODO(doc): @doitian
+    /// A resource that resides in the local file system.
     FileSystem {
-        /// TODO(doc): @doitian
+        /// The file path to the resource.
         file: PathBuf,
     },
 }
@@ -66,47 +81,56 @@ impl fmt::Display for Resource {
 }
 
 impl Resource {
-    /// TODO(doc): @doitian
+    /// Creates a reference to the bundled resource.
     pub fn bundled(bundled: String) -> Resource {
         Resource::Bundled { bundled }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a reference to the resource recident in the file system.
     pub fn file_system(file: PathBuf) -> Resource {
         Resource::FileSystem { file }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the CKB config file resource from the file system.
+    ///
+    /// It searches the file name `CKB_CONFIG_FILE_NAME` in the directory `root_dir`.
     pub fn ckb_config<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(CKB_CONFIG_FILE_NAME))
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the CKB miner config file resource from the file system.
+    ///
+    /// It searches the file name `MINER_CONFIG_FILE_NAME` in the directory `root_dir`.
     pub fn miner_config<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(MINER_CONFIG_FILE_NAME))
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the RocksDB options file resource from the file system.
+    ///
+    /// It searches the file name `DB_OPTIONS_FILE_NAME` in the directory `root_dir`.
     pub fn db_options<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(DB_OPTIONS_FILE_NAME))
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the bundled CKB config file resource.
     pub fn bundled_ckb_config() -> Resource {
         Resource::bundled(CKB_CONFIG_FILE_NAME.to_string())
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the bundled CKB miner config file resource.
     pub fn bundled_miner_config() -> Resource {
         Resource::bundled(MINER_CONFIG_FILE_NAME.to_string())
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the bundled RocksDB options file resource.
     pub fn bundled_db_options() -> Resource {
         Resource::bundled(DB_OPTIONS_FILE_NAME.to_string())
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether any of the bundled resource has been exported in the specified directory.
+    ///
+    /// This can be used to avoid overwritting to export all the bundled resources to the specified
+    /// directory.
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
         BUNDLED
             .file_names()
@@ -114,7 +138,7 @@ impl Resource {
             .any(|name| join_bundled_key(root_dir.as_ref().to_path_buf(), name).exists())
     }
 
-    /// TODO(doc): @doitian
+    /// Returns `true` if this is a bundled resource.
     pub fn is_bundled(&self) -> bool {
         match self {
             Resource::Bundled { .. } => true,
@@ -122,7 +146,11 @@ impl Resource {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Returns `true` if the resource exists.
+    ///
+    /// The bundled resource exists only when the identifier is included in the bundle.
+    ///
+    /// The file system resource exists only when the file exists.
     pub fn exists(&self) -> bool {
         match self {
             Resource::Bundled { bundled } => {
@@ -132,7 +160,9 @@ impl Resource {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// The parent directory of the resource.
+    ///
+    /// It always returns `None` on bundled resource.
     pub fn parent(&self) -> Option<&Path> {
         match self {
             Resource::FileSystem { file } => file.parent(),
@@ -140,7 +170,9 @@ impl Resource {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Modifies the file system resource to ensure the path is absolute.
+    ///
+    /// If the path is relative, expand the path relative to the directory `base`.
     pub fn absolutize<P: AsRef<Path>>(&mut self, base: P) {
         if let Resource::FileSystem { file: ref mut path } = self {
             if path.is_relative() {
@@ -149,7 +181,7 @@ impl Resource {
         }
     }
 
-    /// Gets resource content
+    /// Gets resource content.
     pub fn get(&self) -> Result<Cow<'static, [u8]>> {
         match self {
             Resource::Bundled { bundled } => SourceFiles::new(&BUNDLED_CELL, &BUNDLED).get(bundled),
@@ -157,7 +189,7 @@ impl Resource {
         }
     }
 
-    /// Gets resource input stream
+    /// Gets resource content via an input stream.
     pub fn read(&self) -> Result<Box<dyn Read>> {
         match self {
             Resource::Bundled { bundled } => {
@@ -167,7 +199,14 @@ impl Resource {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Exports a bundled resource.
+    ///
+    /// This function returns `Ok` immediatly when invoked on a file system resource.
+    ///
+    /// The file is exported to the path by combining `root_dir` and the resource indentifier.
+    ///
+    /// These bundled files can be customized for different chains using spec branches.
+    /// See [Template](struct.Template.html).
     pub fn export<'a, P: AsRef<Path>>(
         &self,
         context: &TemplateContext<'a>,
@@ -183,7 +222,7 @@ impl Resource {
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
         }
-        template.write_to(&mut out, context)?;
+        template.render_to(&mut out, context)?;
         out.persist(target)?;
         Ok(())
     }
