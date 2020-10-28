@@ -296,9 +296,6 @@ class RPCVar():
         if name.startswith(', '):
             name = name[2:]
 
-        if name == ') -> Result<':
-            name = 'result'
-
         return name
 
 
@@ -330,7 +327,8 @@ class RPCMethod():
         if self.rpc_var_parser is not None:
             self.rpc_var_parser.handle_endtag(tag)
             if self.rpc_var_parser.completed():
-                self.params.append(self.rpc_var_parser)
+                if '->' not in self.rpc_var_parser.name or 'Result' in self.rpc_var_parser.name:
+                    self.params.append(self.rpc_var_parser)
                 self.rpc_var_parser = RPCVar()
         elif not self.doc_parser.completed():
             self.doc_parser.handle_endtag(tag)
@@ -654,9 +652,12 @@ class RPCDoc(object):
 
         if path in self.parsed_types:
             return
+        self.parsed_types.add(path)
+
         if 'ckb_types/packed' in path:
             return
-        self.parsed_types.add(path)
+        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html']:
+            return
 
         with open(path) as file:
             content = file.read()
@@ -666,10 +667,11 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        parser = RPCType(name, path)
-        parser.feed(content)
+        if name != 'U256':
+            parser = RPCType(name, path)
+            parser.feed(content)
 
-        self.types.append(parser)
+            self.types.append(parser)
 
     def write(self, file):
         file.write(PREAMBLE)
