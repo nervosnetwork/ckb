@@ -128,8 +128,8 @@ class MarkdownParser():
             self.append("```\n")
             self.preserve_whitespaces = True
         elif tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            self.append((int(tag[1:]) + self.title_level - 1) * '#')
-            self.append(' ')
+            # The content here will be used in tag a to ignore the first anchor
+            self.append(((int(tag[1:]) + self.title_level - 1) * '#') + ' ')
         elif tag in ['strong', 'b']:
             self.append('**')
         elif tag in ['em', 'i']:
@@ -138,7 +138,7 @@ class MarkdownParser():
             self.append('`')
         elif tag == 'a':
             # ignore the first anchor link in title
-            if self.chunks[-1].strip().replace('#', '') != '':
+            if not self.chunks[-1].startswith('#') or self.chunks[-1].strip().replace('#', '') != '':
                 self.pending_href = transform_href(dict(attrs)['href'])
                 self.append('[')
         elif tag == 'thead':
@@ -193,7 +193,10 @@ class MarkdownParser():
             return
 
         if not self.preserve_whitespaces:
-            self.append(' '.join(data.splitlines()))
+            if data != '\n':
+                self.append(' '.join(data.splitlines()))
+                if data.endswith('\n'):
+                    self.append(' ')
         else:
             if self.chunks[-1] == '```\n' and data[0] == '\n':
                 data = data[1:]

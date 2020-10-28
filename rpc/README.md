@@ -631,7 +631,7 @@ Returns the information about a transaction requested by transaction hash.
 
 ##### Returns
 
-This RPC returns `null` if the transaction is not committed in the[canonical chain](#canonical-chain) nor the transaction memory pool.
+This RPC returns `null` if the transaction is not committed in the [canonical chain](#canonical-chain) nor the transaction memory pool.
 
 If the transaction is in the chain, the block hash is also returned.
 
@@ -714,7 +714,7 @@ Response
     * `block_number`: [`BlockNumber`](#type-blocknumber)
 * result: [`H256`](#type-h256) `|` `null`
 
-Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified`block_number`.
+Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified `block_number`.
 
 ##### Params
 
@@ -1084,7 +1084,7 @@ CKB delays CKB creation for miners. The output cells in the cellbase of block N 
 
 In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for miner creating block 89.
 
-Because of the delay, this RPC returns null if the block rewards are not finalized yet. For example, the economic state for block 89 is only available when the number returned by[`get_tip_block_number`](#method-get_tip_block_number) is greater than or equal to 100.
+Because of the delay, this RPC returns null if the block rewards are not finalized yet. For example, the economic state for block 89 is only available when the number returned by [`get_tip_block_number`](#method-get_tip_block_number) is greater than or equal to 100.
 
 ##### Params
 
@@ -1551,11 +1551,11 @@ Calculates the maximum withdrawal one can get, given a referenced DAO cell, and 
 
 *   `out_point` - Reference to the DAO cell.
 
-*   `block_hash` - The assumed reference block for withdrawing. This block must be in the[canonical chain]('trait.ChainRpc.html#canonical-chain').
+*   `block_hash` - The assumed reference block for withdrawing. This block must be in the [canonical chain]('trait.ChainRpc.html#canonical-chain').
 
 ##### Returns
 
-The RPC returns the final capacity when the cell `out_point` is withdrawn using the block`block_hash` as the reference.
+The RPC returns the final capacity when the cell `out_point` is withdrawn using the block `block_hash` as the reference.
 
 In CKB, scripts cannot get the information about in which block the transaction is committed. A workaround is letting the transaction reference a block hash so the script knows that the transaction is committed at least after the reference block.
 
@@ -3330,7 +3330,7 @@ Subscribes to a topic.
 
 ##### Returns
 
-This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed topics to the current RPC connection. The subscript ID is also attached as`params.subscription` in the push messages.
+This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed topics to the current RPC connection. The subscript ID is also attached as `params.subscription` in the push messages.
 
 Example push message:
 
@@ -4350,7 +4350,7 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
 The JSON view of a Header.
 
-This structure is serialized into a JSON object with field `hash` and all the fields in[`Header`](struct.Header.html).
+This structure is serialized into a JSON object with field `hash` and all the fields in [`Header`](struct.Header.html).
 
 #### Examples
 
@@ -4658,7 +4658,7 @@ The chain synchronization state between the local node and a remote node.
 
 *   `last_common_header_hash`: [`Byte32`](#type-byte32) `|` `null` - Last common header hash of remote peer.
 
-    This is the common ancestor of the local node canonical chain tip and the block`best_known_header_hash`.
+    This is the common ancestor of the local node canonical chain tip and the block `best_known_header_hash`.
 
 *   `last_common_header_number`: [`Uint64`](#type-uint64) `|` `null` - Last common header number of remote peer.
 
@@ -4937,13 +4937,13 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 *   `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
-    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is`outputs[i]` and its data is `outputs_data[i]`.
+    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is `outputs[i]` and its data is `outputs_data[i]`.
 
 *   `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
 
-    For example, the bundled secp256k1 lock script requires storing the signature in`witnesses`.
+    For example, the bundled secp256k1 lock script requires storing the signature in `witnesses`.
 
 
 ### Type `TransactionPoint`
@@ -5000,7 +5000,7 @@ Transaction template which is ready to be committed in the new block.
 
     This field is a list of indices into the array `transactions` in the block template.
 
-    For example, `depends = [1, 2]` means this transaction depends on`block_template.transactions[1]` and `block_template.transactions[2]`.
+    For example, `depends = [1, 2]` means this transaction depends on `block_template.transactions[1]` and `block_template.transactions[2]`.
 
 *   `data`: [`Transaction`](#type-transaction) - The transaction.
 
@@ -5011,7 +5011,7 @@ Transaction template which is ready to be committed in the new block.
 
 The JSON view of a Transaction.
 
-This structure is serialized into a JSON object with field `hash` and all the fields in[`Transaction`](struct.Transaction.html).
+This structure is serialized into a JSON object with field `hash` and all the fields in [`Transaction`](struct.Transaction.html).
 
 #### Examples
 
@@ -5102,7 +5102,7 @@ Transaction pool information.
 
 *   `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
-    The proposed transactions are ready to be committed in the new block after the block`tip_hash`.
+    The proposed transactions are ready to be committed in the new block after the block `tip_hash`.
 
 *   `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
