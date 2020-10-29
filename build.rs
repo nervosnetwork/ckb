@@ -1,3 +1,4 @@
+//! Build script for the binary crate `ckb`.
 use std::path::Path;
 
 fn rerun_if_changed(path_str: &str) -> bool {

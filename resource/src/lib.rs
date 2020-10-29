@@ -1,3 +1,4 @@
+//! Bundles resources in the ckb binary.
 // Shields clippy errors in generated bundled.rs
 #![allow(clippy::unreadable_literal)]
 
@@ -21,19 +22,38 @@ use tempfile::NamedTempFile;
 
 use ckb_system_scripts::BUNDLED_CELL;
 
-include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
+mod bundled {
+    #![allow(missing_docs)]
+    include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
+}
+/// Bundled resources in ckb binary.
+pub use bundled::BUNDLED;
+
 include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
 
+/// TODO(doc): @doitian
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
+/// TODO(doc): @doitian
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
+/// TODO(doc): @doitian
 pub const SPEC_DEV_FILE_NAME: &str = "specs/dev.toml";
+/// TODO(doc): @doitian
 pub const DB_OPTIONS_FILE_NAME: &str = "default.db-options";
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Resource {
-    Bundled { bundled: String },
-    FileSystem { file: PathBuf },
+    /// TODO(doc): @doitian
+    Bundled {
+        /// TODO(doc): @doitian
+        bundled: String,
+    },
+    /// TODO(doc): @doitian
+    FileSystem {
+        /// TODO(doc): @doitian
+        file: PathBuf,
+    },
 }
 
 impl fmt::Display for Resource {
@@ -46,38 +66,47 @@ impl fmt::Display for Resource {
 }
 
 impl Resource {
+    /// TODO(doc): @doitian
     pub fn bundled(bundled: String) -> Resource {
         Resource::Bundled { bundled }
     }
 
+    /// TODO(doc): @doitian
     pub fn file_system(file: PathBuf) -> Resource {
         Resource::FileSystem { file }
     }
 
+    /// TODO(doc): @doitian
     pub fn ckb_config<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(CKB_CONFIG_FILE_NAME))
     }
 
+    /// TODO(doc): @doitian
     pub fn miner_config<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(MINER_CONFIG_FILE_NAME))
     }
 
+    /// TODO(doc): @doitian
     pub fn db_options<P: AsRef<Path>>(root_dir: P) -> Resource {
         Resource::file_system(root_dir.as_ref().join(DB_OPTIONS_FILE_NAME))
     }
 
+    /// TODO(doc): @doitian
     pub fn bundled_ckb_config() -> Resource {
         Resource::bundled(CKB_CONFIG_FILE_NAME.to_string())
     }
 
+    /// TODO(doc): @doitian
     pub fn bundled_miner_config() -> Resource {
         Resource::bundled(MINER_CONFIG_FILE_NAME.to_string())
     }
 
+    /// TODO(doc): @doitian
     pub fn bundled_db_options() -> Resource {
         Resource::bundled(DB_OPTIONS_FILE_NAME.to_string())
     }
 
+    /// TODO(doc): @doitian
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
         BUNDLED
             .file_names()
@@ -85,6 +114,7 @@ impl Resource {
             .any(|name| join_bundled_key(root_dir.as_ref().to_path_buf(), name).exists())
     }
 
+    /// TODO(doc): @doitian
     pub fn is_bundled(&self) -> bool {
         match self {
             Resource::Bundled { .. } => true,
@@ -92,6 +122,7 @@ impl Resource {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn exists(&self) -> bool {
         match self {
             Resource::Bundled { bundled } => {
@@ -101,6 +132,7 @@ impl Resource {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn parent(&self) -> Option<&Path> {
         match self {
             Resource::FileSystem { file } => file.parent(),
@@ -108,6 +140,7 @@ impl Resource {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn absolutize<P: AsRef<Path>>(&mut self, base: P) {
         if let Resource::FileSystem { file: ref mut path } = self {
             if path.is_relative() {
@@ -134,6 +167,7 @@ impl Resource {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn export<'a, P: AsRef<Path>>(
         &self,
         context: &TemplateContext<'a>,

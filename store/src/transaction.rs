@@ -18,6 +18,7 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) cache: Arc<StoreCache>,
@@ -65,18 +66,22 @@ impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
 }
 
 impl StoreTransaction {
+    /// TODO(doc): @quake
     pub fn insert_raw(&self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
     }
 
+    /// TODO(doc): @quake
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<(), Error> {
         self.inner.delete(col, key)
     }
 
+    /// TODO(doc): @quake
     pub fn commit(&self) -> Result<(), Error> {
         self.inner.commit()
     }
 
+    /// TODO(doc): @quake
     pub fn get_snapshot(&self) -> StoreTransactionSnapshot<'_> {
         StoreTransactionSnapshot {
             inner: self.inner.get_snapshot(),
@@ -84,6 +89,7 @@ impl StoreTransaction {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn get_update_for_tip_hash(
         &self,
         snapshot: &StoreTransactionSnapshot<'_>,
@@ -94,10 +100,12 @@ impl StoreTransaction {
             .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()).to_entity())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_tip_header(&self, h: &HeaderView) -> Result<(), Error> {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_slice())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
         let header = block.header().pack();
@@ -121,6 +129,7 @@ impl StoreTransaction {
         Ok(())
     }
 
+    /// TODO(doc): @quake
     pub fn delete_block(&self, hash: &packed::Byte32, txs_len: usize) -> Result<(), Error> {
         self.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
@@ -137,6 +146,7 @@ impl StoreTransaction {
         Ok(())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_block_ext(
         &self,
         block_hash: &packed::Byte32,
@@ -149,6 +159,7 @@ impl StoreTransaction {
         )
     }
 
+    /// TODO(doc): @quake
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
         let header = block.data().header();
         let block_hash = block.hash();
@@ -176,6 +187,7 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
     }
 
+    /// TODO(doc): @quake
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
         for tx_hash in block.tx_hashes().iter() {
             self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_slice())?;
@@ -188,6 +200,7 @@ impl StoreTransaction {
         self.delete(COLUMN_INDEX, block.hash().as_slice())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_block_epoch_index(
         &self,
         block_hash: &packed::Byte32,
@@ -200,16 +213,19 @@ impl StoreTransaction {
         )
     }
 
+    /// TODO(doc): @quake
     pub fn insert_epoch_ext(&self, hash: &packed::Byte32, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_raw(COLUMN_EPOCH, hash.as_slice(), epoch.pack().as_slice())?;
         let epoch_number: packed::Uint64 = epoch.number().pack();
         self.insert_raw(COLUMN_EPOCH, epoch_number.as_slice(), hash.as_slice())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_current_epoch_ext(&self, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_raw(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch.pack().as_slice())
     }
 
+    /// TODO(doc): @quake
     pub fn insert_cells(
         &self,
         cells: impl Iterator<
@@ -232,6 +248,7 @@ impl StoreTransaction {
         Ok(())
     }
 
+    /// TODO(doc): @quake
     pub fn delete_cells(
         &self,
         out_points: impl Iterator<Item = packed::OutPoint>,

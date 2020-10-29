@@ -6,6 +6,7 @@ use ckb_db::{
 };
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 pub struct StoreSnapshot {
     pub(crate) inner: RocksDBSnapshot,
     pub(crate) cache: Arc<StoreCache>,

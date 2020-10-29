@@ -1,3 +1,4 @@
+//! TODO(doc): @doitian
 mod helper;
 mod setup_guard;
 mod subcommand;
@@ -10,6 +11,7 @@ use setup_guard::SetupGuard;
 pub(crate) const LOG_TARGET_MAIN: &str = "main";
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
+/// TODO(doc): @doitian
 pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");

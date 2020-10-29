@@ -1,9 +1,15 @@
+//! TODO(doc): @yangby-cryptape
 use std::fmt;
 
+/// TODO(doc): @yangby-cryptape
 pub enum HumanReadableSize {
+    /// TODO(doc): @yangby-cryptape
     Bytes(u64),
+    /// TODO(doc): @yangby-cryptape
     KiBytes(f64),
+    /// TODO(doc): @yangby-cryptape
     MiBytes(f64),
+    /// TODO(doc): @yangby-cryptape
     GiBytes(f64),
 }
 
@@ -29,10 +35,14 @@ impl From<u64> for HumanReadableSize {
     }
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Debug, Clone)]
 pub enum PropertyValue<T> {
+    /// TODO(doc): @yangby-cryptape
     Value(T),
+    /// TODO(doc): @yangby-cryptape
     Null,
+    /// TODO(doc): @yangby-cryptape
     Error(String),
 }
 
@@ -66,6 +76,7 @@ impl<T> From<Result<Option<T>, String>> for PropertyValue<T> {
     }
 }
 
+/// TODO(doc): @yangby-cryptape
 pub fn sum_int_values(values: &[PropertyValue<u64>]) -> PropertyValue<u64> {
     let mut total = 0;
     let mut errors = 0;

@@ -3,6 +3,7 @@ use crate::{packed, prelude::*};
 macro_rules! impl_serialized_size_for_entity {
     ($entity:ident, $func:ident) => {
         impl packed::$entity {
+            /// TODO(doc): @yangby-cryptape
             pub fn $func(&self) -> usize {
                 self.as_reader().$func()
             }
@@ -11,6 +12,7 @@ macro_rules! impl_serialized_size_for_entity {
 }
 
 impl<'r> packed::TransactionReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn serialized_size_in_block(&self) -> usize {
         // the offset in TransactionVec header is u32
         self.as_slice().len() + molecule::NUMBER_SIZE
@@ -19,6 +21,7 @@ impl<'r> packed::TransactionReader<'r> {
 impl_serialized_size_for_entity!(Transaction, serialized_size_in_block);
 
 impl<'r> packed::BlockReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn serialized_size_without_uncle_proposals(&self) -> usize {
         let block_size = self.as_slice().len();
         // the header of ProposalShortIdVec header is u32

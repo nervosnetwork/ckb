@@ -4,13 +4,18 @@ use std::io;
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ExitCode {
+    /// TODO(doc): @doitian
     Cli = 64,
+    /// TODO(doc): @doitian
     Config = 65,
+    /// TODO(doc): @doitian
     IO = 66,
+    /// TODO(doc): @doitian
     Failure = 113,
 }
 
 impl ExitCode {
+    /// TODO(doc): @doitian
     pub fn into(self) -> i32 {
         self as i32
     }

@@ -1,6 +1,8 @@
+//! TODO(doc): @quake
 use ckb_store::ChainStore;
 use ckb_types::{core::BlockNumber, core::BlockView};
 
+/// TODO(doc): @quake
 // An iterator over the entries of a `Chain`.
 pub struct ChainIterator<'a, S: ChainStore<'a>> {
     store: &'a S,
@@ -9,6 +11,7 @@ pub struct ChainIterator<'a, S: ChainStore<'a>> {
 }
 
 impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
+    /// TODO(doc): @quake
     pub fn new(store: &'a S) -> Self {
         let current = store.get_block_hash(0).and_then(|h| store.get_block(&h));
         let tip = store.get_tip_header().expect("store inited").number();
@@ -19,10 +22,12 @@ impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn len(&self) -> u64 {
         self.tip + 1
     }
 
+    /// TODO(doc): @quake
     // we always have genesis, this function may be meaningless
     // but for convention, mute len-without-is-empty lint
     pub fn is_empty(&self) -> bool {

@@ -1,6 +1,10 @@
+/// TODO(doc): @doitian
 pub const DEFAULT_SPEC: &str = "mainnet";
+/// TODO(doc): @doitian
 pub const AVAILABLE_SPECS: &[&str] = &["mainnet", "testnet", "staging", "dev"];
+/// TODO(doc): @doitian
 pub const DEFAULT_RPC_PORT: &str = "8114";
+/// TODO(doc): @doitian
 pub const DEFAULT_P2P_PORT: &str = "8115";
 
 const START_MARKER: &str = " # {{";
@@ -12,12 +16,14 @@ use std::io;
 
 pub struct Template<T>(T);
 
+/// TODO(doc): @doitian
 pub struct TemplateContext<'a> {
     spec: &'a str,
     kvs: HashMap<&'a str, &'a str>,
 }
 
 impl<'a> TemplateContext<'a> {
+    /// TODO(doc): @doitian
     pub fn new<I>(spec: &'a str, kvs: I) -> Self
     where
         I: IntoIterator<Item = (&'a str, &'a str)>,
@@ -28,6 +34,7 @@ impl<'a> TemplateContext<'a> {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn insert(&mut self, key: &'a str, value: &'a str) {
         self.kvs.insert(key, value);
     }

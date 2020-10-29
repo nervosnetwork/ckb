@@ -1,7 +1,9 @@
+//! Utilities for tokio runtime.
 use std::{future::Future, sync, thread};
 
 pub use tokio::runtime::{Builder, Handle};
 
+/// Creates a new tokio runtime.
 pub fn new_runtime<F, R>(
     name_prefix: &str,
     runtime_builder_opt: Option<Builder>,

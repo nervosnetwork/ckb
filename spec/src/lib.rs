@@ -47,20 +47,30 @@ mod error;
 const SPECIAL_CELL_PRIVKEY: H256 =
     h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
 
+/// TODO(doc): @zhangsoledad
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
+/// TODO(doc): @zhangsoledad
 pub const OUTPUT_INDEX_DAO: u64 = 2;
+/// TODO(doc): @zhangsoledad
 pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
+/// TODO(doc): @zhangsoledad
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
+    /// TODO(doc): @zhangsoledad
     pub name: String,
+    /// TODO(doc): @zhangsoledad
     pub genesis: Genesis,
+    /// TODO(doc): @zhangsoledad
     #[serde(default)]
     pub params: Params,
+    /// TODO(doc): @zhangsoledad
     pub pow: Pow,
 }
 
+/// TODO(doc): @zhangsoledad
 pub mod default_params {
     use crate::consensus::{
         CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
@@ -70,34 +80,42 @@ pub mod default_params {
     };
     use ckb_types::core::{Capacity, Cycle, EpochNumber};
 
+    /// TODO(doc): @zhangsoledad
     pub fn initial_primary_epoch_reward() -> Capacity {
         INITIAL_PRIMARY_EPOCH_REWARD
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn secondary_epoch_reward() -> Capacity {
         DEFAULT_SECONDARY_EPOCH_REWARD
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_cycles() -> Cycle {
         MAX_BLOCK_CYCLES
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_bytes() -> u64 {
         MAX_BLOCK_BYTES
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn cellbase_maturity() -> u64 {
         CELLBASE_MATURITY.full_value()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn primary_epoch_reward_halving_interval() -> EpochNumber {
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn epoch_duration_target() -> u64 {
         DEFAULT_EPOCH_DURATION_TARGET
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn genesis_epoch_length() -> u64 {
         GENESIS_EPOCH_LENGTH
     }
@@ -107,24 +125,34 @@ pub mod default_params {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::initial_primary_epoch_reward")]
     pub initial_primary_epoch_reward: Capacity,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::secondary_epoch_reward")]
     pub secondary_epoch_reward: Capacity,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::max_block_cycles")]
     pub max_block_cycles: Cycle,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::max_block_bytes")]
     pub max_block_bytes: u64,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::cellbase_maturity")]
     pub cellbase_maturity: u64,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::primary_epoch_reward_halving_interval")]
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::epoch_duration_target")]
     pub epoch_duration_target: u64,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::genesis_epoch_length")]
     pub genesis_epoch_length: BlockNumber,
+    /// TODO(doc): @zhangsoledad
     #[serde(default)]
     pub permanent_difficulty_in_dummy: bool,
     #[serde(default = "default_params::max_block_proposals_limit")]
@@ -149,55 +177,86 @@ impl Default for Params {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Genesis {
+    /// TODO(doc): @zhangsoledad
     pub version: u32,
+    /// TODO(doc): @zhangsoledad
     pub parent_hash: H256,
+    /// TODO(doc): @zhangsoledad
     pub timestamp: u64,
+    /// TODO(doc): @zhangsoledad
     pub compact_target: u32,
+    /// TODO(doc): @zhangsoledad
     pub uncles_hash: H256,
+    /// TODO(doc): @zhangsoledad
     pub hash: Option<H256>,
+    /// TODO(doc): @zhangsoledad
     pub nonce: U128,
+    /// TODO(doc): @zhangsoledad
     pub issued_cells: Vec<IssuedCell>,
+    /// TODO(doc): @zhangsoledad
     pub genesis_cell: GenesisCell,
+    /// TODO(doc): @zhangsoledad
     pub system_cells: Vec<SystemCell>,
+    /// TODO(doc): @zhangsoledad
     pub system_cells_lock: Script,
+    /// TODO(doc): @zhangsoledad
     pub bootstrap_lock: Script,
+    /// TODO(doc): @zhangsoledad
     pub dep_groups: Vec<DepGroupResource>,
+    /// TODO(doc): @zhangsoledad
     #[serde(default)]
     pub satoshi_gift: SatoshiGift,
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCell {
+    /// TODO(doc): @zhangsoledad
     // NOTE: must put `create_type_id` before `file` otherwise this struct can not serialize
     pub create_type_id: bool,
+    /// TODO(doc): @zhangsoledad
     // Overwrite the cell capacity. Set to None to use the minimal capacity.
     pub capacity: Option<u64>,
+    /// TODO(doc): @zhangsoledad
     pub file: Resource,
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct GenesisCell {
+    /// TODO(doc): @zhangsoledad
     pub message: String,
+    /// TODO(doc): @zhangsoledad
     pub lock: Script,
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct IssuedCell {
+    /// TODO(doc): @zhangsoledad
     pub capacity: Capacity,
+    /// TODO(doc): @zhangsoledad
     pub lock: Script,
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct DepGroupResource {
+    /// TODO(doc): @zhangsoledad
     pub name: String,
+    /// TODO(doc): @zhangsoledad
     pub files: Vec<Resource>,
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SatoshiGift {
+    /// TODO(doc): @zhangsoledad
     pub satoshi_pubkey_hash: H160,
+    /// TODO(doc): @zhangsoledad
     pub satoshi_cell_occupied_ratio: Ratio,
 }
 
@@ -210,10 +269,18 @@ impl Default for SatoshiGift {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Debug)]
 pub enum SpecLoadError {
+    /// TODO(doc): @zhangsoledad
     FileNotFound,
-    GenesisMismatch { expect: H256, actual: H256 },
+    /// TODO(doc): @zhangsoledad
+    GenesisMismatch {
+        /// TODO(doc): @zhangsoledad
+        expect: H256,
+        /// TODO(doc): @zhangsoledad
+        actual: H256,
+    },
 }
 
 impl SpecLoadError {
@@ -242,6 +309,7 @@ impl fmt::Display for SpecLoadError {
 }
 
 impl ChainSpec {
+    /// TODO(doc): @zhangsoledad
     pub fn load_from(resource: &Resource) -> Result<ChainSpec, Box<dyn Error>> {
         if !resource.exists() {
             return Err(SpecLoadError::file_not_found());
@@ -258,6 +326,7 @@ impl ChainSpec {
         Ok(spec)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
@@ -272,6 +341,7 @@ impl ChainSpec {
         Ok(())
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
         let genesis_epoch_ext = build_genesis_epoch_ext(
             self.params.initial_primary_epoch_reward,
@@ -305,6 +375,7 @@ impl ChainSpec {
         Ok(consensus)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
         let special_cell_capacity = {
             let cellbase_transaction_for_special_cell_capacity =
@@ -684,10 +755,12 @@ fn secp_lock_arg(privkey: &Privkey) -> Bytes {
     Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned())
 }
 
+/// TODO(doc): @zhangsoledad
 pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
     build_type_id_script(&packed::CellInput::new_cellbase_input(0), output_index)
 }
 
+/// TODO(doc): @zhangsoledad
 pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
     let mut blake2b = new_blake2b();
     blake2b.update(&input.as_slice());
@@ -702,6 +775,7 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
         .build()
 }
 
+/// TODO(doc): @zhangsoledad
 pub fn calculate_block_reward(epoch_reward: Capacity, epoch_length: BlockNumber) -> Capacity {
     let epoch_reward = epoch_reward.as_u64();
     Capacity::shannons({

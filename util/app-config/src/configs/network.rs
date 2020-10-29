@@ -9,48 +9,69 @@ use std::path::PathBuf;
 // Max data size in send buffer: 24MB (a little larger than max frame length)
 const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Config {
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub whitelist_only: bool,
+    /// TODO(doc): @doitian
     pub max_peers: u32,
+    /// TODO(doc): @doitian
     pub max_outbound_peers: u32,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub path: PathBuf,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub dns_seeds: Vec<String>,
+    /// TODO(doc): @doitian
     // Set if discovery add local address to peer store
     #[serde(default)]
     pub discovery_local_address: bool,
+    /// TODO(doc): @doitian
     pub ping_interval_secs: u64,
+    /// TODO(doc): @doitian
     pub ping_timeout_secs: u64,
+    /// TODO(doc): @doitian
     pub connect_outbound_interval_secs: u64,
+    /// TODO(doc): @doitian
     pub listen_addresses: Vec<Multiaddr>,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub public_addresses: Vec<Multiaddr>,
+    /// TODO(doc): @doitian
     pub bootnodes: Vec<Multiaddr>,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub whitelist_peers: Vec<Multiaddr>,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub upnp: bool,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub bootnode_mode: bool,
+    /// TODO(doc): @doitian
     // Max send buffer size
     pub max_send_buffer: Option<usize>,
+    /// TODO(doc): @doitian
     pub sync: Option<SyncConfig>,
 }
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct SyncConfig {
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub header_map: HeaderMapConfig,
 }
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HeaderMapConfig {
-    // The maximum size of data in memory
+    /// The maximum size of data in memory
     pub primary_limit: usize,
-    // Disable cache if the size of data in memory less than this threshold
+    /// Disable cache if the size of data in memory less than this threshold
     pub backend_close_threshold: usize,
 }
 
@@ -130,18 +151,21 @@ pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPai
 }
 
 impl Config {
+    /// TODO(doc): @doitian
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
         path
     }
 
+    /// TODO(doc): @doitian
     pub fn peer_store_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("peer_store");
         path
     }
 
+    /// TODO(doc): @doitian
     pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
         if !self.path.exists() {
             fs::create_dir(&self.path)
@@ -150,14 +174,17 @@ impl Config {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn max_inbound_peers(&self) -> u32 {
         self.max_peers.saturating_sub(self.max_outbound_peers)
     }
 
+    /// TODO(doc): @doitian
     pub fn max_outbound_peers(&self) -> u32 {
         self.max_outbound_peers
     }
 
+    /// TODO(doc): @doitian
     pub fn max_send_buffer(&self) -> usize {
         self.max_send_buffer.unwrap_or(DEFAULT_SEND_BUFFER)
     }
@@ -173,6 +200,7 @@ impl Config {
         write_secret_to_file(&random_key_pair, path)
     }
 
+    /// TODO(doc): @doitian
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
         match self.read_secret_key()? {
             Some(key) => Ok(key),
@@ -183,6 +211,7 @@ impl Config {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn whitelist_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.whitelist_peers.len());
         for addr_str in &self.whitelist_peers {
@@ -203,6 +232,7 @@ impl Config {
         Ok(peers)
     }
 
+    /// TODO(doc): @doitian
     pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.bootnodes.len());
         for addr_str in &self.bootnodes {
@@ -222,10 +252,12 @@ impl Config {
         Ok(peers)
     }
 
+    /// TODO(doc): @doitian
     pub fn outbound_peer_service_enabled(&self) -> bool {
         self.connect_outbound_interval_secs > 0
     }
 
+    /// TODO(doc): @doitian
     pub fn dns_seeding_service_enabled(&self) -> bool {
         !self.dns_seeds.is_empty()
     }

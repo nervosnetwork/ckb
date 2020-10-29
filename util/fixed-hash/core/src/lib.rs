@@ -1,3 +1,5 @@
+//! TODO(doc): @yangby-cryptape
+
 pub mod error;
 
 mod impls;

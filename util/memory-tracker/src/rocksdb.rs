@@ -1,19 +1,29 @@
+//! TODO(doc): @yangby-cryptape
 use ckb_db::internal::ops::{GetColumnFamilys, GetProperty, GetPropertyCF};
 use ckb_metrics::metrics;
 
 use crate::utils::{sum_int_values, PropertyValue};
 
+/// TODO(doc): @yangby-cryptape
 // Ref: https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB
 pub struct RocksDBMemoryStatistics {
+    /// TODO(doc): @yangby-cryptape
     pub estimate_table_readers_mem: PropertyValue<u64>,
+    /// TODO(doc): @yangby-cryptape
     pub size_all_mem_tables: PropertyValue<u64>,
+    /// TODO(doc): @yangby-cryptape
     pub cur_size_all_mem_tables: PropertyValue<u64>,
+    /// TODO(doc): @yangby-cryptape
     pub block_cache_capacity: PropertyValue<u64>,
+    /// TODO(doc): @yangby-cryptape
     pub block_cache_usage: PropertyValue<u64>,
+    /// TODO(doc): @yangby-cryptape
     pub block_cache_pinned_usage: PropertyValue<u64>,
 }
 
+/// TODO(doc): @yangby-cryptape
 pub trait TrackRocksDBMemory {
+    /// TODO(doc): @yangby-cryptape
     fn gather_memory_stats(&self) -> RocksDBMemoryStatistics {
         let estimate_table_readers_mem = self.gather_int_values("estimate-table-readers-mem");
         let size_all_mem_tables = self.gather_int_values("size-all-mem-tables");
@@ -30,9 +40,11 @@ pub trait TrackRocksDBMemory {
             block_cache_pinned_usage,
         }
     }
+    /// TODO(doc): @yangby-cryptape
     fn gather_int_values(&self, key: &str) -> PropertyValue<u64>;
 }
 
+/// TODO(doc): @yangby-cryptape
 pub struct DummyRocksDB;
 
 impl TrackRocksDBMemory for DummyRocksDB {

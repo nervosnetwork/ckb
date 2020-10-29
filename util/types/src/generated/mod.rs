@@ -1,6 +1,7 @@
 //! Generated packed bytes wrappers.
 
 #![allow(warnings)]
+#![allow(missing_docs)]
 
 #[allow(clippy::all)]
 mod blockchain;

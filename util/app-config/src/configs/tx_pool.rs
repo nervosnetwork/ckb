@@ -15,21 +15,21 @@ const DEFAULT_MAX_ANCESTORS_COUNT: usize = 25;
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
-    // Keep the transaction pool below <max_mem_size> mb
+    /// Keep the transaction pool below <max_mem_size> mb
     pub max_mem_size: usize,
-    // Keep the transaction pool below <max_cycles> cycles
+    /// Keep the transaction pool below <max_cycles> cycles
     pub max_cycles: Cycle,
-    // tx verify cache capacity
+    /// tx verify cache capacity
     pub max_verify_cache_size: usize,
-    // conflict tx cache capacity
+    /// conflict tx cache capacity
     pub max_conflict_cache_size: usize,
-    // committed transactions hash cache capacity
+    /// committed transactions hash cache capacity
     pub max_committed_txs_hash_cache_size: usize,
-    // txs with lower fee rate than this will not be relayed or be mined
+    /// txs with lower fee rate than this will not be relayed or be mined
     pub min_fee_rate: FeeRate,
-    // tx pool rejects txs that cycles greater than max_tx_verify_cycles
+    /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
-    // max ancestors size limit for a single tx
+    /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
 }
 
@@ -48,10 +48,15 @@ impl Default for TxPoolConfig {
     }
 }
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
+    /// TODO(doc): @doitian
     pub code_hash: H256,
+    /// TODO(doc): @doitian
     pub hash_type: ScriptHashType,
+    /// TODO(doc): @doitian
     pub args: JsonBytes,
+    /// TODO(doc): @doitian
     pub message: JsonBytes,
 }

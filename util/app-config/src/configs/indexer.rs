@@ -8,6 +8,7 @@ pub struct Config {
     pub batch_interval: u64,
     /// The maximum number of blocks in a single indexing execution batch, default is 200
     pub batch_size: usize,
+    /// TODO(doc): @doitian
     pub db: DBConfig,
 }
 

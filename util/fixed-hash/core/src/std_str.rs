@@ -78,6 +78,7 @@ macro_rules! impl_std_str_fromstr {
 macro_rules! impl_from_trimmed_str {
     ($name:ident, $bytes_size:expr) => {
         impl $name {
+            /// TODO(doc): @yangby-cryptape
             pub fn from_trimmed_str(input: &str) -> Result<Self, FromStrError> {
                 let bytes = input.as_bytes();
                 let len = bytes.len();

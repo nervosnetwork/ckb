@@ -2,11 +2,13 @@ use crate::{Error, ErrorKind};
 use failure::{err_msg, Backtrace, Context, Fail};
 use std::fmt::{self, Debug, Display};
 
+/// TODO(doc): @keroro520
 #[derive(Debug)]
 pub struct InternalError {
     kind: Context<InternalErrorKind>,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum InternalErrorKind {
     /// An arithmetic overflow occurs during capacity calculation,
@@ -60,12 +62,14 @@ impl From<InternalErrorKind> for Error {
 }
 
 impl InternalErrorKind {
+    /// TODO(doc): @keroro520
     pub fn cause<F: Fail>(self, cause: F) -> InternalError {
         InternalError {
             kind: cause.context(self),
         }
     }
 
+    /// TODO(doc): @keroro520
     pub fn reason<S: Display + Debug + Sync + Send + 'static>(self, reason: S) -> InternalError {
         InternalError {
             kind: err_msg(reason).compat().context(self),
@@ -74,6 +78,7 @@ impl InternalErrorKind {
 }
 
 impl InternalError {
+    /// TODO(doc): @keroro520
     pub fn kind(&self) -> &InternalErrorKind {
         &self.kind.get_context()
     }

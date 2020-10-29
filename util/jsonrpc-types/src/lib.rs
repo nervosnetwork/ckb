@@ -1,3 +1,4 @@
+//! Wrappers for JSON serialization.
 mod alert;
 mod block_template;
 mod blockchain;

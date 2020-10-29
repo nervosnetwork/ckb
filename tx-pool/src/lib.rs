@@ -1,3 +1,4 @@
+//! TODO(doc): @zhangsoledad
 mod block_assembler;
 mod component;
 pub mod error;

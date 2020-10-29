@@ -1,3 +1,4 @@
+//! TODO(doc): @keroro520
 use ckb_logger::error;
 use futures::sync::oneshot;
 use parking_lot::Mutex;
@@ -6,15 +7,21 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::sync::oneshot as tokio_oneshot;
 
+/// TODO(doc): @keroro520
 #[derive(Debug)]
 pub enum SignalSender {
+    /// TODO(doc): @keroro520
     Future(oneshot::Sender<()>),
+    /// TODO(doc): @keroro520
     Crossbeam(ckb_channel::Sender<()>),
+    /// TODO(doc): @keroro520
     Std(mpsc::Sender<()>),
+    /// TODO(doc): @keroro520
     Tokio(tokio_oneshot::Sender<()>),
 }
 
 impl SignalSender {
+    /// TODO(doc): @keroro520
     pub fn send(self) {
         match self {
             SignalSender::Crossbeam(tx) => {
@@ -47,6 +54,7 @@ struct Handler<T> {
     thread: JoinHandle<T>,
 }
 
+/// TODO(doc): @keroro520
 //the outer Option take ownership for `Arc::try_unwrap`
 //the inner Option take ownership for `JoinHandle` or `oneshot::Sender`
 #[derive(Clone, Debug)]
@@ -55,6 +63,7 @@ pub struct StopHandler<T> {
 }
 
 impl<T> StopHandler<T> {
+    /// TODO(doc): @keroro520
     pub fn new(signal: SignalSender, thread: JoinHandle<T>) -> StopHandler<T> {
         let handler = Handler { signal, thread };
         StopHandler {
@@ -62,6 +71,7 @@ impl<T> StopHandler<T> {
         }
     }
 
+    /// TODO(doc): @keroro520
     pub fn try_send(&mut self) {
         let inner = self
             .inner

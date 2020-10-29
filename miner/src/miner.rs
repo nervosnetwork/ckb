@@ -17,20 +17,32 @@ use std::thread;
 
 const WORK_CACHE_SIZE: usize = 32;
 
+/// TODO(doc): @quake
 pub struct Miner {
+    /// TODO(doc): @quake
     pub pow: Arc<dyn PowEngine>,
+    /// TODO(doc): @quake
     pub client: Client,
+    /// TODO(doc): @quake
     pub works: LruCache<Byte32, Work>,
+    /// TODO(doc): @quake
     pub worker_controllers: Vec<WorkerController>,
+    /// TODO(doc): @quake
     pub work_rx: Receiver<Work>,
+    /// TODO(doc): @quake
     pub nonce_rx: Receiver<(Byte32, u128)>,
+    /// TODO(doc): @quake
     pub pb: ProgressBar,
+    /// TODO(doc): @quake
     pub nonces_found: u128,
+    /// TODO(doc): @quake
     pub stderr_is_tty: bool,
+    /// TODO(doc): @quake
     pub limit: u128,
 }
 
 impl Miner {
+    /// TODO(doc): @quake
     pub fn new(
         pow: Arc<dyn PowEngine>,
         client: Client,
@@ -69,6 +81,7 @@ impl Miner {
         }
     }
 
+    /// TODO(doc): @quake
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn run(&mut self) {

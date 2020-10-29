@@ -13,12 +13,16 @@ use ckb_types::{
 use std::cmp;
 use std::collections::HashSet;
 
+/// TODO(doc): @keroro520
 pub struct RewardCalculator<'a, CS> {
+    /// TODO(doc): @keroro520
     pub consensus: &'a Consensus,
+    /// TODO(doc): @keroro520
     pub store: &'a CS,
 }
 
 impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
+    /// TODO(doc): @keroro520
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         RewardCalculator { consensus, store }
     }
@@ -42,6 +46,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         self.block_reward_internal(&target, parent)
     }
 
+    /// TODO(doc): @keroro520
     pub fn block_reward_for_target(
         &self,
         target: &HeaderView,

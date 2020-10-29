@@ -1,3 +1,4 @@
+//! Build script for crate `ckb-script`.
 use std::env;
 
 fn main() {

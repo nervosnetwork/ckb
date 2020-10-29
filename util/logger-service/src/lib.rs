@@ -1,3 +1,5 @@
+//! TODO(doc): @yangby-cryptape
+
 use ansi_term::Colour;
 use backtrace::Backtrace;
 use chrono::prelude::{DateTime, Local};
@@ -34,6 +36,7 @@ enum Message {
     Terminate,
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Debug)]
 pub struct Logger {
     sender: ckb_channel::Sender<Message>,
@@ -43,6 +46,7 @@ pub struct Logger {
     extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Debug)]
 pub struct MainLogger {
     file_path: PathBuf,
@@ -52,6 +56,7 @@ pub struct MainLogger {
     color: bool,
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Debug)]
 pub struct ExtraLogger {
     filter: Filter,
@@ -331,6 +336,7 @@ impl Logger {
             })
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn filter(&self) -> LevelFilter {
         Self::max_level_filter(&self.filter.read(), &self.extra_loggers.read())
     }
@@ -347,6 +353,7 @@ impl Logger {
             })
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn update_main_logger(
         filter_str: Option<String>,
         to_stdout: Option<bool>,
@@ -363,16 +370,19 @@ impl Logger {
         Self::send_message(message)
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn check_extra_logger_name(name: &str) -> Result<(), String> {
         strings::check_if_identifier_is_valid(name)
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn update_extra_logger(name: String, filter_str: String) -> Result<(), String> {
         let filter = Self::build_filter(&filter_str);
         let message = Message::UpdateExtraLogger(name, filter);
         Self::send_message(message)
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn remove_extra_logger(name: String) -> Result<(), String> {
         let message = Message::RemoveExtraLogger(name);
         Self::send_message(message)
@@ -456,6 +466,7 @@ impl Drop for LoggerInitGuard {
     }
 }
 
+/// TODO(doc): @yangby-cryptape
 pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
 
@@ -467,6 +478,7 @@ pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     })
 }
 
+/// TODO(doc): @yangby-cryptape
 pub fn flush() {
     log::logger().flush()
 }

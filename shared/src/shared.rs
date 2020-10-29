@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use crate::{migrations, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
@@ -20,6 +21,7 @@ use ckb_verification::cache::TxVerifyCache;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 #[derive(Clone)]
 pub struct Shared {
     pub(crate) store: ChainDB,
@@ -31,6 +33,7 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// TODO(doc): @quake
     pub fn init(
         store: ChainDB,
         consensus: Consensus,
@@ -147,31 +150,38 @@ impl Shared {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn tx_pool_controller(&self) -> &TxPoolController {
         &self.tx_pool_controller
     }
 
+    /// TODO(doc): @quake
     pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
         Arc::clone(&self.txs_verify_cache)
     }
 
+    /// TODO(doc): @quake
     pub fn notify_controller(&self) -> &NotifyController {
         &self.notify_controller
     }
 
+    /// TODO(doc): @quake
     pub fn snapshot(&self) -> Guard<Arc<Snapshot>> {
         self.snapshot_mgr.load()
     }
 
+    /// TODO(doc): @quake
     pub fn store_snapshot(&self, snapshot: Arc<Snapshot>) {
         self.snapshot_mgr.store(snapshot)
     }
 
+    /// TODO(doc): @quake
     pub fn refresh_snapshot(&self) {
         let new = self.snapshot().refresh(self.store.get_snapshot());
         self.store_snapshot(Arc::new(new));
     }
 
+    /// TODO(doc): @quake
     pub fn new_snapshot(
         &self,
         tip_header: HeaderView,
@@ -189,19 +199,23 @@ impl Shared {
         ))
     }
 
+    /// TODO(doc): @quake
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
     }
 
+    /// TODO(doc): @quake
     pub fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
     }
 
+    /// TODO(doc): @quake
     pub fn store(&self) -> &ChainDB {
         &self.store
     }
 }
 
+/// TODO(doc): @quake
 pub struct SharedBuilder {
     db: RocksDB,
     consensus: Option<Consensus>,
@@ -229,6 +243,7 @@ impl Default for SharedBuilder {
 const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
+    /// TODO(doc): @quake
     pub fn with_db_config(config: &DBConfig) -> Self {
         let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
@@ -249,31 +264,37 @@ impl SharedBuilder {
 }
 
 impl SharedBuilder {
+    /// TODO(doc): @quake
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self
     }
 
+    /// TODO(doc): @quake
     pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
         self.tx_pool_config = Some(config);
         self
     }
 
+    /// TODO(doc): @quake
     pub fn notify_config(mut self, config: NotifyConfig) -> Self {
         self.notify_config = Some(config);
         self
     }
 
+    /// TODO(doc): @quake
     pub fn store_config(mut self, config: StoreConfig) -> Self {
         self.store_config = Some(config);
         self
     }
 
+    /// TODO(doc): @quake
     pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
         self.block_assembler_config = config;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);

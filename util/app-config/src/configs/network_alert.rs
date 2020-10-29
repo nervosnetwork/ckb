@@ -1,9 +1,12 @@
 use ckb_jsonrpc_types::JsonBytes;
 use serde::{Deserialize, Serialize};
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
+    /// TODO(doc): @doitian
     pub signatures_threshold: usize,
+    /// TODO(doc): @doitian
     pub public_keys: Vec<JsonBytes>,
 }
 

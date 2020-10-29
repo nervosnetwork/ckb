@@ -31,6 +31,7 @@ pub struct AlertRelayer {
 }
 
 impl AlertRelayer {
+    /// TODO(doc): @driftluo
     pub fn new(
         client_version: String,
         notify_controller: NotifyController,
@@ -43,10 +44,12 @@ impl AlertRelayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn notifier(&self) -> &Arc<Mutex<Notifier>> {
         &self.notifier
     }
 
+    /// TODO(doc): @driftluo
     pub fn verifier(&self) -> &Arc<Verifier> {
         &self.verifier
     }

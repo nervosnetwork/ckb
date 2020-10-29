@@ -1,3 +1,4 @@
+//! TODO(doc): @yangby-cryptape
 use std::{net::SocketAddr, time::Duration};
 
 use metrics_core::Observe;
@@ -13,11 +14,16 @@ use ckb_metrics_config::{Config, Exporter, Format, Target};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::strings;
 
+/// TODO(doc): @yangby-cryptape
 #[must_use]
 pub enum Guard {
+    /// TODO(doc): @yangby-cryptape
     Off,
+    /// TODO(doc): @yangby-cryptape
     On {
+        /// TODO(doc): @yangby-cryptape
         handle: Handle,
+        /// TODO(doc): @yangby-cryptape
         stop: StopHandler<()>,
     },
 }
@@ -30,6 +36,7 @@ impl Drop for Guard {
     }
 }
 
+/// TODO(doc): @yangby-cryptape
 pub fn init(config: Config) -> Result<Guard, String> {
     if config.exporter.is_empty() {
         return Ok(Guard::Off);

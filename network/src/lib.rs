@@ -1,3 +1,4 @@
+//! TODO(doc): @driftluo
 mod behaviour;
 mod compress;
 pub mod errors;
@@ -33,4 +34,5 @@ pub use p2p::{
 };
 pub use tokio;
 
+/// TODO(doc): @driftluo
 pub type ProtocolVersion = String;

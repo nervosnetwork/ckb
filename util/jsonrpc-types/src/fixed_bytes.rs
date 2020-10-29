@@ -13,6 +13,7 @@ use std::fmt;
 pub struct Byte32(pub [u8; 32]);
 
 impl Byte32 {
+    /// TODO(doc): @doitian
     pub fn new(inner: [u8; 32]) -> Self {
         Byte32(inner)
     }

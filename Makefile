@@ -119,7 +119,7 @@ fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 
 .PHONY: clippy
 clippy: setup-ckb-test ## Run linter to examine Rust source codes.
-	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
+	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS} -D missing_docs
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: security-audit

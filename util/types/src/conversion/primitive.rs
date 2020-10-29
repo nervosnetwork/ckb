@@ -145,10 +145,12 @@ impl Pack<packed::Bytes> for str {
 }
 
 impl<'r> packed::BytesReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_utf8(&self) -> Result<&str, ::std::str::Utf8Error> {
         ::std::str::from_utf8(self.raw_data())
     }
 
+    /// TODO(doc): @yangby-cryptape
     /// # Safety
     ///
     /// This function is unsafe because it does not check that the bytes passed to
@@ -158,6 +160,7 @@ impl<'r> packed::BytesReader<'r> {
         ::std::str::from_utf8_unchecked(self.raw_data())
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn is_utf8(&self) -> bool {
         self.as_utf8().is_ok()
     }

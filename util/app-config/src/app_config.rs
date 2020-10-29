@@ -19,60 +19,91 @@ use super::configs::*;
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
 
+/// TODO(doc): @doitian
 pub enum AppConfig {
+    /// TODO(doc): @doitian
     CKB(Box<CKBAppConfig>),
+    /// TODO(doc): @doitian
     Miner(Box<MinerAppConfig>),
 }
 
+/// TODO(doc): @doitian
 // change the order of fields will break integration test, see module doc.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
+    /// TODO(doc): @doitian
     pub data_dir: PathBuf,
+    /// TODO(doc): @doitian
     pub tmp_dir: Option<PathBuf>,
+    /// TODO(doc): @doitian
     pub logger: LogConfig,
+    /// TODO(doc): @doitian
     pub sentry: SentryConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub metrics: MetricsConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
+    /// TODO(doc): @doitian
     pub chain: ChainConfig,
 
+    /// TODO(doc): @doitian
     pub block_assembler: Option<BlockAssemblerConfig>,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub db: DBConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub indexer: IndexerConfig,
+    /// TODO(doc): @doitian
     pub network: NetworkConfig,
+    /// TODO(doc): @doitian
     pub rpc: RpcConfig,
+    /// TODO(doc): @doitian
     pub tx_pool: TxPoolConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub store: StoreConfig,
+    /// TODO(doc): @doitian
     pub alert_signature: Option<NetworkAlertConfig>,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub notify: NotifyConfig,
 }
 
+/// TODO(doc): @doitian
 // change the order of fields will break integration test, see module doc.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinerAppConfig {
+    /// TODO(doc): @doitian
     pub data_dir: PathBuf,
+    /// TODO(doc): @doitian
     pub chain: ChainConfig,
+    /// TODO(doc): @doitian
     pub logger: LogConfig,
+    /// TODO(doc): @doitian
     pub sentry: SentryConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub metrics: MetricsConfig,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
 
+    /// TODO(doc): @doitian
     pub miner: MinerConfig,
 }
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChainConfig {
+    /// TODO(doc): @doitian
     pub spec: Resource,
 }
 
 impl AppConfig {
+    /// TODO(doc): @doitian
     pub fn load_for_subcommand<P: AsRef<Path>>(
         root_dir: P,
         subcommand_name: &str,
@@ -96,6 +127,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn logger(&self) -> &LogConfig {
         match self {
             AppConfig::CKB(config) => &config.logger,
@@ -103,6 +135,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn sentry(&self) -> &SentryConfig {
         match self {
             AppConfig::CKB(config) => &config.sentry,
@@ -110,6 +143,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn metrics(&self) -> &MetricsConfig {
         match self {
             AppConfig::CKB(config) => &config.metrics,
@@ -117,6 +151,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn memory_tracker(&self) -> &MemoryTrackerConfig {
         match self {
             AppConfig::CKB(config) => &config.memory_tracker,
@@ -124,6 +159,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let spec_resource = match self {
             AppConfig::CKB(config) => &config.chain.spec,
@@ -135,6 +171,7 @@ impl AppConfig {
         })
     }
 
+    /// TODO(doc): @doitian
     pub fn into_ckb(self) -> Result<Box<CKBAppConfig>, ExitCode> {
         match self {
             AppConfig::CKB(config) => Ok(config),
@@ -145,6 +182,7 @@ impl AppConfig {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn into_miner(self) -> Result<Box<MinerAppConfig>, ExitCode> {
         match self {
             AppConfig::Miner(config) => Ok(config),

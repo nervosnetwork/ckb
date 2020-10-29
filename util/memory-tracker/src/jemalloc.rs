@@ -1,6 +1,7 @@
 use ckb_logger::info;
 use std::{ffi, mem, ptr};
 
+/// TODO(doc): @yangby-cryptape
 pub fn jemalloc_profiling_dump(filename: &str) -> Result<(), String> {
     let mut filename0 = format!("{}\0", filename);
     let opt_name = "prof.dump";

@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 mod migrations;
 pub mod shared;
 

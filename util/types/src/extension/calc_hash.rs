@@ -28,6 +28,7 @@ where
 macro_rules! impl_calc_special_hash_for_entity {
     ($entity:ident, $func_name:ident) => {
         impl packed::$entity {
+            /// TODO(doc): @yangby-cryptape
             pub fn $func_name(&self) -> packed::Byte32 {
                 self.as_reader().$func_name()
             }
@@ -36,6 +37,7 @@ macro_rules! impl_calc_special_hash_for_entity {
 }
 
 impl packed::CellOutput {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
         if data.is_empty() {
             packed::Byte32::zero()
@@ -46,6 +48,7 @@ impl packed::CellOutput {
 }
 
 impl<'r> packed::ScriptReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_script_hash(&self) -> packed::Byte32 {
         self.calc_hash()
     }
@@ -53,6 +56,7 @@ impl<'r> packed::ScriptReader<'r> {
 impl_calc_special_hash_for_entity!(Script, calc_script_hash);
 
 impl<'r> packed::CellOutputReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_lock_hash(&self) -> packed::Byte32 {
         self.lock().calc_script_hash()
     }
@@ -60,6 +64,7 @@ impl<'r> packed::CellOutputReader<'r> {
 impl_calc_special_hash_for_entity!(CellOutput, calc_lock_hash);
 
 impl<'r> packed::ProposalShortIdVecReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         if self.is_empty() {
             packed::Byte32::zero()
@@ -77,10 +82,12 @@ impl<'r> packed::ProposalShortIdVecReader<'r> {
 impl_calc_special_hash_for_entity!(ProposalShortIdVec, calc_proposals_hash);
 
 impl<'r> packed::TransactionReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_tx_hash(&self) -> packed::Byte32 {
         self.raw().calc_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_witness_hash(&self) -> packed::Byte32 {
         self.calc_hash()
     }
@@ -89,6 +96,7 @@ impl_calc_special_hash_for_entity!(Transaction, calc_tx_hash);
 impl_calc_special_hash_for_entity!(Transaction, calc_witness_hash);
 
 impl<'r> packed::RawHeaderReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_pow_hash(&self) -> packed::Byte32 {
         self.calc_hash()
     }
@@ -96,10 +104,12 @@ impl<'r> packed::RawHeaderReader<'r> {
 impl_calc_special_hash_for_entity!(RawHeader, calc_pow_hash);
 
 impl<'r> packed::HeaderReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_pow_hash(&self) -> packed::Byte32 {
         self.raw().calc_pow_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_header_hash(&self) -> packed::Byte32 {
         self.calc_hash()
     }
@@ -108,10 +118,12 @@ impl_calc_special_hash_for_entity!(Header, calc_pow_hash);
 impl_calc_special_hash_for_entity!(Header, calc_header_hash);
 
 impl<'r> packed::UncleBlockReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_header_hash(&self) -> packed::Byte32 {
         self.header().calc_header_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.proposals().calc_proposals_hash()
     }
@@ -120,6 +132,7 @@ impl_calc_special_hash_for_entity!(UncleBlock, calc_header_hash);
 impl_calc_special_hash_for_entity!(UncleBlock, calc_proposals_hash);
 
 impl<'r> packed::UncleBlockVecReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_uncles_hash(&self) -> packed::Byte32 {
         if self.is_empty() {
             packed::Byte32::zero()
@@ -137,18 +150,22 @@ impl<'r> packed::UncleBlockVecReader<'r> {
 impl_calc_special_hash_for_entity!(UncleBlockVec, calc_uncles_hash);
 
 impl<'r> packed::BlockReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_header_hash(&self) -> packed::Byte32 {
         self.header().calc_header_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.proposals().calc_proposals_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_uncles_hash(&self) -> packed::Byte32 {
         self.uncles().calc_uncles_hash()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_tx_hashes(&self) -> Vec<packed::Byte32> {
         self.transactions()
             .iter()
@@ -156,6 +173,7 @@ impl<'r> packed::BlockReader<'r> {
             .collect::<Vec<_>>()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_tx_witness_hashes(&self) -> Vec<packed::Byte32> {
         self.transactions()
             .iter()
@@ -169,16 +187,19 @@ impl_calc_special_hash_for_entity!(Block, calc_proposals_hash);
 impl_calc_special_hash_for_entity!(Block, calc_uncles_hash);
 
 impl packed::Block {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_tx_hashes(&self) -> Vec<packed::Byte32> {
         self.as_reader().calc_tx_hashes()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_tx_witness_hashes(&self) -> Vec<packed::Byte32> {
         self.as_reader().calc_tx_witness_hashes()
     }
 }
 
 impl<'r> packed::CompactBlockReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_header_hash(&self) -> packed::Byte32 {
         self.header().calc_header_hash()
     }
@@ -186,6 +207,7 @@ impl<'r> packed::CompactBlockReader<'r> {
 impl_calc_special_hash_for_entity!(CompactBlock, calc_header_hash);
 
 impl<'r> packed::RawAlertReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_alert_hash(&self) -> packed::Byte32 {
         self.calc_hash()
     }
@@ -193,6 +215,7 @@ impl<'r> packed::RawAlertReader<'r> {
 impl_calc_special_hash_for_entity!(RawAlert, calc_alert_hash);
 
 impl<'r> packed::AlertReader<'r> {
+    /// TODO(doc): @yangby-cryptape
     pub fn calc_alert_hash(&self) -> packed::Byte32 {
         self.raw().calc_alert_hash()
     }

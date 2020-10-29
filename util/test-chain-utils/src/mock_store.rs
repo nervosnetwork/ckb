@@ -11,6 +11,7 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
+/// TODO(doc): @chuijiaolianying
 #[derive(Clone)]
 pub struct MockStore(pub Arc<ChainDB>);
 
@@ -22,6 +23,7 @@ impl Default for MockStore {
 }
 
 impl MockStore {
+    /// TODO(doc): @chuijiaolianying
     pub fn new(parent: &HeaderView, chain_store: &ChainDB) -> Self {
         // Insert parent block into current mock store for referencing
         let block = chain_store.get_block(&parent.hash()).unwrap();
@@ -34,10 +36,12 @@ impl MockStore {
         store
     }
 
+    /// TODO(doc): @chuijiaolianying
     pub fn store(&self) -> &ChainDB {
         &self.0
     }
 
+    /// TODO(doc): @chuijiaolianying
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
         let db_txn = self.0.begin_transaction();
         let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
@@ -52,6 +56,7 @@ impl MockStore {
         db_txn.commit().unwrap();
     }
 
+    /// TODO(doc): @chuijiaolianying
     pub fn remove_block(&self, block: &BlockView) {
         let db_txn = self.0.begin_transaction();
         db_txn

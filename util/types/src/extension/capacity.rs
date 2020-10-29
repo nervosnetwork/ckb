@@ -3,12 +3,14 @@ use ckb_occupied_capacity::Result as CapacityResult;
 use crate::{core::Capacity, packed, prelude::*};
 
 impl packed::Script {
+    /// TODO(doc): @yangby-cryptape
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
         Capacity::bytes(self.args().raw_data().len() + 32 + 1)
     }
 }
 
 impl packed::CellOutput {
+    /// TODO(doc): @yangby-cryptape
     pub fn occupied_capacity(&self, data_capacity: Capacity) -> CapacityResult<Capacity> {
         Capacity::bytes(8)
             .and_then(|x| x.safe_add(data_capacity))
@@ -23,6 +25,7 @@ impl packed::CellOutput {
             })
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn is_lack_of_capacity(&self, data_capacity: Capacity) -> CapacityResult<bool> {
         self.occupied_capacity(data_capacity)
             .map(|cap| cap > self.capacity().unpack())
@@ -30,6 +33,7 @@ impl packed::CellOutput {
 }
 
 impl packed::CellOutputBuilder {
+    /// TODO(doc): @yangby-cryptape
     pub fn build_exact_capacity(
         self,
         data_capacity: Capacity,
@@ -50,6 +54,7 @@ impl packed::CellOutputBuilder {
 }
 
 impl packed::CellOutputVec {
+    /// TODO(doc): @yangby-cryptape
     pub fn total_capacity(&self) -> CapacityResult<Capacity> {
         self.as_reader()
             .iter()

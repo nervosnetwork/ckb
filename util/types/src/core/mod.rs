@@ -20,8 +20,13 @@ pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 
 pub use ckb_occupied_capacity::{capacity_bytes, Capacity, Ratio, Result as CapacityResult};
+/// TODO(doc): @yangby-cryptape
 pub type PublicKey = ckb_fixed_hash::H512;
+/// TODO(doc): @yangby-cryptape
 pub type BlockNumber = u64;
+/// TODO(doc): @yangby-cryptape
 pub type EpochNumber = u64;
+/// TODO(doc): @yangby-cryptape
 pub type Cycle = u64;
+/// TODO(doc): @yangby-cryptape
 pub type Version = u32;

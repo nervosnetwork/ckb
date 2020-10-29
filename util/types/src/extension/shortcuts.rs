@@ -9,40 +9,48 @@ use crate::{
 };
 
 impl packed::Byte32 {
+    /// TODO(doc): @yangby-cryptape
     pub fn zero() -> Self {
         Self::default()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn max_value() -> Self {
         [u8::max_value(); 32].pack()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn is_zero(&self) -> bool {
         self.as_slice().iter().all(|x| *x == 0)
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn new(v: [u8; 32]) -> Self {
         v.pack()
     }
 }
 
 impl packed::ProposalShortId {
+    /// TODO(doc): @yangby-cryptape
     pub fn from_tx_hash(h: &packed::Byte32) -> Self {
         let mut inner = [0u8; 10];
         inner.copy_from_slice(&h.as_slice()[..10]);
         inner.pack()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn zero() -> Self {
         Self::default()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn new(v: [u8; 10]) -> Self {
         v.pack()
     }
 }
 
 impl packed::OutPoint {
+    /// TODO(doc): @yangby-cryptape
     pub fn new(tx_hash: packed::Byte32, index: u32) -> Self {
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash)
@@ -50,16 +58,19 @@ impl packed::OutPoint {
             .build()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn null() -> Self {
         packed::OutPoint::new_builder()
             .index(u32::max_value().pack())
             .build()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn is_null(&self) -> bool {
         self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn to_cell_key(&self) -> Vec<u8> {
         let mut key = Vec::with_capacity(36);
         let index: u32 = self.index().unpack();
@@ -70,18 +81,21 @@ impl packed::OutPoint {
 }
 
 impl packed::CellInput {
+    /// TODO(doc): @yangby-cryptape
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
         packed::CellInput::new_builder()
             .since(block_number.pack())
             .previous_output(previous_output)
             .build()
     }
+    /// TODO(doc): @yangby-cryptape
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         Self::new(packed::OutPoint::null(), block_number)
     }
 }
 
 impl packed::Script {
+    /// TODO(doc): @yangby-cryptape
     pub fn into_witness(self) -> packed::Bytes {
         packed::CellbaseWitness::new_builder()
             .lock(self)
@@ -90,18 +104,21 @@ impl packed::Script {
             .pack()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
         packed::CellbaseWitness::from_slice(&witness.raw_data())
             .map(|cellbase_witness| cellbase_witness.lock())
             .ok()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn is_hash_type_type(&self) -> bool {
         Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Type)
     }
 }
 
 impl packed::Transaction {
+    /// TODO(doc): @yangby-cryptape
     pub fn is_cellbase(&self) -> bool {
         let raw_tx = self.raw();
         raw_tx.inputs().len() == 1
@@ -114,24 +131,28 @@ impl packed::Transaction {
                 .is_null()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.calc_tx_hash())
     }
 }
 
 impl packed::RawHeader {
+    /// TODO(doc): @yangby-cryptape
     pub fn difficulty(&self) -> U256 {
         compact_to_difficulty(self.compact_target().unpack())
     }
 }
 
 impl packed::Header {
+    /// TODO(doc): @yangby-cryptape
     pub fn difficulty(&self) -> U256 {
         self.raw().difficulty()
     }
 }
 
 impl packed::Block {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_uncle(&self) -> packed::UncleBlock {
         packed::UncleBlock::new_builder()
             .header(self.header())
@@ -139,6 +160,7 @@ impl packed::Block {
             .build()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn reset_header(self) -> packed::Block {
         let tx_hashes = self.as_reader().calc_tx_hashes();
         let tx_witness_hashes = self.as_reader().calc_tx_witness_hashes();
@@ -169,6 +191,7 @@ impl packed::Block {
 }
 
 impl packed::CompactBlock {
+    /// TODO(doc): @yangby-cryptape
     pub fn build_from_block(
         block: &core::BlockView,
         prefilled_transactions_indexes: &HashSet<usize>,
@@ -207,6 +230,7 @@ impl packed::CompactBlock {
             .build()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn block_short_ids(&self) -> Vec<Option<packed::ProposalShortId>> {
         let txs_len = self.txs_len();
         let mut block_short_ids: Vec<Option<packed::ProposalShortId>> = Vec::with_capacity(txs_len);
@@ -228,16 +252,19 @@ impl packed::CompactBlock {
         block_short_ids
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn txs_len(&self) -> usize {
         self.prefilled_transactions().len() + self.short_ids().len()
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn prefilled_indexes_iter(&self) -> impl Iterator<Item = usize> {
         self.prefilled_transactions()
             .into_iter()
             .map(|i| i.index().unpack())
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn short_id_indexes(&self) -> Vec<usize> {
         let prefilled_indexes: HashSet<usize> = self.prefilled_indexes_iter().collect();
 

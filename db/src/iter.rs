@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use crate::db::cf_handle;
 use crate::{
     internal_error, Col, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
@@ -6,14 +7,18 @@ use crate::{
 use rocksdb::{ops::IterateCF, ReadOptions};
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
 
+/// TODO(doc): @quake
 pub type DBIterItem = (Box<[u8]>, Box<[u8]>);
 
+/// TODO(doc): @quake
 pub trait DBIterator {
+    /// TODO(doc): @quake
     fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIter> {
         let opts = ReadOptions::default();
         self.iter_opt(col, mode, &opts)
     }
 
+    /// TODO(doc): @quake
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter>;
 }
 

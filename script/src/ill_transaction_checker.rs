@@ -10,15 +10,18 @@ use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
 
 const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
 
+/// TODO(doc): @doitian
 pub struct IllTransactionChecker<'a> {
     tx: &'a TransactionView,
 }
 
 impl<'a> IllTransactionChecker<'a> {
+    /// TODO(doc): @doitian
     pub fn new(tx: &'a TransactionView) -> Self {
         IllTransactionChecker { tx }
     }
 
+    /// TODO(doc): @doitian
     pub fn check(&self) -> Result<(), ScriptError> {
         for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
             IllScriptChecker::new(&data.raw_data(), i).check()?;

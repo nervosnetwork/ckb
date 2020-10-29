@@ -567,6 +567,7 @@ pub struct TxStatus {
 }
 
 impl TxStatus {
+    /// TODO(doc): @doitian
     pub fn pending() -> Self {
         Self {
             status: Status::Pending,
@@ -574,6 +575,7 @@ impl TxStatus {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn proposed() -> Self {
         Self {
             status: Status::Proposed,
@@ -581,6 +583,7 @@ impl TxStatus {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn committed(hash: H256) -> Self {
         Self {
             status: Status::Committed,
@@ -972,11 +975,14 @@ pub struct EpochView {
     /// It also equals the total count of blocks in all the epochs which epoch number is
     /// less than this epoch.
     pub start_number: BlockNumber,
+    /// The number of blocks in this epoch.
     pub length: BlockNumber,
+    /// The difficulty target for any block in this epoch.
     pub compact_target: Uint32,
 }
 
 impl EpochView {
+    /// TODO(doc): @doitian
     pub fn from_ext(ext: packed::EpochExt) -> EpochView {
         EpochView {
             number: ext.number().unpack(),
@@ -1102,6 +1108,9 @@ impl From<MinerReward> for core::MinerReward {
     }
 }
 
+/// Block Economic State.
+///
+/// It includes the rewards details and when it is finalized.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockEconomicState {
     /// Block base rewards.

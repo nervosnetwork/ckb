@@ -1,16 +1,20 @@
+//! TODO(doc): @doitian
 use ckb_vm::{
     instructions::{extract_opcode, insts},
     Instruction,
 };
 
+/// TODO(doc): @doitian
 // 0.25 cycles per byte
 pub const BYTES_PER_CYCLE: u64 = 4;
 
+/// TODO(doc): @doitian
 pub fn transferred_byte_cycles(bytes: u64) -> u64 {
     // Compiler will optimize the divisin here to shifts.
     (bytes + BYTES_PER_CYCLE - 1) / BYTES_PER_CYCLE
 }
 
+/// TODO(doc): @doitian
 pub fn instruction_cycles(i: Instruction) -> u64 {
     match extract_opcode(i) {
         insts::OP_JALR => 3,

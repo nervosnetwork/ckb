@@ -4,6 +4,7 @@ use ckb_types::core::Cycle;
 use failure::Fail;
 use std::fmt;
 
+/// TODO(doc): @doitian
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum ScriptError {
     /// The field code_hash in script is invalid
@@ -66,6 +67,7 @@ impl fmt::Display for TransactionScriptErrorSource {
     }
 }
 
+/// TODO(doc): @doitian
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionScriptError {
     source: TransactionScriptErrorSource,
@@ -90,6 +92,7 @@ impl ScriptError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn input_lock_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Lock),
@@ -97,6 +100,7 @@ impl ScriptError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn input_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Type),
@@ -104,6 +108,7 @@ impl ScriptError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn output_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Outputs(index, ScriptGroupType::Type),

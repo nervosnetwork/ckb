@@ -9,6 +9,7 @@ use secp256k1::Message as SecpMessage;
 use std::fmt;
 use std::str::FromStr;
 
+/// TODO(doc): @zhangsoledad
 //RecoverableSignature compact serialize
 #[derive(Clone)]
 pub struct Signature([u8; 65]);
@@ -32,6 +33,7 @@ impl Signature {
         self.0[64]
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn from_compact(rec_id: RecoveryId, ret: [u8; 64]) -> Self {
         let mut data = [0; 65];
         data[0..64].copy_from_slice(&ret[0..64]);
@@ -48,6 +50,7 @@ impl Signature {
         Signature(sig)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
         if data.len() != 65 {
             return Err(Error::InvalidSignature);
@@ -97,10 +100,12 @@ impl Signature {
         Ok(pubkey.into())
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn serialize(&self) -> Vec<u8> {
         Vec::from(&self.0[..])
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn serialize_der(&self) -> Vec<u8> {
         self.to_recoverable()
             .unwrap()

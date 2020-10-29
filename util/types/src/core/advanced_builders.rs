@@ -10,6 +10,7 @@ use crate::{
  * Definitions
  */
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Clone, Debug)]
 pub struct TransactionBuilder {
     pub(crate) version: packed::Uint32,
@@ -21,6 +22,7 @@ pub struct TransactionBuilder {
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Clone, Debug)]
 pub struct HeaderBuilder {
     // RawHeader
@@ -38,6 +40,7 @@ pub struct HeaderBuilder {
     pub(crate) nonce: packed::Uint128,
 }
 
+/// TODO(doc): @yangby-cryptape
 #[derive(Clone, Debug, Default)]
 pub struct BlockBuilder {
     pub(crate) header: HeaderBuilder,
@@ -89,12 +92,14 @@ impl ::std::default::Default for HeaderBuilder {
 
 macro_rules! def_setter_simple {
     ($prefix:ident, $field:ident, $type:ident) => {
+        /// TODO(doc): @yangby-cryptape
         pub fn $field(mut self, v: packed::$type) -> Self {
             self.$prefix.$field = v;
             self
         }
     };
     ($field:ident, $type:ident) => {
+        /// TODO(doc): @yangby-cryptape
         pub fn $field(mut self, v: packed::$type) -> Self {
             self.$field = v;
             self
@@ -104,10 +109,12 @@ macro_rules! def_setter_simple {
 
 macro_rules! def_setter_for_vector {
     ($field:ident, $type:ident, $func_push:ident, $func_extend:ident, $func_set:ident) => {
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_push(mut self, v: packed::$type) -> Self {
             self.$field.push(v);
             self
         }
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_extend<T>(mut self, v: T) -> Self
         where
             T: ::std::iter::IntoIterator<Item = packed::$type>,
@@ -115,6 +122,7 @@ macro_rules! def_setter_for_vector {
             self.$field.extend(v);
             self
         }
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_set(mut self, v: Vec<packed::$type>) -> Self {
             self.$field = v;
             self
@@ -124,10 +132,12 @@ macro_rules! def_setter_for_vector {
 
 macro_rules! def_setter_for_view_vector {
     ($field:ident, $type:ident, $func_push:ident, $func_extend:ident, $func_set:ident) => {
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_push(mut self, v: core::$type) -> Self {
             self.$field.push(v);
             self
         }
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_extend<T>(mut self, v: T) -> Self
         where
             T: ::std::iter::IntoIterator<Item = core::$type>,
@@ -135,6 +145,7 @@ macro_rules! def_setter_for_view_vector {
             self.$field.extend(v);
             self
         }
+        /// TODO(doc): @yangby-cryptape
         pub fn $func_set(mut self, v: Vec<core::$type>) -> Self {
             self.$field = v;
             self
@@ -163,6 +174,7 @@ impl TransactionBuilder {
         set_outputs_data
     );
 
+    /// TODO(doc): @yangby-cryptape
     pub fn build(self) -> core::TransactionView {
         let Self {
             version,
@@ -208,6 +220,7 @@ impl HeaderBuilder {
     def_setter_simple!(dao, Byte32);
     def_setter_simple!(nonce, Uint128);
 
+    /// TODO(doc): @yangby-cryptape
     pub fn build(self) -> core::HeaderView {
         let Self {
             version,
@@ -272,11 +285,13 @@ impl BlockBuilder {
         set_proposals
     );
 
+    /// TODO(doc): @yangby-cryptape
     pub fn header(mut self, header: core::HeaderView) -> Self {
         self.header = header.as_advanced_builder();
         self
     }
 
+    /// TODO(doc): @yangby-cryptape
     fn build_internal(self, reset_header: bool) -> core::BlockView {
         let Self {
             header,
@@ -362,10 +377,12 @@ impl BlockBuilder {
         }
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn build(self) -> core::BlockView {
         self.build_internal(true)
     }
 
+    /// TODO(doc): @yangby-cryptape
     pub fn build_unchecked(self) -> core::BlockView {
         self.build_internal(false)
     }
@@ -376,6 +393,7 @@ impl BlockBuilder {
  */
 
 impl packed::Transaction {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> TransactionBuilder {
         TransactionBuilder::default()
             .version(self.raw().version())
@@ -389,6 +407,7 @@ impl packed::Transaction {
 }
 
 impl packed::Header {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> HeaderBuilder {
         HeaderBuilder::default()
             .version(self.raw().version())
@@ -406,6 +425,7 @@ impl packed::Header {
 }
 
 impl packed::Block {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> BlockBuilder {
         BlockBuilder::default()
             .header(self.header().into_view())
@@ -426,18 +446,21 @@ impl packed::Block {
 }
 
 impl core::TransactionView {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> TransactionBuilder {
         self.data().as_advanced_builder()
     }
 }
 
 impl core::HeaderView {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> HeaderBuilder {
         self.data().as_advanced_builder()
     }
 }
 
 impl core::BlockView {
+    /// TODO(doc): @yangby-cryptape
     pub fn as_advanced_builder(&self) -> BlockBuilder {
         let core::BlockView {
             data,
