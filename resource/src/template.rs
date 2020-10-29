@@ -96,7 +96,7 @@ impl<'a> TemplateContext<'a> {
     ///
     /// ```
     /// use ckb_resource::TemplateContext;
-    /// // Creates an context for *dev* chain and initializes variables:
+    /// // Creates a context for *dev* chain and initializes variables:
     /// //
     /// //     rpc_port      => 8114
     /// //     p2p_port      => 8115
