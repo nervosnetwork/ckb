@@ -45,6 +45,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
         * [Method `get_block_economic_state`](#method-get_block_economic_state)
         * [Method `get_transaction_proof`](#method-get_transaction_proof)
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
+        * [Method `get_fork_block`](#method-get_fork_block)
     * [Module Experiment](#module-experiment)
         * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
         * [Method `compute_script_hash`](#method-compute_script_hash)
@@ -1222,6 +1223,116 @@ Response
 }
 ```
 
+#### Method `get_fork_block`
+* `get_fork_block(block_hash, verbosity)`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`BlockView`](#type-blockview) `|` [`SerializedBlock`](#type-serializedblock) `|` `null`
+
+Returns the information about a fork block by hash.
+
+##### Params
+
+*   `block_hash` - the fork block hash.
+
+*   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+
+##### Returns
+
+The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to the parameter `block_hash`.
+
+Please note that due to the technical nature of the peer to peer sync, the RPC may return null or a fork block result on different nodes with same `block_hash` even they are fully synced to the [canonical chain](#canonical-chain). And because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the RPC may sometimes return null and sometimes return the fork block.
+
+When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the schema.
+
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fork_block",
+  "params": [
+    "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94"
+  ]
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "header": {
+      "compact_target": "0x1e083126",
+      "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+      "epoch": "0x7080018000001",
+      "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+      "nonce": "0x0",
+      "number": "0x400",
+      "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+      "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "timestamp": "0x5cd2b118",
+      "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "version": "0x0"
+    },
+    "proposals": [],
+    "transactions": [
+      {
+        "cell_deps": [],
+        "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
+        "header_deps": [],
+        "inputs": [
+          {
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x400"
+          }
+        ],
+        "outputs": [
+          {
+            "capacity": "0x18e64b61cf",
+            "lock": {
+              "args": "0x",
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+        ]
+      }
+    ],
+    "uncles": []
+  }
+}
+```
+
+The response looks like below when `verbosity` is 0.
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
+
 ### Module Experiment
 
 RPC Module Experiment for experimenting methods.
@@ -2250,7 +2361,26 @@ Response
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
     "transactions": [],
-    "uncles": [],
+    "uncles": [
+      {
+        "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+        "header": {
+          "compact_target": "0x1e083126",
+          "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+          "epoch": "0x7080018000001",
+          "nonce": "0x0",
+          "number": "0x400",
+          "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+          "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "timestamp": "0x5cd2b118",
+          "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+          "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "version":"0x0"
+        },
+        "proposals": [],
+        "required": false
+      }
+    ],
     "uncles_count_limit": "0x2",
     "version": "0x0",
     "work_id": "0x0"
