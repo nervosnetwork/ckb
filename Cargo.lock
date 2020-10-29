@@ -583,9 +583,9 @@ name = "ckb-fixed-hash-macros"
 version = "0.38.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
- "proc-macro2 0.4.27",
- "quote 0.6.11",
- "syn 0.15.29",
+ "proc-macro2 1.0.8",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
@@ -843,8 +843,8 @@ name = "ckb-occupied-capacity-macros"
 version = "0.38.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
- "quote 0.6.11",
- "syn 0.15.29",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
