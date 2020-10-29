@@ -1,4 +1,5 @@
-//! TODO(doc): @zhangsoledad
+//! Tx-pool background service
+
 use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
 use crate::error::handle_try_send_error;
@@ -28,20 +29,15 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-/// TODO(doc): @zhangsoledad
-pub const DEFAULT_CHANNEL_SIZE: usize = 512;
+pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 
-/// TODO(doc): @zhangsoledad
-pub struct Request<A, R> {
-    /// TODO(doc): @zhangsoledad
+pub(crate) struct Request<A, R> {
     pub responder: oneshot::Sender<R>,
-    /// TODO(doc): @zhangsoledad
     pub arguments: A,
 }
 
 impl<A, R> Request<A, R> {
-    /// TODO(doc): @zhangsoledad
-    pub fn call(arguments: A, responder: oneshot::Sender<R>) -> Request<A, R> {
+    pub(crate) fn call(arguments: A, responder: oneshot::Sender<R>) -> Request<A, R> {
         Request {
             responder,
             arguments,
@@ -49,21 +45,17 @@ impl<A, R> Request<A, R> {
     }
 }
 
-/// TODO(doc): @zhangsoledad
-pub struct Notify<A> {
-    /// TODO(doc): @zhangsoledad
+pub(crate) struct Notify<A> {
     pub arguments: A,
 }
 
 impl<A> Notify<A> {
-    /// TODO(doc): @zhangsoledad
-    pub fn notify(arguments: A) -> Notify<A> {
+    pub(crate) fn notify(arguments: A) -> Notify<A> {
         Notify { arguments }
     }
 }
 
-/// TODO(doc): @zhangsoledad
-pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
+pub(crate) type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 type BlockTemplateArgs = (
     Option<u64>,
     Option<u64>,
@@ -71,47 +63,32 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-/// TODO(doc): @zhangsoledad
-pub type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
+pub(crate) type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
 type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
-/// TODO(doc): @zhangsoledad
-pub type ChainReorgArgs = (
+pub(crate) type ChainReorgArgs = (
     VecDeque<BlockView>,
     VecDeque<BlockView>,
     HashSet<ProposalShortId>,
     Arc<Snapshot>,
 );
 
-/// TODO(doc): @zhangsoledad
-pub enum Message {
-    /// TODO(doc): @zhangsoledad
+pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    /// TODO(doc): @zhangsoledad
     SubmitTxs(Request<Vec<TransactionView>, SubmitTxsResult>),
-    /// TODO(doc): @zhangsoledad
     NotifyTxs(Notify<(Vec<TransactionView>, NotifyTxsCallback)>),
-    /// TODO(doc): @zhangsoledad
     ChainReorg(Notify<ChainReorgArgs>),
-    /// TODO(doc): @zhangsoledad
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
-    /// TODO(doc): @zhangsoledad
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    /// TODO(doc): @zhangsoledad
     FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
-    /// TODO(doc): @zhangsoledad
     GetTxPoolInfo(Request<(), TxPoolInfo>),
-    /// TODO(doc): @zhangsoledad
     FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
-    /// TODO(doc): @zhangsoledad
     NewUncle(Notify<UncleBlockView>),
-    /// TODO(doc): @zhangsoledad
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
-    /// TODO(doc): @zhangsoledad
     ClearPool(Request<Arc<Snapshot>, ()>),
     /// TODO(doc): @zhangsoledad
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
@@ -119,7 +96,9 @@ pub enum Message {
     GetAllIds(Request<(), TxPoolIds>),
 }
 
-/// TODO(doc): @zhangsoledad
+/// Controller to the tx-pool service.
+///
+/// The Controller is internally reference-counted and can be freely cloned. A Controller can be obtained when tx-pool service construct.
 #[derive(Clone)]
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
@@ -134,12 +113,12 @@ impl Drop for TxPoolController {
 }
 
 impl TxPoolController {
-    /// TODO(doc): @zhangsoledad
+    /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Generate and return block_template
     pub fn get_block_template(
         &self,
         bytes_limit: Option<u64>,
@@ -154,7 +133,7 @@ impl TxPoolController {
         )
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Generate and return block_template with block_assembler_config
     pub fn get_block_template_with_block_assembler_config(
         &self,
         bytes_limit: Option<u64>,
@@ -183,7 +162,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Notify new uncle
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify(uncle);
@@ -193,7 +172,10 @@ impl TxPoolController {
         })
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Make tx-pool consistent after a reorg, by re-adding or recursively erasing
+    /// detached block transactions from the tx-pool, and also removing any
+    /// other transactions from the tx-pool that are no longer valid given the new
+    /// tip/height.
     pub fn update_tx_pool_for_reorg(
         &self,
         detached_blocks: VecDeque<BlockView>,
@@ -214,7 +196,7 @@ impl TxPoolController {
         })
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Submit local txs to tx-pool
     pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
@@ -226,7 +208,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Plug tx-pool entry to tx-pool, skip verification. only for test
     pub fn plug_entry(
         &self,
         entries: Vec<TxEntry>,
@@ -242,7 +224,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Receive txs from network, try to add txs to tx-pool
     pub fn notify_txs(
         &self,
         txs: Vec<TransactionView>,
@@ -256,7 +238,7 @@ impl TxPoolController {
         })
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return tx-pool information
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
@@ -270,7 +252,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return fresh proposals
     pub fn fresh_proposals_filter(
         &self,
         proposals: Vec<ProposalShortId>,
@@ -287,7 +269,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return tx for rpc
     pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
@@ -299,7 +281,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return txs for network
     pub fn fetch_txs(
         &self,
         short_ids: Vec<ProposalShortId>,
@@ -314,7 +296,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return txs with cycles
     pub fn fetch_txs_with_cycles(
         &self,
         short_ids: Vec<ProposalShortId>,
@@ -331,7 +313,7 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(Into::into)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), FailureError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
@@ -370,13 +352,13 @@ impl TxPoolController {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// A builder used to create TxPoolService.
 pub struct TxPoolServiceBuilder {
     service: Option<TxPoolService>,
 }
 
 impl TxPoolServiceBuilder {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new TxPoolServiceBuilder.
     pub fn new(
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
@@ -403,7 +385,7 @@ impl TxPoolServiceBuilder {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(mut self) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
@@ -431,9 +413,8 @@ impl TxPoolServiceBuilder {
     }
 }
 
-/// TODO(doc): @zhangsoledad
 #[derive(Clone)]
-pub struct TxPoolService {
+pub(crate) struct TxPoolService {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
@@ -445,7 +426,7 @@ pub struct TxPoolService {
 }
 
 impl TxPoolService {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new TxPoolService.
     pub fn new(
         tx_pool: TxPool,
         consensus: Arc<Consensus>,
