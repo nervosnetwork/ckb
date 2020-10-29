@@ -1,14 +1,17 @@
+//! TODO(doc): @quake
 use crate::db::cf_handle;
 use crate::{internal_error, Col, Result};
 use rocksdb::{OptimisticTransactionDB, WriteBatch};
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 pub struct RocksDBWriteBatch {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: WriteBatch,
 }
 
 impl RocksDBWriteBatch {
+    /// TODO(doc): @quake
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -18,15 +21,18 @@ impl RocksDBWriteBatch {
         self.inner.size_in_bytes()
     }
 
+    /// TODO(doc): @quake
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// TODO(doc): @quake
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
     }
 
+    /// TODO(doc): @quake
     pub fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.delete_cf(cf, key).map_err(internal_error)
@@ -44,6 +50,7 @@ impl RocksDBWriteBatch {
             .map_err(internal_error)
     }
 
+    /// TODO(doc): @quake
     pub fn clear(&mut self) -> Result<()> {
         self.inner.clear().map_err(internal_error)
     }

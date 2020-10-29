@@ -27,6 +27,7 @@ pub const CMD_PEERID: &str = "peer-id";
 pub const CMD_GEN_SECRET: &str = "gen";
 /// TODO(doc): @doitian
 pub const CMD_FROM_SECRET: &str = "from-secret";
+/// TODO(doc): @doitian
 pub const CMD_MIGRATE: &str = "migrate";
 
 /// TODO(doc): @doitian

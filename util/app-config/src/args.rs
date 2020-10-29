@@ -148,6 +148,8 @@ pub struct PeerIDArgs {
     pub peer_id: secio::PeerId,
 }
 
+/// TODO(doc): @doitian
 pub struct MigrateArgs {
+    /// TODO(doc): @doitian
     pub config: Box<CKBAppConfig>,
 }

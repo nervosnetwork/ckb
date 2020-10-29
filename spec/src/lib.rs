@@ -120,6 +120,7 @@ pub mod default_params {
         GENESIS_EPOCH_LENGTH
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_proposals_limit() -> u64 {
         MAX_BLOCK_PROPOSALS_LIMIT
     }
@@ -155,6 +156,7 @@ pub struct Params {
     /// TODO(doc): @zhangsoledad
     #[serde(default)]
     pub permanent_difficulty_in_dummy: bool,
+    /// TODO(doc): @zhangsoledad
     #[serde(default = "default_params::max_block_proposals_limit")]
     pub max_block_proposals_limit: u64,
 }

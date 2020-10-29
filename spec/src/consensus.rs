@@ -69,6 +69,7 @@ pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
 /// TODO(doc): @zhangsoledad
 pub const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
+/// TODO(doc): @zhangsoledad
 // 1.5 * TWO_IN_TWO_OUT_COUNT
 pub const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
