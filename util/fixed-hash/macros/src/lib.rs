@@ -1,3 +1,24 @@
+//! Provide several proc-macros to construct const fixed-sized hashes.
+//!
+//! If we use an array to construct const fixed-sized hashes, it's difficult to read.
+//!
+//! If we use [`FromStr::from_str`] to construct fixed-sized hashes, the result is not a constant.
+//! So, it will reduce runtime performance. And it could cause a runtime error if the input is malformed.
+//!
+//! With proc-macros, we can construct human-readable const fixed-sized hashes.
+//! And it will be checked in compile time, it could never cause any runtime error.
+//!
+//! # Notice
+//!
+//! **This is an internal crate used by crate [`ckb_fixed_hash`], do not use this crate directly.**
+//!
+//! All proc-macros in this crate are re-exported in crate [`ckb_fixed_hash`].
+//!
+//! And you can found examples in crate [`ckb_fixed_hash`].
+//!
+//! [`FromStr::from_str`]: https://doc.rust-lang.org/std/str/trait.FromStr.html#tymethod.from_str
+//! [`ckb_fixed_hash`]: ../ckb_fixed_hash/index.html
+
 extern crate proc_macro;
 
 use std::str::FromStr;
@@ -6,7 +27,13 @@ use quote::quote;
 use syn::parse_macro_input;
 
 macro_rules! impl_hack {
-    ($name:ident, $type:ident) =>    {
+    ($name:ident, $type:ident, $type_str:expr, $link_str:expr) =>    {
+        #[doc = "A proc-macro used to create a const [`"]
+        #[doc = $type_str]
+        #[doc = "`] from a hexadecimal string or a trimmed hexadecimal string.\n\n[`"]
+        #[doc = $type_str]
+        #[doc = "`]:"]
+        #[doc = $link_str]
         #[proc_macro]
         pub fn $name(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let input = parse_macro_input!(input as syn::LitStr);
@@ -40,6 +67,9 @@ macro_rules! impl_hack {
             expanded.into()
         }
     };
+    ($name:ident, $type:ident) => {
+        impl_hack!($name, $type, stringify!($type), concat!("../ckb_fixed_hash_core/struct.", stringify!($type), ".html"));
+    }
 }
 
 impl_hack!(h160, H160);

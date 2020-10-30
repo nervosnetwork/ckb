@@ -1,9 +1,13 @@
+//! TODO(doc): @zhangsoledad
+
 use ckb_fixed_hash::H256;
 use lazy_static::lazy_static;
 
+/// TODO(doc): @zhangsoledad
 pub type Message = H256;
 
 lazy_static! {
+    /// TODO(doc): @zhangsoledad
     pub static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
 }
 

@@ -1,3 +1,4 @@
+//! TODO(doc): @driftluo
 use crate::errors::{Error, P2PError};
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
@@ -59,12 +60,16 @@ const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 // After 5 minutes we consider this dial hang
 const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// TODO(doc): @driftluo
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
+    /// TODO(doc): @driftluo
     pub peer: Peer,
+    /// TODO(doc): @driftluo
     pub protocol_version: Option<ProtocolVersion>,
 }
 
+/// TODO(doc): @driftluo
 pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<PeerStore>,
@@ -86,6 +91,7 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
+    /// TODO(doc): @driftluo
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
@@ -276,6 +282,7 @@ impl NetworkState {
         callback(&mut self.peer_store.lock())
     }
 
+    /// TODO(doc): @driftluo
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
@@ -284,6 +291,7 @@ impl NetworkState {
         &self.local_private_key
     }
 
+    /// TODO(doc): @driftluo
     pub fn node_id(&self) -> String {
         self.local_private_key().peer_id().to_base58()
     }
@@ -307,6 +315,7 @@ impl NetworkState {
         self.peer_registry.read().connection_status()
     }
 
+    /// TODO(doc): @driftluo
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         let listened_addrs = self.listened_addrs.read();
         self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
@@ -330,6 +339,7 @@ impl NetworkState {
         format!("{}/p2p/{}", addr, self.node_id())
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
         self.protocols
             .read()
@@ -479,6 +489,7 @@ impl NetworkState {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
         let mut public_addrs = self.public_addrs.write();
@@ -497,20 +508,25 @@ impl NetworkState {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
 }
 
+/// TODO(doc): @driftluo
 pub struct EventHandler<T> {
     pub(crate) network_state: Arc<NetworkState>,
     pub(crate) exit_handler: T,
 }
 
+/// TODO(doc): @driftluo
 pub trait ExitHandler: Send + Unpin + 'static {
+    /// TODO(doc): @driftluo
     fn notify_exit(&self);
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone, Default)]
 pub struct DefaultExitHandler {
     lock: Arc<Mutex<()>>,
@@ -518,6 +534,7 @@ pub struct DefaultExitHandler {
 }
 
 impl DefaultExitHandler {
+    /// TODO(doc): @driftluo
     pub fn wait_for_exit(&self) {
         self.exit.wait(&mut self.lock.lock());
     }
@@ -764,6 +781,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     }
 }
 
+/// TODO(doc): @driftluo
 pub struct NetworkService<T> {
     p2p_service: Service<EventHandler<T>>,
     network_state: Arc<NetworkState>,
@@ -774,6 +792,7 @@ pub struct NetworkService<T> {
 }
 
 impl<T: ExitHandler> NetworkService<T> {
+    /// TODO(doc): @driftluo
     pub fn new(
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
@@ -892,6 +911,7 @@ impl<T: ExitHandler> NetworkService<T> {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn start<S: ToString>(self, thread_name: Option<S>) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
@@ -1049,6 +1069,7 @@ impl<T: ExitHandler> NetworkService<T> {
     }
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone)]
 pub struct NetworkController {
     version: String,
@@ -1059,23 +1080,28 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
+    /// TODO(doc): @driftluo
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)
     }
 
+    /// TODO(doc): @driftluo
     pub fn version(&self) -> &String {
         &self.version
     }
 
+    /// TODO(doc): @driftluo
     pub fn node_id(&self) -> String {
         self.network_state.node_id()
     }
 
+    /// TODO(doc): @driftluo
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
         self.network_state
             .add_node(&self.p2p_control, peer_id, address)
     }
 
+    /// TODO(doc): @driftluo
     pub fn remove_node(&self, peer_id: &PeerId) {
         if let Some(session_id) = self
             .network_state
@@ -1093,6 +1119,7 @@ impl NetworkController {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_banned_addrs(&self) -> Vec<BannedAddr> {
         self.network_state
             .peer_store
@@ -1101,10 +1128,12 @@ impl NetworkController {
             .get_banned_addrs()
     }
 
+    /// TODO(doc): @driftluo
     pub fn clear_banned_addrs(&self) {
         self.network_state.peer_store.lock().clear_ban_list();
     }
 
+    /// TODO(doc): @driftluo
     pub fn addr_info(&self, ip_port: &IpPort) -> Option<AddrInfo> {
         self.network_state
             .peer_store
@@ -1114,6 +1143,7 @@ impl NetworkController {
             .cloned()
     }
 
+    /// TODO(doc): @driftluo
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
         self.network_state
             .peer_store
@@ -1121,6 +1151,7 @@ impl NetworkController {
             .ban_network(address, ban_until, ban_reason)
     }
 
+    /// TODO(doc): @driftluo
     pub fn unban(&self, address: &IpNetwork) {
         self.network_state
             .peer_store
@@ -1129,6 +1160,7 @@ impl NetworkController {
             .unban_network(address);
     }
 
+    /// TODO(doc): @driftluo
     pub fn connected_peers(&self) -> Vec<(PeerIndex, Peer)> {
         self.network_state.with_peer_registry(|reg| {
             reg.peers()
@@ -1173,18 +1205,21 @@ impl NetworkController {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
+    /// TODO(doc): @driftluo
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
     }
 
+    /// TODO(doc): @driftluo
     pub fn send_message_to(
         &self,
         session_id: SessionId,
@@ -1195,18 +1230,22 @@ impl NetworkController {
         self.try_broadcast(false, target, proto_id, data)
     }
 
+    /// TODO(doc): @driftluo
     pub fn is_active(&self) -> bool {
         self.network_state.is_active()
     }
 
+    /// TODO(doc): @driftluo
     pub fn set_active(&self, active: bool) {
         self.network_state.active.store(active, Ordering::Relaxed);
     }
 
+    /// TODO(doc): @driftluo
     pub fn protocols(&self) -> Vec<(ProtocolId, String, Vec<String>)> {
         self.network_state.protocols.read().clone()
     }
 
+    /// TODO(doc): @driftluo
     pub fn ping_peers(&self) {
         let mut ping_controller = self.ping_controller.clone();
         let _ignore = ping_controller.try_send(());

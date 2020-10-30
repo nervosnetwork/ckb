@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use ckb_app_config::NotifyConfig;
 use ckb_channel::{bounded, select, Receiver, RecvError, Sender};
 use ckb_logger::{debug, error, trace};
@@ -10,20 +11,30 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::thread;
 
+/// TODO(doc): @quake
 pub const SIGNAL_CHANNEL_SIZE: usize = 1;
+/// TODO(doc): @quake
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
+/// TODO(doc): @quake
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
+/// TODO(doc): @quake
 pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
 
+/// TODO(doc): @quake
 #[derive(Debug, Clone)]
 pub struct PoolTransactionEntry {
+    /// TODO(doc): @quake
     pub transaction: TransactionView,
+    /// TODO(doc): @quake
     pub cycles: Cycle,
+    /// TODO(doc): @quake
     pub size: usize,
+    /// TODO(doc): @quake
     pub fee: Capacity,
 }
 
+/// TODO(doc): @quake
 #[derive(Clone)]
 pub struct NotifyController {
     stop: StopHandler<()>,
@@ -41,6 +52,7 @@ impl Drop for NotifyController {
     }
 }
 
+/// TODO(doc): @quake
 pub struct NotifyService {
     config: NotifyConfig,
     new_block_subscribers: HashMap<String, Sender<BlockView>>,
@@ -49,6 +61,7 @@ pub struct NotifyService {
 }
 
 impl NotifyService {
+    /// TODO(doc): @quake
     pub fn new(config: NotifyConfig) -> Self {
         Self {
             config,
@@ -58,6 +71,7 @@ impl NotifyService {
         }
     }
 
+    /// TODO(doc): @quake
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> NotifyController {
@@ -223,15 +237,18 @@ impl NotifyService {
 }
 
 impl NotifyController {
+    /// TODO(doc): @quake
     pub fn subscribe_new_block<S: ToString>(&self, name: S) -> Receiver<BlockView> {
         Request::call(&self.new_block_register, name.to_string())
             .expect("Subscribe new block should be OK")
     }
 
+    /// TODO(doc): @quake
     pub fn notify_new_block(&self, block: BlockView) {
         let _ = self.new_block_notifier.send(block);
     }
 
+    /// TODO(doc): @quake
     pub fn subscribe_new_transaction<S: ToString>(
         &self,
         name: S,
@@ -240,15 +257,18 @@ impl NotifyController {
             .expect("Subscribe new transaction should be OK")
     }
 
+    /// TODO(doc): @quake
     pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
         let _ = self.new_transaction_notifier.send(tx_entry);
     }
 
+    /// TODO(doc): @quake
     pub fn subscribe_network_alert<S: ToString>(&self, name: S) -> Receiver<Alert> {
         Request::call(&self.network_alert_register, name.to_string())
             .expect("Subscribe network alert should be OK")
     }
 
+    /// TODO(doc): @quake
     pub fn notify_network_alert(&self, alert: Alert) {
         let _ = self.network_alert_notifier.send(alert);
     }

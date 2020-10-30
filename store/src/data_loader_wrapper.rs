@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use crate::ChainStore;
 use ckb_traits::{CellDataProvider, HeaderProvider};
 use ckb_types::{
@@ -6,8 +7,10 @@ use ckb_types::{
     packed::{Byte32, OutPoint},
 };
 
+/// TODO(doc): @quake
 pub struct DataLoaderWrapper<'a, T>(&'a T);
 impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
+    /// TODO(doc): @quake
     pub fn new(source: &'a T) -> Self {
         DataLoaderWrapper(source)
     }

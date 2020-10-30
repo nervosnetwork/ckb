@@ -5,7 +5,7 @@ license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 build = "build.rs"
-description = "TODO(doc): crate description"
+description = "Bundled resources for the CKB binary."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

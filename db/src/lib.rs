@@ -22,7 +22,9 @@ pub use rocksdb::{
     self as internal, DBPinnableSlice, DBVector, Direction, Error as DBError, IteratorMode,
 };
 
+/// TODO(doc): @quake
 pub type Col = &'static str;
+/// TODO(doc): @quake
 pub type Result<T> = result::Result<T, Error>;
 
 fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Error {

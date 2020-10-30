@@ -111,6 +111,7 @@ pub enum RPCError {
 }
 
 impl RPCError {
+    /// TODO(doc): @doitian
     pub fn invalid_params<T: Display>(message: T) -> Error {
         Error {
             code: ErrorCode::InvalidParams,
@@ -119,6 +120,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn custom<T: Display>(error_code: RPCError, message: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
@@ -127,6 +129,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn custom_with_data<T: Display, F: Debug>(
         error_code: RPCError,
         message: T,
@@ -139,6 +142,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn custom_with_error<T: Display + Debug>(error_code: RPCError, err: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
@@ -147,6 +151,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn from_submit_transaction_reject(reject: &Reject) -> Error {
         let code = match reject {
             Reject::LowFeeRate(_, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
@@ -160,6 +165,7 @@ impl RPCError {
         RPCError::custom_with_error(code, reject)
     }
 
+    /// TODO(doc): @doitian
     pub fn downcast_submit_transaction_reject(err: &CKBError) -> Option<&Reject> {
         use ckb_error::ErrorKind::SubmitTransaction;
         match err.kind() {
@@ -168,6 +174,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn from_ckb_error(err: CKBError) -> Error {
         match err.kind() {
             ErrorKind::Dao => {
@@ -200,6 +207,7 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn from_failure_error(err: failure::Error) -> Error {
         match err.downcast::<CKBError>() {
             Ok(ckb_error) => Self::from_ckb_error(ckb_error),
@@ -207,10 +215,12 @@ impl RPCError {
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn ckb_internal_error<T: Display + Debug>(err: T) -> Error {
         Self::custom_with_error(RPCError::CKBInternalError, err)
     }
 
+    /// TODO(doc): @doitian
     pub fn rpc_module_is_disabled(module: &str) -> Error {
         Self::custom(
             RPCError::RPCModuleIsDisabled,
@@ -222,6 +232,7 @@ impl RPCError {
         )
     }
 
+    /// TODO(doc): @doitian
     pub fn rpc_method_is_deprecated() -> Error {
         Self::custom(
             RPCError::Deprecated,

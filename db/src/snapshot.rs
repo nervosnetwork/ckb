@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use crate::db::cf_handle;
 use crate::{internal_error, Col, Result};
 use libc::{self, c_char, size_t};
@@ -8,6 +9,7 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 pub struct RocksDBSnapshot {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: *const ffi::rocksdb_snapshot_t,
@@ -30,6 +32,7 @@ impl RocksDBSnapshot {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
         self.get_pinned_cf_full(Some(cf), &key, None)

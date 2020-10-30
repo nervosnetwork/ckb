@@ -28,20 +28,28 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 
+/// TODO(doc): @zhangsoledad
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
 }
 
+/// TODO(doc): @zhangsoledad
 pub trait Switch {
+    /// TODO(doc): @zhangsoledad
     fn disable_epoch(&self) -> bool;
+    /// TODO(doc): @zhangsoledad
     fn disable_uncles(&self) -> bool;
+    /// TODO(doc): @zhangsoledad
     fn disable_two_phase_commit(&self) -> bool;
+    /// TODO(doc): @zhangsoledad
     fn disable_daoheader(&self) -> bool;
+    /// TODO(doc): @zhangsoledad
     fn disable_reward(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
         VerifyContext { store, consensus }
     }
@@ -504,15 +512,18 @@ impl<'a> EpochVerifier<'a> {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct ContextualBlockVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
 
 impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(context: &'a VerifyContext<'a, CS>) -> Self {
         ContextualBlockVerifier { context }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify<SW: Switch>(
         &'a self,
         resolved: &'a [ResolvedTransaction],

@@ -4,7 +4,7 @@ version = "0.38.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): crate description"
+description = "The service which handle the metrics data in CKB."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
@@ -15,5 +15,4 @@ ckb-stop-handler = { path = "../stop-handler", version = "= 0.38.0-pre" }
 ckb-util = { path = "..", version = "= 0.38.0-pre" }
 metrics-runtime = "~0.13.1"
 metrics-core = "~0.5.2"
-log = "0.4"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded", "time", "io-driver", "macros"] }

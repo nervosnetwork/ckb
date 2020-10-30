@@ -20,8 +20,11 @@ use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
+/// TODO(doc): @zhangsoledad
 pub struct TimeRelativeTransactionVerifier<'a, M> {
+    /// TODO(doc): @zhangsoledad
     pub maturity: MaturityVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub since: SinceVerifier<'a, M>,
 }
 
@@ -29,6 +32,7 @@ impl<'a, M> TimeRelativeTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
+    /// TODO(doc): @zhangsoledad
     pub fn new(
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
@@ -53,6 +57,7 @@ where
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self) -> Result<(), Error> {
         self.maturity.verify()?;
         self.since.verify()?;
@@ -60,15 +65,22 @@ where
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct NonContextualTransactionVerifier<'a> {
+    /// TODO(doc): @zhangsoledad
     pub version: VersionVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub size: SizeVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub empty: EmptyVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub outputs_data_verifier: OutputsDataVerifier<'a>,
 }
 
 impl<'a> NonContextualTransactionVerifier<'a> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(tx: &'a TransactionView, consensus: &'a Consensus) -> Self {
         NonContextualTransactionVerifier {
             version: VersionVerifier::new(tx, consensus.tx_version()),
@@ -79,6 +91,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self) -> Result<(), Error> {
         self.version.verify()?;
         self.size.verify()?;
@@ -89,11 +102,17 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct ContextualTransactionVerifier<'a, M, CS> {
+    /// TODO(doc): @zhangsoledad
     pub maturity: MaturityVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub since: SinceVerifier<'a, M>,
+    /// TODO(doc): @zhangsoledad
     pub capacity: CapacityVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub script: ScriptVerifier<'a, CS>,
+    /// TODO(doc): @zhangsoledad
     pub fee_calculator: FeeCalculator<'a, CS>,
 }
 
@@ -102,6 +121,7 @@ where
     M: BlockMedianTimeContext,
     CS: ChainStore<'a>,
 {
+    /// TODO(doc): @zhangsoledad
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
@@ -131,6 +151,7 @@ where
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
         self.maturity.verify()?;
         self.capacity.verify()?;
@@ -141,8 +162,11 @@ where
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct TransactionVerifier<'a, M, CS> {
+    /// TODO(doc): @zhangsoledad
     pub non_contextual: NonContextualTransactionVerifier<'a>,
+    /// TODO(doc): @zhangsoledad
     pub contextual: ContextualTransactionVerifier<'a, M, CS>,
 }
 
@@ -151,6 +175,7 @@ where
     M: BlockMedianTimeContext,
     CS: ChainStore<'a>,
 {
+    /// TODO(doc): @zhangsoledad
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
@@ -175,6 +200,7 @@ where
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
         self.non_contextual.verify()?;
         self.contextual.verify(max_cycles)
@@ -262,12 +288,14 @@ impl<'a> SizeVerifier<'a> {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct ScriptVerifier<'a, CS> {
     chain_store: &'a CS,
     resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a CS) -> Self {
         ScriptVerifier {
             chain_store,
@@ -275,6 +303,7 @@ impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let data_loader = DataLoaderWrapper::new(self.chain_store);
         TransactionScriptsVerifier::new(&self.resolved_transaction, &data_loader).verify(max_cycles)
@@ -484,9 +513,13 @@ const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
 const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
 const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
+/// TODO(doc): @zhangsoledad
 pub enum SinceMetric {
+    /// TODO(doc): @zhangsoledad
     BlockNumber(u64),
+    /// TODO(doc): @zhangsoledad
     EpochNumberWithFraction(EpochNumberWithFraction),
+    /// TODO(doc): @zhangsoledad
     Timestamp(u64),
 }
 
@@ -495,20 +528,24 @@ pub enum SinceMetric {
 pub struct Since(pub u64);
 
 impl Since {
+    /// TODO(doc): @zhangsoledad
     pub fn is_absolute(self) -> bool {
         self.0 & LOCK_TYPE_FLAG == 0
     }
 
+    /// TODO(doc): @zhangsoledad
     #[inline]
     pub fn is_relative(self) -> bool {
         !self.is_absolute()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn flags_is_valid(self) -> bool {
         (self.0 & REMAIN_FLAGS_BITS == 0)
             && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn extract_metric(self) -> Option<SinceMetric> {
         let value = self.0 & VALUE_MASK;
         match self.0 & METRIC_TYPE_FLAG_MASK {

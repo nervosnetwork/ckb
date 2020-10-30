@@ -41,9 +41,10 @@ type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
 type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
 
-// This struct leverages CKB VM to verify transaction inputs.
-// FlatBufferBuilder owned Vec<u8> that grows as needed, in the
-// future, we might refactor this to share buffer to achieve zero-copy
+/// This struct leverages CKB VM to verify transaction inputs.
+///
+/// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
+/// future, we might refactor this to share buffer to achieve zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
     debug_printer: Box<dyn Fn(&Byte32, &str)>,
@@ -58,6 +59,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
+    /// TODO(doc): @doitian
     pub fn new(
         rtx: &'a ResolvedTransaction,
         data_loader: &'a DL,
@@ -142,6 +144,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + 'static>(&mut self, func: F) {
         self.debug_printer = Box::new(func);
     }
@@ -240,7 +243,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         LoadScript::new(script)
     }
 
-    // Extracts actual script binary either in dep cells.
+    /// Extracts actual script binary either in dep cells.
     pub fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
             ScriptHashType::Data => {
@@ -265,6 +268,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles: Cycle = 0;
 
@@ -293,8 +297,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         Ok(cycles)
     }
 
-    // Run a single script in current transaction, while this is not useful for
-    // CKB itself, it can be very helpful when building a CKB debugger.
+    /// Runs a single script in current transaction, while this is not useful for
+    /// CKB itself, it can be very helpful when building a CKB debugger.
     pub fn verify_single(
         &self,
         script_group_type: ScriptGroupType,
@@ -326,6 +330,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn find_script_group(
         &self,
         script_group_type: ScriptGroupType,
@@ -337,10 +342,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
+    /// TODO(doc): @doitian
     pub fn cost_model(&self) -> Box<InstructionCycleFunc> {
         Box::new(instruction_cycles)
     }
 
+    /// TODO(doc): @doitian
     pub fn generate_syscalls(
         &'a self,
         script_group: &'a ScriptGroup,

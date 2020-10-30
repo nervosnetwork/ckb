@@ -3,9 +3,12 @@ use std::convert::TryFrom;
 
 use crate::packed;
 
+/// TODO(doc): @quake
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptHashType {
+    /// TODO(doc): @quake
     Data = 0,
+    /// TODO(doc): @quake
     Type = 1,
 }
 
@@ -48,9 +51,12 @@ impl Into<packed::Byte> for ScriptHashType {
     }
 }
 
+/// TODO(doc): @quake
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DepType {
+    /// TODO(doc): @quake
     Code = 0,
+    /// TODO(doc): @quake
     DepGroup = 1,
 }
 

@@ -7,12 +7,19 @@ use ckb_types::{
 use ckb_util::Mutex;
 use lru::LruCache;
 
+/// TODO(doc): @quake
 pub struct StoreCache {
+    /// TODO(doc): @quake
     pub headers: Mutex<LruCache<Byte32, HeaderView>>,
+    /// TODO(doc): @quake
     pub cell_data: Mutex<LruCache<Vec<u8>, (Bytes, Byte32)>>,
+    /// TODO(doc): @quake
     pub block_proposals: Mutex<LruCache<Byte32, ProposalShortIdVec>>,
+    /// TODO(doc): @quake
     pub block_tx_hashes: Mutex<LruCache<Byte32, Vec<Byte32>>>,
+    /// TODO(doc): @quake
     pub block_uncles: Mutex<LruCache<Byte32, UncleBlockVecView>>,
+    /// TODO(doc): @quake
     pub cellbase: Mutex<LruCache<Byte32, TransactionView>>,
 }
 
@@ -23,6 +30,7 @@ impl Default for StoreCache {
 }
 
 impl StoreCache {
+    /// TODO(doc): @quake
     pub fn from_config(config: StoreConfig) -> Self {
         StoreCache {
             headers: Mutex::new(LruCache::new(config.header_cache_size)),

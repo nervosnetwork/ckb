@@ -3,10 +3,12 @@ use crate::{error::FromSliceError, H160, H256, H512, H520};
 macro_rules! impl_methods {
     ($name:ident, $bytes_size:expr) => {
         impl $name {
+            /// Converts `Self` to a byte slice.
             #[inline]
             pub fn as_bytes(&self) -> &[u8] {
                 &self.0[..]
             }
+            /// To convert the byte slice back into `Self`.
             #[inline]
             pub fn from_slice(input: &[u8]) -> Result<Self, FromSliceError> {
                 if input.len() != $bytes_size {

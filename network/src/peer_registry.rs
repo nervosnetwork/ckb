@@ -1,3 +1,4 @@
+//! TODO(doc): @driftluo
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
@@ -12,6 +13,7 @@ use std::iter::FromIterator;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
+/// TODO(doc): @driftluo
 pub struct PeerRegistry {
     peers: HashMap<SessionId, Peer>,
     // max inbound limitation
@@ -24,12 +26,18 @@ pub struct PeerRegistry {
     feeler_peers: HashSet<PeerId>,
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectionStatus {
+    /// TODO(doc): @driftluo
     pub total: u32,
+    /// TODO(doc): @driftluo
     pub non_whitelist_inbound: u32,
+    /// TODO(doc): @driftluo
     pub non_whitelist_outbound: u32,
+    /// TODO(doc): @driftluo
     pub max_inbound: u32,
+    /// TODO(doc): @driftluo
     pub max_outbound: u32,
 }
 
@@ -44,6 +52,7 @@ where
 }
 
 impl PeerRegistry {
+    /// TODO(doc): @driftluo
     pub fn new(
         max_inbound: u32,
         max_outbound: u32,
@@ -178,22 +187,27 @@ impl PeerRegistry {
         })
     }
 
+    /// TODO(doc): @driftluo
     pub fn add_feeler(&mut self, peer_id: PeerId) {
         self.feeler_peers.insert(peer_id);
     }
 
+    /// TODO(doc): @driftluo
     pub fn remove_feeler(&mut self, peer_id: &PeerId) {
         self.feeler_peers.remove(peer_id);
     }
 
+    /// TODO(doc): @driftluo
     pub fn is_feeler(&self, peer_id: &PeerId) -> bool {
         self.feeler_peers.contains(peer_id)
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_peer(&self, session_id: SessionId) -> Option<&Peer> {
         self.peers.get(&session_id)
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_peer_mut(&mut self, session_id: SessionId) -> Option<&mut Peer> {
         self.peers.get_mut(&session_id)
     }
@@ -202,6 +216,7 @@ impl PeerRegistry {
         self.peers.remove(&session_id)
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_key_by_peer_id(&self, peer_id: &PeerId) -> Option<SessionId> {
         self.peers.values().find_map(|peer| {
             if &peer.peer_id == peer_id {
@@ -217,10 +232,12 @@ impl PeerRegistry {
             .and_then(|session_id| self.peers.remove(&session_id))
     }
 
+    /// TODO(doc): @driftluo
     pub fn peers(&self) -> &HashMap<SessionId, Peer> {
         &self.peers
     }
 
+    /// TODO(doc): @driftluo
     pub fn connected_peers(&self) -> Vec<SessionId> {
         self.peers.keys().cloned().collect()
     }

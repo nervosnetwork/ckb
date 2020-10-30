@@ -14,6 +14,7 @@ use ckb_error::Error;
 use ckb_types::core::BlockExt;
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 #[derive(Clone)]
 pub struct ChainDB {
     db: RocksDB,
@@ -39,6 +40,7 @@ impl<'a> ChainStore<'a> for ChainDB {
 }
 
 impl ChainDB {
+    /// TODO(doc): @quake
     pub fn new(db: RocksDB, config: StoreConfig) -> Self {
         let cache = StoreCache::from_config(config);
         ChainDB {
@@ -47,14 +49,17 @@ impl ChainDB {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn db(&self) -> &RocksDB {
         &self.db
     }
 
+    /// TODO(doc): @quake
     pub fn into_inner(self) -> RocksDB {
         self.db
     }
 
+    /// TODO(doc): @quake
     pub fn begin_transaction(&self) -> StoreTransaction {
         StoreTransaction {
             inner: self.db.transaction(),
@@ -62,6 +67,7 @@ impl ChainDB {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn get_snapshot(&self) -> StoreSnapshot {
         StoreSnapshot {
             inner: self.db.get_snapshot(),
@@ -69,16 +75,19 @@ impl ChainDB {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn new_write_batch(&self) -> StoreWriteBatch {
         StoreWriteBatch {
             inner: self.db.new_write_batch(),
         }
     }
 
+    /// TODO(doc): @quake
     pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
         self.db.write(&write_batch.inner)
     }
 
+    /// TODO(doc): @quake
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
         let genesis = consensus.genesis_block();
         let epoch = consensus.genesis_epoch_ext();

@@ -16,6 +16,7 @@ const DEFAULT_ADDR_MANAGER_DB: &str = "addr_manager.db";
 const DEFAULT_BAN_LIST_DB: &str = "ban_list.db";
 
 impl AddrManager {
+    /// TODO(doc): @driftluo
     pub fn load<R: Read>(r: R) -> Result<Self, Error> {
         let addrs: Vec<AddrInfo> = serde_json::from_reader(r).map_err(PeerStoreError::Serde)?;
         let mut addr_manager = AddrManager::default();
@@ -23,6 +24,7 @@ impl AddrManager {
         Ok(addr_manager)
     }
 
+    /// TODO(doc): @driftluo
     pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
         let addrs: Vec<_> = self.addrs_iter().collect();
         debug!("dump {} addrs", addrs.len());
@@ -31,6 +33,7 @@ impl AddrManager {
 }
 
 impl BanList {
+    /// TODO(doc): @driftluo
     pub fn load<R: Read>(r: R) -> Result<Self, Error> {
         let banned_addrs: Vec<BannedAddr> =
             serde_json::from_reader(r).map_err(PeerStoreError::Serde)?;
@@ -41,6 +44,7 @@ impl BanList {
         Ok(ban_list)
     }
 
+    /// TODO(doc): @driftluo
     pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
         let banned_addrs = self.get_banned_addrs();
         debug!("dump {} banned addrs", banned_addrs.len());
@@ -49,6 +53,7 @@ impl BanList {
 }
 
 impl PeerStore {
+    /// TODO(doc): @driftluo
     pub fn load_from_dir_or_default<P: AsRef<Path>>(path: P) -> Self {
         let addr_manager_path = path.as_ref().join(DEFAULT_ADDR_MANAGER_DB);
         let ban_list_path = path.as_ref().join(DEFAULT_BAN_LIST_DB);
@@ -90,6 +95,7 @@ impl PeerStore {
         PeerStore::new(addr_manager, ban_list)
     }
 
+    /// TODO(doc): @driftluo
     pub fn dump_to_dir<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
         // create dir
         create_dir_all(&path)?;

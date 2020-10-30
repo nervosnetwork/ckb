@@ -11,12 +11,15 @@ use ckb_types::core::{HeaderView, Version};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 
+/// TODO(doc): @zhangsoledad
 pub trait HeaderResolver {
+    /// TODO(doc): @zhangsoledad
     fn header(&self) -> &HeaderView;
     /// resolves parent header
     fn parent(&self) -> Option<&HeaderView>;
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct HeaderVerifier<'a, T, M> {
     block_median_time_context: &'a M,
     consensus: &'a Consensus,
@@ -24,6 +27,7 @@ pub struct HeaderVerifier<'a, T, M> {
 }
 
 impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(block_median_time_context: &'a M, consensus: &'a Consensus) -> Self {
         HeaderVerifier {
             consensus,

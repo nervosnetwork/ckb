@@ -123,14 +123,17 @@ impl BlockFetchCMD {
     }
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone)]
 pub struct Synchronizer {
     chain: ChainController,
+    /// TODO(doc): @driftluo
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
+    /// TODO(doc): @driftluo
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
@@ -139,6 +142,7 @@ impl Synchronizer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -198,6 +202,7 @@ impl Synchronizer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn peers(&self) -> &Peers {
         self.shared().state().peers()
     }
@@ -219,6 +224,7 @@ impl Synchronizer {
         }
     }
 
+    /// TODO(doc): @driftluo
     //TODO: process block which we don't request
     pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
         let block_hash = block.hash();
@@ -240,6 +246,7 @@ impl Synchronizer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_blocks_to_fetch(
         &self,
         peer: PeerIndex,
@@ -277,6 +284,7 @@ impl Synchronizer {
         );
     }
 
+    /// TODO(doc): @driftluo
     //   - If at timeout their best known block now has more work than our tip
     //     when the timeout was set, then either reset the timeout or clear it
     //     (after comparing against our current tip's work)

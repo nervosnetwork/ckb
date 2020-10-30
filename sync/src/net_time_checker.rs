@@ -85,6 +85,7 @@ impl Clone for NetTimeProtocol {
 }
 
 impl NetTimeProtocol {
+    /// TODO(doc): @driftluo
     pub fn new(min_samples: usize, max_samples: usize, tolerant_offset: u64) -> Self {
         let checker = RwLock::new(NetTimeChecker::new(
             min_samples,

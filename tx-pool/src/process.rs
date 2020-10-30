@@ -38,8 +38,11 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
+/// TODO(doc): @zhangsoledad
 pub enum PlugTarget {
+    /// TODO(doc): @zhangsoledad
     Pending,
+    /// TODO(doc): @zhangsoledad
     Proposed,
 }
 

@@ -1173,6 +1173,7 @@ type PendingCompactBlockMap = HashMap<
     ),
 >;
 
+/// TODO(doc): @driftluo
 #[derive(Clone)]
 pub struct SyncShared {
     shared: Shared,
@@ -1180,10 +1181,12 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
+    /// TODO(doc): @driftluo
     pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
     }
 
+    /// TODO(doc): @driftluo
     pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1229,10 +1232,12 @@ impl SyncShared {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn shared(&self) -> &Shared {
         &self.shared
     }
 
+    /// TODO(doc): @driftluo
     pub fn active_chain(&self) -> ActiveChain {
         ActiveChain {
             shared: self.clone(),
@@ -1241,18 +1246,22 @@ impl SyncShared {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn store(&self) -> &ChainDB {
         self.shared.store()
     }
 
+    /// TODO(doc): @driftluo
     pub fn state(&self) -> &SyncState {
         &self.state
     }
 
+    /// TODO(doc): @driftluo
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
 
+    /// TODO(doc): @driftluo
     pub fn insert_new_block(
         &self,
         chain: &ChainController,
@@ -1282,6 +1291,7 @@ impl SyncShared {
         ret
     }
 
+    /// TODO(doc): @driftluo
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
         debug!(
@@ -1337,6 +1347,7 @@ impl SyncShared {
         Ok(ret?)
     }
 
+    /// TODO(doc): @driftluo
     // Update the header_map
     // Update the block_status_map
     // Update the shared_best_header if need
@@ -1378,6 +1389,7 @@ impl SyncShared {
         self.state.may_set_shared_best_header(header_view);
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_header_view(
         &self,
         hash: &Byte32,
@@ -1404,6 +1416,7 @@ impl SyncShared {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
         self.state
             .header_map
@@ -1412,12 +1425,14 @@ impl SyncShared {
             .or_else(|| self.store().get_block_header(hash))
     }
 
+    /// TODO(doc): @driftluo
     pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
         self.store()
             .get_block_header(&block.data().header().raw().parent_hash())
             .is_some()
     }
 
+    /// TODO(doc): @driftluo
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
         self.store().get_block_epoch(&hash)
     }

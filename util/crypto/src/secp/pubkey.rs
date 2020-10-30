@@ -7,6 +7,7 @@ use secp256k1::key;
 use secp256k1::Message as SecpMessage;
 use std::{fmt, ops};
 
+/// TODO(doc): @zhangsoledad
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct Pubkey {
     inner: H512,
@@ -34,6 +35,7 @@ impl Pubkey {
         Ok(())
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn serialize(&self) -> Vec<u8> {
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
@@ -45,6 +47,7 @@ impl Pubkey {
         Vec::from(&pubkey.serialize()[..])
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
         Ok(key::PublicKey::from_slice(data)?.into())
     }

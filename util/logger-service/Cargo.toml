@@ -4,7 +4,7 @@ version = "0.38.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): crate description"
+description = "CKB logger and logging service."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

@@ -16,6 +16,7 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
+    /// TODO(doc): @doitian
     pub fn new(
         config: RpcConfig,
         io_handler: IoHandler,
@@ -100,6 +101,7 @@ impl RpcServer {
         RpcServer { http, _tcp, _ws }
     }
 
+    /// TODO(doc): @doitian
     pub fn http_address(&self) -> &SocketAddr {
         self.http.address()
     }

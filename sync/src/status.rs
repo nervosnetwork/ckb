@@ -111,11 +111,13 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
+    /// TODO(doc): @driftluo
     pub fn with_context<S: ToString>(self, context: S) -> Status {
         Status::new(self, Some(context))
     }
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone, Debug, Eq)]
 pub struct Status {
     code: StatusCode,
@@ -123,6 +125,7 @@ pub struct Status {
 }
 
 impl Status {
+    /// TODO(doc): @driftluo
     pub fn new<S: ToString>(code: StatusCode, context: Option<S>) -> Self {
         Self {
             code,
@@ -130,18 +133,22 @@ impl Status {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn ok() -> Self {
         Self::new::<&str>(StatusCode::OK, None)
     }
 
+    /// TODO(doc): @driftluo
     pub fn ignored() -> Self {
         Self::new::<&str>(StatusCode::Ignored, None)
     }
 
+    /// TODO(doc): @driftluo
     pub fn is_ok(&self) -> bool {
         self.code == StatusCode::OK
     }
 
+    /// TODO(doc): @driftluo
     pub fn should_ban(&self) -> Option<Duration> {
         if !(400..500).contains(&(self.code as u16)) {
             return None;
@@ -152,10 +159,12 @@ impl Status {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn should_warn(&self) -> bool {
         self.code as u16 >= 500
     }
 
+    /// TODO(doc): @driftluo
     pub fn code(&self) -> StatusCode {
         self.code
     }

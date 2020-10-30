@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use ckb_db::RocksDB;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
@@ -6,29 +7,34 @@ pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarge
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// TODO(doc): @quake
 pub const VERSION_KEY: &[u8] = b"db-version";
 
 fn internal_error(reason: String) -> Error {
     InternalErrorKind::Database.reason(reason).into()
 }
 
+/// TODO(doc): @quake
 #[derive(Default)]
 pub struct Migrations {
     migrations: BTreeMap<String, Box<dyn Migration>>,
 }
 
 impl Migrations {
+    /// TODO(doc): @quake
     pub fn new() -> Self {
         Migrations {
             migrations: BTreeMap::new(),
         }
     }
 
+    /// TODO(doc): @quake
     pub fn add_migration(&mut self, migration: Box<dyn Migration>) {
         self.migrations
             .insert(migration.version().to_string(), migration);
     }
 
+    /// TODO(doc): @quake
     pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
         let db_version = db
             .get_pinned_default(VERSION_KEY)
@@ -91,7 +97,9 @@ impl Migrations {
     }
 }
 
+/// TODO(doc): @quake
 pub trait Migration {
+    /// TODO(doc): @quake
     fn migrate(
         &self,
         _db: RocksDB,
@@ -102,11 +110,13 @@ pub trait Migration {
     fn version(&self) -> &str;
 }
 
+/// TODO(doc): @quake
 pub struct DefaultMigration {
     version: String,
 }
 
 impl DefaultMigration {
+    /// TODO(doc): @quake
     pub fn new(version: &str) -> Self {
         Self {
             version: version.to_string(),

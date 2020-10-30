@@ -7,6 +7,21 @@ use std::iter::Extend;
 
 type DefaultBuildHasher = BuildHasherDefault<DefaultHasher>;
 
+/// A HashSet that holds elements in insertion order.
+///
+/// ## Examples
+///
+/// ```
+/// use ckb_util::LinkedHashSet;
+///
+/// let mut set = LinkedHashSet::new();
+/// set.insert(2);
+/// set.insert(1);
+/// set.insert(3);
+///
+/// let items: Vec<i32> = set.iter().copied().collect();
+/// assert_eq!(items, [2, 1, 3]);
+/// ```
 pub struct LinkedHashSet<T, S = DefaultBuildHasher> {
     map: LinkedHashMap<T, (), S>,
 }
@@ -75,6 +90,14 @@ where
 }
 
 impl<T: Hash + Eq> LinkedHashSet<T, DefaultBuildHasher> {
+    /// Creates a linked hash set.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use ckb_util::LinkedHashSet;
+    /// let set: LinkedHashSet<i32> = LinkedHashSet::new();
+    /// ```
     pub fn new() -> LinkedHashSet<T, DefaultBuildHasher> {
         LinkedHashSet {
             map: LinkedHashMap::default(),
@@ -87,32 +110,56 @@ where
     T: Eq + Hash,
     S: BuildHasher,
 {
+    /// Returns `true` if the set contains a value.
+    ///
+    /// ```
+    /// use ckb_util::LinkedHashSet;
+    ///
+    /// let mut set: LinkedHashSet<_> = LinkedHashSet::new();
+    /// set.insert(1);
+    /// set.insert(2);
+    /// set.insert(3);
+    /// assert_eq!(set.contains(&1), true);
+    /// assert_eq!(set.contains(&4), false);
+    /// ```
     pub fn contains(&self, value: &T) -> bool {
         self.map.contains_key(value)
     }
 
+    /// Returns the number of elements the set can hold without reallocating.
     pub fn capacity(&self) -> usize {
         self.map.capacity()
     }
 
+    /// Returns the number of elements in the set.
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
+    /// Returns `true` if the set contains no elements.
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
+    /// Adds a value to the set.
+    ///
+    /// If the set did not have this value present, true is returned.
+    ///
+    /// If the set did have this value present, false is returned.
     pub fn insert(&mut self, value: T) -> bool {
         self.map.insert(value, ()).is_none()
     }
 
+    /// Gets an iterator visiting all elements in insertion order.
+    ///
+    /// The iterator element type is `&'a T`.
     pub fn iter(&self) -> Iter<T> {
         Iter {
             iter: self.map.keys(),
         }
     }
 
+    /// Visits the values representing the difference, i.e., the values that are in `self` but not in `other`.
     pub fn difference<'a>(&'a self, other: &'a LinkedHashSet<T, S>) -> Difference<'a, T, S> {
         Difference {
             iter: self.iter(),

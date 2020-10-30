@@ -145,10 +145,13 @@ impl Pack<packed::Bytes> for str {
 }
 
 impl<'r> packed::BytesReader<'r> {
+    /// Converts self to a string slice.
     pub fn as_utf8(&self) -> Result<&str, ::std::str::Utf8Error> {
         ::std::str::from_utf8(self.raw_data())
     }
 
+    /// Converts self to a string slice without checking that the string contains valid UTF-8.
+    ///
     /// # Safety
     ///
     /// This function is unsafe because it does not check that the bytes passed to
@@ -158,6 +161,7 @@ impl<'r> packed::BytesReader<'r> {
         ::std::str::from_utf8_unchecked(self.raw_data())
     }
 
+    /// Checks whether self is contains valid UTF-8 binary data.
     pub fn is_utf8(&self) -> bool {
         self.as_utf8().is_ok()
     }
