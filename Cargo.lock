@@ -3139,50 +3139,48 @@ checksum = "17b02fc0ff9a9e4b35b3342880f48e896ebf69f2967921fe8646bf5b7125956a"
 
 [[package]]
 name = "numext-constructor"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "983983b13ec50f55d5b9536faa553d7fadaa12fae9e0dfda76ba74aebfcc7522"
+checksum = "621fe0f044729f810c6815cdd77e8f5e0cd803ce4f6a38380ebfc1322af98661"
 dependencies = [
- "proc-macro2 0.4.27",
- "quote 0.6.11",
- "syn 0.15.29",
+ "proc-macro2 1.0.8",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
 name = "numext-fixed-uint"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84f38aa6a49599f6cf38edbf3af3da0eda190ed3f3889afa5f4cb13be5673259"
+checksum = "6c68c76f96d589d1009a666c5072f37f3114d682696505f2cf445f27766c7d70"
 dependencies = [
  "numext-fixed-uint-core",
  "numext-fixed-uint-hack",
- "proc-macro-hack",
 ]
 
 [[package]]
 name = "numext-fixed-uint-core"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbae90b098c4ac5d5fd2fb48430c9141b7fac42e5fee31ee008c7880ec83adac"
+checksum = "6aab1d6457b97b49482f22a92f0f58a2f39bdd7f3b2f977eae67e8bc206aa980"
 dependencies = [
- "failure",
  "heapsize",
  "numext-constructor",
- "rand 0.5.6",
+ "rand 0.7.0",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
 name = "numext-fixed-uint-hack"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aba196a4ea541560fb7e44d328c87f25f024c727eeb09df4bb53610a575cfed7"
+checksum = "0200f8d55c36ec1b6a8cf810115be85d4814f045e0097dfd50033ba25adb4c9e"
 dependencies = [
  "numext-fixed-uint-core",
- "proc-macro-hack",
- "proc-macro2 0.4.27",
- "quote 0.6.11",
- "syn 0.15.29",
+ "proc-macro2 1.0.8",
+ "quote 1.0.7",
+ "syn 1.0.14",
 ]
 
 [[package]]
@@ -3630,19 +3628,6 @@ dependencies = [
  "libc",
  "rand_core 0.3.1",
  "rdrand",
- "winapi 0.3.8",
-]
-
-[[package]]
-name = "rand"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c618c47cd3ebd209790115ab837de41425723956ad3ce2e6a7f09890947cacb9"
-dependencies = [
- "cloudabi",
- "fuchsia-cprng",
- "libc",
- "rand_core 0.3.1",
  "winapi 0.3.8",
 ]
 
