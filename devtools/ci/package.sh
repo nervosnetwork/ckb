@@ -1,7 +1,14 @@
 #!/bin/bash
 set -eu
 
-TRAVIS_TAG="${TRAVIS_TAG:-"$(git describe)"}"
+if [ -z "${TRAVIS_TAG:-}" ]; then
+  if [ -n "${TRAVIS_BRANCH}" ]; then
+    TRAVIS_TAG="${TRAVIS_BRANCH##*/}"
+  else
+    TRAVIS_TAG="$(git describe)"
+  fi
+fi
+
 CKB_CLI_VERSION="${CKB_CLI_VERSION:-"$TRAVIS_TAG"}"
 if [ -z "${REL_PKG:-}" ]; then
   if [ "$(uname)" = Darwin ]; then
@@ -13,6 +20,8 @@ fi
 
 PKG_NAME="ckb_${TRAVIS_TAG}_${REL_PKG%%.*}"
 ARCHIVE_NAME="ckb_${TRAVIS_TAG}_${REL_PKG}"
+
+echo "ARCHIVE_NAME=$ARCHIVE_NAME"
 
 rm -rf releases
 mkdir releases

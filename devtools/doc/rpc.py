@@ -61,6 +61,11 @@ def transform_href(href):
     elif href.startswith('type.'):
         type_name = href.split('.')[1]
         return '#type-{}'.format(type_name.lower())
+    elif href == 'trait.ChainRpc.html#canonical-chain':
+        return '#canonical-chain'
+    elif ('struct.' in href or 'enum.' in href) and href.endswith('.html'):
+        type_name = href.split('.')[-2]
+        return '#type-{}'.format(type_name.lower())
 
     return href
 
@@ -128,8 +133,8 @@ class MarkdownParser():
             self.append("```\n")
             self.preserve_whitespaces = True
         elif tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            self.append((int(tag[1:]) + self.title_level - 1) * '#')
-            self.append(' ')
+            # The content here will be used in tag a to ignore the first anchor
+            self.append(((int(tag[1:]) + self.title_level - 1) * '#') + ' ')
         elif tag in ['strong', 'b']:
             self.append('**')
         elif tag in ['em', 'i']:
@@ -138,7 +143,7 @@ class MarkdownParser():
             self.append('`')
         elif tag == 'a':
             # ignore the first anchor link in title
-            if self.chunks[-1].strip().replace('#', '') != '':
+            if not self.chunks[-1].startswith('#') or self.chunks[-1].strip().replace('#', '') != '':
                 self.pending_href = transform_href(dict(attrs)['href'])
                 self.append('[')
         elif tag == 'thead':
@@ -193,7 +198,10 @@ class MarkdownParser():
             return
 
         if not self.preserve_whitespaces:
-            self.append(' '.join(data.splitlines()))
+            if data != '\n':
+                self.append(' '.join(data.splitlines()))
+                if data.endswith('\n'):
+                    self.append(' ')
         else:
             if self.chunks[-1] == '```\n' and data[0] == '\n':
                 data = data[1:]
@@ -296,9 +304,6 @@ class RPCVar():
         if name.startswith(', '):
             name = name[2:]
 
-        if name == ') -> Result<':
-            name = 'result'
-
         return name
 
 
@@ -330,7 +335,8 @@ class RPCMethod():
         if self.rpc_var_parser is not None:
             self.rpc_var_parser.handle_endtag(tag)
             if self.rpc_var_parser.completed():
-                self.params.append(self.rpc_var_parser)
+                if '->' not in self.rpc_var_parser.name or 'Result' in self.rpc_var_parser.name:
+                    self.params.append(self.rpc_var_parser)
                 self.rpc_var_parser = RPCVar()
         elif not self.doc_parser.completed():
             self.doc_parser.handle_endtag(tag)
@@ -645,6 +651,8 @@ class RPCDoc(object):
             for path in pending:
                 self.collect_type(path)
 
+        # PoolTransactionEntry is not used in RPC but in the Subscription events.
+        self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
@@ -654,9 +662,12 @@ class RPCDoc(object):
 
         if path in self.parsed_types:
             return
+        self.parsed_types.add(path)
+
         if 'ckb_types/packed' in path:
             return
-        self.parsed_types.add(path)
+        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html']:
+            return
 
         with open(path) as file:
             content = file.read()
@@ -666,10 +677,11 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        parser = RPCType(name, path)
-        parser.feed(content)
+        if name != 'U256':
+            parser = RPCType(name, path)
+            parser.feed(content)
 
-        self.types.append(parser)
+            self.types.append(parser)
 
     def write(self, file):
         file.write(PREAMBLE)

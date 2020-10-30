@@ -217,7 +217,7 @@ pub trait ExperimentRpc {
     ///
     /// * `out_point` - Reference to the DAO cell.
     /// * `block_hash` - The assumed reference block for withdrawing. This block must be in the
-    /// [canonical chain]('trait.ChainRpc.html#canonical-chain').
+    /// [canonical chain](trait.ChainRpc.html#canonical-chain).
     ///
     /// ## Returns
     ///
