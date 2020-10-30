@@ -3,7 +3,7 @@ trigger:
     include:
     - '*'
   tags:
-    include:
+    exclude:
     - '*'
 
 variables:
@@ -57,7 +57,7 @@ jobs:
 
   - job: Package
     timeoutInMinutes: 0
-    condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/pkg/')
     pool:
       vmImage: 'windows-2019'
     steps:
@@ -106,5 +106,5 @@ jobs:
             $(Build.ArtifactStagingDirectory)/*.zip
             $(Build.ArtifactStagingDirectory)/*.asc
           assetUploadMode: replace
-          isPreRelease: true
+          isDraft: true
           addChangeLog: false

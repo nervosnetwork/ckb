@@ -39,6 +39,9 @@ script: make test
 before_cache:
   - rm -rf $HOME/.cargo/registry
 
+before_deploy:
+  - 'export TRAVIS_TAG="${TRAVIS_BRANCH##*/}"'
+  - git tag $TRAVIS_TAG
 deploy:
   provider: releases
   api_key: "$GITHUB_TOKEN"
@@ -47,12 +50,12 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
   overwrite: true
-  prerelease: true
+  draft: true
   on:
-    tags: true
-    condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
+    all_branches: true
+    condition: '$TRAVIS_BRANCH =~ ^pkg/'
 
-if: 'type != pull_request or head_branch != develop'
+if: 'tag IS NOT present and (type != pull_request or head_branch != develop)'
 
 matrix:
   allow_failures:
@@ -155,7 +158,7 @@ matrix:
         - if make cov; then bash <(curl -s https://codecov.io/bash); fi
 
     - name: Package for macOS
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       os: osx
       env: REL_PKG=x86_64-apple-darwin.zip
       script:
@@ -164,7 +167,7 @@ matrix:
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
     - name: Package for Linux
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
       env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.46.0
@@ -176,7 +179,7 @@ matrix:
         - devtools/ci/package.sh target/release/ckb
         - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_TAG}_x86_64-unknown-linux-gnu"; fi
     - name: Package for Centos
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
       env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.46.0
