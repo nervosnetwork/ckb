@@ -3,6 +3,7 @@ use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
 use crate::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::{debug, trace};
+use ckb_metrics::{metrics, Timer};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
 use std::cmp::min;
@@ -67,6 +68,7 @@ impl<'a> BlockFetcher<'a> {
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
+        let timer = Timer::start();
         if self.reached_inflight_limit() {
             trace!(
                 "[block_fetcher] inflight count reach limit, can't download any more from peer {}",
@@ -183,6 +185,7 @@ impl<'a> BlockFetcher<'a> {
             )
         }
 
+        metrics!(timing, "ckb.get_blocks_to_fetch", timer.stop());
         Some(
             fetch
                 .chunks(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER)

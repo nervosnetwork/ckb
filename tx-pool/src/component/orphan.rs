@@ -1,4 +1,5 @@
 use crate::component::entry::DefectEntry;
+use ckb_metrics::metrics;
 use ckb_types::{
     core::TransactionView,
     packed::{OutPoint, ProposalShortId},
@@ -21,7 +22,9 @@ pub(crate) struct OrphanPool {
 
 impl OrphanPool {
     pub(crate) fn new() -> Self {
-        OrphanPool::raw_new(PRUNE_THRESHOLD)
+        let this = OrphanPool::raw_new(PRUNE_THRESHOLD);
+        this.record_metrics();
+        this
     }
 
     pub(crate) fn raw_new(prune_threshold: usize) -> Self {
@@ -67,7 +70,9 @@ impl OrphanPool {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id.clone());
         }
-        self.vertices.insert(short_id, entry)
+        let ret = self.vertices.insert(short_id, entry);
+        self.record_metrics();
+        ret
     }
 
     fn prune(&mut self) {
@@ -106,6 +111,7 @@ impl OrphanPool {
                 }
             }
         }
+        self.record_metrics();
     }
 
     pub(crate) fn remove_by_ancestor(&mut self, tx: &TransactionView) -> Vec<DefectEntry> {
@@ -136,6 +142,7 @@ impl OrphanPool {
                 }
             }
         }
+        self.record_metrics();
         txs
     }
 
@@ -149,6 +156,10 @@ impl OrphanPool {
                 }
             }
         }
+    }
+
+    fn record_metrics(&self) {
+        metrics!(gauge, "ckb.pool_size", self.vertices.len() as i64, "name" => "orphan");
     }
 }
 

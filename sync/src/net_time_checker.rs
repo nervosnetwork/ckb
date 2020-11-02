@@ -1,3 +1,4 @@
+use crate::utils::send_message_to;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
@@ -116,8 +117,9 @@ impl CKBProtocolHandler for NetTimeProtocol {
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             let now = faketime::unix_time_as_millis();
             let time = packed::Time::new_builder().timestamp(now.pack()).build();
-            if let Err(err) = nc.send_message_to(peer_index, time.as_bytes()) {
-                debug!("net_time_checker send message error: {:?}", err);
+            let status = send_message_to(nc.as_ref(), peer_index, &time);
+            if !status.is_ok() {
+                warn!("net_time_checker error: {}", status);
             }
         }
     }

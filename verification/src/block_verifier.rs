@@ -41,7 +41,8 @@ impl<'a> Verifier for BlockVerifier<'a> {
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
-        MerkleRootVerifier::new().verify(target)
+        MerkleRootVerifier::new().verify(target)?;
+        Ok(())
     }
 }
 

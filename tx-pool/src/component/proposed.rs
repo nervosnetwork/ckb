@@ -114,7 +114,7 @@ impl ProposedPool {
     pub(crate) fn new(max_ancestors_count: usize) -> Self {
         ProposedPool {
             edges: Default::default(),
-            inner: SortedTxMap::new(max_ancestors_count),
+            inner: SortedTxMap::new("proposed", max_ancestors_count),
         }
     }
 

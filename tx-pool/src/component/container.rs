@@ -2,6 +2,8 @@
 //! and its top-level members.
 
 use crate::{component::entry::TxEntry, error::Reject};
+use ckb_metrics::metrics;
+use ckb_types::core::Cycle;
 use ckb_types::{core::Capacity, packed::ProposalShortId};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -128,7 +130,13 @@ impl TxLink {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
+    // pool identifier
+    name: String,
+
     entries: HashMap<ProposalShortId, TxEntry>,
+    entries_bytes: u64,
+    entries_cycles: Cycle,
+
     sorted_index: BTreeSet<AncestorsScoreSortKey>,
     /// A map track transaction ancestors and descendants
     links: HashMap<ProposalShortId, TxLink>,
@@ -136,13 +144,18 @@ pub(crate) struct SortedTxMap {
 }
 
 impl SortedTxMap {
-    pub fn new(max_ancestors_count: usize) -> Self {
-        SortedTxMap {
+    pub fn new<S: ToString>(name: S, max_ancestors_count: usize) -> Self {
+        let this = SortedTxMap {
+            name: name.to_string(),
             entries: Default::default(),
+            entries_bytes: Default::default(),
+            entries_cycles: Default::default(),
             sorted_index: Default::default(),
             links: Default::default(),
             max_ancestors_count,
-        }
+        };
+        this.record_metrics();
+        this
     }
 
     pub fn size(&self) -> usize {
@@ -217,7 +230,11 @@ impl SortedTxMap {
         );
         self.sorted_index
             .insert(AncestorsScoreSortKey::from(&entry));
+
+        self.entries_bytes += entry.size as u64;
+        self.entries_cycles += entry.cycles;
         self.entries.insert(short_id, entry);
+        self.record_metrics();
         Ok(removed_entry)
     }
 
@@ -240,6 +257,9 @@ impl SortedTxMap {
                     .sorted_index
                     .remove(&AncestorsScoreSortKey::from(&entry));
                 debug_assert!(deleted, "pending pool inconsistent");
+                self.entries_bytes -= entry.size as u64;
+                self.entries_cycles -= entry.cycles;
+
                 if let Some(link) = self.links.remove(&id) {
                     queue.extend(link.children);
                 }
@@ -254,6 +274,8 @@ impl SortedTxMap {
                     .map(|link| link.children.remove(&id));
             }
         }
+
+        self.record_metrics();
         removed
     }
 
@@ -263,6 +285,9 @@ impl SortedTxMap {
                 .sorted_index
                 .remove(&AncestorsScoreSortKey::from(&entry));
             debug_assert!(deleted, "pending pool inconsistent");
+            self.entries_bytes -= entry.size as u64;
+            self.entries_cycles -= entry.cycles;
+
             // update descendants entries
             for desc_id in self.get_descendants(&id) {
                 if let Some(key) = self
@@ -297,6 +322,8 @@ impl SortedTxMap {
                         .map(|link| link.parents.remove(&id));
                 }
             }
+
+            self.record_metrics();
             entry
         })
     }
@@ -326,6 +353,12 @@ impl SortedTxMap {
                 .ancestors_count
         });
         keys
+    }
+
+    fn record_metrics(&self) {
+        metrics!(gauge, "ckb.pool_size", self.entries.len() as i64, "name" => self.name.to_owned());
+        metrics!(gauge, "ckb.pool_bytes", self.entries_bytes as i64, "name" => self.name.to_owned());
+        metrics!(gauge, "ckb.pool_cycles", self.entries_cycles as i64, "name" => self.name.to_owned());
     }
 }
 
@@ -427,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_sorted_tx_map_with_conflict_tx_hash() {
-        let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let mut map = SortedTxMap::new("", DEFAULT_MAX_ANCESTORS_SIZE);
         let tx1 = TxEntry::new(
             TransactionBuilder::default().build(),
             100,
@@ -473,7 +506,7 @@ mod tests {
 
     #[test]
     fn test_remove_entry_and_descendants() {
-        let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let mut map = SortedTxMap::new("", DEFAULT_MAX_ANCESTORS_SIZE);
         let tx1 = TxEntry::new(
             TransactionBuilder::default().build(),
             100,

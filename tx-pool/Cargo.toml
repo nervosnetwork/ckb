@@ -31,3 +31,4 @@ ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.0-pre" }
 ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.39.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.39.0-pre" }
 ckb-notify = { path = "../notify", version = "= 0.39.0-pre" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.39.0-pre" }

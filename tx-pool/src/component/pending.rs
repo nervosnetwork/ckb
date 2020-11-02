@@ -18,9 +18,9 @@ pub(crate) struct PendingQueue {
 }
 
 impl PendingQueue {
-    pub(crate) fn new(max_ancestors_count: usize) -> Self {
+    pub(crate) fn new<S: ToString>(name: S, max_ancestors_count: usize) -> Self {
         PendingQueue {
-            inner: SortedTxMap::new(max_ancestors_count),
+            inner: SortedTxMap::new(name, max_ancestors_count),
         }
     }
 
@@ -167,7 +167,7 @@ mod tests {
         let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
         let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
-        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let mut pool = PendingQueue::new("", DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -226,7 +226,7 @@ mod tests {
         let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
         let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
-        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let mut pool = PendingQueue::new("", DEFAULT_MAX_ANCESTORS_SIZE);
 
         pool.add_entry(TxEntry::new(
             tx1.clone(),
@@ -308,7 +308,7 @@ mod tests {
         let tx2_3_hash = tx2_3.hash();
         let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
-        let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
+        let mut pool = PendingQueue::new("", DEFAULT_MAX_ANCESTORS_SIZE);
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
             pool.add_entry(TxEntry::new(

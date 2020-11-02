@@ -166,7 +166,6 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 #[derive(Default)]
 pub(crate) struct MockProtocalContext {
     pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
-    pub sent_messages_to: RefCell<Vec<(PeerIndex, P2pBytes)>>,
 }
 
 impl CKBProtocolContext for MockProtocalContext {
@@ -209,8 +208,8 @@ impl CKBProtocolContext for MockProtocalContext {
         Ok(())
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
-        self.sent_messages_to.borrow_mut().push((peer_index, data));
-        Ok(())
+        let protocol_id = self.protocol_id();
+        self.send_message(protocol_id, peer_index, data)
     }
 
     fn filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
@@ -235,7 +234,7 @@ impl CKBProtocolContext for MockProtocalContext {
         unimplemented!();
     }
     fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
+        Default::default()
     }
     fn send_paused(&self) -> bool {
         false

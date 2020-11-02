@@ -1,4 +1,5 @@
 use crate::synchronizer::Synchronizer;
+use crate::utils::{send_message, send_message_to};
 use crate::{Status, StatusCode, MAX_LOCATOR_SIZE};
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
@@ -83,29 +84,24 @@ impl<'a> GetHeadersProcess<'a> {
                 .headers(headers.into_iter().map(|x| x.data()).pack())
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();
-
-            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-                return StatusCode::Network
-                    .with_context(format!("Send SendHeaders error: {:?}", err,));
-            }
-            crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
+            send_message_to(self.nc, self.peer, &message)
         } else {
-            return StatusCode::GetHeadersMissCommonAncestors
-                .with_context(format!("{:#x?}", block_locator_hashes,));
+            StatusCode::GetHeadersMissCommonAncestors
+                .with_context(format!("{:#x?}", block_locator_hashes,))
         }
-        Status::ok()
     }
 
     fn send_in_ibd(&self) {
         let content = packed::InIBD::new_builder().build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-
-        if let Err(err) = self.nc.send_message(
+        let status = send_message(
             SupportProtocols::Sync.protocol_id(),
+            self.nc,
             self.peer,
-            message.as_bytes(),
-        ) {
-            debug!("synchronizer send in ibd error: {:?}", err);
+            &message,
+        );
+        if !status.is_ok() {
+            debug!("synchronizer send_in_ibd error: {}", status);
         }
     }
 }

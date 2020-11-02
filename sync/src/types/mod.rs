@@ -11,7 +11,7 @@ use ckb_app_config::SyncConfig;
 use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error, trace};
-use ckb_metrics::{metrics, Timer};
+use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 
 mod header_map;
 
+use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
@@ -501,6 +502,7 @@ impl TimeAnalyzer {
 
 #[derive(Debug, Clone)]
 pub struct DownloadScheduler {
+    // The maximum number of tasks we can assign to this peer simultaneously.
     task_count: usize,
     timeout_count: usize,
     hashes: HashSet<BlockNumberAndHash>,
@@ -529,7 +531,7 @@ impl DownloadScheduler {
         self.task_count
     }
 
-    fn increase(&mut self, num: usize) {
+    pub(crate) fn increase(&mut self, num: usize) {
         if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
             self.task_count = ::std::cmp::min(
                 self.task_count.saturating_add(num),
@@ -677,7 +679,6 @@ impl InflightBlocks {
 
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
-        let prev_count = self.total_inflight_count();
         let mut disconnect_list = HashSet::new();
 
         let trace = &mut self.trace_number;
@@ -709,7 +710,9 @@ impl InflightBlocks {
 
         for key in remove_key {
             states.remove(&key);
+            metrics!(timing, "ckb.block_in_flight_ms", BLOCK_DOWNLOAD_TIMEOUT);
         }
+        metrics!(gauge, "ckb.blocks_in_flight_total", states.len() as i64);
 
         download_schedulers.retain(|k, v| {
             // task number zero means this peer's response is very slow
@@ -738,8 +741,8 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        d.punish(1);
                         d.hashes.remove(key);
+                        d.punish(1);
                     };
                 } else if let Some(v) = compact_inflight.remove(&key.hash) {
                     for peer in v {
@@ -755,15 +758,6 @@ impl InflightBlocks {
             }
             true
         });
-
-        if prev_count == 0 {
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "elapsed_ms");
-        } else if prev_count != self.total_inflight_count() {
-            metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", BLOCK_DOWNLOAD_TIMEOUT, "type" => "elapsed_ms");
-        }
-
         disconnect_list
     }
 
@@ -782,6 +776,11 @@ impl InflightBlocks {
             Entry::Occupied(_entry) => return false,
             Entry::Vacant(entry) => entry.insert(InflightState::new(peer)),
         };
+        metrics!(
+            gauge,
+            "ckb.blocks_in_flight_total",
+            self.inflight_states.len() as i64
+        );
 
         if self.restart_number >= block.number {
             // All new requests smaller than restart_number mean that they are cleaned up and
@@ -802,7 +801,8 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let state = &mut self.inflight_states;
         let compact = &mut self.compact_reconstruct_inflight;
-        self.download_schedulers
+        let ret = self
+            .download_schedulers
             .remove(&peer)
             .map(|blocks| {
                 for block in blocks.hashes {
@@ -817,7 +817,9 @@ impl InflightBlocks {
                     }
                 }
             })
-            .is_some()
+            .is_some();
+        metrics!(gauge, "ckb.blocks_in_flight_total", state.len() as i64);
+        ret
     }
 
     pub fn remove_by_block(&mut self, block: BlockNumberAndHash) -> bool {
@@ -850,8 +852,12 @@ impl InflightBlocks {
                 elapsed
             })
             .map(|elapsed| {
-                metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-                metrics!(value, "ckb-net.blocks_in_flight", elapsed, "type" => "elapsed_ms");
+                metrics!(timing, "ckb.block_in_flight_ms", elapsed);
+                metrics!(
+                    gauge,
+                    "ckb.blocks_in_flight_total",
+                    self.inflight_states.len() as i64
+                );
             })
             .is_some()
     }
@@ -1042,19 +1048,15 @@ impl HeaderView {
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let timer = Timer::start();
         let mut current = self;
         if number > current.number() {
             return None;
         }
 
-        let base_number = current.number();
-        let mut steps = 0u64;
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
-            steps += 1;
             let store_first = current.number() <= tip_number;
             match current.skip_hash {
                 Some(ref hash)
@@ -1077,11 +1079,6 @@ impl HeaderView {
                 break;
             }
         }
-        metrics!(timing, "ckb-net.get_ancestor", timer.stop(), "type" => "elapsed");
-        metrics!(value, "ckb-net.get_ancestor", steps, "type" => "steps");
-        metrics!(value, "ckb-net.get_ancestor", base_number, "type" => "base_number");
-        metrics!(value, "ckb-net.get_ancestor", number, "type" => "target_number");
-        metrics!(value, "ckb-net.get_ancestor", current.number(), "type" => "ancestor_number");
         Some(current).map(HeaderView::into_inner)
     }
 
@@ -1587,7 +1584,6 @@ impl SyncState {
             self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
-        metrics!(gauge, "ckb-chain.tip_number", header.number() as i64, "type" => "best_header");
         *self.shared_best_header.write() = header;
     }
 
@@ -2006,12 +2002,9 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        if let Err(err) = nc.send_message(
-            SupportProtocols::Sync.protocol_id(),
-            peer,
-            message.as_bytes(),
-        ) {
-            debug!("synchronizer send get_headers error: {:?}", err);
+        let status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);
+        if !status.is_ok() {
+            debug!("synchronizer send_getheaders_to_peer error: {}", status);
         }
     }
 

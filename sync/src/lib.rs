@@ -10,6 +10,7 @@ mod relayer;
 mod status;
 mod synchronizer;
 mod types;
+mod utils;
 
 #[cfg(test)]
 mod tests;

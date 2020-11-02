@@ -1,6 +1,7 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
+use crate::utils::send_message_to;
 use crate::{attempt, Status, StatusCode};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
@@ -154,12 +155,10 @@ impl<'a> BlockTransactionsProcess<'a> {
                         .uncle_indexes(missing_uncles.pack())
                         .build();
                     let message = packed::RelayMessage::new_builder().set(content).build();
-
-                    if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-                        return StatusCode::Network
-                            .with_context(format!("Send GetBlockTransactions error: {:?}", err,));
+                    let status = send_message_to(self.nc.as_ref(), self.peer, &message);
+                    if !status.is_ok() {
+                        return status;
                     }
-                    crate::relayer::metrics_counter_send(message.to_enum().item_name());
                 }
 
                 let _ignore_prev_value =

@@ -100,8 +100,8 @@ impl TxPool {
 
         TxPool {
             config,
-            pending: PendingQueue::new(config.max_ancestors_count),
-            gap: PendingQueue::new(config.max_ancestors_count),
+            pending: PendingQueue::new("pending", config.max_ancestors_count),
+            gap: PendingQueue::new("gap", config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
             orphan: OrphanPool::new(),
             conflict: LruCache::new(conflict_cache_size),

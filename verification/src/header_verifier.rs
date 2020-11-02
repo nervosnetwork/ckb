@@ -5,6 +5,7 @@ use crate::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
+use ckb_metrics::{metrics, Timer};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::core::{HeaderView, Version};
@@ -42,6 +43,7 @@ impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
 impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<'a, T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
+        let timer = Timer::start();
         let header = target.header();
         VersionVerifier::new(header, self.consensus.block_version()).verify()?;
         // POW check first
@@ -51,6 +53,7 @@ impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifi
         })?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(self.block_median_time_context, header).verify()?;
+        metrics!(timing, "ckb.verified_header", timer.stop());
         Ok(())
     }
 }

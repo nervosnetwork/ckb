@@ -13,6 +13,7 @@ use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
+use crate::utils::send_message_to;
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
@@ -47,6 +48,7 @@ pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
+const NO_PEER_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Copy, Clone)]
 enum CanStart {
@@ -181,20 +183,23 @@ impl BlockFetchCMD {
     }
 
     fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
+        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
+
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.pack())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-
-        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
         if let Err(err) = nc.send_message_to(
             peer,
             SupportProtocols::Sync.protocol_id(),
             message.as_bytes(),
         ) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
+            debug!("synchronizer send_getblocks error: {:?}", err);
         }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
+
+        let bytes = message.as_bytes().len() as u64;
+        metrics!(counter, "ckb.messages_total", 1, "direction" => "out", "name" => "GetBlocks");
+        metrics!(counter, "ckb.messages_bytes", bytes, "direction" => "out", "name" => "GetBlocks");
     }
 }
 
@@ -258,12 +263,6 @@ impl Synchronizer {
     ) {
         let item_name = message.item_name();
         let status = self.try_process(nc, peer, message);
-
-        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
-        if !status.is_ok() {
-            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
-        }
-
         if let Some(ban_time) = status.should_ban() {
             error!(
                 "receive {} from {}, ban {:?} for {}",
@@ -632,16 +631,15 @@ impl Synchronizer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
     ) {
+        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.pack())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-
-        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
+        let status = send_message_to(nc, peer, &message);
+        if !status.is_ok() {
+            debug!("synchronizer send_getblocks: {}", status);
         }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -656,7 +654,7 @@ impl CKBProtocolHandler for Synchronizer {
             .expect("set_notify at init is ok");
         nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN)
             .expect("set_notify at init is ok");
-        nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN)
+        nc.set_notify(NO_PEER_CHECK_INTERVAL, NO_PEER_CHECK_TOKEN)
             .expect("set_notify at init is ok");
     }
 
@@ -667,7 +665,14 @@ impl CKBProtocolHandler for Synchronizer {
         data: Bytes,
     ) {
         let msg = match packed::SyncMessage::from_slice(&data) {
-            Ok(msg) => msg.to_enum(),
+            Ok(sync_message) => {
+                let message = sync_message.to_enum();
+                let item_name = message.item_name();
+                let bytes = message.as_slice().len() as u64;
+                metrics!(counter, "ckb.messages_total", 1, "direction" => "in", "name" => item_name.to_owned());
+                metrics!(counter, "ckb.messages_bytes", bytes, "direction" => "in", "name" => item_name.to_owned());
+                message
+            }
             _ => {
                 info!("Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(
@@ -708,6 +713,8 @@ impl CKBProtocolHandler for Synchronizer {
     ) {
         info!("SyncProtocol.connected peer={}", peer_index);
         self.on_connected(nc.as_ref(), peer_index);
+
+        metrics!(counter, "ckb.connections_total", 1, "type" => "connected");
     }
 
     fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
@@ -736,6 +743,8 @@ impl CKBProtocolHandler for Synchronizer {
                     "n_protected_outbound_peers overflow when disconnects"
                 );
             }
+
+            metrics!(counter, "ckb.connections_total", 1, "type" => "disconnected");
         }
     }
 
@@ -768,7 +777,6 @@ impl CKBProtocolHandler for Synchronizer {
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(nc.as_ref());
                 }
-                // Here is just for NO_PEER_CHECK_TOKEN token, only handle it when there is no peer.
                 _ => {}
             }
 
@@ -1826,8 +1834,4 @@ mod tests {
             );
         }
     }
-}
-
-pub(self) fn metrics_counter_send(item_name: &str) {
-    metrics!(counter, "ckb-net.sent", 1, "action" => "sync", "item" => item_name.to_owned());
 }

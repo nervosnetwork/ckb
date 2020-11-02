@@ -1,7 +1,7 @@
 use crate::relayer::block_transactions_process::BlockTransactionsProcess;
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use crate::{Status, StatusCode};
-use ckb_network::PeerIndex;
+use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
@@ -317,11 +317,11 @@ fn test_collision_and_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc
-        .as_ref()
-        .sent_messages_to
-        .borrow()
-        .contains(&(peer_index, data)));
+    assert!(nc.as_ref().sent_messages.borrow().contains(&(
+        SupportProtocols::Relay.protocol_id(),
+        peer_index,
+        data
+    )));
 
     // update cached missing_index
     {
@@ -427,9 +427,9 @@ fn test_missing() {
     let message = packed::RelayMessage::new_builder().set(content).build();
 
     // send missing indexes messages
-    assert!(nc
-        .as_ref()
-        .sent_messages_to
-        .borrow()
-        .contains(&(peer_index, message.as_bytes())));
+    assert!(nc.as_ref().sent_messages.borrow().contains(&(
+        SupportProtocols::Relay.protocol_id(),
+        peer_index,
+        message.as_bytes()
+    )));
 }

@@ -288,18 +288,20 @@ impl ChainService {
     // visible pub just for test
     #[doc(hidden)]
     pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        debug!("begin processing block: {}", block.header().hash());
+        let block_number = block.number();
+        let block_hash = block.hash();
+
+        debug!("begin processing block: {}-{}", block_number, block_hash);
+        let timer = Timer::start();
         if block.header().number() < 1 {
-            warn!(
-                "receive 0 number block: {}-{}",
-                block.header().number(),
-                block.header().hash()
-            );
+            warn!("receive 0 number block: 0-{}", block_hash);
         }
-        self.insert_block(block, switch).map(|ret| {
-            debug!("finish processing block");
-            ret
-        })
+        let is_better = self.insert_block(block, switch)?;
+        debug!("finish processing block");
+
+        metrics!(timing, "ckb.processed_block", timer.stop(), "is_uncle" => (!is_better).to_string());
+        metrics!(counter, "ckb.processed_blocks_total", 1, "is_uncle" => (!is_better).to_string());
+        Ok(is_better)
     }
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
@@ -337,7 +339,6 @@ impl ChainService {
 
         let mut total_difficulty = U256::zero();
         let mut fork = ForkChanges::default();
-        let timer = Timer::start();
 
         let parent_ext = txn_snapshot
             .get_block_ext(&block.data().header().raw().parent_hash())
@@ -408,8 +409,9 @@ impl ChainService {
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
             if !fork.detached_blocks.is_empty() {
-                metrics!(gauge, "ckb-chain.reorg", fork.attached_blocks.len() as i64, "type" => "attached");
-                metrics!(gauge, "ckb-chain.reorg", fork.detached_blocks.len() as i64, "type" => "detached");
+                // We care about "the size of reorg", then the length of attached blocks covers it.
+                let attached_blocks = fork.attached_blocks().len();
+                metrics!(counter, "ckb.reorg_attached_blocks", attached_blocks as u64);
             }
 
             self.rollback(&fork, &db_txn)?;
@@ -475,8 +477,6 @@ impl ChainService {
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }
-            metrics!(gauge, "ckb-chain.tip_number", block.header().number() as i64, "type" => "main_chain");
-            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "false");
         } else {
             self.shared.refresh_snapshot();
             info!(
@@ -495,7 +495,6 @@ impl ChainService {
             {
                 error!("notify new_uncle error {}", e);
             }
-            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "true");
         }
 
         Ok(true)
