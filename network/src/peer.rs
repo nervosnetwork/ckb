@@ -24,10 +24,10 @@ pub struct Peer {
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
     /// TODO(doc): @driftluo
-    pub last_message_time: Option<Instant>,
+    pub last_ping_protocol_message_received_at: Option<Instant>,
     /// TODO(doc): @driftluo
-    pub ping: Option<Duration>,
-    /// TODO(doc): @driftluo
+    pub ping_rtt: Option<Duration>,
+    /// Indicates whether it is a probe connection of the fleer protocol
     pub is_feeler: bool,
     /// TODO(doc): @driftluo
     pub connected_time: Instant,
@@ -54,8 +54,8 @@ impl Peer {
             connected_addr,
             listened_addrs: Vec::new(),
             identify_info: None,
-            ping: None,
-            last_message_time: None,
+            ping_rtt: None,
+            last_ping_protocol_message_received_at: None,
             connected_time: Instant::now(),
             is_feeler: false,
             peer_id,
