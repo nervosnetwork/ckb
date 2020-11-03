@@ -77,6 +77,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
         * [Method `send_transaction`](#method-send_transaction)
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
+        * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
         * [Method `get_peers_state`](#method-get_peers_state)
@@ -135,6 +136,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `ProposalShortId`](#type-proposalshortid)
+    * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
     * [Type `Script`](#type-script)
@@ -3195,6 +3197,53 @@ Response
 }
 ```
 
+#### Method `get_raw_tx_pool`
+* `get_raw_tx_pool(verbose)`
+    * `verbose`: `boolean` `|` `null`
+* result: [`RawTxPool`](#type-rawtxpool)
+
+Returns all transaction ids in tx pool as a json array of string transaction ids.
+
+##### Params
+
+*   `verbose` - True for a json object, false for array of transaction ids, default=false
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_raw_tx_pool",
+  "params": [true]
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result":
+   {
+       "pending": {
+           "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3": {
+               "cycles": "0x219",
+               "size": "0x112",
+               "fee": "0x16923f7dcf",
+               "ancestors_size": "0x112",
+               "ancestors_cycles": "0x219",
+               "ancestors_count": "0x1"
+           }
+       },
+       "proposed": {}
+   }
+}
+```
+
 ### Module Stats
 
 RPC Module Stats for getting various statistic data.
@@ -4721,6 +4770,18 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 0xa0ef4eb5f4ceeb08a4c8
 ```
 
+
+
+### Type `RawTxPool`
+
+All transaction in tx-pool
+
+Verbose True for a json object, false for array of transaction ids
+
+`RawTxPool` is equivalent to `"ids" | "verbose"`.
+
+*   verbose = false
+*   verbose = true
 
 
 ### Type `RemoteNode`

@@ -15,6 +15,7 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
         error::OutPointError,
+        tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -737,5 +738,43 @@ impl TxPool {
                     .peek(proposal_id)
                     .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
             })
+    }
+
+    pub(crate) fn get_ids(&self) -> TxPoolIds {
+        let pending = self
+            .pending
+            .iter()
+            .map(|(_, entry)| entry.transaction.hash())
+            .chain(self.gap.iter().map(|(_, entry)| entry.transaction.hash()))
+            .collect();
+
+        let proposed = self
+            .proposed
+            .iter()
+            .map(|(_, entry)| entry.transaction.hash())
+            .collect();
+
+        TxPoolIds { pending, proposed }
+    }
+
+    pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
+        let pending = self
+            .pending
+            .iter()
+            .map(|(_, entry)| (entry.transaction.hash(), entry.to_info()))
+            .chain(
+                self.gap
+                    .iter()
+                    .map(|(_, entry)| (entry.transaction.hash(), entry.to_info())),
+            )
+            .collect();
+
+        let proposed = self
+            .proposed
+            .iter()
+            .map(|(_, entry)| (entry.transaction.hash(), entry.to_info()))
+            .collect();
+
+        TxPoolEntryInfo { pending, proposed }
     }
 }

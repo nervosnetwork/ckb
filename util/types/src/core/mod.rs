@@ -13,6 +13,7 @@
 pub mod cell;
 pub mod error;
 pub mod service;
+pub mod tx_pool;
 
 mod advanced_builders;
 mod blockchain;

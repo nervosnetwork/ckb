@@ -39,7 +39,7 @@ pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,
 };
-pub use self::pool::{OutputsValidator, PoolTransactionEntry, TxPoolInfo};
+pub use self::pool::{OutputsValidator, PoolTransactionEntry, RawTxPool, TxPoolInfo};
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;
 pub use self::uints::{Uint128, Uint32, Uint64};
