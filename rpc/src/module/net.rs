@@ -607,7 +607,7 @@ impl NetRpc for NetRpcImpl {
                     addresses: node_addresses.values().cloned().collect(),
                     connected_duration: peer.connected_time.elapsed().as_secs().into(),
                     last_ping_duration: peer
-                        .ping
+                        .ping_rtt
                         .map(|duration| (duration.as_millis() as u64).into()),
                     sync_state: self
                         .sync_shared
