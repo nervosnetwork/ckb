@@ -177,7 +177,7 @@ matrix:
         - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
-        - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_TAG}_x86_64-unknown-linux-gnu"; fi
+        - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_BRANCH##*/}_x86_64-unknown-linux-gnu"; fi
     - name: Package for Centos
       if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       language: ruby
