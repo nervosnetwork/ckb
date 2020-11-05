@@ -9,7 +9,6 @@ use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
-use ckb_notify::PoolTransactionEntry;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -433,19 +432,12 @@ impl TxPoolService {
                 related_dep_out_points,
             );
             let inserted = match status {
-                TxStatus::Fresh => tx_pool.add_pending(entry)?,
-                TxStatus::Gap => tx_pool.add_gap(entry)?,
-                TxStatus::Proposed => tx_pool.add_proposed(entry)?,
+                TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
+                TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
+                TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
             };
             if inserted {
-                let notify_tx_entry = PoolTransactionEntry {
-                    transaction: rtx.transaction,
-                    cycles: cache_entry.cycles,
-                    size: tx_size,
-                    fee,
-                };
-                self.notify_controller
-                    .notify_new_transaction(notify_tx_entry);
+                self.callbacks.after_pending(&entry);
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
@@ -778,6 +770,9 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+            // self.callbacks.register_abandon(&entry);
+        } else {
+            // self.callbacks.after_proposed(&entry);
         }
     }
 
@@ -786,6 +781,7 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+            // self.callbacks.register_abandon(&entry);
         }
     }
 

@@ -10,11 +10,11 @@ use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
-use ckb_notify::{NotifyController, NotifyService};
+use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
+use ckb_tx_pool::{TokioRwLock, TxPoolController, TxEntry, TxPoolServiceBuilder};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::{self, Byte32},
@@ -93,14 +93,24 @@ impl Shared {
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
         let notify_controller = NotifyService::new(notify_config).start(Some("NotifyService"));
 
-        let tx_pool_builder = TxPoolServiceBuilder::new(
+        let mut tx_pool_builder = TxPoolServiceBuilder::new(
             tx_pool_config,
             Arc::clone(&snapshot),
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
             Arc::clone(&snapshot_mgr),
-            notify_controller.clone(),
         );
+
+        let notify_cloned = notify_controller.clone();
+        tx_pool_builder.register_pending(Box::new(move |entry: TxEntry| {
+            let notify_tx_entry = PoolTransactionEntry {
+                transaction: entry.transaction,
+                cycles: entry.cycles,
+                size: entry.size,
+                fee: entry.fee,
+            };
+            notify_cloned.notify_new_transaction(notify_tx_entry);
+        }));
 
         let tx_pool_controller = tx_pool_builder.start(&async_handle);
 
