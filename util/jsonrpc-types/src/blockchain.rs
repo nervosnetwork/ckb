@@ -1169,6 +1169,32 @@ pub struct MerkleProof {
     pub lemmas: Vec<H256>,
 }
 
+/// Two protocol parameters `closest` and `farthest` define the closest
+/// and farthest on-chain distance between a transaction's proposal
+/// and commitment.
+///
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+/// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+/// 2) it is in the commitment zone of the main chain block with height h_c ;
+///
+/// ```text
+///   ProposalWindow { closest: 2, farthest: 10 }
+///       propose
+///          \
+///           \
+///           13 14 [15 16 17 18 19 20 21 22 23]
+///                  \_______________________/
+///                               \
+///                             commit
+/// ```
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ProposalWindow {
+    /// The closest distance between the proposal and the commitment.
+    pub closest: BlockNumber,
+    /// The farthest distance between the proposal and the commitment.
+    pub farthest: BlockNumber,
+}
+
 /// Consensus defines various parameters that influence chain consensus
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Consensus {
@@ -1193,9 +1219,9 @@ pub struct Consensus {
     /// The expected epoch_duration
     pub epoch_duration_target: Uint64,
     /// The two-step-transaction-confirmation proposal window
-    pub tx_proposal_window: (BlockNumber, BlockNumber),
+    pub tx_proposal_window: ProposalWindow,
     /// The two-step-transaction-confirmation proposer reward ratio
-    pub proposer_reward_ratio: core::Ratio,
+    pub proposer_reward_ratio: core::RationalU256,
     /// The Cellbase maturity
     pub cellbase_maturity: EpochNumberWithFraction,
     /// This parameter indicates the count of past blocks used in the median time calculation

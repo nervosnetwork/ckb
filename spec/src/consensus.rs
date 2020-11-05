@@ -6,7 +6,6 @@ use crate::{
     OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
-use ckb_jsonrpc_types::Consensus as JsonConsensus;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
@@ -73,13 +72,13 @@ pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_
 /// TODO(doc): @zhangsoledad
 // 1.5 * TWO_IN_TWO_OUT_COUNT
 pub const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
-const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
+const PROPOSER_REWARD_RATIO: Ratio = Ratio::new(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
 pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
 // Ratio of satoshi cell occupied of capacity,
 // only affects genesis cellbase's satoshi lock cells.
-pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
+pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
 /// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
@@ -898,7 +897,7 @@ impl Consensus {
     }
 }
 
-impl From<Consensus> for JsonConsensus {
+impl From<Consensus> for ckb_jsonrpc_types::Consensus {
     fn from(consensus: Consensus) -> Self {
         Self {
             id: consensus.id,
@@ -915,11 +914,14 @@ impl From<Consensus> for JsonConsensus {
             max_uncles_num: (consensus.max_uncles_num as u64).into(),
             orphan_rate_target: consensus.orphan_rate_target,
             epoch_duration_target: consensus.epoch_duration_target.into(),
-            tx_proposal_window: (
-                consensus.tx_proposal_window.0.into(),
-                consensus.tx_proposal_window.1.into(),
+            tx_proposal_window: ckb_jsonrpc_types::ProposalWindow {
+                closest: consensus.tx_proposal_window.0.into(),
+                farthest: consensus.tx_proposal_window.1.into(),
+            },
+            proposer_reward_ratio: RationalU256::new_raw(
+                consensus.proposer_reward_ratio.numer().into(),
+                consensus.proposer_reward_ratio.denom().into(),
             ),
-            proposer_reward_ratio: consensus.proposer_reward_ratio,
             cellbase_maturity: consensus.cellbase_maturity.into(),
             median_time_block_count: (consensus.median_time_block_count as u64).into(),
             max_block_cycles: consensus.max_block_cycles.into(),

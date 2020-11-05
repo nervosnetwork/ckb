@@ -138,6 +138,8 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `ProposalShortId`](#type-proposalshortid)
+    * [Type `ProposalWindow`](#type-proposalwindow)
+    * [Type `RationalU256`](#type-rationalu256)
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
@@ -1387,17 +1389,17 @@ Response
         },
         "permanent_difficulty_in_dummy": false,
         "primary_epoch_reward_halving_interval": "0x2238",
-        "proposer_reward_ratio": [
-            4,
-            10
-        ],
+        "proposer_reward_ratio": {
+            "denom": "0xa",
+            "numer": "0x4"
+        },
         "secondary_epoch_reward": "0x37d0c8e28542",
         "secp256k1_blake160_multisig_all_type_hash": null,
         "secp256k1_blake160_sighash_all_type_hash": null,
-        "tx_proposal_window": [
-            "0x2",
-            "0xa"
-        ],
+        "tx_proposal_window": {
+            "closest": "0x2",
+            "farthest": "0xa"
+        },
         "tx_version": "0x0",
         "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
     }
@@ -4336,11 +4338,15 @@ Consensus defines various parameters that influence chain consensus
 
 *   `max_uncles_num`: [`Uint64`](#type-uint64) - The maximum amount of uncles allowed for a block
 
-*   `orphan_rate_target`: [`Uint64`](#type-uint64) - The expected epoch_duration
+*   `orphan_rate_target`: [`RationalU256`](#type-rationalu256) - The expected orphan_rate
 
-*   `tx_proposal_window`: https://doc.rust-lang.org/nightly/std/primitive.tuple.html - The two-step-transaction-confirmation proposal window
+*   `epoch_duration_target`: [`Uint64`](#type-uint64) - The expected epoch_duration
 
-*   `proposer_reward_ratio`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The Cellbase maturity
+*   `tx_proposal_window`: [`ProposalWindow`](#type-proposalwindow) - The two-step-transaction-confirmation proposal window
+
+*   `proposer_reward_ratio`: [`RationalU256`](#type-rationalu256) - The two-step-transaction-confirmation proposer reward ratio
+
+*   `cellbase_maturity`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The Cellbase maturity
 
 *   `median_time_block_count`: [`Uint64`](#type-uint64) - This parameter indicates the count of past blocks used in the median time calculation
 
@@ -4888,6 +4894,50 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 0xa0ef4eb5f4ceeb08a4c8
 ```
 
+
+
+### Type `ProposalWindow`
+
+Two protocol parameters `closest` and `farthest` define the closest and farthest on-chain distance between a transaction's proposal and commitment.
+
+A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+
+*   it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+
+*   it is in the commitment zone of the main chain block with height h_c ;
+
+```
+  ProposalWindow { closest: 2, farthest: 10 }
+      propose
+         \
+          \
+          13 14 [15 16 17 18 19 20 21 22 23]
+                 \_______________________/
+                              \
+                            commit
+```
+
+#### Fields
+
+`ProposalWindow` is a JSON object with the following fields.
+
+*   `closest`: [`BlockNumber`](#type-blocknumber) - The closest distance between the proposal and the commitment.
+
+*   `farthest`: [`BlockNumber`](#type-blocknumber) - The farthest distance between the proposal and the commitment.
+
+
+### Type `RationalU256`
+
+The ratio which numerator and denominator are both 256-bit unsigned integers.
+
+#### Example
+
+```
+{
+    "denom": "0x28",
+    "numer": "0x1"
+}
+```
 
 
 ### Type `RawTxPool`

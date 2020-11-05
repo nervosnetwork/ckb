@@ -1193,17 +1193,17 @@ pub trait ChainRpc {
     ///         },
     ///         "permanent_difficulty_in_dummy": false,
     ///         "primary_epoch_reward_halving_interval": "0x2238",
-    ///         "proposer_reward_ratio": [
-    ///             4,
-    ///             10
-    ///         ],
+    ///         "proposer_reward_ratio": {
+    ///             "denom": "0xa",
+    ///             "numer": "0x4"
+    ///         },
     ///         "secondary_epoch_reward": "0x37d0c8e28542",
     ///         "secp256k1_blake160_multisig_all_type_hash": null,
     ///         "secp256k1_blake160_sighash_all_type_hash": null,
-    ///         "tx_proposal_window": [
-    ///             "0x2",
-    ///             "0xa"
-    ///         ],
+    ///         "tx_proposal_window": {
+    ///             "closest": "0x2",
+    ///             "farthest": "0xa"
+    ///         },
     ///         "tx_version": "0x0",
     ///         "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
     ///     }
