@@ -156,6 +156,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `TxPoolInfo`](#type-txpoolinfo)
     * [Type `TxPoolVerbosity`](#type-txpoolverbosity)
     * [Type `TxStatus`](#type-txstatus)
+    * [Type `TxVerbosity`](#type-txverbosity)
     * [Type `U256`](#type-u256)
     * [Type `Uint128`](#type-uint128)
     * [Type `Uint32`](#type-uint32)
@@ -5251,6 +5252,27 @@ Transaction status and the block hash if it is committed.
 *   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
+
+
+### Type `TxVerbosity`
+
+Transaction verbose info
+
+#### Fields
+
+`TxVerbosity` is a JSON object with the following fields.
+
+*   `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
+
+*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
+
+*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
+
+*   `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
+
+*   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
+
+*   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
 
 ### Type `U256`
