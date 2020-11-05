@@ -46,9 +46,9 @@ impl SessionState {
                 .next();
 
             let msg = encode(DiscoveryMessage::GetNodes {
-                #[cfg(unix)]
+                #[cfg(target_os = "linux")]
                 version: REUSE_PORT_VERSION,
-                #[cfg(windows)]
+                #[cfg(not(target_os = "linux"))]
                 version: FIRST_VERSION,
                 count: MAX_ADDR_TO_SEND as u32,
                 listen_port: port,

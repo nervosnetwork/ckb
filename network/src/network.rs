@@ -873,7 +873,7 @@ impl<T: ExitHandler> NetworkService<T> {
             .forever(true)
             .max_connection_number(1024);
 
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         let p2p_service = {
             let iter = config.listen_addresses.iter();
 
@@ -942,10 +942,13 @@ impl<T: ExitHandler> NetworkService<T> {
             service_builder.build(event_handler)
         };
 
-        #[cfg(windows)]
-        // The default permissions of windows are not enough to enable this function,
+        #[cfg(not(target_os = "linux"))]
+        // The default permissions of Windows are not enough to enable this function,
         // and the administrator permissions of group permissions must be turned on.
         // This operation is very burdensome for windows users, so it is turned off by default
+        //
+        // The integration test fails after MacOS is turned on, the behavior is different from linux.
+        // Decision to turn off it
         let p2p_service = service_builder.build(event_handler);
 
         // == Build background service tasks
