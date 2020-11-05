@@ -934,6 +934,7 @@ version = "0.38.0-pre"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
+ "serde",
 ]
 
 [[package]]
