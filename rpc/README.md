@@ -152,7 +152,9 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
     * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TxPoolIds`](#type-txpoolids)
     * [Type `TxPoolInfo`](#type-txpoolinfo)
+    * [Type `TxPoolVerbosity`](#type-txpoolverbosity)
     * [Type `TxStatus`](#type-txstatus)
     * [Type `U256`](#type-u256)
     * [Type `Uint128`](#type-uint128)
@@ -4774,15 +4776,9 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `RawTxPool`
 
-All transaction in tx-pool
+All transactions in tx-pool.
 
-Verbose True for a json object, false for array of transaction ids
-
-`RawTxPool` is equivalent to `"ids" | "verbose"`.
-
-*   verbose = false
-*   verbose = true
-
+`RawTxPool` is equivalent to [`TxPoolIds`](#type-txpoolids) `|` [`TxPoolVerbosity`](#type-txpoolverbosity).
 
 ### Type `RemoteNode`
 
@@ -5181,6 +5177,19 @@ The JSON view of a transaction as well as its status.
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
 
+### Type `TxPoolIds`
+
+Array of transaction ids
+
+#### Fields
+
+`TxPoolIds` is a JSON object with the following fields.
+
+*   `pending`: `Array<` [`H256`](#type-h256) `>` - Pending transaction ids
+
+*   `proposed`: `Array<` [`H256`](#type-h256) `>` - Proposed transaction ids
+
+
 ### Type `TxPoolInfo`
 
 Transaction pool information.
@@ -5216,6 +5225,19 @@ Transaction pool information.
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
 *   `last_txs_updated_at`: [`Timestamp`](#type-timestamp) - Last updated time. This is the Unix timestamp in milliseconds.
+
+
+### Type `TxPoolVerbosity`
+
+Tx-pool verbose object
+
+#### Fields
+
+`TxPoolVerbosity` is a JSON object with the following fields.
+
+*   `pending`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Pending tx verbose info
+
+*   `proposed`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Proposed tx verbose info
 
 
 ### Type `TxStatus`

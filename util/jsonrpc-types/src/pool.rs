@@ -152,9 +152,12 @@ impl From<TxPoolEntryInfo> for TxPoolVerbosity {
     }
 }
 
-/// All transaction in tx-pool
+/// All transactions in tx-pool.
 ///
-/// Verbose True for a json object, false for array of transaction ids
+/// `RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolVerbosity`][].
+///
+/// [`TxPoolIds`]: struct.TxPoolIds.html
+/// [`TxPoolVerbosity`]: struct.TxPoolVerbosity.html
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(untagged)]
 pub enum RawTxPool {

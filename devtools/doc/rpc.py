@@ -244,6 +244,8 @@ class RPCVar():
                 self.require_children(1)
             elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
                 self.require_children(1)
+            elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+                self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                 self.require_children(2)
             elif self.ty.startswith('../') and '/struct.' in self.ty:
@@ -272,6 +274,8 @@ class RPCVar():
                         self.ty = '{} `|` `null`'.format(self.children[0].ty)
                     elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
                         self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
+                    elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+                        self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(self.children[0].ty, self.children[1].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                         molecule_name = self.children[1].ty.split(
                             '`](')[0][2:]
@@ -563,7 +567,7 @@ class RPCType(HTMLParser):
         self.path = path
         self.module_doc = None
 
-        if '/enum.' in path:
+        if '/enum.' in path and self.name != 'RawTxPool':
             self.schema = EnumSchema(self.name)
         elif '/struct.' in path:
             self.schema = StructSchema(self.name)
@@ -653,6 +657,9 @@ class RPCDoc(object):
 
         # PoolTransactionEntry is not used in RPC but in the Subscription events.
         self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
+        # Referenced by RawTxPool
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolIds.html')
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolVerbosity.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
