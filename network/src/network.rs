@@ -78,7 +78,7 @@ pub struct NetworkState {
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
-    public_addrs: RwLock<HashMap<Multiaddr, u8>>,
+    public_addrs: RwLock<HashSet<Multiaddr>>,
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
@@ -96,11 +96,11 @@ impl NetworkState {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
-        let public_addrs: HashMap<Multiaddr, u8> = config
+        let public_addrs: HashSet<Multiaddr> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
-            .map(|addr| (addr.to_owned(), std::u8::MAX))
+            .cloned()
             .collect();
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
@@ -296,19 +296,13 @@ impl NetworkState {
         self.local_private_key().peer_id().to_base58()
     }
 
-    pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+    pub(crate) fn public_addrs(&self, count: usize) -> Vec<Multiaddr> {
         self.public_addrs
             .read()
             .iter()
             .take(count)
-            .map(|(addr, score)| (addr.to_owned(), *score))
+            .cloned()
             .collect()
-    }
-
-    pub(crate) fn vote_listened_addr(&self, addr: Multiaddr, votes: u8) {
-        let mut public_addrs = self.public_addrs.write();
-        let score = public_addrs.entry(addr).or_default();
-        *score = score.saturating_add(votes);
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
@@ -320,7 +314,13 @@ impl NetworkState {
         let listened_addrs = self.listened_addrs.read();
         self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
             .into_iter()
-            .filter(|(addr, _)| !listened_addrs.contains(addr))
+            .filter_map(|addr| {
+                if !listened_addrs.contains(&addr) {
+                    Some((addr, 1))
+                } else {
+                    None
+                }
+            })
             .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (self.to_external_url(&addr), score))
             .collect()
@@ -358,7 +358,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains_key(&addr) {
+        if self.public_addrs.read().contains(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -475,7 +475,11 @@ impl NetworkState {
     /// this method is intent to check observed addr by dial to self
     pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        for addr in pending_observed_addrs.drain() {
+        let public_addrs = self.public_addrs.read().clone();
+        for addr in pending_observed_addrs
+            .drain()
+            .chain(public_addrs.into_iter())
+        {
             trace!("try dial observed addr: {:?}", addr);
             if let Err(err) = self.dial_inner(
                 p2p_control,
@@ -492,19 +496,9 @@ impl NetworkState {
     /// TODO(doc): @driftluo
     pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        let mut public_addrs = self.public_addrs.write();
         for addr in iter {
-            if let Some(score) = public_addrs.get_mut(&addr) {
-                *score = score.saturating_add(1);
-                trace!(
-                    "increase score for exists observed addr: {:?} {}",
-                    addr,
-                    score
-                );
-            } else {
-                trace!("pending observed addr: {:?}", addr,);
-                pending_observed_addrs.insert(addr);
-            }
+            trace!("pending observed addr: {:?}", addr,);
+            pending_observed_addrs.insert(addr);
         }
     }
 
@@ -590,19 +584,23 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             } => {
                 debug!("DialerError({}) {}", address, error);
 
+                let mut public_addrs = self.network_state.public_addrs.write();
+                let addr = address
+                    .iter()
+                    .filter(|proto| match proto {
+                        multiaddr::Protocol::P2P(_) => false,
+                        _ => true,
+                    })
+                    .collect();
+
                 if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
                     SecioError::ConnectSelf,
                 )) = error
                 {
                     debug!("dial observed address success: {:?}", address);
-                    let addr = address
-                        .iter()
-                        .filter(|proto| match proto {
-                            multiaddr::Protocol::P2P(_) => false,
-                            _ => true,
-                        })
-                        .collect();
-                    self.network_state.vote_listened_addr(addr, 1);
+                    public_addrs.insert(addr);
+                } else {
+                    public_addrs.remove(&addr);
                 }
                 let peer_id = extract_peer_id(address).expect("Secio must enabled");
                 self.network_state.dial_failed(peer_id);
@@ -869,12 +867,89 @@ impl<T: ExitHandler> NetworkService<T> {
             network_state: Arc::clone(&network_state),
             exit_handler,
         };
-        let p2p_service = service_builder
+        service_builder = service_builder
             .key_pair(network_state.local_private_key.clone())
             .upnp(config.upnp)
             .forever(true)
-            .max_connection_number(1024)
-            .build(event_handler);
+            .max_connection_number(1024);
+
+        #[cfg(target_os = "linux")]
+        let p2p_service = {
+            let iter = config.listen_addresses.iter();
+
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            enum TransportType {
+                Ws,
+                Tcp,
+            }
+
+            fn find_type(addr: &Multiaddr) -> TransportType {
+                let mut iter = addr.iter();
+
+                iter.find_map(|proto| {
+                    if let multiaddr::Protocol::Ws = proto {
+                        Some(TransportType::Ws)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(TransportType::Tcp)
+            }
+
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            enum BindType {
+                None,
+                Ws,
+                Tcp,
+                Both,
+            }
+            impl BindType {
+                fn transform(&mut self, other: TransportType) {
+                    match (&self, other) {
+                        (BindType::None, TransportType::Ws) => *self = BindType::Ws,
+                        (BindType::None, TransportType::Tcp) => *self = BindType::Tcp,
+                        (BindType::Ws, TransportType::Tcp) => *self = BindType::Both,
+                        (BindType::Tcp, TransportType::Ws) => *self = BindType::Both,
+                        _ => (),
+                    }
+                }
+
+                fn is_ready(&self) -> bool {
+                    // should change to Both if ckb enable ws
+                    matches!(self, BindType::Tcp)
+                }
+            }
+
+            let mut init = BindType::None;
+            for addr in iter {
+                if init.is_ready() {
+                    break;
+                }
+                match find_type(addr) {
+                    // wait ckb enable ws support
+                    TransportType::Ws => (),
+                    TransportType::Tcp => {
+                        // only bind once
+                        if matches!(init, BindType::Tcp) {
+                            continue;
+                        }
+                        service_builder = service_builder.tcp_bind(addr.clone());
+                        init.transform(TransportType::Tcp)
+                    }
+                }
+            }
+
+            service_builder.build(event_handler)
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        // The default permissions of Windows are not enough to enable this function,
+        // and the administrator permissions of group permissions must be turned on.
+        // This operation is very burdensome for windows users, so it is turned off by default
+        //
+        // The integration test fails after MacOS is turned on, the behavior is different from linux.
+        // Decision to turn off it
+        let p2p_service = service_builder.build(event_handler);
 
         // == Build background service tasks
         let dump_peer_store_service = DumpPeerStoreService::new(Arc::clone(&network_state));
