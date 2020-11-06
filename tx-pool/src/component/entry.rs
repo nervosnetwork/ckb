@@ -1,7 +1,7 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{Capacity, Cycle, TransactionView},
+    core::{tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
@@ -136,6 +136,18 @@ impl TxEntry {
                 .as_u64()
                 .saturating_sub(entry.ancestors_fee.as_u64()),
         );
+    }
+
+    /// Converts entry to a `TxEntryInfo`.
+    pub fn to_info(&self) -> TxEntryInfo {
+        TxEntryInfo {
+            cycles: self.cycles,
+            size: self.size as u64,
+            fee: self.fee,
+            ancestors_size: self.ancestors_size as u64,
+            ancestors_cycles: self.ancestors_cycles as u64,
+            ancestors_count: self.ancestors_count as u64,
+        }
     }
 }
 

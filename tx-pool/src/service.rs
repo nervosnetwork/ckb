@@ -14,7 +14,10 @@ use ckb_notify::NotifyController;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
-    core::{BlockView, Cycle, TransactionView, UncleBlockView, Version},
+    core::{
+        tx_pool::{TxPoolEntryInfo, TxPoolIds},
+        BlockView, Cycle, TransactionView, UncleBlockView, Version,
+    },
     packed::ProposalShortId,
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
@@ -110,6 +113,10 @@ pub enum Message {
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     /// TODO(doc): @zhangsoledad
     ClearPool(Request<Arc<Snapshot>, ()>),
+    /// TODO(doc): @zhangsoledad
+    GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
+    /// TODO(doc): @zhangsoledad
+    GetAllIds(Request<(), TxPoolIds>),
 }
 
 /// TODO(doc): @zhangsoledad
@@ -330,6 +337,32 @@ impl TxPoolController {
         let (responder, response) = oneshot::channel();
         let request = Request::call(new_snapshot, responder);
         sender.try_send(Message::ClearPool(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
+        self.handle.block_on(response).map_err(Into::into)
+    }
+
+    /// TODO(doc): @zhangsoledad
+    pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call((), responder);
+        sender
+            .try_send(Message::GetAllEntryInfo(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        self.handle.block_on(response).map_err(Into::into)
+    }
+
+    /// TODO(doc): @zhangsoledad
+    pub fn get_all_ids(&self) -> Result<TxPoolIds, FailureError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call((), responder);
+        sender.try_send(Message::GetAllIds(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
@@ -595,6 +628,20 @@ async fn process(service: TxPoolService, message: Message) {
             service.clear_pool(new_snapshot).await;
             if let Err(e) = responder.send(()) {
                 error!("responder send clear_pool failed {:?}", e)
+            };
+        }
+        Message::GetAllEntryInfo(Request { responder, .. }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let info = tx_pool.get_all_entry_info();
+            if let Err(e) = responder.send(info) {
+                error!("responder send get_all_entry_info failed {:?}", e)
+            };
+        }
+        Message::GetAllIds(Request { responder, .. }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let ids = tx_pool.get_ids();
+            if let Err(e) = responder.send(ids) {
+                error!("responder send get_ids failed {:?}", e)
             };
         }
     }

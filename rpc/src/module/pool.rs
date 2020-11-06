@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_fee_estimator::FeeRate;
-use ckb_jsonrpc_types::{OutputsValidator, Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
@@ -169,6 +169,50 @@ pub trait PoolRpc {
     /// ```
     #[rpc(name = "clear_tx_pool")]
     fn clear_tx_pool(&self) -> Result<()>;
+
+    /// Returns all transaction ids in tx pool as a json array of string transaction ids.
+    /// ## Params
+    ///
+    /// * `verbose` - True for a json object, false for array of transaction ids, default=false
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_raw_tx_pool",
+    ///   "params": [true]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result":
+    ///    {
+    ///        "pending": {
+    ///            "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3": {
+    ///                "cycles": "0x219",
+    ///                "size": "0x112",
+    ///                "fee": "0x16923f7dcf",
+    ///                "ancestors_size": "0x112",
+    ///                "ancestors_cycles": "0x219",
+    ///                "ancestors_count": "0x1"
+    ///            }
+    ///        },
+    ///        "proposed": {}
+    ///    }
+    /// }
+    /// ```
+
+    #[rpc(name = "get_raw_tx_pool")]
+    fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
 }
 
 pub(crate) struct PoolRpcImpl {
@@ -297,6 +341,23 @@ impl PoolRpc for PoolRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())
+    }
+
+    fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool> {
+        let tx_pool = self.shared.tx_pool_controller();
+
+        let raw = if verbose.unwrap_or(false) {
+            let info = tx_pool
+                .get_all_entry_info()
+                .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+            RawTxPool::Verbose(info.into())
+        } else {
+            let ids = tx_pool
+                .get_all_ids()
+                .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+            RawTxPool::Ids(ids.into())
+        };
+        Ok(raw)
     }
 }
 

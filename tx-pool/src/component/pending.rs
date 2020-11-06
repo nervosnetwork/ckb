@@ -36,6 +36,10 @@ impl PendingQueue {
         self.inner.contains_key(id)
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&ProposalShortId, &TxEntry)> {
+        self.inner.iter()
+    }
+
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.inner.get(id)
     }
