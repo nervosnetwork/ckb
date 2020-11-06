@@ -4,7 +4,7 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_fee_estimator::FeeRate;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
-    TargetSession,
+    SupportProtocols, TargetSession,
 };
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -163,9 +163,29 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     )
 }
 
-#[derive(Default)]
 pub(crate) struct MockProtocalContext {
-    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    protocol: SupportProtocols,
+    sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+}
+
+impl MockProtocalContext {
+    pub(crate) fn new(protocol: SupportProtocols) -> Self {
+        Self {
+            protocol,
+            sent_messages: Default::default(),
+        }
+    }
+
+    pub(crate) fn has_sent(
+        &self,
+        protocol_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: P2pBytes,
+    ) -> bool {
+        self.sent_messages
+            .borrow()
+            .contains(&(protocol_id, peer_index, data))
+    }
 }
 
 impl CKBProtocolContext for MockProtocalContext {
@@ -234,7 +254,7 @@ impl CKBProtocolContext for MockProtocalContext {
         unimplemented!();
     }
     fn protocol_id(&self) -> ProtocolId {
-        Default::default()
+        self.protocol.protocol_id()
     }
     fn send_paused(&self) -> bool {
         false
