@@ -151,7 +151,7 @@ fn run() -> App<'static, 'static> {
         .arg(
             Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .long(ARG_SKIP_CHAIN_SPEC_CHECK)
-                .help("Enforce consistency check on chain-spec and storage"),
+                .help("Skips checking the chain spec with the hash stored in the database"),
         )
 }
 

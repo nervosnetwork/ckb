@@ -187,7 +187,7 @@ fn check_spec(shared: &Shared, args: &RunArgs) -> Result<(), ExitCode> {
     if let Some(spec_hash) = store.get_chain_spec_hash() {
         if args.chain_spec_hash != spec_hash && !args.skip_chain_spec_check {
             eprintln!(
-                "chain_spec_hash mismatch Config({}) storage({})",
+                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument --skip-spec-check if you are sure that the two different chains are compatible.",
                 args.chain_spec_hash, spec_hash
             );
             return Err(ExitCode::Config);
