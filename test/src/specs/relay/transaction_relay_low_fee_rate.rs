@@ -79,7 +79,7 @@ impl Spec for TransactionRelayLowFeeRate {
             node0,
             node0_log_size,
             10,
-            "error: SubmitTransaction(Transaction fee rate must >= 242 shannons/KB, got: 0)"
+            "error: SubmitTransaction(The min fee rate is 1000 shannons/KB, so the transaction fee should be 242 shannons at least, but only got 0)"
         )
         .is_some());
 

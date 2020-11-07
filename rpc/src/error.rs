@@ -154,7 +154,7 @@ impl RPCError {
     /// TODO(doc): @doitian
     pub fn from_submit_transaction_reject(reject: &Reject) -> Error {
         let code = match reject {
-            Reject::LowFeeRate(_, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
+            Reject::LowFeeRate(_, _, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
             Reject::ExceededMaximumAncestorsCount => {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
@@ -247,6 +247,7 @@ impl RPCError {
 mod tests {
     use super::*;
     use ckb_dao_utils::DaoError;
+    use ckb_fee_estimator::FeeRate;
     use ckb_types::{core::error::OutPointError, packed::Byte32};
 
     #[test]
@@ -260,9 +261,10 @@ mod tests {
 
     #[test]
     fn test_submit_transaction_error() {
-        let err: CKBError = Reject::LowFeeRate(100, 50).into();
+        let min_fee_rate = FeeRate::from_u64(500);
+        let err: CKBError = Reject::LowFeeRate(min_fee_rate, 100, 50).into();
         assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: Transaction fee rate must >= 100 shannons/KB, got: 50",
+            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KB, so the transaction fee should be 100 shannons at least, but only got 50",
             RPCError::from_submit_transaction_reject(RPCError::downcast_submit_transaction_reject(&err).unwrap()).message
         );
 

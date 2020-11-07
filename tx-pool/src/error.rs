@@ -1,5 +1,6 @@
 //! TODO(doc): @zhangsoledad
 use ckb_error::{Error, ErrorKind};
+use ckb_fee_estimator::FeeRate;
 use ckb_types::packed::Byte32;
 use failure::Fail;
 use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
@@ -9,10 +10,10 @@ use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
 pub enum Reject {
     /// The fee rate of transaction is lower than min fee rate
     #[fail(
-        display = "Transaction fee rate must >= {} shannons/KB, got: {}",
-        _0, _1
+        display = "The min fee rate is {} shannons/KB, so the transaction fee should be {} shannons at least, but only got {}",
+        _0, _1, _2
     )]
-    LowFeeRate(u64, u64),
+    LowFeeRate(FeeRate, u64, u64),
 
     /// TODO(doc): @zhangsoledad
     #[fail(display = "Transaction exceeded maximum ancestors count limit, try send it later")]
