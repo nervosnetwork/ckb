@@ -4,6 +4,7 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+#[cfg(feature = "with_sentry")]
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
@@ -26,6 +27,7 @@ pub struct Setup {
     /// TODO(doc): @doitian
     pub config: AppConfig,
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub is_sentry_enabled: bool,
 }
 
@@ -42,11 +44,13 @@ impl Setup {
 
         let root_dir = Self::root_dir_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        #[cfg(feature = "with_sentry")]
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),
             config,
+            #[cfg(feature = "with_sentry")]
             is_sentry_enabled,
         })
     }
@@ -276,6 +280,7 @@ impl Setup {
         Ok(config_dir)
     }
 
+    #[cfg(feature = "with_sentry")]
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec();
         if let Ok(spec) = &result {
@@ -290,7 +295,13 @@ impl Setup {
         result
     }
 
+    #[cfg(not(feature = "with_sentry"))]
+    fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
+        self.config.chain_spec()
+    }
+
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         let result = consensus_from_spec(&self.chain_spec()?);
 
@@ -303,6 +314,11 @@ impl Setup {
         }
 
         result
+    }
+
+    #[cfg(not(feature = "with_sentry"))]
+    pub fn consensus(&self) -> Result<Consensus, ExitCode> {
+        consensus_from_spec(&self.chain_spec()?)
     }
 
     /// TODO(doc): @doitian
@@ -342,6 +358,7 @@ macro_rules! option_value_t {
     };
 }
 
+#[cfg(feature = "with_sentry")]
 fn is_daemon(subcommand_name: &str) -> bool {
     match subcommand_name {
         cli::CMD_RUN => true,

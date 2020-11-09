@@ -11,6 +11,7 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::CacheEntry;
 use ckb_verification::TransactionError;
+#[cfg(feature = "with_sentry")]
 use sentry::{capture_message, with_scope, Level};
 use std::sync::Arc;
 use std::time::Duration;
@@ -158,6 +159,7 @@ impl<'a> TransactionsProcess<'a> {
                         peer_index,
                         err
                     );
+                    #[cfg(feature = "with_sentry")]
                     with_scope(
                         |scope| scope.set_fingerprint(Some(&["ckb-sync", "relay-invalid-tx"])),
                         || {

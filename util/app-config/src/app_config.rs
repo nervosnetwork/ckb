@@ -16,6 +16,7 @@ use ckb_metrics_config::Config as MetricsConfig;
 use ckb_resource::Resource;
 
 use super::configs::*;
+#[cfg(feature = "with_sentry")]
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
 
@@ -38,6 +39,7 @@ pub struct CKBAppConfig {
     /// TODO(doc): @doitian
     pub logger: LogConfig,
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub sentry: SentryConfig,
     /// TODO(doc): @doitian
     #[serde(default)]
@@ -83,6 +85,7 @@ pub struct MinerAppConfig {
     /// TODO(doc): @doitian
     pub logger: LogConfig,
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub sentry: SentryConfig,
     /// TODO(doc): @doitian
     #[serde(default)]
@@ -136,6 +139,7 @@ impl AppConfig {
     }
 
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub fn sentry(&self) -> &SentryConfig {
         match self {
             AppConfig::CKB(config) => &config.sentry,
