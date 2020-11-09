@@ -61,6 +61,8 @@ pub enum StatusCode {
     CompactBlockRequiresFreshTransactions = 107,
     /// CompactBlock short-ids collision
     CompactBlockMeetsShortIdsCollision = 108,
+    /// In-flight blocks limit exceeded
+    BlocksInFlightReachLimit = 109,
 
     ///////////////////////////////////
     //      Malformed Errors 4xx     //
@@ -106,8 +108,6 @@ pub enum StatusCode {
     TxPool = 501,
     /// Errors returned from the network layer
     Network = 502,
-    /// In-flight blocks limit exceeded
-    BlocksInFlightReachLimit = 503,
 }
 
 impl StatusCode {
