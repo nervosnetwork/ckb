@@ -13,6 +13,7 @@ mod net;
 mod pool;
 mod primitive;
 mod proposal_short_id;
+mod subscription;
 mod sync;
 mod uints;
 
@@ -44,6 +45,7 @@ pub use self::pool::{
     TxVerbosity,
 };
 pub use self::proposal_short_id::ProposalShortId;
+pub use self::subscription::Topic;
 pub use self::sync::PeerState;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
