@@ -21,8 +21,8 @@ use crate::{
     Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
 use ckb_app_config::NetworkConfig;
-use ckb_async_runtime::Handle;
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future, StreamExt};
@@ -41,6 +41,7 @@ use p2p::{
 };
 #[cfg(feature = "with_sentry")]
 use sentry::{capture_message, with_scope, Level};
+use std::sync::mpsc;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -987,7 +988,7 @@ impl<T: ExitHandler> NetworkService<T> {
     }
 
     /// TODO(doc): @driftluo
-    pub fn start(self, handle: &Handle) -> Result<NetworkController, Error> {
+    pub fn start<S: Spawn>(self, handle: &S) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
@@ -1042,11 +1043,11 @@ impl<T: ExitHandler> NetworkService<T> {
             .unzip();
 
         let (sender, mut receiver) = oneshot::channel();
-        let (start_sender, start_receiver) = oneshot::channel();
+        let (start_sender, start_receiver) = mpsc::channel();
         {
             let network_state = Arc::clone(&network_state);
             let p2p_control = p2p_control.clone();
-            handle.spawn(async move {
+            handle.spawn_task(async move {
                 for addr in &config.listen_addresses {
                     match p2p_service.listen(addr.to_owned()).await {
                         Ok(listen_address) => {
@@ -1109,7 +1110,7 @@ impl<T: ExitHandler> NetworkService<T> {
             });
         }
         for (mut service, mut receiver) in bg_receivers {
-            handle.spawn(async move {
+            handle.spawn_task(async move {
                 loop {
                     tokio::select! {
                         _ = &mut service => {},
@@ -1119,7 +1120,7 @@ impl<T: ExitHandler> NetworkService<T> {
             });
         }
 
-        if let Ok(Err(e)) = handle.block_on(start_receiver) {
+        if let Ok(Err(e)) = start_receiver.recv() {
             return Err(e);
         }
 

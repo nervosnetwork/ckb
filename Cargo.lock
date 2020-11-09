@@ -415,6 +415,7 @@ name = "ckb-async-runtime"
 version = "0.38.0-pre"
 dependencies = [
  "ckb-logger",
+ "ckb-spawn",
  "ckb-stop-handler",
  "tokio 0.2.23",
 ]
@@ -838,9 +839,9 @@ dependencies = [
  "bloom-filters",
  "bs58",
  "ckb-app-config",
- "ckb-async-runtime",
  "ckb-hash",
  "ckb-logger",
+ "ckb-spawn",
  "ckb-stop-handler",
  "ckb-types",
  "ckb-util",
@@ -1111,6 +1112,10 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
 ]
+
+[[package]]
+name = "ckb-spawn"
+version = "0.38.0-pre"
 
 [[package]]
 name = "ckb-stop-handler"
