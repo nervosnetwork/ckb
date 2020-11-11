@@ -8,7 +8,6 @@ CKB looks for configuration files in `<config-dir>`, which is the current workin
 -   `ckb miner`: `ckb-miner.toml`
 -   `ckb import`: `ckb.toml`
 -   `ckb export`: `ckb.toml`
--   `ckb cli`: no config file required yet
 
 Command line argument `-C <path>` sets the value of `<config-dir>` to `<path>`.
 
