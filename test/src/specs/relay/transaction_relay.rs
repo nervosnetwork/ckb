@@ -1,6 +1,7 @@
-use crate::node::{connect_all, exit_ibd_mode, waiting_for_sync};
+use crate::node::{connect_all, waiting_for_sync};
+use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 use ckb_sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
 use ckb_types::{
@@ -16,10 +17,10 @@ impl Spec for TransactionRelayBasic {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
         connect_all(nodes);
-        exit_ibd_mode(nodes);
 
-        nodes[0].generate_blocks_until_contains_valid_cellbase();
+        mine_until_out_bootstrap_period(&nodes[0]);
         let hash = nodes[0].generate_transaction();
         let relayed = wait_until(10, || {
             nodes
@@ -45,7 +46,7 @@ impl Spec for TransactionRelayMultiple {
 
         let node0 = &nodes[0];
         (0..node0.consensus().tx_proposal_window().farthest() + 2).for_each(|_| {
-            exit_ibd_mode(nodes);
+            out_ibd_mode(nodes);
         });
 
         info!("Use generated block's cellbase as tx input");
@@ -82,9 +83,9 @@ impl Spec for TransactionRelayMultiple {
         node0
             .rpc_client()
             .send_transaction(transaction.data().into());
-        node0.generate_block();
-        node0.generate_block();
-        node0.generate_block();
+        mine(&node0, 1);
+        mine(&node0, 1);
+        mine(&node0, 1);
         waiting_for_sync(nodes);
 
         info!("Send multiple transactions to node0");
@@ -110,9 +111,9 @@ impl Spec for TransactionRelayMultiple {
                 node0.rpc_client().send_transaction(tx.data().into());
             });
 
-        node0.generate_block();
-        node0.generate_block();
-        node0.generate_block();
+        mine(&node0, 1);
+        mine(&node0, 1);
+        mine(&node0, 1);
         waiting_for_sync(nodes);
 
         info!("All transactions should be relayed and mined");
@@ -132,7 +133,7 @@ pub struct TransactionRelayTimeout;
 impl Spec for TransactionRelayTimeout {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
-        node.generate_blocks(4);
+        mine(&node, 4);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -169,7 +170,7 @@ pub struct RelayInvalidTransaction;
 impl Spec for RelayInvalidTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes.pop().unwrap();
-        node.generate_blocks(4);
+        mine(&node, 4);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -225,14 +226,14 @@ impl Spec for TransactionRelayEmptyPeers {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
         node0.connect(node1);
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 3);
+        mine_until_out_bootstrap_period(node0);
+        waiting_for_sync(nodes);
         info!("Disconnect node1 and generate new transaction on node0");
         node0.disconnect(&node1);
         let hash = node0.generate_transaction();

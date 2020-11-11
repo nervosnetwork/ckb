@@ -1,5 +1,6 @@
 use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
+use crate::util::mining::mine;
 use crate::{Node, TXOSet};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_network::bytes::Bytes;
@@ -226,13 +227,13 @@ pub fn temp_path(case_name: &str, suffix: &str) -> PathBuf {
 pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     // Ensure all the cellbases will be used later are already mature.
     let cellbase_maturity = node.consensus().cellbase_maturity();
-    node.generate_blocks(cellbase_maturity.index() as usize);
+    mine(node, cellbase_maturity.index());
 
     // Explode these mature cellbases into multiple cells
     let mut n_outputs = 0;
     let mut txs = Vec::new();
     while n > n_outputs {
-        node.generate_block();
+        mine(node, 1);
         let mature_number = node.get_tip_block_number() - cellbase_maturity.index();
         let mature_block = node.get_block_by_number(mature_number);
         let mature_cellbase = mature_block.transaction(0).unwrap();
@@ -251,7 +252,7 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
         node.submit_transaction(tx);
     });
     while txs.iter().any(|tx| !is_transaction_committed(node, tx)) {
-        node.generate_blocks(node.consensus().finalization_delay_length() as usize);
+        mine(node, node.consensus().finalization_delay_length());
     }
 
     let mut utxos = TXOSet::default();

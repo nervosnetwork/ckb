@@ -89,7 +89,7 @@ impl Spec for InsufficientReward {
     // export data
     // fn run(&self, nodes: &mut Vec<Node>) {
     //     let node = &mut nodes[0];
-    //     let hashes = node.generate_blocks(100);
+    //     let hashes = mine(&node, 100);
 
     //     for hash in hashes {
     //         let blk: BlockView = node.rpc_client().get_block(hash).unwrap().into();

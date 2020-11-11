@@ -1,4 +1,5 @@
 use crate::generic::GetCommitTxIds;
+use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::core::Capacity;
 
@@ -8,7 +9,7 @@ impl Spec for TemplateTxSelect {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         // prepare blocks
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 6) as usize);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
         let number = node.get_tip_block_number();
         let blank_block_size = node
             .get_tip_block()
@@ -33,7 +34,7 @@ impl Spec for TemplateTxSelect {
             });
 
         // skip proposal window
-        node.generate_blocks(DEFAULT_TX_PROPOSAL_WINDOW.0 as usize);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
 
         let new_block = node.new_block(Some(blank_block_size as u64 + 900), None, None);
         // should choose two txs: 501, 300

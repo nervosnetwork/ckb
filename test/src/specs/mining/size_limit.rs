@@ -1,4 +1,5 @@
 use crate::generic::GetCommitTxIds;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::prelude::Unpack;
 use log::info;
@@ -13,7 +14,7 @@ impl Spec for TemplateSizeLimit {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks_until_contains_valid_cellbase();
+        mine_until_out_bootstrap_period(node);
 
         // get blank block size
         let blank_block = node.new_block(None, None, None);
@@ -42,7 +43,7 @@ impl Spec for TemplateSizeLimit {
         });
 
         // skip proposal window
-        node.generate_blocks(DEFAULT_TX_PROPOSAL_WINDOW.0 as usize);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
 
         for bytes_limit in (1000..=2000).step_by(100) {
             let new_block = node.new_block(Some(bytes_limit), None, None);

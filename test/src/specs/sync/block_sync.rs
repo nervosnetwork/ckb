@@ -1,4 +1,6 @@
-use crate::node::exit_ibd_mode;
+use crate::node::waiting_for_sync;
+use crate::util::mining::mine;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::{
     build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
     now_ms, sleep, wait_until,
@@ -28,7 +30,7 @@ impl Spec for BlockSyncFromOne {
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
         (0..3).for_each(|_| {
-            node0.generate_block();
+            mine(&node0, 1);
         });
 
         node1.connect(node0);
@@ -52,9 +54,9 @@ impl Spec for BlockSyncWithUncle {
 
     // Case: Sync a block with uncle
     fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
         let target = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
 
         let new_builder = node1.new_block_builder(None, None, None);
         let new_block1 = new_builder.clone().nonce(0.pack()).build();
@@ -74,7 +76,7 @@ impl Spec for BlockSyncWithUncle {
         node1.submit_block(&block_builder.set_uncles(vec![uncle.clone()]).build());
 
         target.connect(node1);
-        target.waiting_for_sync(node1, 3);
+        waiting_for_sync(nodes);
 
         // check whether node panic
         assert!(target.rpc_client().get_block(uncle.hash()).is_none());
@@ -154,15 +156,14 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        let rpc_client = node.rpc_client();
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
+
         let mut net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Sync]);
-        net.connect(node);
+        let block = node.new_block(None, None, None);
 
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
-        let block = node.new_block(None, None, None);
+        net.connect(node);
         sync_header(&net, node, &block);
-
         should_receive_get_blocks_message(&net, node, block.hash());
 
         // Sync duplicated header again, `node` should discard the duplicated one.
@@ -179,19 +180,20 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let peers_num = ctrl.connected_peers().len();
         let peer = ctrl.connected_peers()[peers_num - 1].clone();
         ctrl.remove_node(&peer.1.peer_id);
-        wait_until(5, || {
-            rpc_client.get_peers().is_empty() && ctrl.connected_peers().is_empty()
+        let ret = wait_until(5, || {
+            node.rpc_client().get_peers().is_empty() && ctrl.connected_peers().is_empty()
         });
+        assert!(ret, "Net disconnect node");
 
+        // Sync that header to `node` once more, `node` should send back a corresponding GetBlocks
+        // message
         net.connect(node);
         sync_header(&net, node, &block);
-
         should_receive_get_blocks_message(&net, node, block.hash());
 
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, node, &block);
-        let hash = block.header().hash();
-        wait_until(10, || rpc_client.get_tip_header().hash == hash.unpack());
+        wait_until(10, || node.get_tip_block() == block);
     }
 }
 
@@ -203,7 +205,7 @@ impl Spec for BlockSyncOrphanBlocks {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=5)
@@ -256,7 +258,7 @@ impl Spec for BlockSyncRelayerCollaboration {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=17)
@@ -312,7 +314,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         // By picking blocks this way, we ensure that block a and b has
         // the same difficulty, but different hash. So
@@ -364,7 +366,7 @@ impl Spec for RequestUnverifiedBlocks {
         let target_node = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         let main_chain = build_forks(node1, &[0; 6]);
         let fork_chain = build_forks(node2, &[1; 5]);
@@ -425,7 +427,7 @@ impl Spec for SyncTooNewBlock {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         let future = Duration::from_secs(6_000).as_millis() as u64;
 
@@ -443,13 +445,13 @@ impl Spec for SyncTooNewBlock {
         node1.connect(node0);
 
         // sync node0 node2
-        node2.generate_blocks(6);
+        mine(node2, 6);
         node2.connect(node0);
-        node2.waiting_for_sync(node0, node2.get_tip_block_number());
+        waiting_for_sync(&[node0, node2]);
         node2.disconnect(node0);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        node0.generate_block();
+        mine(&node0, 1);
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();

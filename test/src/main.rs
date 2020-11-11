@@ -260,7 +260,6 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 
 fn all_specs() -> Vec<Box<dyn Spec>> {
     let mut specs: Vec<Box<dyn Spec>> = vec![
-        Box::new(BlockRelayBasic),
         Box::new(BlockSyncFromOne),
         Box::new(BlockSyncForks),
         Box::new(BlockSyncDuplicatedAndReconnect),

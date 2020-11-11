@@ -1,4 +1,5 @@
 use crate::specs::dao::dao_verifier::DAOVerifier;
+use crate::util::mining::mine;
 use crate::{Node, Spec};
 
 pub struct DAOVerify;
@@ -11,7 +12,7 @@ impl Spec for DAOVerify {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let genesis_epoch_length = node.consensus().genesis_epoch_ext().length();
-        node.generate_blocks(genesis_epoch_length as usize * 5);
+        mine(node, genesis_epoch_length * 5);
         DAOVerifier::init(node).verify();
     }
 }

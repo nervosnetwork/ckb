@@ -1,4 +1,5 @@
 use crate::specs::tx_pool::utils::prepare_tx_family;
+use crate::util::mining::mine;
 use crate::utils::{blank, commit, propose};
 use crate::{Node, Spec};
 use std::collections::HashSet;
@@ -18,7 +19,7 @@ impl Spec for HandlingDescendantsOfProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -67,7 +68,7 @@ impl Spec for HandlingDescendantsOfCommitted {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -104,7 +105,7 @@ impl Spec for ProposeOutOfOrder {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -134,7 +135,7 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Propose `tx_family.a` into gap-pool.
         let family = prepare_tx_family(node);
@@ -162,7 +163,7 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Propose `tx_family.a` into proposed-pool.
         let family = prepare_tx_family(node);
@@ -193,7 +194,7 @@ impl Spec for ProposeTransactionButParentNot {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        node.generate_blocks((window.farthest() + 2) as usize);
+        mine(node, window.farthest() + 2);
 
         // 1. Propose `tx_family.a` and `tx_family.b` into pending-pool.
         let family = prepare_tx_family(node);

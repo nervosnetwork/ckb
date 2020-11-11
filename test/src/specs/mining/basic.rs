@@ -1,9 +1,9 @@
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_types::{core::BlockView, prelude::*};
-use std::convert::Into;
+use ckb_types::prelude::*;
 
 pub struct MiningBasic;
 
@@ -16,13 +16,13 @@ impl Spec for MiningBasic {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks_until_contains_valid_cellbase();
+        mine_until_out_bootstrap_period(node);
 
         let transaction = node.new_transaction_spend_tip_cellbase();
         node.submit_transaction(&transaction);
 
-        let block1_hash = node.generate_block();
-        let block1: BlockView = node.rpc_client().get_block(block1_hash).unwrap().into();
+        mine(&node, 1);
+        let block1 = node.get_tip_block();
 
         assert_eq!(
             block1.get_proposal_tx_ids(),
@@ -30,12 +30,8 @@ impl Spec for MiningBasic {
         );
 
         // skip (proposal_window.closest - 1) block
-        (0..DEFAULT_TX_PROPOSAL_WINDOW.0 - 1).for_each(|_| {
-            node.generate_block();
-        });
-
-        let block3_hash = node.generate_block();
-        let block3: BlockView = node.rpc_client().get_block(block3_hash).unwrap().into();
+        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        let block3 = node.get_tip_block();
 
         assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());
     }

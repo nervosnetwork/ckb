@@ -1,8 +1,9 @@
-use crate::node::{connect_all, exit_ibd_mode};
+use crate::node::connect_all;
 use crate::util::check::is_transaction_committed;
 use crate::util::log_monitor::monitor_log_until_expected_show;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::wait_until;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
@@ -14,7 +15,7 @@ impl Spec for TransactionRelayLowFeeRate {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         connect_all(nodes);
 
         let node0 = &nodes[0];
@@ -22,12 +23,12 @@ impl Spec for TransactionRelayLowFeeRate {
         let node2 = &nodes[2];
 
         info!("Generate new transaction on node1");
-        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node1);
         let tx = node1.new_transaction_spend_tip_cellbase();
         node1.submit_transaction(&tx);
         let hash = tx.hash();
         // confirm tx
-        node1.generate_blocks(20);
+        mine(&node1, 20);
         let ret = wait_until(10, || is_transaction_committed(node1, &tx));
         assert!(ret, "send tx should success");
         let tx: TransactionView = packed::Transaction::from(

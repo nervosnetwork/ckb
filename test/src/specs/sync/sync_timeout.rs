@@ -1,4 +1,5 @@
 use crate::node::{disconnect_all, waiting_for_sync};
+use crate::util::mining::mine;
 use crate::{Node, Spec};
 use log::info;
 
@@ -15,7 +16,7 @@ impl Spec for SyncTimeout {
         let node4 = &nodes[4];
 
         info!("Generate 2 blocks on node0");
-        node0.generate_blocks(2);
+        mine(node0, 2);
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -28,14 +29,14 @@ impl Spec for SyncTimeout {
         disconnect_all(nodes);
 
         info!("Generate 200 blocks on node0");
-        node0.generate_blocks(200);
+        mine(node0, 200);
 
         node0.connect(node1);
         info!("Waiting for node0 and node1 sync");
-        node0.waiting_for_sync(node1, 202);
+        waiting_for_sync(&[node0, node1]);
 
         info!("Generate 200 blocks on node1");
-        node1.generate_blocks(200);
+        mine(node1, 200);
 
         node2.connect(node0);
         node2.connect(node1);

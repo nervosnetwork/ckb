@@ -1,3 +1,4 @@
+use crate::util::mining::mine;
 use crate::utils::{sleep, wait_until};
 use crate::{Node, Spec};
 use log::info;
@@ -23,7 +24,7 @@ impl Spec for IBDProcess {
         node0.connect(node3);
         node0.connect(node4);
         // The node's outbound connection does not retain the peer which in the ibd state
-        node0.generate_blocks(1);
+        mine(node0, 1);
         // will never connect
         node0.connect_uncheck(node5);
         node0.connect_uncheck(node6);
@@ -128,7 +129,7 @@ impl Spec for IBDProcessWithWhiteList {
         // After the whitelist is disconnected, it will always try to reconnect.
         // In order to ensure that the node6 has already generated two blocks when reconnecting,
         // it must be in the connected state, and then disconnected.
-        node6.generate_blocks(2);
+        mine(node6, 2);
 
         let generate_res = wait_until(10, || nodes[6].get_tip_block_number() == 2);
 

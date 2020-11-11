@@ -1,4 +1,4 @@
-use crate::node::exit_ibd_mode;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -16,7 +16,7 @@ pub struct InvalidLocatorSize;
 impl Spec for InvalidLocatorSize {
     fn run(&self, nodes: &mut Vec<Node>) {
         info!("Connect node0");
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node0 = &nodes[0];
         let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);

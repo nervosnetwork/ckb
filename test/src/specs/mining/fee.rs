@@ -1,6 +1,7 @@
 use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::util::check::is_transaction_committed;
+use crate::util::mining::mine;
 use crate::utils::generate_utxo_set;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
@@ -28,7 +29,7 @@ impl Spec for FeeOfTransaction {
 
         let number_to_propose = node.get_tip_block_number() + 1;
         let number_to_commit = number_to_propose + closest;
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -64,7 +65,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
         });
 
         let number_to_propose = node.get_tip_block_number() + 1;
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -108,7 +109,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
                 max_block_proposals_limit,
             );
         });
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
@@ -133,7 +134,7 @@ impl Spec for ProposeButNotCommit {
         let txs = generate_utxo_set(feed_node, 1)
             .bang_random_fee(vec![feed_node.always_success_cell_dep()]);
         feed_node.submit_transaction(&txs[0]);
-        feed_node.generate_block();
+        mine(&feed_node, 1);
 
         let feed_blocks: Vec<_> = (1..feed_node.get_tip_block_number())
             .map(|number| feed_node.get_block_by_number(number))
@@ -142,7 +143,7 @@ impl Spec for ProposeButNotCommit {
         feed_blocks.iter().for_each(|block| {
             target_node.submit_block(&block);
         });
-        target_node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(target_node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(!is_transaction_committed(target_node, &txs[0]));
     }
@@ -164,7 +165,7 @@ impl Spec for ProposeDuplicated {
                 .proposal(tx.proposal_short_id())
                 .build()
                 .as_uncle();
-            node.generate_block();
+            mine(&node, 1);
             uncle
         };
         let uncle2 = {
@@ -174,7 +175,7 @@ impl Spec for ProposeDuplicated {
                 .nonce(99999.pack())
                 .build()
                 .as_uncle();
-            node.generate_block();
+            mine(&node, 1);
             uncle
         };
 
@@ -186,7 +187,7 @@ impl Spec for ProposeDuplicated {
         node.submit_transaction(tx);
         node.submit_block(&block);
 
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);

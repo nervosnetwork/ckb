@@ -1,4 +1,5 @@
 use crate::util::check::is_transaction_committed;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::assert_send_transaction_fail;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_types::core::EpochNumberWithFraction;
@@ -13,7 +14,7 @@ impl Spec for ReferenceHeaderMaturity {
         let node = &nodes[0];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW + 2 block");
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node);
         info!("Use generated block's cellbase as tx input");
         let base_block = node.get_tip_block();
 
@@ -30,9 +31,9 @@ impl Spec for ReferenceHeaderMaturity {
                 if current < threshold {
                     if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
                         let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
-                        node.generate_blocks(remained_blocks_in_epoch as usize);
+                        mine(node, remained_blocks_in_epoch);
                     } else {
-                        node.generate_block();
+                        mine(&node, 1);
                     }
                 } else {
                     break;
@@ -64,9 +65,9 @@ impl Spec for ReferenceHeaderMaturity {
                 }
                 if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
                     let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
-                    node.generate_blocks(remained_blocks_in_epoch as usize);
+                    mine(node, remained_blocks_in_epoch);
                 } else {
-                    node.generate_block();
+                    mine(&node, 1);
                 }
             }
         }
@@ -77,16 +78,13 @@ impl Spec for ReferenceHeaderMaturity {
         node.assert_tx_pool_size(1, 0);
 
         info!("Tx will be added to proposed pool");
-        (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
-            node.generate_block();
-        });
-
+        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
-        node.generate_block();
+        mine(&node, 1);
         node.assert_tx_pool_size(0, 0);
 
         info!("Tx will be eventually accepted on chain");
-        node.generate_blocks(5);
+        mine(node, 5);
         assert!(is_transaction_committed(node, &tx));
     }
 

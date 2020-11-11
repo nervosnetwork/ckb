@@ -1,6 +1,7 @@
-use crate::node::{connect_all, exit_ibd_mode};
+use crate::node::{connect_all, waiting_for_sync};
+use crate::util::mining::{mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::sleep;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
@@ -16,13 +17,13 @@ impl Spec for TxsRelayOrder {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         connect_all(nodes);
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        node1.waiting_for_sync(node0, node0.get_tip_block().header().number());
+        mine_until_out_bootstrap_period(node0);
+        waiting_for_sync(nodes);
         // build chain txs
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];
         while txs.len() < COUNT {

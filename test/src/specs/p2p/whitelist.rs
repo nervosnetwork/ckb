@@ -1,3 +1,4 @@
+use crate::util::mining::mine;
 use crate::utils::{sleep, wait_until};
 use crate::{Node, Spec};
 
@@ -34,7 +35,7 @@ impl Spec for WhitelistOnSessionLimit {
         node0.connect(&node1);
         // outbound session will be refused
         node0.connect_uncheck(&node2);
-        node0.generate_blocks(1);
+        mine(&node0, 1);
         node3.connect(&node0);
         // inbound session will be rotated by network partition
         node4.connect_uncheck(&node0);
