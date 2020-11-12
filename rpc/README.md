@@ -46,6 +46,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
         * [Method `get_transaction_proof`](#method-get_transaction_proof)
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
         * [Method `get_fork_block`](#method-get_fork_block)
+        * [Method `get_consensus`](#method-get_consensus)
     * [Module Experiment](#module-experiment)
         * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
         * [Method `compute_script_hash`](#method-compute_script_hash)
@@ -110,6 +111,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `CellWithStatus`](#type-cellwithstatus)
     * [Type `CellbaseTemplate`](#type-cellbasetemplate)
     * [Type `ChainInfo`](#type-chaininfo)
+    * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
     * [Type `DepType`](#type-deptype)
     * [Type `DryRunResult`](#type-dryrunresult)
@@ -136,6 +138,8 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `ProposalShortId`](#type-proposalshortid)
+    * [Type `ProposalWindow`](#type-proposalwindow)
+    * [Type `RationalU256`](#type-rationalu256)
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
@@ -1337,6 +1341,68 @@ The response looks like below when `verbosity` is 0.
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x..."
+}
+```
+
+#### Method `get_consensus`
+* `get_consensus()`
+* result: [`Consensus`](#type-consensus)
+
+Return various consensus parameters.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_consensus",
+  "params": []
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+        "block_version": "0x0",
+        "cellbase_maturity": "0x10000000000",
+        "dao_type_hash": null,
+        "epoch_duration_target": "0x3840",
+        "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "id": "main",
+        "initial_primary_epoch_reward": "0x71afd498d000",
+        "max_block_bytes": "0x91c08",
+        "max_block_cycles": "0xd09dc300",
+        "max_block_proposals_limit": "0x5dc",
+        "max_uncles_num": "0x2",
+        "median_time_block_count": "0x25",
+        "min_chain_work": "0x0",
+        "orphan_rate_target": {
+            "denom": "0x28",
+            "numer": "0x1"
+        },
+        "permanent_difficulty_in_dummy": false,
+        "primary_epoch_reward_halving_interval": "0x2238",
+        "proposer_reward_ratio": {
+            "denom": "0xa",
+            "numer": "0x4"
+        },
+        "secondary_epoch_reward": "0x37d0c8e28542",
+        "secp256k1_blake160_multisig_all_type_hash": null,
+        "secp256k1_blake160_sighash_all_type_hash": null,
+        "tx_proposal_window": {
+            "closest": "0x2",
+            "farthest": "0xa"
+        },
+        "tx_version": "0x0",
+        "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
+    }
 }
 ```
 
@@ -4248,6 +4314,61 @@ Chain information.
 *   `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Active alerts stored in the local node.
 
 
+### Type `Consensus`
+
+Consensus defines various parameters that influence chain consensus
+
+#### Fields
+
+`Consensus` is a JSON object with the following fields.
+
+*   `id`: `string` - Names the network.
+
+*   `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
+
+*   `dao_type_hash`: [`H256`](#type-h256) `|` `null` - The dao type hash
+
+*   `secp256k1_blake160_sighash_all_type_hash`: [`H256`](#type-h256) `|` `null` - The secp256k1_blake160_sighash_all_type_hash
+
+*   `secp256k1_blake160_multisig_all_type_hash`: [`H256`](#type-h256) `|` `null` - The secp256k1_blake160_multisig_all_type_hash
+
+*   `initial_primary_epoch_reward`: [`Capacity`](#type-capacity) - The initial primary_epoch_reward
+
+*   `secondary_epoch_reward`: [`Capacity`](#type-capacity) - The secondary primary_epoch_reward
+
+*   `max_uncles_num`: [`Uint64`](#type-uint64) - The maximum amount of uncles allowed for a block
+
+*   `orphan_rate_target`: [`RationalU256`](#type-rationalu256) - The expected orphan_rate
+
+*   `epoch_duration_target`: [`Uint64`](#type-uint64) - The expected epoch_duration
+
+*   `tx_proposal_window`: [`ProposalWindow`](#type-proposalwindow) - The two-step-transaction-confirmation proposal window
+
+*   `proposer_reward_ratio`: [`RationalU256`](#type-rationalu256) - The two-step-transaction-confirmation proposer reward ratio
+
+*   `cellbase_maturity`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The Cellbase maturity
+
+*   `median_time_block_count`: [`Uint64`](#type-uint64) - This parameter indicates the count of past blocks used in the median time calculation
+
+*   `max_block_cycles`: [`Cycle`](#type-cycle) - Maximum cycles that all the scripts in all the commit transactions can take
+
+*   `max_block_bytes`: [`Uint64`](#type-uint64) - Maximum number of bytes to use for the entire block
+
+*   `block_version`: [`Version`](#type-version) - The block version number supported
+
+*   `tx_version`: [`Version`](#type-version) - The tx version number supported
+
+*   `type_id_code_hash`: [`H256`](#type-h256) - The "TYPE_ID" in hex
+
+*   `max_block_proposals_limit`: [`Uint64`](#type-uint64) - The Limit to the number of proposals per block
+
+*   `primary_epoch_reward_halving_interval`: [`Uint64`](#type-uint64) - Primary reward is cut in half every halving_interval epoch
+
+*   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
+
+*   `min_chain_work`: [`U256`](#type-u256) - Proof of minimum work during synchronization
+
+
 ### Type `Cycle`
 
 Count of cycles consumed by CKB VM to run scripts.
@@ -4773,6 +4894,50 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 0xa0ef4eb5f4ceeb08a4c8
 ```
 
+
+
+### Type `ProposalWindow`
+
+Two protocol parameters `closest` and `farthest` define the closest and farthest on-chain distance between a transaction's proposal and commitment.
+
+A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+
+*   it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+
+*   it is in the commitment zone of the main chain block with height h_c ;
+
+```
+  ProposalWindow { closest: 2, farthest: 10 }
+      propose
+         \
+          \
+          13 14 [15 16 17 18 19 20 21 22 23]
+                 \_______________________/
+                              \
+                            commit
+```
+
+#### Fields
+
+`ProposalWindow` is a JSON object with the following fields.
+
+*   `closest`: [`BlockNumber`](#type-blocknumber) - The closest distance between the proposal and the commitment.
+
+*   `farthest`: [`BlockNumber`](#type-blocknumber) - The farthest distance between the proposal and the commitment.
+
+
+### Type `RationalU256`
+
+The ratio which numerator and denominator are both 256-bit unsigned integers.
+
+#### Example
+
+```
+{
+    "denom": "0x28",
+    "numer": "0x1"
+}
+```
 
 
 ### Type `RawTxPool`

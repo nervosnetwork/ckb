@@ -29,6 +29,7 @@ pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 
 pub use ckb_occupied_capacity::{capacity_bytes, Capacity, Ratio, Result as CapacityResult};
+pub use ckb_rational::RationalU256;
 
 /// Public key. It's a 512 bits fixed binary data.
 pub type PublicKey = ckb_fixed_hash::H512;

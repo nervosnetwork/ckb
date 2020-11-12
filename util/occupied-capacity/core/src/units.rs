@@ -11,17 +11,27 @@ pub struct Capacity(u64);
 /// Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
 /// unsigned 64-bit integers.
 #[derive(Clone, PartialEq, Debug, Eq, Copy, Deserialize, Serialize)]
-pub struct Ratio(pub u64, pub u64);
+pub struct Ratio {
+    /// Numerator.
+    numer: u64,
+    /// Denominator.
+    denom: u64,
+}
 
 impl Ratio {
+    /// Creates a ratio numer / denom.
+    pub const fn new(numer: u64, denom: u64) -> Self {
+        Self { numer, denom }
+    }
+
     /// The numerator in ratio numerator / denominator.
     pub fn numer(&self) -> u64 {
-        self.0
+        self.numer
     }
 
     /// The denominator in ratio numerator / denominator.
     pub fn denom(&self) -> u64 {
-        self.1
+        self.denom
     }
 }
 

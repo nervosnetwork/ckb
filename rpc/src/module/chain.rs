@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint,
-    CellWithStatus, EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof, OutPoint,
-    ResponseFormat, TransactionProof, TransactionWithStatus, Uint32,
+    CellWithStatus, Consensus, EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof,
+    OutPoint, ResponseFormat, TransactionProof, TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -1151,6 +1151,66 @@ pub trait ChainRpc {
         block_hash: H256,
         verbosity: Option<Uint32>,
     ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
+
+    /// Return various consensus parameters.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_consensus",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///         "block_version": "0x0",
+    ///         "cellbase_maturity": "0x10000000000",
+    ///         "dao_type_hash": null,
+    ///         "epoch_duration_target": "0x3840",
+    ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+    ///         "id": "main",
+    ///         "initial_primary_epoch_reward": "0x71afd498d000",
+    ///         "max_block_bytes": "0x91c08",
+    ///         "max_block_cycles": "0xd09dc300",
+    ///         "max_block_proposals_limit": "0x5dc",
+    ///         "max_uncles_num": "0x2",
+    ///         "median_time_block_count": "0x25",
+    ///         "min_chain_work": "0x0",
+    ///         "orphan_rate_target": {
+    ///             "denom": "0x28",
+    ///             "numer": "0x1"
+    ///         },
+    ///         "permanent_difficulty_in_dummy": false,
+    ///         "primary_epoch_reward_halving_interval": "0x2238",
+    ///         "proposer_reward_ratio": {
+    ///             "denom": "0xa",
+    ///             "numer": "0x4"
+    ///         },
+    ///         "secondary_epoch_reward": "0x37d0c8e28542",
+    ///         "secp256k1_blake160_multisig_all_type_hash": null,
+    ///         "secp256k1_blake160_sighash_all_type_hash": null,
+    ///         "tx_proposal_window": {
+    ///             "closest": "0x2",
+    ///             "farthest": "0xa"
+    ///         },
+    ///         "tx_version": "0x0",
+    ///         "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
+    ///     }
+    /// }
+    /// ```
+    #[rpc(name = "get_consensus")]
+    fn get_consensus(&self) -> Result<Consensus>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1625,5 +1685,10 @@ impl ChainRpc for ChainRpcImpl {
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
+    }
+
+    fn get_consensus(&self) -> Result<Consensus> {
+        let consensus = self.shared.consensus().clone();
+        Ok(consensus.into())
     }
 }

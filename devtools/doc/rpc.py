@@ -294,6 +294,10 @@ class RPCVar():
                 parts = self.name.split(': ')
                 self.name = parts[0]
                 self.ty = '[`U256`](#type-u256)'
+            if self.name.endswith(': RationalU256'):
+                parts = self.name.split(': ')
+                self.name = parts[0]
+                self.ty = '[`RationalU256`](#type-rationalu256)'
 
     def completed(self):
         return self.ty is not None and (len(self.children) == 0 or self.children[-1].completed())
@@ -633,8 +637,20 @@ class RPCDoc(object):
             DummyRPCType(
                 "SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
             DummyRPCType(
-                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.")
-        ]
+                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
+            DummyRPCType(
+                "RationalU256", """The ratio which numerator and denominator are both 256-bit unsigned integers.
+
+#### Example
+
+```
+{
+    "denom": "0x28",
+    "numer": "0x1"
+}
+```
+""")
+            ]
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -685,7 +701,7 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        if name != 'U256':
+        if name not in ['U256', 'RationalU256']:
             parser = RPCType(name, path)
             parser.feed(content)
 

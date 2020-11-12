@@ -1,9 +1,9 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId,
+    BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
     Timestamp, Uint128, Uint32, Uint64, Version,
 };
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -1167,6 +1167,83 @@ pub struct MerkleProof {
     pub indices: Vec<Uint32>,
     /// Hashes of all siblings along the paths to root.
     pub lemmas: Vec<H256>,
+}
+
+/// Two protocol parameters `closest` and `farthest` define the closest
+/// and farthest on-chain distance between a transaction's proposal
+/// and commitment.
+///
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+/// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+/// 2) it is in the commitment zone of the main chain block with height h_c ;
+///
+/// ```text
+///   ProposalWindow { closest: 2, farthest: 10 }
+///       propose
+///          \
+///           \
+///           13 14 [15 16 17 18 19 20 21 22 23]
+///                  \_______________________/
+///                               \
+///                             commit
+/// ```
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ProposalWindow {
+    /// The closest distance between the proposal and the commitment.
+    pub closest: BlockNumber,
+    /// The farthest distance between the proposal and the commitment.
+    pub farthest: BlockNumber,
+}
+
+/// Consensus defines various parameters that influence chain consensus
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct Consensus {
+    /// Names the network.
+    pub id: String,
+    /// The genesis block hash
+    pub genesis_hash: H256,
+    /// The dao type hash
+    pub dao_type_hash: Option<H256>,
+    /// The secp256k1_blake160_sighash_all_type_hash
+    pub secp256k1_blake160_sighash_all_type_hash: Option<H256>,
+    /// The secp256k1_blake160_multisig_all_type_hash
+    pub secp256k1_blake160_multisig_all_type_hash: Option<H256>,
+    /// The initial primary_epoch_reward
+    pub initial_primary_epoch_reward: Capacity,
+    /// The secondary primary_epoch_reward
+    pub secondary_epoch_reward: Capacity,
+    /// The maximum amount of uncles allowed for a block
+    pub max_uncles_num: Uint64,
+    /// The expected orphan_rate
+    pub orphan_rate_target: core::RationalU256,
+    /// The expected epoch_duration
+    pub epoch_duration_target: Uint64,
+    /// The two-step-transaction-confirmation proposal window
+    pub tx_proposal_window: ProposalWindow,
+    /// The two-step-transaction-confirmation proposer reward ratio
+    pub proposer_reward_ratio: core::RationalU256,
+    /// The Cellbase maturity
+    pub cellbase_maturity: EpochNumberWithFraction,
+    /// This parameter indicates the count of past blocks used in the median time calculation
+    pub median_time_block_count: Uint64,
+    /// Maximum cycles that all the scripts in all the commit transactions can take
+    pub max_block_cycles: Cycle,
+    /// Maximum number of bytes to use for the entire block
+    pub max_block_bytes: Uint64,
+    /// The block version number supported
+    pub block_version: Version,
+    /// The tx version number supported
+    pub tx_version: Version,
+    /// The "TYPE_ID" in hex
+    pub type_id_code_hash: H256,
+    /// The Limit to the number of proposals per block
+    pub max_block_proposals_limit: Uint64,
+    /// Primary reward is cut in half every halving_interval epoch
+    pub primary_epoch_reward_halving_interval: Uint64,
+    /// Keep difficulty be permanent if the pow is dummy
+    pub permanent_difficulty_in_dummy: bool,
+    /// Proof of minimum work during synchronization
+    pub min_chain_work: U256,
 }
 
 #[cfg(test)]

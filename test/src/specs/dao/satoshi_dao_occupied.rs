@@ -67,7 +67,7 @@ impl Default for SpendSatoshiCell {
 impl SpendSatoshiCell {
     pub fn new() -> Self {
         let (privkey, pubkey) = Generator::random_keypair();
-        let satoshi_cell_occupied_ratio = Ratio(6, 10);
+        let satoshi_cell_occupied_ratio = Ratio::new(6, 10);
 
         SpendSatoshiCell {
             privkey,

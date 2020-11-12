@@ -3,13 +3,14 @@
 mod tests;
 
 use numext_fixed_uint::U256;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 
 /// Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
 /// unsigned 256-bit integers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct RationalU256 {
     /// Numerator.
     numer: U256,
