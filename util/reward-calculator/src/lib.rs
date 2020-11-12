@@ -268,8 +268,9 @@ mod tests {
     use super::RewardCalculator;
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
     use ckb_db::RocksDB;
+    use ckb_db_schema::COLUMNS;
     use ckb_occupied_capacity::AsCapacity;
-    use ckb_store::{ChainDB, ChainStore, COLUMNS};
+    use ckb_store::{ChainDB, ChainStore};
     use ckb_types::{
         core::{BlockBuilder, BlockExt, HeaderBuilder, TransactionBuilder},
         packed::ProposalShortId,

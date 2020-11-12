@@ -379,7 +379,8 @@ pub fn modified_occupied_capacity(
 mod tests {
     use super::*;
     use ckb_db::RocksDB;
-    use ckb_store::{ChainDB, COLUMNS};
+    use ckb_db_schema::COLUMNS;
+    use ckb_store::ChainDB;
     use ckb_types::{
         bytes::Bytes,
         core::{

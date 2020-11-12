@@ -1,6 +1,7 @@
 use crate::types::LockHashIndex;
-use ckb_db::{Col, Result, RocksDB};
+use ckb_db::{Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar};
+use ckb_db_schema::Col;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use std::sync::Arc;

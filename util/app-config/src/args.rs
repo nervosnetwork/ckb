@@ -2,6 +2,7 @@ use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
+use ckb_types::packed::Byte32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -33,6 +34,10 @@ pub struct RunArgs {
     pub consensus: Consensus,
     /// TODO(doc): @doitian
     pub block_assembler_advanced: bool,
+    /// Wether skip chain spec hash check
+    pub skip_chain_spec_check: bool,
+    /// Config chain spec hash
+    pub chain_spec_hash: Byte32,
 }
 
 pub type ProfileArgs = Option<(Option<u64>, Option<u64>)>;
@@ -49,7 +54,7 @@ pub struct ReplayArgs {
     /// TODO(doc): @doitian
     pub sanity_check: bool,
     /// TODO(doc): @doitian
-    pub full_verfication: bool,
+    pub full_verification: bool,
 }
 
 /// TODO(doc): @doitian

@@ -424,8 +424,9 @@ mod tests {
     use byteorder::{ByteOrder, LittleEndian};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::RocksDB;
+    use ckb_db_schema::COLUMNS;
     use ckb_hash::{blake2b_256, new_blake2b};
-    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
+    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB};
     use ckb_types::{
         core::{
             capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, ScriptHashType,

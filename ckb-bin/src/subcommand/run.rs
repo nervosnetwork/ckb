@@ -27,9 +27,9 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let exit_handler = DefaultExitHandler::default();
 
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
-        .consensus(args.consensus)
+        .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
-        .notify_config(args.config.notify)
+        .notify_config(args.config.notify.clone())
         .store_config(args.config.store)
         .block_assembler_config(block_assembler_config)
         .build()
@@ -40,6 +40,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
+
+    check_spec(&shared, &args)?;
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
@@ -178,6 +180,35 @@ fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
             eprintln!("genesis error: {}", err);
             ExitCode::Config
         })
+}
+
+fn check_spec(shared: &Shared, args: &RunArgs) -> Result<(), ExitCode> {
+    let store = shared.store();
+    if let Some(spec_hash) = store.get_chain_spec_hash() {
+        if args.chain_spec_hash != spec_hash && !args.skip_chain_spec_check {
+            eprintln!(
+                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument --skip-spec-check if you are sure that the two different chains are compatible.",
+                args.chain_spec_hash, spec_hash
+            );
+            return Err(ExitCode::Config);
+        }
+    } else {
+        store
+            .put_chain_spec_hash(&args.chain_spec_hash)
+            .map_err(|err| {
+                eprintln!(
+                    "Touch chain_spec_hash {} error: {}",
+                    args.chain_spec_hash, err
+                );
+                ExitCode::IO
+            })?;
+        info_target!(
+            crate::LOG_TARGET_MAIN,
+            "Touch chain spec hash: {}",
+            args.chain_spec_hash
+        );
+    }
+    Ok(())
 }
 
 fn sanitize_block_assembler_config(

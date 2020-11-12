@@ -2,8 +2,9 @@
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
-use crate::{internal_error, Col, Result};
+use crate::{internal_error, Result};
 use ckb_app_config::DBConfig;
+use ckb_db_schema::Col;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{
     CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,

@@ -1,5 +1,6 @@
 use ckb_db::RocksDB;
-use ckb_store::{ChainDB, ChainStore, COLUMNS};
+use ckb_db_schema::COLUMNS;
+use ckb_store::{ChainDB, ChainStore};
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{

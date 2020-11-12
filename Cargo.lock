@@ -562,6 +562,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao-utils",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-store",
  "ckb-traits",
@@ -584,6 +585,7 @@ name = "ckb-db"
 version = "0.38.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
  "ckb-rocksdb",
@@ -597,12 +599,17 @@ version = "0.38.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
  "console 0.12.0",
  "indicatif",
  "tempfile",
 ]
+
+[[package]]
+name = "ckb-db-schema"
+version = "0.38.0-pre"
 
 [[package]]
 name = "ckb-error"
@@ -665,6 +672,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-migration",
+ "ckb-db-schema",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-resource",
@@ -957,6 +965,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
  "ckb-occupied-capacity",
@@ -1039,6 +1048,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-crypto",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-hash",
  "ckb-logger",
@@ -1065,6 +1075,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-migration",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-notify",
  "ckb-proposal-table",
@@ -1083,6 +1094,7 @@ dependencies = [
  "arc-swap",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-proposal-table",
  "ckb-reward-calculator",
@@ -1109,6 +1121,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-traits",
  "ckb-types",
@@ -1171,6 +1184,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao-utils",
  "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-resource",
  "ckb-store",

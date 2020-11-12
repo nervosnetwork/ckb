@@ -54,12 +54,15 @@ impl Setup {
     /// TODO(doc): @doitian
     pub fn run<'m>(self, matches: &ArgMatches<'m>) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
+        let chain_spec_hash = self.chain_spec()?.hash;
         let config = self.config.into_ckb()?;
 
         Ok(RunArgs {
             config,
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
+            skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
+            chain_spec_hash,
         })
     }
 
@@ -105,14 +108,14 @@ impl Setup {
             None
         };
         let sanity_check = matches.is_present(cli::ARG_SANITY_CHECK);
-        let full_verfication = matches.is_present(cli::ARG_FULL_VERFICATION);
+        let full_verification = matches.is_present(cli::ARG_FULL_VERIFICATION);
         Ok(ReplayArgs {
             config,
             consensus,
             tmp_target,
             profile,
             sanity_check,
-            full_verfication,
+            full_verification,
         })
     }
 

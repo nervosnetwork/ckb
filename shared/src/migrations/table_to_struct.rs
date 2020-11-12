@@ -1,6 +1,6 @@
 use ckb_db::{Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_store::{
+use ckb_db_schema::{
     COLUMN_BLOCK_HEADER, COLUMN_EPOCH, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
     META_CURRENT_EPOCH_KEY,
 };

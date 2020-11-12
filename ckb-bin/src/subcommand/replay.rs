@@ -44,7 +44,7 @@ pub fn replay(args: ReplayArgs) -> Result<(), ExitCode> {
         if let Some((from, to)) = args.profile {
             profile(shared, chain, from, to);
         } else if args.sanity_check {
-            sanity_check(shared, chain, args.full_verfication);
+            sanity_check(shared, chain, args.full_verification);
         }
     }
     tmp_db_dir.close().map_err(|err| {
@@ -92,7 +92,7 @@ fn process_range_block(
     tx_count
 }
 
-fn sanity_check(shared: Shared, mut chain: ChainService, full_verfication: bool) {
+fn sanity_check(shared: Shared, mut chain: ChainService, full_verification: bool) {
     let tip_header = shared.snapshot().tip_header().clone();
     let chain_iter = ChainIterator::new(shared.store());
     let pb = ProgressBar::new(chain_iter.len());
@@ -103,7 +103,7 @@ fn sanity_check(shared: Shared, mut chain: ChainService, full_verfication: bool)
             )
             .progress_chars("#>-"),
     );
-    let switch = if full_verfication {
+    let switch = if full_verification {
         Switch::NONE
     } else {
         Switch::DISABLE_ALL - Switch::DISABLE_NON_CONTEXTUAL

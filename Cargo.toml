@@ -35,6 +35,7 @@ members = [
     "util/runtime",
     "util/rust-unstable-port",
     "benches",
+    "db-schema",
     "util/occupied-capacity/macros",
     "util/fixed-hash/macros",
     "util/logger-service",

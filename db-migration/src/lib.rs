@@ -1,14 +1,12 @@
 //! TODO(doc): @quake
 use ckb_db::RocksDB;
+use ckb_db_schema::MIGRATION_VERSION_KEY;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-/// TODO(doc): @quake
-pub const VERSION_KEY: &[u8] = b"db-version";
 
 fn internal_error(reason: String) -> Error {
     InternalErrorKind::Database.reason(reason).into()
@@ -37,7 +35,7 @@ impl Migrations {
     /// TODO(doc): @quake
     pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
         let db_version = db
-            .get_pinned_default(VERSION_KEY)
+            .get_pinned_default(MIGRATION_VERSION_KEY)
             .map_err(|err| {
                 internal_error(format!("failed to get the version of database: {}", err))
             })?
@@ -77,9 +75,10 @@ impl Migrations {
                         pb
                     };
                     db = m.migrate(db, Arc::new(pb))?;
-                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
-                        internal_error(format!("failed to migrate the database: {}", err))
-                    })?;
+                    db.put_default(MIGRATION_VERSION_KEY, m.version())
+                        .map_err(|err| {
+                            internal_error(format!("failed to migrate the database: {}", err))
+                        })?;
                 }
                 mpb.join_and_clear().expect("MultiProgress join");
                 Ok(db)
@@ -87,9 +86,10 @@ impl Migrations {
             None => {
                 if let Some(m) = self.migrations.values().last() {
                     info!("Init database version {}", m.version());
-                    db.put_default(VERSION_KEY, m.version()).map_err(|err| {
-                        internal_error(format!("failed to migrate the database: {}", err))
-                    })?;
+                    db.put_default(MIGRATION_VERSION_KEY, m.version())
+                        .map_err(|err| {
+                            internal_error(format!("failed to migrate the database: {}", err))
+                        })?;
                 }
                 Ok(db)
             }
@@ -159,7 +159,10 @@ mod tests {
             let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
             assert_eq!(
                 b"20191116225943".to_vec(),
-                r.get_pinned_default(VERSION_KEY).unwrap().unwrap().to_vec()
+                r.get_pinned_default(MIGRATION_VERSION_KEY)
+                    .unwrap()
+                    .unwrap()
+                    .to_vec()
             );
         }
         {
@@ -169,7 +172,10 @@ mod tests {
             let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
             assert_eq!(
                 b"20191127101121".to_vec(),
-                r.get_pinned_default(VERSION_KEY).unwrap().unwrap().to_vec()
+                r.get_pinned_default(MIGRATION_VERSION_KEY)
+                    .unwrap()
+                    .unwrap()
+                    .to_vec()
             );
         }
     }
@@ -237,7 +243,7 @@ mod tests {
             );
             assert_eq!(
                 VERSION.as_bytes(),
-                db.get_pinned_default(VERSION_KEY)
+                db.get_pinned_default(MIGRATION_VERSION_KEY)
                     .unwrap()
                     .unwrap()
                     .to_vec()
