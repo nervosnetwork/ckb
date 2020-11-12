@@ -288,7 +288,7 @@ pub struct Genesis {
     pub uncles_hash: H256,
     /// The genesis block hash
     ///
-    /// If hash is provided, it will be used to check wether match with actual calculated hash
+    /// If hash is provided, it will be used to check whether match with actual calculated hash
     pub hash: Option<H256>,
     /// The genesis block nonce
     pub nonce: U128,

@@ -75,7 +75,7 @@ where
 /// - Check for size
 /// - Check inputs and output empty
 /// - Check for duplicate deps
-/// - Check for wether outputs match data
+/// - Check for whether outputs match data
 pub struct NonContextualTransactionVerifier<'a> {
     pub(crate) version: VersionVerifier<'a>,
     pub(crate) size: SizeVerifier<'a>,
@@ -552,18 +552,18 @@ pub enum SinceMetric {
 pub struct Since(pub u64);
 
 impl Since {
-    /// Wether since represented absolute form
+    /// Whether since represented absolute form
     pub fn is_absolute(self) -> bool {
         self.0 & LOCK_TYPE_FLAG == 0
     }
 
-    /// Wether since represented relative form
+    /// Whether since represented relative form
     #[inline]
     pub fn is_relative(self) -> bool {
         !self.is_absolute()
     }
 
-    /// Wether since flag is valid
+    /// Whether since flag is valid
     pub fn flags_is_valid(self) -> bool {
         (self.0 & REMAIN_FLAGS_BITS == 0)
             && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)

@@ -138,12 +138,12 @@ impl TxPool {
         }
     }
 
-    /// Wether Tx-pool reach size limit
+    /// Whether Tx-pool reach size limit
     pub fn reach_size_limit(&self, tx_size: usize) -> bool {
         (self.total_tx_size + tx_size) > self.config.max_mem_size
     }
 
-    /// Wether Tx-pool reach cycles limit
+    /// Whether Tx-pool reach cycles limit
     pub fn reach_cycles_limit(&self, cycles: Cycle) -> bool {
         (self.total_tx_cycles + cycles) > self.config.max_cycles
     }
