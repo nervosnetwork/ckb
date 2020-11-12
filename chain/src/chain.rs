@@ -296,12 +296,12 @@ impl ChainService {
         if block.header().number() < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
-        let is_better = self.insert_block(block, switch)?;
+        let is_tip = self.insert_block(block, switch)?;
         debug!("finish processing block");
 
-        metrics!(timing, "ckb.processed_block", timer.stop(), "is_uncle" => (!is_better).to_string());
-        metrics!(counter, "ckb.processed_blocks_total", 1, "is_uncle" => (!is_better).to_string());
-        Ok(is_better)
+        metrics!(timing, "ckb.processed_block", timer.stop(), "is_uncle" => (!is_tip).to_string());
+        metrics!(counter, "ckb.processed_blocks_total", 1, "is_uncle" => (!is_tip).to_string());
+        Ok(is_tip)
     }
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {

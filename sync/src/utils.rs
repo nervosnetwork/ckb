@@ -12,6 +12,11 @@ pub(crate) fn send_message<Message: Entity>(
 ) -> Status {
     let name = message_name(protocol_id, message);
     if let Err(err) = nc.send_message(protocol_id, peer_index, message.as_bytes()) {
+        ckb_logger::debug!(
+            "nc.send_message failed, message name: {}, error: {:?}",
+            name,
+            err
+        );
         return StatusCode::Network.with_context(format!("Send {}: {:?}", name, err));
     }
 
