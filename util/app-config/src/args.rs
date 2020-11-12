@@ -2,7 +2,7 @@ use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
-use ckb_types::{packed::Byte32, H256};
+use ckb_types::packed::Byte32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,8 +38,6 @@ pub struct RunArgs {
     pub skip_chain_spec_check: bool,
     /// Config chain spec hash
     pub chain_spec_hash: Byte32,
-    /// Block hash for assume valid target
-    pub assume_valid_target: Option<H256>,
 }
 
 pub type ProfileArgs = Option<(Option<u64>, Option<u64>)>;

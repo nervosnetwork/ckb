@@ -59,9 +59,9 @@ pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
     );
 
     // Check whether the data already exists in the database before starting
-    if let Some(ref target) = args.assume_valid_target {
+    if let Some(ref target) = args.config.network.sync.assume_valid_target {
         if shared.snapshot().block_exists(&target.pack()) {
-            args.assume_valid_target.take();
+            args.config.network.sync.assume_valid_target.take();
         }
     }
 
@@ -76,14 +76,8 @@ pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let sync_shared = Arc::new(SyncShared::with_tmpdir(
         shared.clone(),
-        args.config
-            .network
-            .sync
-            .as_ref()
-            .cloned()
-            .unwrap_or_default(),
+        args.config.network.sync.clone(),
         args.config.tmp_dir.as_ref(),
-        args.assume_valid_target,
     ));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),

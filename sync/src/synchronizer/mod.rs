@@ -93,7 +93,7 @@ impl BlockFetchCMD {
                                  then start to download block",
                                     number,
                                     best_known.total_difficulty(),
-                                    self.sync.shared.consensus().min_chain_work
+                                    self.sync.shared.state().min_chain_work()
                                 );
                         }
                     }
@@ -130,13 +130,9 @@ impl BlockFetchCMD {
         }
 
         let state = self.sync.shared.state();
-        let min_chain_work = &self.sync.shared.consensus().min_chain_work;
 
         let min_work_reach = |flag: &mut CanStart| {
-            if state
-                .shared_best_header_ref()
-                .is_better_than(min_chain_work)
-            {
+            if state.min_chain_work_ready() {
                 *flag = CanStart::AssumeValidNotFound;
             }
         };

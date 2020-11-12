@@ -1183,16 +1183,11 @@ pub struct SyncShared {
 impl SyncShared {
     /// only use on test
     pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, None)
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
     }
 
-    /// TODO(doc): @driftluo
-    pub fn with_tmpdir<P>(
-        shared: Shared,
-        sync_config: SyncConfig,
-        tmpdir: Option<P>,
-        assume_valid_target: Option<H256>,
-    ) -> SyncShared
+    /// Generate a global sync state through configuration
+    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1229,7 +1224,8 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_hashes: Mutex::new(HashMap::default()),
-            assume_valid_target: Mutex::new(assume_valid_target),
+            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            min_chain_work: sync_config.min_chain_work,
         };
 
         SyncShared {
@@ -1497,11 +1493,22 @@ pub struct SyncState {
     /* cached for sending bulk */
     tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
     assume_valid_target: Mutex<Option<H256>>,
+    min_chain_work: U256,
 }
 
 impl SyncState {
     pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
         self.assume_valid_target.lock()
+    }
+
+    pub fn min_chain_work(&self) -> &U256 {
+        &self.min_chain_work
+    }
+
+    pub fn min_chain_work_ready(&self) -> bool {
+        self.shared_best_header
+            .read()
+            .is_better_than(&self.min_chain_work)
     }
 
     pub fn n_sync_started(&self) -> &AtomicUsize {

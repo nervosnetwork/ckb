@@ -1186,7 +1186,6 @@ pub trait ChainRpc {
     ///         "max_block_proposals_limit": "0x5dc",
     ///         "max_uncles_num": "0x2",
     ///         "median_time_block_count": "0x25",
-    ///         "min_chain_work": "0x0",
     ///         "orphan_rate_target": {
     ///             "denom": "0x28",
     ///             "numer": "0x1"

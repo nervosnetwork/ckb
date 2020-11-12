@@ -1382,7 +1382,6 @@ Response
         "max_block_proposals_limit": "0x5dc",
         "max_uncles_num": "0x2",
         "median_time_block_count": "0x25",
-        "min_chain_work": "0x0",
         "orphan_rate_target": {
             "denom": "0x28",
             "numer": "0x1"
@@ -4365,8 +4364,6 @@ Consensus defines various parameters that influence chain consensus
 *   `primary_epoch_reward_halving_interval`: [`Uint64`](#type-uint64) - Primary reward is cut in half every halving_interval epoch
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
-
-*   `min_chain_work`: [`U256`](#type-u256) - Proof of minimum work during synchronization
 
 
 ### Type `Cycle`

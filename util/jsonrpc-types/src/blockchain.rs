@@ -3,7 +3,7 @@ use crate::{
     BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
     Timestamp, Uint128, Uint32, Uint64, Version,
 };
-use ckb_types::{core, packed, prelude::*, H256, U256};
+use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -1242,8 +1242,6 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: Uint64,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
-    /// Proof of minimum work during synchronization
-    pub min_chain_work: U256,
 }
 
 #[cfg(test)]
