@@ -79,15 +79,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4c527152e37cf757a3f78aae5a06fbeefdb07ccc535c980a3208ee3060dd544"
 
 [[package]]
-name = "arrayvec"
-version = "0.4.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92c7fb76bc8826a8b33b4ee5bb07a247a81e76764ab4d55e8f73e3a4d8808c71"
-dependencies = [
- "nodrop",
-]
-
-[[package]]
 name = "atomic-shim"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1468,9 +1459,9 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.3.0"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "938703e165481c8d612ea3479ac8342e5615185db37765162e762ec3523e2fc6"
+checksum = "70daa7ceec6cf143990669a04c7df13391d55fb27bd4079d252fca774ba244d8"
 dependencies = [
  "atty",
  "cast",
@@ -1480,11 +1471,12 @@ dependencies = [
  "itertools",
  "lazy_static",
  "num-traits",
- "rand_core 0.5.1",
- "rand_os 0.2.2",
- "rand_xoshiro",
+ "oorandom",
+ "plotters",
  "rayon",
+ "regex",
  "serde",
+ "serde_cbor",
  "serde_derive",
  "serde_json",
  "tinytemplate",
@@ -1493,9 +1485,9 @@ dependencies = [
 
 [[package]]
 name = "criterion-plot"
-version = "0.4.0"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eccdc6ce8bbe352ca89025bee672aa6d24f4eb8c53e3a8b5d1bc58011da072a2"
+checksum = "e022feadec601fba1649cfa83586381a4ad31c6bf3a9ab7d408118b05dd9889d"
 dependencies = [
  "cast",
  "itertools",
@@ -1510,7 +1502,7 @@ dependencies = [
  "cfg-if",
  "crossbeam-channel 0.4.4",
  "crossbeam-deque",
- "crossbeam-epoch 0.8.2",
+ "crossbeam-epoch",
  "crossbeam-queue 0.2.3",
  "crossbeam-utils 0.7.2",
 ]
@@ -1536,26 +1528,13 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-deque"
-version = "0.7.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b18cd2e169ad86297e6bc0ad9aa679aee9daa4f19e8163860faf7c164e4f5a71"
+checksum = "9f02af974daeee82218205558e51ec8768b48cf524bd01d550abe5573a608285"
 dependencies = [
- "crossbeam-epoch 0.7.2",
- "crossbeam-utils 0.6.5",
-]
-
-[[package]]
-name = "crossbeam-epoch"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fedcd6772e37f3da2a9af9bf12ebe046c0dfe657992377b4df982a2b54cd37a9"
-dependencies = [
- "arrayvec",
- "cfg-if",
- "crossbeam-utils 0.6.5",
- "lazy_static",
- "memoffset",
- "scopeguard 1.0.0",
+ "crossbeam-epoch",
+ "crossbeam-utils 0.7.2",
+ "maybe-uninit",
 ]
 
 [[package]]
@@ -2180,6 +2159,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d36fab90f82edc3c747f9d438e06cf0a491055896f2a279638bb5beed6c40177"
+
+[[package]]
 name = "hashbrown"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2677,9 +2662,9 @@ checksum = "357376465c37db3372ef6a00585d336ed3d0f11d4345eef77ebcb05865392b21"
 
 [[package]]
 name = "itertools"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b8467d9c1cebe26feb08c640139247fac215782d35371ade9a2136ed6085358"
+checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
 dependencies = [
  "either",
 ]
@@ -3080,7 +3065,7 @@ name = "metrics-util"
 version = "0.3.1"
 source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
 dependencies = [
- "crossbeam-epoch 0.8.2",
+ "crossbeam-epoch",
  "serde",
 ]
 
@@ -3256,12 +3241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nodrop"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f9667ddcc6cc8a43afc9b7917599d7216aa09c463919ea32c59ed6cac8bc945"
-
-[[package]]
 name = "nonzero_ext"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3373,6 +3352,12 @@ name = "once_cell"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1c601810575c99596d4afc46f78a678c80105117c379eb3650cf99b8a21ce5b"
+
+[[package]]
+name = "oorandom"
+version = "11.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a170cebd8021a008ea92e4db85a72f80b35df514ec664b296fdcbb654eac0b2c"
 
 [[package]]
 name = "opaque-debug"
@@ -3688,6 +3673,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "feb3b2b1033b8a60b4da6ee470325f887758c95d5320f52f9ce0df055a55940e"
 
 [[package]]
+name = "plotters"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d1685fbe7beba33de0330629da9d955ac75bd54f33d7b79f9a895590124f6bb"
+dependencies = [
+ "js-sys",
+ "num-traits",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "poly1305"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3846,7 +3843,7 @@ dependencies = [
  "rand_hc 0.1.0",
  "rand_isaac",
  "rand_jitter",
- "rand_os 0.1.3",
+ "rand_os",
  "rand_pcg",
  "rand_xorshift",
  "winapi 0.3.8",
@@ -3963,16 +3960,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_os"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a788ae3edb696cfcba1c19bfd388cc4b8c21f8a408432b199c072825084da58a"
-dependencies = [
- "getrandom 0.1.6",
- "rand_core 0.5.1",
-]
-
-[[package]]
 name = "rand_pcg"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3989,15 +3976,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "rand_xoshiro"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e18c91676f670f6f0312764c759405f13afb98d5d73819840cf72a518487bff"
-dependencies = [
- "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -4024,10 +4002,11 @@ dependencies = [
 
 [[package]]
 name = "rayon"
-version = "1.2.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83a27732a533a1be0a0035a111fe76db89ad312f6f0347004c220c57f209a123"
+checksum = "dcf6960dc9a5b4ee8d3e4c5787b4a112a8818e0290a42ff664ad60692fdf2032"
 dependencies = [
+ "autocfg 1.0.0",
  "crossbeam-deque",
  "either",
  "rayon-core",
@@ -4035,13 +4014,13 @@ dependencies = [
 
 [[package]]
 name = "rayon-core"
-version = "1.6.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98dcf634205083b17d0861252431eb2acbfb698ab7478a2d20de07954f47ec7b"
+checksum = "e8c4fec834fb6e6d2dd5eece3c7b432a52f0ba887cf40e595190c4107edc08bf"
 dependencies = [
+ "crossbeam-channel 0.4.4",
  "crossbeam-deque",
- "crossbeam-queue 0.1.2",
- "crossbeam-utils 0.6.5",
+ "crossbeam-utils 0.7.2",
  "lazy_static",
  "num_cpus",
 ]
@@ -4358,6 +4337,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e707fbbf255b8fc8c3b99abb91e7257a622caeb20a9818cbadbeeede4e0932ff"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_cbor"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e18acfa2f90e8b735b2836ab8d538de304cbb6729a7360729ea5a895d15a622"
+dependencies = [
+ "half",
+ "serde",
 ]
 
 [[package]]
@@ -4829,9 +4818,9 @@ dependencies = [
 
 [[package]]
 name = "tinytemplate"
-version = "1.0.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7655088894274afb52b807bd3c87072daa1fedd155068b8705cabfd628956115"
+checksum = "6d3dc76004a03cec1c5932bca4cdc2e39aaa798e3f82363dd94f9adf6098c12f"
 dependencies = [
  "serde",
  "serde_json",
@@ -5331,9 +5320,9 @@ dependencies = [
 
 [[package]]
 name = "walkdir"
-version = "2.2.9"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9658c94fa8b940eab2250bd5a457f9c48b748420d71293b165c8cdbe2f55f71e"
+checksum = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
 dependencies = [
  "same-file",
  "winapi 0.3.8",
