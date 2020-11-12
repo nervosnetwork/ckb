@@ -46,9 +46,9 @@ impl Spec for DAOWithSatoshiCellOccupied {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         let satoshi_cell = issue_satoshi_cell();
         spec.genesis.issued_cells.push(satoshi_cell);
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
 
@@ -142,9 +142,9 @@ impl Spec for SpendSatoshiCell {
         let satoshi_cell_occupied_ratio = self.satoshi_cell_occupied_ratio;
         spec.genesis.issued_cells.push(issue_satoshi_cell());
         spec.genesis.satoshi_gift.satoshi_cell_occupied_ratio = satoshi_cell_occupied_ratio;
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
 

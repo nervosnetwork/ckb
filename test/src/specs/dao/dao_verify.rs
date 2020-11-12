@@ -6,7 +6,7 @@ pub struct DAOVerify;
 
 impl Spec for DAOVerify {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.genesis_epoch_length = 20;
+        spec.params.genesis_epoch_length = Some(20);
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {

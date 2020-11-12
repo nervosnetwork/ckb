@@ -89,8 +89,8 @@ impl Spec for ReferenceHeaderMaturity {
     }
 
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.cellbase_maturity = CELLBASE_MATURITY_VALUE;
-        spec.params.epoch_duration_target = 30;
-        spec.params.genesis_epoch_length = 5;
+        spec.params.cellbase_maturity = Some(CELLBASE_MATURITY_VALUE);
+        spec.params.epoch_duration_target = Some(30);
+        spec.params.genesis_epoch_length = Some(5);
     }
 }

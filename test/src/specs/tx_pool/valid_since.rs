@@ -25,7 +25,7 @@ impl Spec for ValidSince {
     }
 
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.cellbase_maturity = 0;
+        spec.params.cellbase_maturity = Some(0);
     }
 }
 

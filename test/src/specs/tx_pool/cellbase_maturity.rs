@@ -45,6 +45,6 @@ impl Spec for CellbaseMaturity {
     }
 
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.cellbase_maturity = MATURITY;
+        spec.params.cellbase_maturity = Some(MATURITY);
     }
 }

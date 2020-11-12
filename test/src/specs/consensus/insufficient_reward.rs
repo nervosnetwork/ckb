@@ -17,11 +17,11 @@ impl Spec for InsufficientReward {
 
         // modify chain spec
         node.modify_chain_spec(|spec| {
-            spec.params.initial_primary_epoch_reward = Capacity::shannons(2000_00000000);
-            spec.params.secondary_epoch_reward = Capacity::shannons(100_00000000);
-            spec.params.primary_epoch_reward_halving_interval = 2;
-            spec.params.epoch_duration_target = 80;
-            spec.params.genesis_epoch_length = 20;
+            spec.params.initial_primary_epoch_reward = Some(Capacity::shannons(2000_00000000));
+            spec.params.secondary_epoch_reward = Some(Capacity::shannons(100_00000000));
+            spec.params.primary_epoch_reward_halving_interval = Some(2);
+            spec.params.epoch_duration_target = Some(80);
+            spec.params.genesis_epoch_length = Some(20);
         });
 
         // import vendor data
