@@ -26,7 +26,7 @@ sentry = "0.17.0"
 faster-hex = "0.4"
 ckb-hash = {path = "../util/hash", version = "= 0.38.0-pre"}
 secp256k1 = {version = "0.17", features = ["recovery"] }
-resolve = "0.2.0"
+trust-dns-resolver = { version = "0.19" }
 num_cpus = "1.10"
 snap = "1"
 ckb-types = { path = "../util/types", version = "= 0.38.0-pre" }

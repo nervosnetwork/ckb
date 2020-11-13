@@ -974,7 +974,7 @@ impl<T: ExitHandler> NetworkService<T> {
         if config.dns_seeding_service_enabled() {
             let dns_seeding_service =
                 DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
-            bg_services.push(Box::pin(dns_seeding_service) as Pin<Box<_>>);
+            bg_services.push(Box::pin(dns_seeding_service.start()) as Pin<Box<_>>);
         };
 
         NetworkService {
