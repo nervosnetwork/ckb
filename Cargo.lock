@@ -593,7 +593,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
- "console 0.12.0",
+ "console",
  "indicatif",
  "tempfile",
 ]
@@ -796,7 +796,7 @@ dependencies = [
  "ckb-pow",
  "ckb-stop-handler",
  "ckb-types",
- "console 0.8.0",
+ "console",
  "eaglesong",
  "failure",
  "futures 0.1.29",
@@ -1317,18 +1317,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clicolors-control"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73abfd4c73d003a674ce5d2933fca6ce6c42480ea84a5ffe0a2dc39ed56300f9"
-dependencies = [
- "atty",
- "lazy_static",
- "libc",
- "winapi 0.3.8",
-]
-
-[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1339,32 +1327,15 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.8.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b147390a412132d75d10dd3b7b175a69cf5fd95032f7503c7091b8831ba10242"
-dependencies = [
- "clicolors-control",
- "encode_unicode",
- "lazy_static",
- "libc",
- "regex",
- "termios",
- "unicode-width",
- "winapi 0.3.8",
-]
-
-[[package]]
-name = "console"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0b1aacfaffdbff75be81c15a399b4bedf78aaefe840e8af1d299ac2ade885d2"
+checksum = "a50aab2529019abfabfa93f1e6c41ef392f91fbf179b347a7e96abb524884a08"
 dependencies = [
  "encode_unicode",
  "lazy_static",
  "libc",
  "regex",
  "terminal_size",
- "termios",
  "unicode-width",
  "winapi 0.3.8",
  "winapi-util",
@@ -2630,7 +2601,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
 dependencies = [
- "console 0.12.0",
+ "console",
  "lazy_static",
  "number_prefix",
  "regex",
@@ -4727,15 +4698,6 @@ dependencies = [
  "libc",
  "redox_syscall",
  "redox_termios",
-]
-
-[[package]]
-name = "termios"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b620c5ea021d75a735c943269bb07d30c9b77d6ac6b236bc8b5c496ef05625"
-dependencies = [
- "libc",
 ]
 
 [[package]]

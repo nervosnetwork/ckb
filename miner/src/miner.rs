@@ -61,7 +61,7 @@ impl Miner {
         let pb = mp.add(ProgressBar::new(100));
         pb.set_style(ProgressStyle::default_bar().template("{msg:.green}"));
 
-        let stderr_is_tty = console::Term::stderr().is_term();
+        let stderr_is_tty = console::Term::stderr().features().is_attended();
 
         thread::spawn(move || {
             mp.join().expect("MultiProgress join failed");
