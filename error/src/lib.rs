@@ -1,14 +1,12 @@
 //! TODO(doc): @keroro520
-#[macro_use]
-extern crate enum_display_derive;
-
 mod convert;
 mod internal;
 pub mod util;
 
+use derive_more::Display;
 use failure::{Backtrace, Context, Fail};
 pub use internal::{InternalError, InternalErrorKind};
-use std::fmt::{self, Display};
+use std::fmt;
 
 /// TODO(doc): @keroro520
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]

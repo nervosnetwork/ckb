@@ -24,7 +24,7 @@ ckb-logger = {path = "../util/logger", version = "= 0.38.0-pre"}
 ckb-reward-calculator= { path = "../util/reward-calculator", version = "= 0.38.0-pre" }
 failure = "0.1.5"
 ckb-error = { path = "../error", version = "= 0.38.0-pre" }
-enum-display-derive = "0.1.0"
+derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0-pre" }
 
