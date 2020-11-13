@@ -3,8 +3,9 @@ use ckb_types::{
     core::{Capacity, Version},
     packed::{Byte32, OutPoint},
 };
+use derive_more::Display;
 use failure::{Backtrace, Context, Fail};
-use std::fmt::{self, Display};
+use std::fmt;
 
 #[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum TransactionErrorSource {

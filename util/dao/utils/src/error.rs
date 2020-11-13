@@ -1,6 +1,6 @@
 use ckb_error::{Error, ErrorKind};
+use derive_more::Display;
 use failure::Fail;
-use std::fmt::Display;
 
 /// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Clone, Eq, Display)]

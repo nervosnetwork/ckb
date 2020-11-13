@@ -1,6 +1,7 @@
 use crate::{Error, ErrorKind};
+use derive_more::Display;
 use failure::{err_msg, Backtrace, Context, Fail};
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
 
 /// TODO(doc): @keroro520
 #[derive(Debug)]
@@ -70,7 +71,10 @@ impl InternalErrorKind {
     }
 
     /// TODO(doc): @keroro520
-    pub fn reason<S: Display + Debug + Sync + Send + 'static>(self, reason: S) -> InternalError {
+    pub fn reason<S: fmt::Display + Debug + Sync + Send + 'static>(
+        self,
+        reason: S,
+    ) -> InternalError {
         InternalError {
             kind: err_msg(reason).compat().context(self),
         }
