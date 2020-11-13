@@ -12,9 +12,9 @@ pub struct WithdrawDAO;
 
 impl Spec for WithdrawDAO {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -40,9 +40,9 @@ pub struct WithdrawDAOWithOverflowCapacity;
 
 impl Spec for WithdrawDAOWithOverflowCapacity {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {

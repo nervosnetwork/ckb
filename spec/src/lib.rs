@@ -127,58 +127,107 @@ pub mod default_params {
     pub fn max_block_proposals_limit() -> u64 {
         MAX_BLOCK_PROPOSALS_LIMIT
     }
+
+    /// TODO(doc): @zhangsoledad
+    pub fn permanent_difficulty_in_dummy() -> bool {
+        false
+    }
 }
 
 /// TODO(doc): @zhangsoledad
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::initial_primary_epoch_reward")]
-    pub initial_primary_epoch_reward: Capacity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_primary_epoch_reward: Option<Capacity>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::secondary_epoch_reward")]
-    pub secondary_epoch_reward: Capacity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_epoch_reward: Option<Capacity>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::max_block_cycles")]
-    pub max_block_cycles: Cycle,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_block_cycles: Option<Cycle>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::max_block_bytes")]
-    pub max_block_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_block_bytes: Option<u64>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::cellbase_maturity")]
-    pub cellbase_maturity: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cellbase_maturity: Option<u64>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::primary_epoch_reward_halving_interval")]
-    pub primary_epoch_reward_halving_interval: EpochNumber,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_epoch_reward_halving_interval: Option<EpochNumber>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::epoch_duration_target")]
-    pub epoch_duration_target: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epoch_duration_target: Option<u64>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::genesis_epoch_length")]
-    pub genesis_epoch_length: BlockNumber,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genesis_epoch_length: Option<BlockNumber>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default)]
-    pub permanent_difficulty_in_dummy: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permanent_difficulty_in_dummy: Option<bool>,
     /// TODO(doc): @zhangsoledad
-    #[serde(default = "default_params::max_block_proposals_limit")]
-    pub max_block_proposals_limit: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_block_proposals_limit: Option<u64>,
 }
 
-impl Default for Params {
-    fn default() -> Self {
-        Params {
-            initial_primary_epoch_reward: default_params::initial_primary_epoch_reward(),
-            secondary_epoch_reward: default_params::secondary_epoch_reward(),
-            max_block_cycles: default_params::max_block_cycles(),
-            max_block_bytes: default_params::max_block_bytes(),
-            cellbase_maturity: default_params::cellbase_maturity(),
-            primary_epoch_reward_halving_interval:
-                default_params::primary_epoch_reward_halving_interval(),
-            epoch_duration_target: default_params::epoch_duration_target(),
-            genesis_epoch_length: default_params::genesis_epoch_length(),
-            permanent_difficulty_in_dummy: false,
-            max_block_proposals_limit: default_params::max_block_proposals_limit(),
-        }
+impl Params {
+    /// Return the `initial_primary_epoch_reward`, otherwise if None, returns the default value
+    pub fn initial_primary_epoch_reward(&self) -> Capacity {
+        self.initial_primary_epoch_reward
+            .unwrap_or_else(default_params::initial_primary_epoch_reward)
+    }
+
+    /// Return the `secondary_epoch_reward`, otherwise if None, returns the default value
+    pub fn secondary_epoch_reward(&self) -> Capacity {
+        self.secondary_epoch_reward
+            .unwrap_or_else(default_params::secondary_epoch_reward)
+    }
+
+    /// Return the `max_block_cycles`, otherwise if None, returns the default value
+    pub fn max_block_cycles(&self) -> Cycle {
+        self.max_block_cycles
+            .unwrap_or_else(default_params::max_block_cycles)
+    }
+
+    /// Return the `max_block_bytes`, otherwise if None, returns the default value
+    pub fn max_block_bytes(&self) -> u64 {
+        self.max_block_bytes
+            .unwrap_or_else(default_params::max_block_bytes)
+    }
+
+    /// Return the `cellbase_maturity`, otherwise if None, returns the default value
+    pub fn cellbase_maturity(&self) -> u64 {
+        self.cellbase_maturity
+            .unwrap_or_else(default_params::cellbase_maturity)
+    }
+
+    /// Return the `primary_epoch_reward_halving_interval`, otherwise if None, returns the default value
+    pub fn primary_epoch_reward_halving_interval(&self) -> EpochNumber {
+        self.primary_epoch_reward_halving_interval
+            .unwrap_or_else(default_params::primary_epoch_reward_halving_interval)
+    }
+
+    /// Return the `permanent_difficulty_in_dummy`, otherwise if None, returns the default value
+    pub fn permanent_difficulty_in_dummy(&self) -> bool {
+        self.permanent_difficulty_in_dummy
+            .unwrap_or_else(default_params::permanent_difficulty_in_dummy)
+    }
+
+    /// Return the `epoch_duration_target`, otherwise if None, returns the default value
+    pub fn epoch_duration_target(&self) -> u64 {
+        self.epoch_duration_target
+            .unwrap_or_else(default_params::epoch_duration_target)
+    }
+
+    /// Return the `genesis_epoch_length`, otherwise if None, returns the default value
+    pub fn genesis_epoch_length(&self) -> BlockNumber {
+        self.genesis_epoch_length
+            .unwrap_or_else(default_params::genesis_epoch_length)
+    }
+
+    /// Return the `max_block_proposals_limit`, otherwise if None, returns the default value
+    pub fn max_block_proposals_limit(&self) -> BlockNumber {
+        self.max_block_proposals_limit
+            .unwrap_or_else(default_params::max_block_proposals_limit)
     }
 }
 
@@ -351,10 +400,10 @@ impl ChainSpec {
     /// TODO(doc): @zhangsoledad
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
         let genesis_epoch_ext = build_genesis_epoch_ext(
-            self.params.initial_primary_epoch_reward,
+            self.params.initial_primary_epoch_reward(),
             self.genesis.compact_target,
-            self.params.genesis_epoch_length,
-            self.params.epoch_duration_target,
+            self.params.genesis_epoch_length(),
+            self.params.epoch_duration_target(),
         );
         let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
@@ -362,21 +411,21 @@ impl ChainSpec {
         let consensus = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
             .id(self.name.clone())
             .cellbase_maturity(EpochNumberWithFraction::from_full_value(
-                self.params.cellbase_maturity,
+                self.params.cellbase_maturity(),
             ))
-            .secondary_epoch_reward(self.params.secondary_epoch_reward)
-            .max_block_cycles(self.params.max_block_cycles)
-            .max_block_bytes(self.params.max_block_bytes)
+            .secondary_epoch_reward(self.params.secondary_epoch_reward())
+            .max_block_cycles(self.params.max_block_cycles())
+            .max_block_bytes(self.params.max_block_bytes())
             .pow(self.pow.clone())
             .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
             .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
             .primary_epoch_reward_halving_interval(
-                self.params.primary_epoch_reward_halving_interval,
+                self.params.primary_epoch_reward_halving_interval(),
             )
-            .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward)
-            .epoch_duration_target(self.params.epoch_duration_target)
-            .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy)
-            .max_block_proposals_limit(self.params.max_block_proposals_limit)
+            .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward())
+            .epoch_duration_target(self.params.epoch_duration_target())
+            .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
+            .max_block_proposals_limit(self.params.max_block_proposals_limit())
             .build();
 
         Ok(consensus)
@@ -404,13 +453,13 @@ impl ChainSpec {
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
 
-        let genesis_epoch_length = self.params.genesis_epoch_length;
+        let genesis_epoch_length = self.params.genesis_epoch_length();
         let genesis_primary_issuance = calculate_block_reward(
-            self.params.initial_primary_epoch_reward,
+            self.params.initial_primary_epoch_reward(),
             genesis_epoch_length,
         );
         let genesis_secondary_issuance =
-            calculate_block_reward(self.params.secondary_epoch_reward, genesis_epoch_length);
+            calculate_block_reward(self.params.secondary_epoch_reward(), genesis_epoch_length);
         let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
             &self.genesis.satoshi_gift.satoshi_pubkey_hash,
@@ -968,7 +1017,7 @@ pub mod test {
 
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
-        expected.genesis_epoch_length = 100;
+        expected.genesis_epoch_length = Some(100);
 
         assert_eq!(params, expected);
 
@@ -978,7 +1027,7 @@ pub mod test {
 
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
-        expected.max_block_bytes = 100;
+        expected.max_block_bytes = Some(100);
 
         assert_eq!(params, expected);
 
@@ -988,8 +1037,18 @@ pub mod test {
 
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
-        expected.max_block_proposals_limit = 100;
+        expected.max_block_proposals_limit = Some(100);
 
         assert_eq!(params, expected);
+    }
+
+    #[test]
+    fn test_params_skip_serializing_if_option_is_none() {
+        let default = Params::default();
+
+        let serialized: Vec<u8> = toml::to_vec(&default).unwrap();
+        let except: Vec<u8> = vec![];
+
+        assert_eq!(serialized, except);
     }
 }
