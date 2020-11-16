@@ -151,12 +151,16 @@ where
         }
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
+    /// skip script verify will result in the return value cycle always is zero
+    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.since.verify()?;
-        let cycles = self.script.verify(max_cycles)?;
+        let cycles = if skip_script_verify {
+            0
+        } else {
+            self.script.verify(max_cycles)?
+        };
         let fee = self.fee_calculator.transaction_fee()?;
         Ok(CacheEntry::new(cycles, fee))
     }
@@ -203,7 +207,7 @@ where
     /// TODO(doc): @zhangsoledad
     pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
         self.non_contextual.verify()?;
-        self.contextual.verify(max_cycles)
+        self.contextual.verify(max_cycles, false)
     }
 }
 

@@ -16,8 +16,13 @@ pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_types::{u256, H256, U256};
 use clap::{value_t, ArgMatches, ErrorKind};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
+
+// 500_000 total difficulty
+const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// TODO(doc): @doitian
 pub struct Setup {
@@ -55,7 +60,24 @@ impl Setup {
     pub fn run<'m>(self, matches: &ArgMatches<'m>) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
-        let config = self.config.into_ckb()?;
+        let mut config = self.config.into_ckb()?;
+
+        let mainnet_genesis = ckb_chain_spec::ChainSpec::load_from(
+            &ckb_resource::Resource::bundled("specs/mainnet.toml".to_string()),
+        )
+        .expect("load mainnet spec fail")
+        .build_genesis()
+        .expect("build mainnet genesis fail");
+        config.network.sync.min_chain_work =
+            if consensus.genesis_block.hash() == mainnet_genesis.hash() {
+                MIN_CHAIN_WORK_500K
+            } else {
+                u256!("0x0")
+            };
+
+        config.network.sync.assume_valid_target = matches
+            .value_of(cli::ARG_ASSUME_VALID_TARGET)
+            .and_then(|s| H256::from_str(&s[2..]).ok());
 
         Ok(RunArgs {
             config,

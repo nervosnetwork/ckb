@@ -1,3 +1,4 @@
+use ckb_types::{H256, U256};
 use multiaddr::{Multiaddr, Protocol};
 use rand::Rng;
 use secio::{self, PeerId};
@@ -54,16 +55,23 @@ pub struct Config {
     /// TODO(doc): @doitian
     // Max send buffer size
     pub max_send_buffer: Option<usize>,
-    /// TODO(doc): @doitian
-    pub sync: Option<SyncConfig>,
+    /// Sync config
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 /// TODO(doc): @doitian
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct SyncConfig {
-    /// TODO(doc): @doitian
+    /// HeaderMap config
     #[serde(default)]
     pub header_map: HeaderMapConfig,
+    /// Block hash of assume valid target
+    #[serde(skip, default)]
+    pub assume_valid_target: Option<H256>,
+    /// Proof of minimum work during synchronization
+    #[serde(skip, default)]
+    pub min_chain_work: U256,
 }
 
 /// TODO(doc): @doitian

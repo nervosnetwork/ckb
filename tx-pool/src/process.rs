@@ -650,7 +650,7 @@ fn verify_rtxs(
                     consensus,
                     snapshot,
                 )
-                .verify(max_tx_verify_cycles)
+                .verify(max_tx_verify_cycles, false)
                 .map(|cycles| (tx, cycles))
             }
         })

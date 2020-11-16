@@ -21,11 +21,13 @@ bitflags! {
         const DISABLE_REWARD            = 0b00010000;
         /// TODO(doc): @zhangsoledad
         const DISABLE_NON_CONTEXTUAL    = 0b00100000;
+        /// use to disable script verification
+        const DISABLE_SCRIPT            = 0b01000000;
         /// TODO(doc): @zhangsoledad
         const DISABLE_ALL               = Self::DISABLE_EPOCH.bits | Self::DISABLE_UNCLES.bits |
                                     Self::DISABLE_TWO_PHASE_COMMIT.bits | Self::DISABLE_DAOHEADER.bits |
                                     Self::DISABLE_REWARD.bits |
-                                    Self::DISABLE_NON_CONTEXTUAL.bits;
+                                    Self::DISABLE_NON_CONTEXTUAL.bits | Self::DISABLE_SCRIPT.bits;
     }
 }
 
@@ -56,5 +58,8 @@ impl VerificationSwitch for Switch {
     }
     fn disable_reward(&self) -> bool {
         self.contains(Switch::DISABLE_REWARD)
+    }
+    fn disable_script(&self) -> bool {
+        self.contains(Switch::DISABLE_SCRIPT)
     }
 }

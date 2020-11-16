@@ -34,7 +34,7 @@ pub struct RunArgs {
     pub consensus: Consensus,
     /// TODO(doc): @doitian
     pub block_assembler_advanced: bool,
-    /// Wether skip chain spec hash check
+    /// Whether skip chain spec hash check
     pub skip_chain_spec_check: bool,
     /// Config chain spec hash
     pub chain_spec_hash: Byte32,

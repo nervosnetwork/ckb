@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
-pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
+pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
@@ -58,6 +58,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Some(shared.store().db().inner()),
     );
 
+    // Check whether the data already exists in the database before starting
+    if let Some(ref target) = args.config.network.sync.assume_valid_target {
+        if shared.snapshot().block_exists(&target.pack()) {
+            args.config.network.sync.assume_valid_target.take();
+        }
+    }
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
@@ -69,12 +76,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let sync_shared = Arc::new(SyncShared::with_tmpdir(
         shared.clone(),
-        args.config
-            .network
-            .sync
-            .as_ref()
-            .cloned()
-            .unwrap_or_default(),
+        args.config.network.sync.clone(),
         args.config.tmp_dir.as_ref(),
     ));
     let network_state = Arc::new(

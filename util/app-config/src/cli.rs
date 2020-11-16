@@ -100,6 +100,8 @@ pub const ARG_SANITY_CHECK: &str = "sanity-check";
 pub const ARG_FULL_VERIFICATION: &str = "full-verification";
 /// Present `skip-spec-check` arg to `run` skip spec check on setup
 pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
+/// assume valid target cli arg name
+pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 
 /// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
@@ -152,7 +154,22 @@ fn run() -> App<'static, 'static> {
             Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .long(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .help("Skips checking the chain spec with the hash stored in the database"),
-        )
+        ).arg(
+        Arg::with_name(ARG_ASSUME_VALID_TARGET)
+            .long(ARG_ASSUME_VALID_TARGET)
+            .takes_value(true)
+            .validator(is_hex)
+            .help("This parameter specifies the hash of a block. \
+            When the height does not reach this block's height, the execution of the script will be disabled, \
+            that is, skip verifying the script content. \
+            \
+            It should be noted that when this option is enabled, the header is first synchronized to \
+            the highest currently found. During this period, if the assume valid target is found, \
+            the download of the block starts; \
+            If the timestamp of the best known header is already within 24 hours of the current time
+            and the assume valid target is not found, the target will automatically become invalid,
+            and the download of the block will be started with verify")
+    )
 }
 
 fn miner() -> App<'static, 'static> {
