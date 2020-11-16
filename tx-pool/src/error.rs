@@ -1,36 +1,37 @@
-//! TODO(doc): @zhangsoledad
+//! The error type for Tx-pool operations
+
 use ckb_error::{Error, ErrorKind};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::packed::Byte32;
 use failure::Fail;
 use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
 
-/// TODO(doc): @zhangsoledad
+/// TX reject message
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum Reject {
-    /// The fee rate of transaction is lower than min fee rate
+    /// Transaction fee lower than config
     #[fail(
         display = "The min fee rate is {} shannons/KB, so the transaction fee should be {} shannons at least, but only got {}",
         _0, _1, _2
     )]
     LowFeeRate(FeeRate, u64, u64),
 
-    /// TODO(doc): @zhangsoledad
+    /// Transaction exceeded maximum ancestors count limit
     #[fail(display = "Transaction exceeded maximum ancestors count limit, try send it later")]
     ExceededMaximumAncestorsCount,
 
-    /// TODO(doc): @zhangsoledad
+    /// Transaction pool exceeded maximum size or cycles limit,
     #[fail(
         display = "Transaction pool exceeded maximum {} limit({}), try send it later",
         _0, _1
     )]
     Full(String, u64),
 
-    /// TODO(doc): @zhangsoledad
+    /// Transaction already exist in transaction_pool
     #[fail(display = "Transaction({}) already exist in transaction_pool", _0)]
     Duplicated(Byte32),
 
-    /// TODO(doc): @zhangsoledad
+    /// Malformed transaction
     #[fail(display = "Malformed {} transaction", _0)]
     Malformed(String),
 }
@@ -41,27 +42,25 @@ impl From<Reject> for Error {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// The error type for block assemble related
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum BlockAssemblerError {
-    /// TODO(doc): @zhangsoledad
+    /// Input is invalid
     #[fail(display = "InvalidInput")]
     InvalidInput,
-    /// TODO(doc): @zhangsoledad
+    /// Parameters is invalid
     #[fail(display = "InvalidParams {}", _0)]
     InvalidParams(String),
-    /// TODO(doc): @zhangsoledad
+    /// BlockAssembler is disabled
     #[fail(display = "Disabled")]
     Disabled,
 }
 
-/// TODO(doc): @zhangsoledad
 #[derive(Fail, Debug)]
 #[fail(display = "TrySendError {}.", _0)]
-pub struct TrySendError(String);
+pub(crate) struct TrySendError(String);
 
-/// TODO(doc): @zhangsoledad
-pub fn handle_try_send_error<T>(error: TokioTrySendError<T>) -> (T, TrySendError) {
+pub(crate) fn handle_try_send_error<T>(error: TokioTrySendError<T>) -> (T, TrySendError) {
     let e = TrySendError(format!("{}", error));
     let m = match error {
         TokioTrySendError::Full(t) | TokioTrySendError::Closed(t) => t,

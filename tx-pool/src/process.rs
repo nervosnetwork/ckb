@@ -38,11 +38,11 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
-/// TODO(doc): @zhangsoledad
+/// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
-    /// TODO(doc): @zhangsoledad
+    /// Pending pool
     Pending,
-    /// TODO(doc): @zhangsoledad
+    /// Proposed pool
     Proposed,
 }
 

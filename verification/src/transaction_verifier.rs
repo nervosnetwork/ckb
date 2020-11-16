@@ -20,19 +20,21 @@ use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-/// TODO(doc): @zhangsoledad
+/// The time-related TX verification
+///
+/// Contains:
+/// [`MaturityVerifier`](./struct.MaturityVerifier.html)
+/// [`SinceVerifier`](./struct.SinceVerifier.html)
 pub struct TimeRelativeTransactionVerifier<'a, M> {
-    /// TODO(doc): @zhangsoledad
-    pub maturity: MaturityVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub since: SinceVerifier<'a, M>,
+    pub(crate) maturity: MaturityVerifier<'a>,
+    pub(crate) since: SinceVerifier<'a, M>,
 }
 
 impl<'a, M> TimeRelativeTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new TimeRelativeTransactionVerifier
     pub fn new(
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
@@ -57,7 +59,7 @@ where
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform time-related verification
     pub fn verify(&self) -> Result<(), Error> {
         self.maturity.verify()?;
         self.since.verify()?;
@@ -65,22 +67,25 @@ where
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context-independent verification checks for transaction
+///
+/// Basic checks that don't depend on any context
+/// Contains:
+/// - Check for version
+/// - Check for size
+/// - Check inputs and output empty
+/// - Check for duplicate deps
+/// - Check for whether outputs match data
 pub struct NonContextualTransactionVerifier<'a> {
-    /// TODO(doc): @zhangsoledad
-    pub version: VersionVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub size: SizeVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub empty: EmptyVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub duplicate_deps: DuplicateDepsVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub outputs_data_verifier: OutputsDataVerifier<'a>,
+    pub(crate) version: VersionVerifier<'a>,
+    pub(crate) size: SizeVerifier<'a>,
+    pub(crate) empty: EmptyVerifier<'a>,
+    pub(crate) duplicate_deps: DuplicateDepsVerifier<'a>,
+    pub(crate) outputs_data_verifier: OutputsDataVerifier<'a>,
 }
 
 impl<'a> NonContextualTransactionVerifier<'a> {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new NonContextualTransactionVerifier
     pub fn new(tx: &'a TransactionView, consensus: &'a Consensus) -> Self {
         NonContextualTransactionVerifier {
             version: VersionVerifier::new(tx, consensus.tx_version()),
@@ -91,7 +96,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform context-independent verification
     pub fn verify(&self) -> Result<(), Error> {
         self.version.verify()?;
         self.size.verify()?;
@@ -102,18 +107,20 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context-dependent verification checks for transaction
+///
+/// Contains:
+/// [`MaturityVerifier`](./struct.MaturityVerifier.html)
+/// [`SinceVerifier`](./struct.SinceVerifier.html)
+/// [`CapacityVerifier`](./struct.CapacityVerifier.html)
+/// [`ScriptVerifier`](./struct.ScriptVerifier.html)
+/// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<'a, M, CS> {
-    /// TODO(doc): @zhangsoledad
-    pub maturity: MaturityVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub since: SinceVerifier<'a, M>,
-    /// TODO(doc): @zhangsoledad
-    pub capacity: CapacityVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub script: ScriptVerifier<'a, CS>,
-    /// TODO(doc): @zhangsoledad
-    pub fee_calculator: FeeCalculator<'a, CS>,
+    pub(crate) maturity: MaturityVerifier<'a>,
+    pub(crate) since: SinceVerifier<'a, M>,
+    pub(crate) capacity: CapacityVerifier<'a>,
+    pub(crate) script: ScriptVerifier<'a, CS>,
+    pub(crate) fee_calculator: FeeCalculator<'a, CS>,
 }
 
 impl<'a, M, CS> ContextualTransactionVerifier<'a, M, CS>
@@ -121,7 +128,7 @@ where
     M: BlockMedianTimeContext,
     CS: ChainStore<'a>,
 {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new ContextualTransactionVerifier
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
@@ -151,6 +158,8 @@ where
         }
     }
 
+    /// Perform context-dependent verification, return a `Result` to `CacheEntry`
+    ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         self.maturity.verify()?;
@@ -166,12 +175,14 @@ where
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Full tx verification checks
+///
+/// Contains:
+/// [`NonContextualTransactionVerifier`](./struct.NonContextualTransactionVerifier.html)
+/// [`ContextualTransactionVerifier`](./struct.ContextualTransactionVerifier.html)
 pub struct TransactionVerifier<'a, M, CS> {
-    /// TODO(doc): @zhangsoledad
-    pub non_contextual: NonContextualTransactionVerifier<'a>,
-    /// TODO(doc): @zhangsoledad
-    pub contextual: ContextualTransactionVerifier<'a, M, CS>,
+    pub(crate) non_contextual: NonContextualTransactionVerifier<'a>,
+    pub(crate) contextual: ContextualTransactionVerifier<'a, M, CS>,
 }
 
 impl<'a, M, CS> TransactionVerifier<'a, M, CS>
@@ -179,7 +190,7 @@ where
     M: BlockMedianTimeContext,
     CS: ChainStore<'a>,
 {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new TransactionVerifier
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
@@ -204,7 +215,7 @@ where
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform all tx verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
         self.non_contextual.verify()?;
         self.contextual.verify(max_cycles, false)
@@ -292,14 +303,18 @@ impl<'a> SizeVerifier<'a> {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Perform rules verification describe in CKB script, also check cycles limit
+///
+/// See:
+/// - [ckb-vm](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0003-ckb-vm/0003-ckb-vm.md)
+/// - [vm-cycle-limits](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0014-vm-cycle-limits/0014-vm-cycle-limits.md)
 pub struct ScriptVerifier<'a, CS> {
     chain_store: &'a CS,
     resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new ScriptVerifier
     pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a CS) -> Self {
         ScriptVerifier {
             chain_store,
@@ -307,7 +322,7 @@ impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform script verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let data_loader = DataLoaderWrapper::new(self.chain_store);
         TransactionScriptsVerifier::new(&self.resolved_transaction, &data_loader).verify(max_cycles)
@@ -340,6 +355,9 @@ impl<'a> EmptyVerifier<'a> {
     }
 }
 
+/// MaturityVerifier
+///
+/// If input or dep prev is cellbase, check that it's matured
 pub struct MaturityVerifier<'a> {
     transaction: &'a ResolvedTransaction,
     epoch: EpochNumberWithFraction,
@@ -517,39 +535,41 @@ const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
 const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
 const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
-/// TODO(doc): @zhangsoledad
+/// Metric represent value
 pub enum SinceMetric {
-    /// TODO(doc): @zhangsoledad
+    /// The metric_flag is 00, `value` can be explained as a block number or a relative block number.
     BlockNumber(u64),
-    /// TODO(doc): @zhangsoledad
+    /// The metric_flag is 01, value can be explained as an absolute epoch or relative epoch.
     EpochNumberWithFraction(EpochNumberWithFraction),
-    /// TODO(doc): @zhangsoledad
+    /// The metric_flag is 10, value can be explained as a block timestamp(unix time) or a relative
     Timestamp(u64),
 }
 
-/// RFC 0017
+/// The struct define wrapper for (unsigned 64-bit integer) tx field since
+///
+/// See [tx-since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md)
 #[derive(Copy, Clone, Debug)]
 pub struct Since(pub u64);
 
 impl Since {
-    /// TODO(doc): @zhangsoledad
+    /// Whether since represented absolute form
     pub fn is_absolute(self) -> bool {
         self.0 & LOCK_TYPE_FLAG == 0
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Whether since represented relative form
     #[inline]
     pub fn is_relative(self) -> bool {
         !self.is_absolute()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Whether since flag is valid
     pub fn flags_is_valid(self) -> bool {
         (self.0 & REMAIN_FLAGS_BITS == 0)
             && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Extracts a `SinceMetric` from an unsigned 64-bit integer since
     pub fn extract_metric(self) -> Option<SinceMetric> {
         let value = self.0 & VALUE_MASK;
         match self.0 & METRIC_TYPE_FLAG_MASK {
@@ -566,7 +586,10 @@ impl Since {
     }
 }
 
-/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
+/// SinceVerifier
+///
+/// Rules detail see:
+/// [tx-since-specification](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
 pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction,
     block_median_time_context: &'a M,

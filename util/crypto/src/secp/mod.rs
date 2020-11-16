@@ -1,13 +1,13 @@
-//! TODO(doc): @zhangsoledad
+//! `secp256k1` wrapper
 
 use ckb_fixed_hash::H256;
 use lazy_static::lazy_static;
 
-/// TODO(doc): @zhangsoledad
+/// A (hashed) message input to an ECDSA signature
 pub type Message = H256;
 
 lazy_static! {
-    /// TODO(doc): @zhangsoledad
+    /// The reference to lazily-initialized static secp256k1 engine, used to execute all signature operations
     pub static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
 }
 

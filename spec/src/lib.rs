@@ -5,9 +5,10 @@
 //! In order to run a chain different to the official public one,
 //! with a config file specifying chain = "path" under [ckb].
 //!
-//! Because the limitation of toml library,
-//! we must put nested config struct in the tail to make it serializable,
-//! details https://docs.rs/toml/0.5.0/toml/ser/index.html
+
+// Because the limitation of toml library,
+// we must put nested config struct in the tail to make it serializable,
+// details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
@@ -47,33 +48,33 @@ mod error;
 const SPECIAL_CELL_PRIVKEY: H256 =
     h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
 
-/// TODO(doc): @zhangsoledad
+/// The output index of SECP256K1/blake160 script in the genesis no.0 transaction
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
-/// TODO(doc): @zhangsoledad
+/// The output index of DAO script in the genesis no.0 transaction
 pub const OUTPUT_INDEX_DAO: u64 = 2;
-/// TODO(doc): @zhangsoledad
+/// The output data index of SECP256K1 in the genesis no.0 transaction
 pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
-/// TODO(doc): @zhangsoledad
+/// The output index of SECP256K1/multisig script in the genesis no.0 transaction
 pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 
-/// TODO(doc): @zhangsoledad
+/// The CKB block chain specification
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
-    /// TODO(doc): @zhangsoledad
+    /// The spec name, also used identify network
     pub name: String,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block information
     pub genesis: Genesis,
-    /// TODO(doc): @zhangsoledad
+    /// The block chain parameters
     #[serde(default)]
     pub params: Params,
-    /// TODO(doc): @zhangsoledad
+    /// The block chain pow
     pub pow: Pow,
     #[serde(skip)]
     /// Hash of blake2b_256 spec content bytes, used for check consistency between database and config
     pub hash: packed::Byte32,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The default_params mod defines the default parameters for CKB Mainnet
 pub mod default_params {
     use crate::consensus::{
         CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
@@ -83,88 +84,128 @@ pub mod default_params {
     };
     use ckb_types::core::{Capacity, Cycle, EpochNumber};
 
-    /// TODO(doc): @zhangsoledad
+    /// The default initial_primary_epoch_reward
+    ///
+    /// Apply to [`initial_primary_epoch_reward`](../consensus/struct.Consensus.html#structfield.initial_primary_epoch_reward)
     pub fn initial_primary_epoch_reward() -> Capacity {
         INITIAL_PRIMARY_EPOCH_REWARD
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default secondary_epoch_reward
+    ///
+    /// Apply to [`secondary_epoch_reward`](../consensus/struct.Consensus.html#structfield.secondary_epoch_reward)
     pub fn secondary_epoch_reward() -> Capacity {
         DEFAULT_SECONDARY_EPOCH_REWARD
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default max_block_cycles
+    ///
+    /// Apply to [`max_block_cycles`](../consensus/struct.Consensus.html#structfield.max_block_cycles)
     pub fn max_block_cycles() -> Cycle {
         MAX_BLOCK_CYCLES
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default max_block_bytes
+    ///
+    /// Apply to [`max_block_bytes`](../consensus/struct.Consensus.html#structfield.max_block_bytes)
     pub fn max_block_bytes() -> u64 {
         MAX_BLOCK_BYTES
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default cellbase_maturity
+    ///
+    /// Apply to [`cellbase_maturity`](../consensus/struct.Consensus.html#structfield.cellbase_maturity)
     pub fn cellbase_maturity() -> u64 {
         CELLBASE_MATURITY.full_value()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default primary_epoch_reward_halving_interval
+    ///
+    /// Apply to [`primary_epoch_reward_halving_interval`](../consensus/struct.Consensus.html#structfield.primary_epoch_reward_halving_interval)
     pub fn primary_epoch_reward_halving_interval() -> EpochNumber {
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default epoch_duration
+    ///
+    /// Apply to [`epoch_duration_target`](../consensus/struct.Consensus.html#structfield.epoch_duration_target)
     pub fn epoch_duration_target() -> u64 {
         DEFAULT_EPOCH_DURATION_TARGET
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default genesis_epoch_length
+    ///
+    /// Apply to [`genesis_epoch_length`](../consensus/struct.Consensus.html#structfield.genesis_epoch_length)
     pub fn genesis_epoch_length() -> u64 {
         GENESIS_EPOCH_LENGTH
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default max_block_proposals_limit
+    ///
+    /// Apply to [`max_block_proposals_limit`](../consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
     pub fn max_block_proposals_limit() -> u64 {
         MAX_BLOCK_PROPOSALS_LIMIT
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The default permanent_difficulty_in_dummy
+    ///
+    /// Apply to [`permanent_difficulty_in_dummy`](../consensus/struct.Consensus.html#structfield.permanent_difficulty_in_dummy)
     pub fn permanent_difficulty_in_dummy() -> bool {
         false
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Parameters for CKB block chain
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    /// TODO(doc): @zhangsoledad
+    /// The initial_primary_epoch_reward
+    ///
+    /// See [`initial_primary_epoch_reward`](consensus/struct.Consensus.html#structfield.initial_primary_epoch_reward)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_primary_epoch_reward: Option<Capacity>,
-    /// TODO(doc): @zhangsoledad
+    /// The secondary_epoch_reward
+    ///
+    /// See [`secondary_epoch_reward`](consensus/struct.Consensus.html#structfield.secondary_epoch_reward)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secondary_epoch_reward: Option<Capacity>,
-    /// TODO(doc): @zhangsoledad
+    /// The max_block_cycles
+    ///
+    /// See [`max_block_cycles`](consensus/struct.Consensus.html#structfield.max_block_cycles)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_block_cycles: Option<Cycle>,
-    /// TODO(doc): @zhangsoledad
+    /// The max_block_bytes
+    ///
+    /// See [`max_block_bytes`](consensus/struct.Consensus.html#structfield.max_block_bytes)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_block_bytes: Option<u64>,
-    /// TODO(doc): @zhangsoledad
+    /// The cellbase_maturity
+    ///
+    /// See [`cellbase_maturity`](consensus/struct.Consensus.html#structfield.cellbase_maturity)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cellbase_maturity: Option<u64>,
-    /// TODO(doc): @zhangsoledad
+    /// The primary_epoch_reward_halving_interval
+    ///
+    /// See [`primary_epoch_reward_halving_interval`](consensus/struct.Consensus.html#structfield.primary_epoch_reward_halving_interval)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub primary_epoch_reward_halving_interval: Option<EpochNumber>,
-    /// TODO(doc): @zhangsoledad
+    /// The epoch_duration_target
+    ///
+    /// See [`epoch_duration_target`](consensus/struct.Consensus.html#structfield.epoch_duration_target)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub epoch_duration_target: Option<u64>,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis_epoch_length
+    ///
+    /// See [`genesis_epoch_length`](consensus/struct.Consensus.html#structfield.genesis_epoch_length)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub genesis_epoch_length: Option<BlockNumber>,
-    /// TODO(doc): @zhangsoledad
+    /// The permanent_difficulty_in_dummy
+    ///
+    /// See [`permanent_difficulty_in_dummy`](consensus/struct.Consensus.html#structfield.permanent_difficulty_in_dummy)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permanent_difficulty_in_dummy: Option<bool>,
-    /// TODO(doc): @zhangsoledad
+    /// The max_block_proposals_limit
+    ///
+    /// See [`max_block_proposals_limit`](consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_block_proposals_limit: Option<u64>,
 }
@@ -231,86 +272,97 @@ impl Params {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// The genesis information
+/// Load from config file.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Genesis {
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block version
     pub version: u32,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block parent_hash
     pub parent_hash: H256,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block timestamp
     pub timestamp: u64,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block compact_target
     pub compact_target: u32,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block uncles_hash
     pub uncles_hash: H256,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block hash
+    ///
+    /// If hash is provided, it will be used to check whether match with actual calculated hash
     pub hash: Option<H256>,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block nonce
     pub nonce: U128,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block issued_cells
+    ///
+    /// Initial token supply
     pub issued_cells: Vec<IssuedCell>,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis cell
+    ///
+    /// The genesis cell contains a message for identity
     pub genesis_cell: GenesisCell,
-    /// TODO(doc): @zhangsoledad
+    /// The system cells
+    ///
+    /// The initial system cells, such SECP256K1/blake160, DAO.
     pub system_cells: Vec<SystemCell>,
-    /// TODO(doc): @zhangsoledad
+    /// The system cells' lock
     pub system_cells_lock: Script,
-    /// TODO(doc): @zhangsoledad
+    /// For block 1~11, the reward target is genesis block.
+    /// Genesis block must have the lock serialized in the cellbase witness, which is set to `bootstrap_lock`.
     pub bootstrap_lock: Script,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis dep_groups file resource
+    ///
+    /// see detail [dep-group](https://github.com/nervosnetwork/rfcs/blob/f639fa8b30b5568b895449b7ab3ef4ad40ca077a/rfcs/0022-transaction-structure/0022-transaction-structure.md#dep-group)
     pub dep_groups: Vec<DepGroupResource>,
-    /// TODO(doc): @zhangsoledad
+    /// The burned 25% of Nervos CKBytes in genesis block
     #[serde(default)]
     pub satoshi_gift: SatoshiGift,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The system cell information
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCell {
-    /// TODO(doc): @zhangsoledad
     // NOTE: must put `create_type_id` before `file` otherwise this struct can not serialize
+    /// whether crate type script
     pub create_type_id: bool,
-    /// TODO(doc): @zhangsoledad
-    // Overwrite the cell capacity. Set to None to use the minimal capacity.
+    /// Overwrite the cell capacity. Set to None to use the minimal capacity.
     pub capacity: Option<u64>,
-    /// TODO(doc): @zhangsoledad
+    /// The file resource
     pub file: Resource,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The genesis cell information
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct GenesisCell {
-    /// TODO(doc): @zhangsoledad
+    /// The genesis cell message
     pub message: String,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis cell lock
     pub lock: Script,
 }
 
-/// TODO(doc): @zhangsoledad
+/// Initial token supply cell
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct IssuedCell {
-    /// TODO(doc): @zhangsoledad
+    /// The cell capacity
     pub capacity: Capacity,
-    /// TODO(doc): @zhangsoledad
+    /// The cell lock
     pub lock: Script,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The genesis dep_group file resources
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct DepGroupResource {
-    /// TODO(doc): @zhangsoledad
+    /// The dep_group name
     pub name: String,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis dep_group files
     pub files: Vec<Resource>,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The burned 25% of Nervos CKBytes in genesis block
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SatoshiGift {
-    /// TODO(doc): @zhangsoledad
+    /// The lock pubkey hash
     pub satoshi_pubkey_hash: H160,
-    /// TODO(doc): @zhangsoledad
+    /// The burned cell virtual occupied, design for NervosDAO
     pub satoshi_cell_occupied_ratio: Ratio,
 }
 
@@ -323,18 +375,10 @@ impl Default for SatoshiGift {
     }
 }
 
-/// TODO(doc): @zhangsoledad
 #[derive(Debug)]
-pub enum SpecLoadError {
-    /// TODO(doc): @zhangsoledad
+pub(crate) enum SpecLoadError {
     FileNotFound,
-    /// TODO(doc): @zhangsoledad
-    GenesisMismatch {
-        /// TODO(doc): @zhangsoledad
-        expect: H256,
-        /// TODO(doc): @zhangsoledad
-        actual: H256,
-    },
+    GenesisMismatch { expect: H256, actual: H256 },
 }
 
 impl SpecLoadError {
@@ -363,7 +407,7 @@ impl fmt::Display for SpecLoadError {
 }
 
 impl ChainSpec {
-    /// TODO(doc): @zhangsoledad
+    /// New ChainSpec instance from load spec file resource
     pub fn load_from(resource: &Resource) -> Result<ChainSpec, Box<dyn Error>> {
         if !resource.exists() {
             return Err(SpecLoadError::file_not_found());
@@ -382,7 +426,7 @@ impl ChainSpec {
         Ok(spec)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The ChainSpec specified pow engine
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
@@ -397,7 +441,9 @@ impl ChainSpec {
         Ok(())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Build consensus instance
+    ///
+    /// [Consensus](consensus/struct.Consensus.html)
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
         let genesis_epoch_ext = build_genesis_epoch_ext(
             self.params.initial_primary_epoch_reward(),
@@ -431,7 +477,7 @@ impl ChainSpec {
         Ok(consensus)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Build genesis block from chain spec
     pub fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
         let special_cell_capacity = {
             let cellbase_transaction_for_special_cell_capacity =
@@ -811,13 +857,12 @@ fn secp_lock_arg(privkey: &Privkey) -> Bytes {
     Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned())
 }
 
-/// TODO(doc): @zhangsoledad
+/// Shortcut for build genesis type_id script from specified output_index
 pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
     build_type_id_script(&packed::CellInput::new_cellbase_input(0), output_index)
 }
 
-/// TODO(doc): @zhangsoledad
-pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
+pub(crate) fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
     let mut blake2b = new_blake2b();
     blake2b.update(&input.as_slice());
     blake2b.update(&output_index.to_le_bytes());
@@ -831,7 +876,7 @@ pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> pac
         .build()
 }
 
-/// TODO(doc): @zhangsoledad
+/// Shortcut for calculate block_reward helper method
 pub fn calculate_block_reward(epoch_reward: Capacity, epoch_length: BlockNumber) -> Capacity {
     let epoch_reward = epoch_reward.as_u64();
     Capacity::shannons({

@@ -1,25 +1,25 @@
 use failure::Fail;
 use secp256k1::Error as SecpError;
 
-/// TODO(doc): @zhangsoledad
+/// The error type wrap SecpError
 #[derive(Debug, PartialEq, Eq, Fail)]
 pub enum Error {
-    /// TODO(doc): @zhangsoledad
+    /// Invalid privkey
     #[fail(display = "invalid privkey")]
     InvalidPrivKey,
-    /// TODO(doc): @zhangsoledad
+    /// Invalid pubkey
     #[fail(display = "invalid pubkey")]
     InvalidPubKey,
-    /// TODO(doc): @zhangsoledad
+    /// Invalid signature
     #[fail(display = "invalid signature")]
     InvalidSignature,
-    /// TODO(doc): @zhangsoledad
+    /// Invalid message
     #[fail(display = "invalid message")]
     InvalidMessage,
-    /// TODO(doc): @zhangsoledad
+    /// Invalid recovery_id
     #[fail(display = "invalid recovery_id")]
     InvalidRecoveryId,
-    /// TODO(doc): @zhangsoledad
+    /// Any error not part of this list.
     #[fail(display = "{}", _0)]
     Other(String),
 }
