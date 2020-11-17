@@ -403,7 +403,7 @@ dependencies = [
 name = "ckb-async-runtime"
 version = "0.38.0-pre"
 dependencies = [
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -781,7 +781,7 @@ dependencies = [
  "ckb-util",
  "metrics-core",
  "metrics-runtime",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -848,7 +848,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tokio-util",
 ]
 
@@ -1103,7 +1103,7 @@ dependencies = [
  "ckb-logger",
  "futures 0.1.29",
  "parking_lot 0.7.1",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -1216,7 +1216,7 @@ dependencies = [
  "failure",
  "faketime",
  "lru",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -1275,7 +1275,7 @@ dependencies = [
  "lru",
  "rand 0.6.5",
  "rayon",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -2143,7 +2143,7 @@ dependencies = [
  "http 0.2.1",
  "indexmap",
  "slab",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tokio-util",
  "tracing",
 ]
@@ -2531,7 +2531,7 @@ dependencies = [
  "pin-project 0.4.23",
  "socket2",
  "time",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tower-service",
  "tracing",
  "want 0.3.0",
@@ -2995,7 +2995,7 @@ source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0
 dependencies = [
  "log 0.4.11",
  "metrics-core",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -4615,7 +4615,7 @@ dependencies = [
  "tentacle-multiaddr",
  "tentacle-secio",
  "thiserror",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tokio-util",
  "tokio-yamux",
  "wasm-bindgen",
@@ -4657,7 +4657,7 @@ dependencies = [
  "ring",
  "secp256k1",
  "sha2 0.9.1",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tokio-util",
  "unsigned-varint",
  "x25519-dalek",
@@ -4816,9 +4816,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.22"
+version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d34ca54d84bf2b5b4d7d31e901a8464f7b60ac145a284fba25ceb801f2ddccd"
+checksum = "a6d7ad61edd59bfcc7e80dababf0f4aed2e6d5e0ba1659356ae889752dfc12ff"
 dependencies = [
  "bytes 0.5.6",
  "fnv",
@@ -4899,9 +4899,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
+checksum = "e44da00bfc73a25f814cd8d7e57a68a5c31b74b3152a0a1d1f590c97ed06265a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5033,7 +5033,7 @@ dependencies = [
  "futures-sink",
  "log 0.4.11",
  "pin-project-lite",
- "tokio 0.2.22",
+ "tokio 0.2.23",
 ]
 
 [[package]]
@@ -5045,7 +5045,7 @@ dependencies = [
  "bytes 0.5.6",
  "futures 0.3.7",
  "log 0.4.11",
- "tokio 0.2.22",
+ "tokio 0.2.23",
  "tokio-util",
 ]
 
