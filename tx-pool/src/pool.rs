@@ -42,8 +42,6 @@ pub struct TxPool {
     pub(crate) proposed: ProposedPool,
     /// Orphans in the pool
     pub(crate) orphan: OrphanPool,
-    /// cache for conflict transaction
-    pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     /// last txs updated timestamp, used by getblocktemplate
@@ -95,7 +93,6 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        let conflict_cache_size = config.max_conflict_cache_size;
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
         TxPool {
@@ -104,7 +101,6 @@ impl TxPool {
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
             orphan: OrphanPool::new(),
-            conflict: LruCache::new(conflict_cache_size),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
             total_tx_size: 0,
@@ -226,7 +222,6 @@ impl TxPool {
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id)
-            || self.conflict.contains(id)
             || self.proposed.contains_key(id)
             || self.orphan.contains_key(id)
     }
@@ -258,12 +253,6 @@ impl TxPool {
                     .cloned()
                     .map(|entry| (entry.transaction, entry.cache_entry.map(|c| c.cycles)))
             })
-            .or_else(|| {
-                self.conflict
-                    .peek(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, entry.cache_entry.map(|c| c.cycles)))
-            })
     }
 
     /// Returns tx corresponding to the id.
@@ -273,7 +262,6 @@ impl TxPool {
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
-            .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
 
@@ -300,7 +288,6 @@ impl TxPool {
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.pending.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
-            .or_else(|| self.conflict.peek(id).map(|e| &e.transaction))
             .cloned()
     }
 
@@ -470,7 +457,6 @@ impl TxPool {
             TransactionView,
         ) -> Result<(), Error>,
     {
-        let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
         match tx_resolved_result {
@@ -503,16 +489,10 @@ impl TxPool {
                             .expect("error kind checked")
                         {
                             OutPointError::Dead(_) => {
-                                if self
-                                    .conflict
-                                    .put(short_id, DefectEntry::new(tx, 0, cache_entry, size))
-                                    .is_some()
-                                {
-                                    self.update_statics_for_remove_tx(
-                                        size,
-                                        cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                    );
-                                }
+                                self.update_statics_for_remove_tx(
+                                    size,
+                                    cache_entry.map(|c| c.cycles).unwrap_or(0),
+                                );
                             }
 
                             OutPointError::Unknown(out_points) => {

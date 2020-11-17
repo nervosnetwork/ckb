@@ -21,7 +21,7 @@ pub struct TxPoolConfig {
     pub max_cycles: Cycle,
     /// tx verify cache capacity
     pub max_verify_cache_size: usize,
-    /// conflict tx cache capacity
+    /// Conflict cache has been deprecated, and has no effect.
     pub max_conflict_cache_size: usize,
     /// committed transactions hash cache capacity
     pub max_committed_txs_hash_cache_size: usize,

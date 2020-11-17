@@ -36,17 +36,17 @@ impl Callbacks {
     }
 
     /// Call on after pending
-    pub fn after_pending(&self, entry: &TxEntry) {
+    pub fn call_pending(&self, entry: &TxEntry) {
         self.pending.iter().for_each(|call| call(entry.clone()))
     }
 
     /// Call on after proposed
-    pub fn after_proposed(&self, entry: &TxEntry) {
+    pub fn call_proposed(&self, entry: &TxEntry) {
         self.proposed.iter().for_each(|call| call(entry.clone()))
     }
 
     /// Call on after abandon
-    pub fn after_abandon(&self, entry: &TxEntry) {
+    pub fn call_abandon(&self, entry: &TxEntry) {
         self.abandon.iter().for_each(|call| call(entry.clone()))
     }
 }

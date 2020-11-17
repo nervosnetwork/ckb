@@ -1,4 +1,5 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
+use crate::callback::Callbacks;
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
 use crate::error::{BlockAssemblerError, Reject};
@@ -437,7 +438,7 @@ impl TxPoolService {
                 TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
             };
             if inserted {
-                self.callbacks.after_pending(&entry);
+                self.callbacks.call_pending(&entry);
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
@@ -515,6 +516,7 @@ impl TxPoolService {
                 attached_blocks,
                 detached_proposal_id,
                 snapshot,
+                &self.callbacks,
             )
         });
 
@@ -661,6 +663,7 @@ fn _update_tx_pool_for_reorg(
     attached_blocks: VecDeque<BlockView>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
+    callbacks: &Callbacks,
 ) -> HashMap<Byte32, CacheEntry> {
     tx_pool.snapshot = Arc::clone(&snapshot);
     let mut detached = LinkedHashSet::default();
@@ -714,8 +717,7 @@ fn _update_tx_pool_for_reorg(
             let entry = tx_pool.gap.get(&key.id).expect("exists");
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         }
@@ -731,15 +733,13 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(&key.id) {
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         } else if snapshot.proposals().contains_gap(&key.id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         }
@@ -748,40 +748,24 @@ fn _update_tx_pool_for_reorg(
         tx_pool.pending.remove_entry(&id);
     });
 
-    // try move conflict to proposed
-    // If detached is not empty, check cached conflict tx again
-    if !detached.is_empty() {
-        let mut removed_conflict = Vec::with_capacity(tx_pool.conflict.len());
-        for (key, entry) in tx_pool.conflict.iter() {
-            if snapshot.proposals().contains_proposed(key) {
-                removed_conflict.push(key.clone());
-                entries.push((entry.cache_entry, entry.size, entry.transaction.clone()));
-            } else if snapshot.proposals().contains_gap(key) {
-                removed_conflict.push(key.clone());
-                gaps.push((entry.cache_entry, entry.size, entry.transaction.clone()));
-            }
-        }
-        for removed_key in removed_conflict {
-            tx_pool.conflict.pop(&removed_key);
-        }
-    }
-
-    for (cycles, size, tx) in entries {
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
+    for (cycles, entry) in entries {
+        let tx_hash = entry.transaction.hash();
+        if let Err(e) =
+            tx_pool.proposed_tx_and_descendants(cycles, entry.size, entry.transaction.clone())
+        {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            // self.callbacks.register_abandon(&entry);
+            callbacks.call_abandon(&entry);
         } else {
-            // self.callbacks.after_proposed(&entry);
+            callbacks.call_proposed(&entry);
         }
     }
 
-    for (cycles, size, tx) in gaps {
-        debug!("tx proposed, add to gap {}", tx.hash());
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
+    for (cycles, entry) in gaps {
+        debug!("tx proposed, add to gap {}", entry.transaction.hash());
+        let tx_hash = entry.transaction.hash();
+        if let Err(e) = tx_pool.gap_tx(cycles, entry.size, entry.transaction.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            // self.callbacks.register_abandon(&entry);
+            callbacks.call_abandon(&entry);
         }
     }
 

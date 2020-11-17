@@ -14,7 +14,7 @@ use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{TokioRwLock, TxPoolController, TxEntry, TxPoolServiceBuilder};
+use ckb_tx_pool::{TokioRwLock, TxEntry, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::{self, Byte32},
