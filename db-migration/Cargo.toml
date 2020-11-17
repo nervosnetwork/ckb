@@ -1,6 +1,6 @@
 [package]
 name = "ckb-db-migration"
-version = "0.38.0-pre"
+version = "0.38.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,12 +11,12 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-db = { path = "../db", version = "= 0.38.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.38.0-pre" }
-ckb-error = { path = "../error", version = "= 0.38.0-pre" }
+ckb-db = { path = "../db", version = "= 0.38.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.38.0" }
+ckb-error = { path = "../error", version = "= 0.38.0" }
 indicatif = "0.15"
 console = "0.12"
 
 [dev-dependencies]
 tempfile = "3.0"
-ckb-app-config = { path = "../util/app-config", version = "= 0.38.0-pre" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.38.0" }
