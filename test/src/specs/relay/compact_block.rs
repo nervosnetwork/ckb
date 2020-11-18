@@ -1,6 +1,7 @@
 use crate::node::waiting_for_sync;
-use crate::util::mining::out_ibd_mode;
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::cell::gen_spendable;
+use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, wait_until,
@@ -106,10 +107,9 @@ impl Spec for CompactBlockPrefilled {
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        mine_until_out_bootstrap_period(node);
 
-        // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -152,8 +152,8 @@ impl Spec for CompactBlockMissingFreshTxs {
         );
         net.connect(node);
 
-        mine_until_out_bootstrap_period(node);
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -209,10 +209,10 @@ impl Spec for CompactBlockMissingNotFreshTxs {
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        mine_until_out_bootstrap_period(node);
 
         // Build the target transaction
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -257,9 +257,9 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node0);
         let node1 = &nodes[1];
         net.connect(node1);
-        mine_until_out_bootstrap_period(node0);
 
-        let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node0, 1);
+        let new_tx = always_success_transaction(node0, &cells[0]);
         node0.submit_block(
             &node0
                 .new_block_builder(None, None, None)
@@ -315,9 +315,9 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let node = &nodes[0];
         out_ibd_mode(nodes);
 
-        mine_until_out_bootstrap_period(node);
         // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction_spend_tip_cellbase();
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)

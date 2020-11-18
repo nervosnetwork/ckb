@@ -1,5 +1,7 @@
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::cell::gen_spendable;
+use crate::util::mining::mine;
+use crate::util::transaction::always_success_transaction;
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -16,9 +18,8 @@ impl Spec for MiningBasic {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine_until_out_bootstrap_period(node);
-
-        let transaction = node.new_transaction_spend_tip_cellbase();
+        let cells = gen_spendable(node, 1);
+        let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
 
         mine(&node, 1);

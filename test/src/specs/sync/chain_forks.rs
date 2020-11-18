@@ -1,6 +1,8 @@
 use crate::node::{disconnect_all, waiting_for_sync};
+use crate::util::cell::gen_spendable;
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
@@ -249,10 +251,9 @@ impl Spec for ChainFork5 {
         let node1 = &nodes[1];
         let node2 = &nodes[2];
 
-        info!("Generate DEFAULT_TX_PROPOSAL_WINDOW +2 block (A) on node0");
-        mine_until_out_bootstrap_period(node0);
         info!("Generate 1 block (B) on node0, proposal spent A cellbase transaction");
-        let transaction = node0.new_transaction_spend_tip_cellbase();
+        let cells = gen_spendable(node0, 1);
+        let transaction = always_success_transaction(node0, &cells[0]);
         node0.submit_transaction(&transaction);
         mine(node0, 1);
         info!("Connect all nodes");

@@ -1,18 +1,15 @@
 use crate::node::connect_all;
-use crate::util::check::is_transaction_committed;
+use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::log_monitor::monitor_log_until_expected_show;
-use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
-use crate::utils::wait_until;
+use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
-use ckb_types::{core::TransactionView, packed, prelude::*};
-use log::info;
-use std::fs;
+use ckb_types::core::TransactionBuilder;
 
 pub struct TransactionRelayLowFeeRate;
 
 impl Spec for TransactionRelayLowFeeRate {
-    crate::setup!(num_nodes: 3);
+    crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
@@ -20,77 +17,32 @@ impl Spec for TransactionRelayLowFeeRate {
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        let node2 = &nodes[2];
 
-        info!("Generate new transaction on node1");
-        mine_until_out_bootstrap_period(node1);
-        let tx = node1.new_transaction_spend_tip_cellbase();
-        node1.submit_transaction(&tx);
-        let hash = tx.hash();
-        // confirm tx
-        mine(&node1, 20);
-        let ret = wait_until(10, || is_transaction_committed(node1, &tx));
-        assert!(ret, "send tx should success");
-        let tx: TransactionView = packed::Transaction::from(
-            node1
-                .rpc_client()
-                .get_transaction(hash.clone())
-                .unwrap()
-                .transaction
-                .inner,
-        )
-        .into_view();
-        let capacity = tx.outputs_capacity().unwrap();
-
-        info!("Generate zero fee rate tx");
-        let tx_low_fee = node1.new_transaction(hash);
-        // Set to zero fee
-        let output = tx_low_fee
-            .outputs()
-            .get(0)
-            .unwrap()
-            .as_builder()
-            .capacity(capacity.pack())
+        let cells = gen_spendable(node0, 1);
+        // As for `low_fee`, which is `inputs.total_capacity == outputs.total_capacity`,
+        // so it is a low-fee-rate transaction in this case;
+        let low_fee = TransactionBuilder::default()
+            .input(as_input(&cells[0]))
+            .output(as_output(&cells[0]))
+            .output_data(Default::default())
+            .cell_dep(node0.always_success_cell_dep())
             .build();
-        let tx_low_fee = tx_low_fee
-            .data()
-            .as_advanced_builder()
-            .set_outputs(vec![])
-            .output(output)
-            .build();
-
-        info!("Get tx cycles");
-        let cycles = node1
+        let low_cycles = node0
             .rpc_client()
-            .dry_run_transaction(tx_low_fee.data().into())
+            .dry_run_transaction(low_fee.data().into())
             .cycles;
-
-        let node0_log_size = fs::metadata(node0.log_path()).unwrap().len();
-        let node2_log_size = fs::metadata(node2.log_path()).unwrap().len();
-
-        info!("Broadcast zero fee tx");
-        // should only broadcast to node0
-        node2.disconnect(node1);
-        node1
+        node0
             .rpc_client()
-            .broadcast_transaction(tx_low_fee.data().into(), cycles)
+            .broadcast_transaction(low_fee.data().into(), low_cycles)
             .unwrap();
 
         assert!(monitor_log_until_expected_show(
-            node0,
-            node0_log_size,
+            node1,
+            0,
             10,
             "error: SubmitTransaction(The min fee rate is 1000 shannons/KB, so the transaction fee should be 242 shannons at least, but only got 0)"
         )
         .is_some());
-
-        assert!(monitor_log_until_expected_show(
-            node2,
-            node2_log_size,
-            10,
-            "received msg RelayTransactions",
-        )
-        .is_none());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
