@@ -1,7 +1,7 @@
 use ckb_channel::select;
 use ckb_jsonrpc_types::Topic;
 use ckb_logger::error;
-use ckb_notify::NotifyController;
+use ckb_notify::{NotifyController, TransactionTopic};
 use jsonrpc_core::{futures::Future, Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
@@ -262,7 +262,11 @@ impl SubscriptionRpcImpl {
     pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
         let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
         let new_transaction_receiver =
-            notify_controller.subscribe_new_transaction(name.to_string());
+            notify_controller.subscribe_transaction(TransactionTopic::New);
+        let proposed_transaction_receiver =
+            notify_controller.subscribe_transaction(TransactionTopic::Proposed);
+        let abandoned_transaction_receiver =
+            notify_controller.subscribe_transaction(TransactionTopic::Abandoned);
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
@@ -298,13 +302,8 @@ impl SubscriptionRpcImpl {
                         Ok(tx_entry) => {
                             let subscribers = subscribers.read().expect("acquiring subscribers read lock");
                             if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
-                                let tx_entry = ckb_jsonrpc_types::PoolTransactionEntry {
-                                    transaction: tx_entry.transaction.into(),
-                                    cycles: tx_entry.cycles.into(),
-                                    size: (tx_entry.size as u64).into(),
-                                    fee: tx_entry.fee.into(),
-                                };
-                                let json_string = Ok(serde_json::to_string(&tx_entry).expect("serialization should be ok"));
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
                                     let _ = sink.notify(json_string.clone()).wait();
                                 }
@@ -312,6 +311,39 @@ impl SubscriptionRpcImpl {
                         },
                         _ => {
                             error!("new_transaction_receiver closed");
+                            break;
+                        },
+                    },
+                    recv(proposed_transaction_receiver) -> msg => match msg {
+                        Ok(tx_entry) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::ProposedTransaction) {
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("proposed_transaction_receiver closed");
+                            break;
+                        },
+                    },
+
+                    recv(abandoned_transaction_receiver) -> msg => match msg {
+                        Ok(tx_entry) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::AbandonedTransaction) {
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("abandoned_transaction_receiver closed");
                             break;
                         },
                     },

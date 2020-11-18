@@ -27,12 +27,12 @@ impl Callbacks {
 
     /// Register a new proposed callback
     pub fn register_proposed(&mut self, callback: Callback) {
-        self.pending.push(callback);
+        self.proposed.push(callback);
     }
 
     /// Register a new abandon callback
     pub fn register_abandon(&mut self, callback: Callback) {
-        self.pending.push(callback);
+        self.abandon.push(callback);
     }
 
     /// Call on after pending

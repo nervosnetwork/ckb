@@ -10,4 +10,8 @@ pub enum Topic {
     NewTipBlock,
     /// Subscribe new transactions which are submitted to the pool.
     NewTransaction,
+    /// Subscribe in-pool transactions which proposed on chain.
+    ProposedTransaction,
+    /// Subscribe transactions which are abandoned by tx-pool.
+    AbandonedTransaction,
 }

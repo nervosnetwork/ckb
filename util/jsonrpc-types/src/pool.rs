@@ -1,4 +1,5 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
+use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
 use ckb_types::core::tx_pool::{TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds};
 use ckb_types::prelude::Unpack;
 use ckb_types::H256;
@@ -52,6 +53,17 @@ pub struct PoolTransactionEntry {
     pub size: Uint64,
     /// The transaction fee.
     pub fee: Capacity,
+}
+
+impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
+    fn from(entry: CorePoolTransactionEntry) -> Self {
+        PoolTransactionEntry {
+            transaction: entry.transaction.into(),
+            cycles: entry.cycles.into(),
+            size: (entry.size as u64).into(),
+            fee: entry.fee.into(),
+        }
+    }
 }
 
 /// Transaction output validators that prevent common mistakes.

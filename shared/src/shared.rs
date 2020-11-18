@@ -10,7 +10,7 @@ use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
+use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry, TransactionTopic};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
@@ -101,7 +101,7 @@ impl Shared {
             Arc::clone(&snapshot_mgr),
         );
 
-        let notify_cloned = notify_controller.clone();
+        let notify_pending = notify_controller.clone();
         tx_pool_builder.register_pending(Box::new(move |entry: TxEntry| {
             let notify_tx_entry = PoolTransactionEntry {
                 transaction: entry.transaction,
@@ -109,7 +109,29 @@ impl Shared {
                 size: entry.size,
                 fee: entry.fee,
             };
-            notify_cloned.notify_new_transaction(notify_tx_entry);
+            notify_pending.notify_transaction(TransactionTopic::New, notify_tx_entry);
+        }));
+
+        let notify_proposed = notify_controller.clone();
+        tx_pool_builder.register_proposed(Box::new(move |entry: TxEntry| {
+            let notify_tx_entry = PoolTransactionEntry {
+                transaction: entry.transaction,
+                cycles: entry.cycles,
+                size: entry.size,
+                fee: entry.fee,
+            };
+            notify_proposed.notify_transaction(TransactionTopic::Proposed, notify_tx_entry);
+        }));
+
+        let notify_abandon = notify_controller.clone();
+        tx_pool_builder.register_abandon(Box::new(move |entry: TxEntry| {
+            let notify_tx_entry = PoolTransactionEntry {
+                transaction: entry.transaction,
+                cycles: entry.cycles,
+                size: entry.size,
+                fee: entry.fee,
+            };
+            notify_abandon.notify_transaction(TransactionTopic::Abandoned, notify_tx_entry);
         }));
 
         let tx_pool_controller = tx_pool_builder.start(&async_handle);

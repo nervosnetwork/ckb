@@ -409,8 +409,19 @@ impl TxPoolServiceBuilder {
         }
     }
 
+    /// Register a new pending callback
     pub fn register_pending(&mut self, callback: Callback) {
         self.callbacks.register_pending(callback);
+    }
+
+    /// Register a new proposed callback
+    pub fn register_proposed(&mut self, callback: Callback) {
+        self.callbacks.register_proposed(callback);
+    }
+
+    /// Register a new abandon callback
+    pub fn register_abandon(&mut self, callback: Callback) {
+        self.callbacks.register_abandon(callback);
     }
 
     fn build_service(self) -> TxPoolService {
