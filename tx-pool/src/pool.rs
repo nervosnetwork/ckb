@@ -516,9 +516,14 @@ impl TxPool {
                             }
 
                             OutPointError::Unknown(out_points) => {
-                                if self
-                                    .add_orphan(cache_entry, size, tx, out_points.to_owned())
-                                    .is_some()
+                                let snapshot = self.snapshot();
+                                // if resolved input is unknown, but we known tx, it's dead or invalid
+                                if !out_points
+                                    .iter()
+                                    .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
+                                    && self
+                                        .add_orphan(cache_entry, size, tx, out_points.to_owned())
+                                        .is_some()
                                 {
                                     self.update_statics_for_remove_tx(
                                         size,
