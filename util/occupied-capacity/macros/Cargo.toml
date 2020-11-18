@@ -1,10 +1,10 @@
 [package]
 name = "ckb-occupied-capacity-macros"
-version = "0.37.0"
+version = "0.38.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
-description = "TODO(doc): crate description"
+description = "TODO(doc): @keroro520 crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
@@ -12,6 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-quote = "0.6"
-syn = "0.15"
-ckb-occupied-capacity-core = { path = "../core", version = "= 0.37.0" }
+quote = "1.0"
+syn = "1.0"
+ckb-occupied-capacity-core = { path = "../core", version = "= 0.38.0" }

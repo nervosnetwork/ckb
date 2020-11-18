@@ -3,6 +3,7 @@ use merkle_cbt::{merkle_tree::Merge, MerkleProof as ExMerkleProof, CBMT as ExCBM
 
 use crate::{packed::Byte32, prelude::*};
 
+/// TODO(doc): @quake
 pub struct MergeByte32;
 
 impl Merge for MergeByte32 {
@@ -18,9 +19,12 @@ impl Merge for MergeByte32 {
     }
 }
 
+/// TODO(doc): @quake
 pub type CBMT = ExCBMT<Byte32, MergeByte32>;
+/// TODO(doc): @quake
 pub type MerkleProof = ExMerkleProof<Byte32, MergeByte32>;
 
+/// TODO(doc): @quake
 pub fn merkle_root(leaves: &[Byte32]) -> Byte32 {
     CBMT::build_merkle_root(leaves)
 }

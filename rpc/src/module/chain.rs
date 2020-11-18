@@ -1036,6 +1036,121 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "verify_transaction_proof")]
     fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>>;
+
+    /// Returns the information about a fork block by hash.
+    ///
+    /// ## Params
+    ///
+    /// * `block_hash` - the fork block hash.
+    /// * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+    ///
+    /// ## Returns
+    ///
+    /// The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to
+    /// the parameter `block_hash`.
+    ///
+    /// Please note that due to the technical nature of the peer to peer sync, the RPC may return null or a fork block
+    /// result on different nodes with same `block_hash` even they are fully synced to the [canonical chain](#canonical-chain).
+    /// And because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
+    /// RPC may sometimes return null and sometimes return the fork block.
+    ///
+    /// When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
+    /// schema.
+    ///
+    /// When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+    /// encodes the block serialized by molecule using schema `table Block`.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_fork_block",
+    ///   "params": [
+    ///     "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "header": {
+    ///       "compact_target": "0x1e083126",
+    ///       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+    ///       "epoch": "0x7080018000001",
+    ///       "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+    ///       "nonce": "0x0",
+    ///       "number": "0x400",
+    ///       "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+    ///       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    ///       "timestamp": "0x5cd2b118",
+    ///       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+    ///       "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    ///       "version": "0x0"
+    ///     },
+    ///     "proposals": [],
+    ///     "transactions": [
+    ///       {
+    ///         "cell_deps": [],
+    ///         "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
+    ///         "header_deps": [],
+    ///         "inputs": [
+    ///           {
+    ///             "previous_output": {
+    ///               "index": "0xffffffff",
+    ///               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    ///             },
+    ///             "since": "0x400"
+    ///           }
+    ///         ],
+    ///         "outputs": [
+    ///           {
+    ///             "capacity": "0x18e64b61cf",
+    ///             "lock": {
+    ///               "args": "0x",
+    ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    ///               "hash_type": "data"
+    ///             },
+    ///             "type": null
+    ///           }
+    ///         ],
+    ///         "outputs_data": [
+    ///           "0x"
+    ///         ],
+    ///         "version": "0x0",
+    ///         "witnesses": [
+    ///           "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+    ///         ]
+    ///       }
+    ///     ],
+    ///     "uncles": []
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// The response looks like below when `verbosity` is 0.
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x..."
+    /// }
+    /// ```
+    #[rpc(name = "get_fork_block")]
+    fn get_fork_block(
+        &self,
+        block_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1482,5 +1597,33 @@ impl ChainRpc for ChainRpcImpl {
                     })
                     .ok_or_else(|| RPCError::invalid_params("Invalid transaction proof"))
             })
+    }
+
+    fn get_fork_block(
+        &self,
+        block_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+        let snapshot = self.shared.snapshot();
+        let block_hash = block_hash.pack();
+        if snapshot.is_main_chain(&block_hash) {
+            return Ok(None);
+        }
+
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
+        // TODO: verbosity level == 1, output block only contains tx_hash in JSON format
+        if verbosity == 2 {
+            Ok(snapshot
+                .get_block(&block_hash)
+                .map(|block| ResponseFormat::Json(block.into())))
+        } else if verbosity == 0 {
+            Ok(snapshot
+                .get_packed_block(&block_hash)
+                .map(ResponseFormat::Hex))
+        } else {
+            Err(RPCError::invalid_params("invalid verbosity level"))
+        }
     }
 }

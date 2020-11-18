@@ -11,6 +11,7 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 
+/// TODO(doc): @zhangsoledad
 //TODO: cellbase, witness
 #[derive(Clone)]
 pub struct BlockVerifier<'a> {
@@ -18,6 +19,7 @@ pub struct BlockVerifier<'a> {
 }
 
 impl<'a> BlockVerifier<'a> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(consensus: &'a Consensus) -> Self {
         BlockVerifier { consensus }
     }
@@ -162,12 +164,14 @@ impl MerkleRootVerifier {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct HeaderResolverWrapper<'a> {
     header: &'a HeaderView,
     parent: Option<HeaderView>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
+    /// TODO(doc): @zhangsoledad
     pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
     where
         CS: ChainStore<'a>,
@@ -176,6 +180,7 @@ impl<'a> HeaderResolverWrapper<'a> {
         HeaderResolverWrapper { parent, header }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
         HeaderResolverWrapper { parent, header }
     }
@@ -237,15 +242,18 @@ impl BlockBytesVerifier {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct NonContextualBlockTxsVerifier<'a> {
     consensus: &'a Consensus,
 }
 
 impl<'a> NonContextualBlockTxsVerifier<'a> {
+    /// TODO(doc): @zhangsoledad
     pub fn new(consensus: &'a Consensus) -> Self {
         NonContextualBlockTxsVerifier { consensus }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verify(&self, block: &BlockView) -> Result<Vec<()>, Error> {
         block
             .transactions()

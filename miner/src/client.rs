@@ -106,15 +106,21 @@ impl Drop for Rpc {
     }
 }
 
+/// TODO(doc): @quake
 #[derive(Debug, Clone)]
 pub struct Client {
+    /// TODO(doc): @quake
     pub current_work_id: Option<u64>,
+    /// TODO(doc): @quake
     pub new_work_tx: Sender<Work>,
+    /// TODO(doc): @quake
     pub config: MinerClientConfig,
+    /// TODO(doc): @quake
     pub rpc: Rpc,
 }
 
 impl Client {
+    /// TODO(doc): @quake
     pub fn new(new_work_tx: Sender<Work>, config: MinerClientConfig) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
@@ -138,6 +144,7 @@ impl Client {
         self.rpc.request(method, params)
     }
 
+    /// TODO(doc): @quake
     pub fn submit_block(&self, work_id: &str, block: Block) {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
@@ -155,6 +162,7 @@ impl Client {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn poll_block_template(&mut self) {
         loop {
             debug!("poll block template...");
@@ -163,6 +171,7 @@ impl Client {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn try_update_block_template(&mut self) {
         match self.get_block_template().wait() {
             Ok(block_template) => {

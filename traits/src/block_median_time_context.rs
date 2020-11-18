@@ -4,6 +4,7 @@ use ckb_types::{core::BlockNumber, packed::Byte32};
 /// The invoker should only rely on `block_median_time` function
 /// the other functions only use to help the default `block_median_time`, and maybe unimplemented.
 pub trait BlockMedianTimeContext: HeaderProvider {
+    /// TODO(doc): @quake
     fn median_block_count(&self) -> u64;
 
     /// Return timestamp and block_number of the corresponding block_hash, and hash of parent block

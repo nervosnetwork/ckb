@@ -8,10 +8,12 @@ use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_error::Error;
 use ckb_types::{core::BlockView, packed::CellInput};
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone)]
 pub struct GenesisVerifier {}
 
 impl GenesisVerifier {
+    /// TODO(doc): @zhangsoledad
     pub fn new() -> Self {
         GenesisVerifier {}
     }

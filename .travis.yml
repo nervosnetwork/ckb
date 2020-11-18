@@ -1,5 +1,5 @@
 language: rust
-rust: 1.45.2
+rust: 1.46.0
 dist: xenial
 sudo: true
 cache:
@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.37.0
+    - CKB_CLI_VERSION=v0.38.0
 
 addons:
   apt:
@@ -39,6 +39,9 @@ script: make test
 before_cache:
   - rm -rf $HOME/.cargo/registry
 
+before_deploy:
+  - 'export TRAVIS_TAG="${TRAVIS_BRANCH##*/}"'
+  - git tag $TRAVIS_TAG
 deploy:
   provider: releases
   api_key: "$GITHUB_TOKEN"
@@ -47,12 +50,12 @@ deploy:
     - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
   overwrite: true
-  prerelease: true
+  draft: true
   on:
-    tags: true
-    condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
+    all_branches: true
+    condition: '$TRAVIS_BRANCH =~ ^pkg/'
 
-if: 'type != pull_request or head_branch != develop'
+if: 'tag IS NOT present and (type != pull_request or head_branch != develop)'
 
 matrix:
   allow_failures:
@@ -114,13 +117,15 @@ matrix:
       rust: stable
       script:
         - devtools/ci/check-cyclic-dependencies.py --dev
-    - name: Security Audit
+    - name: Security Audit & Licenses
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
-        - cargo audit --version || travis_retry cargo install cargo-audit --locked
+        - cargo deny --version || travis_retry cargo install cargo-deny --locked
       script:
         - make security-audit
+        - make check-crates
+        - make check-licenses
 
     - name: WASM build
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
@@ -153,7 +158,7 @@ matrix:
         - if make cov; then bash <(curl -s https://codecov.io/bash); fi
 
     - name: Package for macOS
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       os: osx
       env: REL_PKG=x86_64-apple-darwin.zip
       script:
@@ -162,22 +167,22 @@ matrix:
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
     - name: Package for Linux
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.45.2
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.46.0
       script:
         - mkdir -p $HOME/.cargo
         - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
         - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
-        - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_TAG}_x86_64-unknown-linux-gnu"; fi
+        - if [ -n "${QINIU_SECRET_KEY:-}" ]; then travis_wait devtools/ci/qput-7z "releases/ckb_${TRAVIS_BRANCH##*/}_x86_64-unknown-linux-gnu"; fi
     - name: Package for Centos
-      if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
+      if: 'branch =~ /^pkg\// AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.45.2
+      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.46.0
       script:
         - mkdir -p $HOME/.cargo
         - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo $BUILDER_IMAGE scl enable llvm-toolset-7 'make prod'

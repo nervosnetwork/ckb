@@ -83,14 +83,17 @@ lazy_static! {
     };
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
     &LOAD_INPUT_DATA_HASH
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn always_success_consensus() -> Consensus {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
@@ -113,6 +116,7 @@ pub fn always_success_consensus() -> Consensus {
         .build()
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn always_success_cellbase(
     block_number: BlockNumber,
     reward: Capacity,
@@ -145,18 +149,21 @@ fn load_spec_by_name(name: &str) -> ChainSpec {
     ChainSpec::load_from(&res).expect("load spec by name")
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn ckb_testnet_consensus() -> Consensus {
     let name = "ckb_testnet";
     let spec = load_spec_by_name(name);
     spec.build_consensus().unwrap()
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Bytes) {
     let genesis_block = consensus.genesis_block();
     let tx = genesis_block.transactions()[0].clone();
@@ -167,6 +174,7 @@ pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Byt
     (cell_output, data)
 }
 
+/// TODO(doc): @chuijiaolianying
 pub fn secp256k1_data_cell(consensus: Consensus) -> (CellOutput, Bytes) {
     let genesis_block = consensus.genesis_block();
     let tx = genesis_block.transactions()[0].clone();

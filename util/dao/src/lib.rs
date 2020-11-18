@@ -1,3 +1,4 @@
+//! TODO(doc): @keroro520
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
@@ -16,13 +17,18 @@ use ckb_types::{
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
+/// TODO(doc): @keroro520
 pub struct DaoCalculator<'a, CS, DL> {
+    /// TODO(doc): @keroro520
     pub consensus: &'a Consensus,
+    /// TODO(doc): @keroro520
     pub store: &'a CS,
+    /// TODO(doc): @keroro520
     pub data_loader: DL,
 }
 
 impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
+    /// TODO(doc): @keroro520
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         let data_loader = DataLoaderWrapper::new(store);
         DaoCalculator {
@@ -32,6 +38,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         }
     }
 
+    /// TODO(doc): @keroro520
     pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let target_epoch = self
             .store
@@ -42,6 +49,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         target_epoch.block_reward(target.number())
     }
 
+    /// TODO(doc): @keroro520
     pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         if target.number() == 0 {
             return Ok(Capacity::zero());
@@ -67,6 +75,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(Capacity::shannons(reward))
     }
 
+    /// TODO(doc): @keroro520
     // Used for testing only.
     //
     // Notice unlike primary_block_reward and secondary_epoch_reward above,
@@ -88,6 +97,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
+    /// TODO(doc): @keroro520
     pub fn dao_field(
         &self,
         rtxs: &[ResolvedTransaction],
@@ -153,6 +163,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
     }
 
+    /// TODO(doc): @keroro520
     pub fn maximum_withdraw(
         &self,
         out_point: &OutPoint,
@@ -178,6 +189,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         )
     }
 
+    /// TODO(doc): @keroro520
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         let maximum_withdraw = self.transaction_maximum_withdraw(rtx)?;
         rtx.transaction

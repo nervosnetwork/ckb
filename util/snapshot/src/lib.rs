@@ -1,3 +1,4 @@
+//! TODO(doc): @zhangsoledad
 use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
@@ -20,26 +21,31 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
+/// TODO(doc): @zhangsoledad
 pub struct SnapshotMgr {
     inner: ArcSwap<Snapshot>,
 }
 
 impl SnapshotMgr {
+    /// TODO(doc): @zhangsoledad
     pub fn new(snapshot: Arc<Snapshot>) -> Self {
         SnapshotMgr {
             inner: ArcSwap::new(snapshot),
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn load(&self) -> Guard<Arc<Snapshot>> {
         self.inner.load()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn store(&self, snapshot: Arc<Snapshot>) {
         self.inner.store(snapshot);
     }
 }
 
+/// TODO(doc): @zhangsoledad
 // A snapshot captures a point-in-time view of the DB at the time it's created
 //
 //                   yes —— new snapshot
@@ -57,6 +63,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// TODO(doc): @zhangsoledad
     // New snapshot created after tip change
     pub fn new(
         tip_header: HeaderView,
@@ -76,6 +83,7 @@ impl Snapshot {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     // Refreshing on block commit is necessary operation, even tip remains unchanged.
     // when node relayed compact block,if some uncles were not available from receiver's local sources,
     // in GetBlockTransactions/BlockTransactions roundtrip, node will need access block data of uncles.
@@ -90,38 +98,47 @@ impl Snapshot {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tip_header(&self) -> &HeaderView {
         &self.tip_header
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tip_number(&self) -> BlockNumber {
         self.tip_header.number()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tip_hash(&self) -> Byte32 {
         self.tip_header.hash()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn epoch_ext(&self) -> &EpochExt {
         &self.epoch_ext
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn cloned_consensus(&self) -> Arc<Consensus> {
         Arc::clone(&self.consensus)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn proposals(&self) -> &ProposalView {
         &self.proposals
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn finalize_block_reward(
         &self,
         parent: &HeaderView,

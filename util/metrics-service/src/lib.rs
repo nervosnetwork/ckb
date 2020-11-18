@@ -1,3 +1,5 @@
+//! The service which handles the metrics data in CKB.
+
 use std::{net::SocketAddr, time::Duration};
 
 use metrics_core::Observe;
@@ -13,11 +15,16 @@ use ckb_metrics_config::{Config, Exporter, Format, Target};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::strings;
 
+/// Ensures the metrics service can shutdown gracefully.
 #[must_use]
 pub enum Guard {
+    /// The metrics service is disabled.
     Off,
+    /// The metrics service is enabled.
     On {
+        #[doc(hidden)]
         handle: Handle,
+        #[doc(hidden)]
         stop: StopHandler<()>,
     },
 }
@@ -30,6 +37,9 @@ impl Drop for Guard {
     }
 }
 
+/// Initializes the metrics service and lets it run in the background.
+///
+/// Returns [Guard](enum.Guard.html) if succeeded, or an `String` to describes the reason for the failure.
 pub fn init(config: Config) -> Result<Guard, String> {
     if config.exporter.is_empty() {
         return Ok(Guard::Off);
@@ -102,8 +112,10 @@ where
 {
     let Exporter { target, format } = exporter;
     match target {
-        Target::Log { level, interval } => {
-            let lv: log::Level = level.into();
+        Target::Log {
+            level: lv,
+            interval,
+        } => {
             let dur = Duration::from_secs(interval);
             match format {
                 Format::Json { pretty } => {

@@ -1,51 +1,60 @@
 use ckb_db::internal::ops::{GetColumnFamilys, GetProperty, GetPropertyCF};
 use ckb_metrics::metrics;
 
-use crate::utils::{sum_int_values, PropertyValue};
-
-// Ref: https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB
-pub struct RocksDBMemoryStatistics {
-    pub estimate_table_readers_mem: PropertyValue<u64>,
-    pub size_all_mem_tables: PropertyValue<u64>,
-    pub cur_size_all_mem_tables: PropertyValue<u64>,
-    pub block_cache_capacity: PropertyValue<u64>,
-    pub block_cache_usage: PropertyValue<u64>,
-    pub block_cache_pinned_usage: PropertyValue<u64>,
+#[derive(Debug, Clone)]
+enum PropertyValue<T> {
+    Value(T),
+    Null,
+    Error(String),
 }
 
-pub trait TrackRocksDBMemory {
-    fn gather_memory_stats(&self) -> RocksDBMemoryStatistics {
-        let estimate_table_readers_mem = self.gather_int_values("estimate-table-readers-mem");
-        let size_all_mem_tables = self.gather_int_values("size-all-mem-tables");
-        let cur_size_all_mem_tables = self.gather_int_values("cur-size-all-mem-tables");
-        let block_cache_capacity = self.gather_int_values("block-cache-capacity");
-        let block_cache_usage = self.gather_int_values("block-cache-usage");
-        let block_cache_pinned_usage = self.gather_int_values("block-cache-pinned-usage");
-        RocksDBMemoryStatistics {
-            estimate_table_readers_mem,
-            size_all_mem_tables,
-            cur_size_all_mem_tables,
-            block_cache_capacity,
-            block_cache_usage,
-            block_cache_pinned_usage,
+impl PropertyValue<u64> {
+    pub(crate) fn as_i64(&self) -> i64 {
+        match self {
+            Self::Value(v) => *v as i64,
+            Self::Null => -1,
+            Self::Error(_) => -2,
         }
     }
-    fn gather_int_values(&self, key: &str) -> PropertyValue<u64>;
 }
 
-pub struct DummyRocksDB;
-
-impl TrackRocksDBMemory for DummyRocksDB {
-    fn gather_int_values(&self, _: &str) -> PropertyValue<u64> {
-        PropertyValue::Null
+impl<T> From<Result<Option<T>, String>> for PropertyValue<T> {
+    fn from(res: Result<Option<T>, String>) -> Self {
+        match res {
+            Ok(Some(v)) => Self::Value(v),
+            Ok(None) => Self::Null,
+            Err(e) => Self::Error(e),
+        }
     }
 }
+
+/// A trait which used to track the RocksDB memory usage.
+///
+/// References: [Memory usage in RocksDB](https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB)
+pub trait TrackRocksDBMemory {
+    /// Gather memory statistics through [ckb-metrics](../../ckb_metrics/index.html)
+    fn gather_memory_stats(&self) {
+        self.gather_int_values("estimate-table-readers-mem");
+        self.gather_int_values("size-all-mem-tables");
+        self.gather_int_values("cur-size-all-mem-tables");
+        self.gather_int_values("block-cache-capacity");
+        self.gather_int_values("block-cache-usage");
+        self.gather_int_values("block-cache-pinned-usage");
+    }
+
+    /// Gather integer values through [ckb-metrics](../../ckb_metrics/index.html)
+    fn gather_int_values(&self, _: &str) {}
+}
+
+pub(crate) struct DummyRocksDB;
+
+impl TrackRocksDBMemory for DummyRocksDB {}
 
 impl<RocksDB> TrackRocksDBMemory for RocksDB
 where
     RocksDB: GetColumnFamilys + GetProperty + GetPropertyCF,
 {
-    fn gather_int_values(&self, key: &str) -> PropertyValue<u64> {
+    fn gather_int_values(&self, key: &str) {
         let mut values = Vec::new();
         for (cf_name, cf) in self.get_cfs() {
             let value_col: PropertyValue<u64> = self
@@ -55,6 +64,5 @@ where
             metrics!(gauge, "ckb-sys.mem.rocksdb", value_col.as_i64(), "type" => key.to_owned(), "cf" => cf_name.to_owned());
             values.push(value_col);
         }
-        sum_int_values(&values)
     }
 }

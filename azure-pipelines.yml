@@ -3,11 +3,11 @@ trigger:
     include:
     - '*'
   tags:
-    include:
+    exclude:
     - '*'
 
 variables:
-  CKBClientVersion: v0.37.0
+  CKBClientVersion: v0.38.0
 
 jobs:
   - job: UnitTest
@@ -27,7 +27,7 @@ jobs:
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
-          rustup_toolchain: '1.45.2-x86_64-pc-windows-msvc'
+          rustup_toolchain: '1.46.0-x86_64-pc-windows-msvc'
       - pwsh: devtools/windows/make test
         displayName: Run unit tests
         env:
@@ -49,7 +49,7 @@ jobs:
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
-          rustup_toolchain: '1.45.2-x86_64-pc-windows-msvc'
+          rustup_toolchain: '1.46.0-x86_64-pc-windows-msvc'
       - pwsh: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
         displayName: Run integration tests
         env:
@@ -57,13 +57,13 @@ jobs:
 
   - job: Package
     timeoutInMinutes: 0
-    condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/pkg/')
     pool:
       vmImage: 'windows-2019'
     steps:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
-          rustup_toolchain: '1.45.2-x86_64-pc-windows-msvc'
+          rustup_toolchain: '1.46.0-x86_64-pc-windows-msvc'
       - pwsh: devtools/windows/make prod
         displayName: Build
       - script: |
@@ -106,5 +106,5 @@ jobs:
             $(Build.ArtifactStagingDirectory)/*.zip
             $(Build.ArtifactStagingDirectory)/*.asc
           assetUploadMode: replace
-          isPreRelease: true
+          isDraft: true
           addChangeLog: false

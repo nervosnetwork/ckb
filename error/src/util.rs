@@ -1,3 +1,5 @@
+//! TODO(doc): @keroro520
+
 /// Compare two errors
 ///
 /// Used for testing only
@@ -21,6 +23,7 @@ macro_rules! assert_error_eq {
     }
 }
 
+/// TODO(doc): @keroro520
 #[macro_export]
 macro_rules! impl_error_conversion_with_kind {
     ($source:ty, $kind:expr, $target:ty) => {
@@ -32,6 +35,7 @@ macro_rules! impl_error_conversion_with_kind {
     };
 }
 
+/// TODO(doc): @keroro520
 #[macro_export]
 macro_rules! impl_error_conversion_with_adaptor {
     ($source:ty, $adaptor:ty, $target:ty) => {

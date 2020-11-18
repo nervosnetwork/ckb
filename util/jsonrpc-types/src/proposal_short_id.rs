@@ -13,10 +13,12 @@ use std::fmt;
 pub struct ProposalShortId(pub [u8; 10]);
 
 impl ProposalShortId {
+    /// TODO(doc): @doitian
     pub fn new(inner: [u8; 10]) -> ProposalShortId {
         ProposalShortId(inner)
     }
 
+    /// TODO(doc): @doitian
     pub fn into_inner(self) -> [u8; 10] {
         self.0
     }

@@ -83,7 +83,7 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     Ok(())
 }
 
-// Undo the effects of this block on the live cell set.
+/// Undoes the effects of this block on the live cell set.
 pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
     let mut input_pts = HashMap::with_capacity(transactions.len());

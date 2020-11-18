@@ -22,11 +22,13 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio_util::codec::length_delimited;
 
+/// TODO(doc): @driftluo
 pub type PeerIndex = SessionId;
+/// TODO(doc): @driftluo
 pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
@@ -35,45 +37,66 @@ use crate::{
     Behaviour, Error, NetworkState, Peer, ProtocolVersion,
 };
 
+/// TODO(doc): @driftluo
 pub trait CKBProtocolContext: Send {
+    /// TODO(doc): @driftluo
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn remove_notify(&self, token: u64) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn quick_send_message(
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
         data: Bytes,
     ) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
     // spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
+    /// TODO(doc): @driftluo
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn send_message(
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
         data: Bytes,
     ) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     // TODO allow broadcast to target ProtocolId
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
+    /// TODO(doc): @driftluo
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     // Interact with NetworkState
+    /// TODO(doc): @driftluo
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
+    /// TODO(doc): @driftluo
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
+    /// TODO(doc): @driftluo
     fn connected_peers(&self) -> Vec<PeerIndex>;
+    /// TODO(doc): @driftluo
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
+    /// TODO(doc): @driftluo
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
+    /// TODO(doc): @driftluo
     fn send_paused(&self) -> bool;
+    /// TODO(doc): @driftluo
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
+    /// TODO(doc): @driftluo
     fn p2p_control(&self) -> Option<&ServiceControl> {
         None
     }
 }
 
+/// TODO(doc): @driftluo
 pub trait CKBProtocolHandler: Sync + Send {
+    /// TODO(doc): @driftluo
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
     /// Called when opening protocol
     fn connected(
@@ -101,6 +124,7 @@ pub trait CKBProtocolHandler: Sync + Send {
     }
 }
 
+/// TODO(doc): @driftluo
 pub struct CKBProtocol {
     id: ProtocolId,
     // for example: b"/ckb/"
@@ -114,6 +138,7 @@ pub struct CKBProtocol {
 }
 
 impl CKBProtocol {
+    /// TODO(doc): @driftluo
     // a helper constructor to build `CKBProtocol` with `SupportProtocols` enum
     pub fn new_with_support_protocol(
         support_protocol: support_protocols::SupportProtocols,
@@ -131,6 +156,7 @@ impl CKBProtocol {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn new(
         protocol_name: String,
         id: ProtocolId,
@@ -148,6 +174,8 @@ impl CKBProtocol {
             protocol_name: format!("/ckb/{}", protocol_name),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
+                // TODO: https://github.com/rust-lang/rust-clippy/issues/6001
+                #[allow(clippy::unnecessary_sort_by)]
                 versions.sort_by(|a, b| b.cmp(a));
                 versions.to_vec()
             },
@@ -155,18 +183,22 @@ impl CKBProtocol {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn id(&self) -> ProtocolId {
         self.id
     }
 
+    /// TODO(doc): @driftluo
     pub fn protocol_name(&self) -> String {
         self.protocol_name.clone()
     }
 
+    /// TODO(doc): @driftluo
     pub fn match_version(&self, version: ProtocolVersion) -> bool {
         self.supported_versions.contains(&version)
     }
 
+    /// TODO(doc): @driftluo
     pub fn build(self) -> ProtocolMeta {
         let protocol_name = self.protocol_name();
         let max_frame_length = self.max_frame_length;
@@ -268,12 +300,6 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(peer) = reg.get_peer_mut(context.session.id) {
-                peer.last_message_time = Some(Instant::now());
-            }
-        });
-
         if !self.network_state.is_active() {
             return;
         }

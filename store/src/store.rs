@@ -23,11 +23,17 @@ use ckb_types::{
 
 pub struct CellProviderWrapper<'a, S>(&'a S);
 
+/// TODO(doc): @quake
 pub trait ChainStore<'a>: Send + Sync + Sized {
+    /// TODO(doc): @quake
     type Vector: AsRef<[u8]>;
+    /// TODO(doc): @quake
     fn cache(&'a self) -> Option<&'a StoreCache>;
+    /// TODO(doc): @quake
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
+    /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
+    /// TODO(doc): @quake
     fn cell_provider(&self) -> CellProviderWrapper<Self> {
         CellProviderWrapper(self)
     }
@@ -182,10 +188,12 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(&raw.as_ref()).unpack())
     }
 
+    /// TODO(doc): @quake
     fn is_main_chain(&'a self, hash: &packed::Byte32) -> bool {
         self.get(COLUMN_INDEX, hash.as_slice()).is_some()
     }
 
+    /// TODO(doc): @quake
     fn get_tip_header(&'a self) -> Option<HeaderView> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
             .and_then(|raw| {
@@ -205,6 +213,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             .map(|(tx, tx_info)| (tx, tx_info.block_hash))
     }
 
+    /// TODO(doc): @quake
     fn get_transaction_with_info(
         &'a self,
         hash: &packed::Byte32,
@@ -218,6 +227,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
+    /// TODO(doc): @quake
     fn get_transaction_info(&'a self, hash: &packed::Byte32) -> Option<TransactionInfo> {
         self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
             .map(|slice| {
@@ -227,6 +237,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
+    /// TODO(doc): @quake
     fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
         let key = out_point.to_cell_key();
         self.get(COLUMN_CELL, &key).map(|slice| {
@@ -235,6 +246,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         })
     }
 
+    /// TODO(doc): @quake
     fn get_cell_data(&'a self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache() {
@@ -273,41 +285,43 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         }
     }
 
-    // Get current epoch ext
+    /// Gets current epoch ext
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
             .map(|slice| packed::EpochExtReader::from_slice_should_be_ok(&slice.as_ref()).unpack())
     }
 
-    // Get epoch ext by epoch index
+    /// Gets epoch ext by epoch index
     fn get_epoch_ext(&'a self, hash: &packed::Byte32) -> Option<EpochExt> {
         self.get(COLUMN_EPOCH, hash.as_slice())
             .map(|slice| packed::EpochExtReader::from_slice_should_be_ok(&slice.as_ref()).unpack())
     }
 
-    // Get epoch index by epoch number
+    /// Gets epoch index by epoch number
     fn get_epoch_index(&'a self, number: EpochNumber) -> Option<packed::Byte32> {
         let epoch_number: packed::Uint64 = number.pack();
         self.get(COLUMN_EPOCH, epoch_number.as_slice())
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()).to_entity())
     }
 
-    // Get epoch index by block hash
+    /// Gets epoch index by block hash
     fn get_block_epoch_index(&'a self, block_hash: &packed::Byte32) -> Option<packed::Byte32> {
         self.get(COLUMN_BLOCK_EPOCH, block_hash.as_slice())
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()).to_entity())
     }
 
+    /// TODO(doc): @quake
     fn get_block_epoch(&'a self, hash: &packed::Byte32) -> Option<EpochExt> {
         self.get_block_epoch_index(hash)
             .and_then(|index| self.get_epoch_ext(&index))
     }
 
+    /// TODO(doc): @quake
     fn is_uncle(&'a self, hash: &packed::Byte32) -> bool {
         self.get(COLUMN_UNCLES, hash.as_slice()).is_some()
     }
 
-    /// Get header by uncle header hash
+    /// Gets header by uncle header hash
     fn get_uncle_header(&'a self, hash: &packed::Byte32) -> Option<HeaderView> {
         self.get(COLUMN_UNCLES, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
@@ -315,6 +329,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         })
     }
 
+    /// TODO(doc): @quake
     fn block_exists(&'a self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache() {
             if cache.headers.lock().get(hash).is_some() {
@@ -324,7 +339,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
     }
 
-    // Get cellbase by block hash
+    /// Gets cellbase by block hash
     fn get_cellbase(&'a self, hash: &packed::Byte32) -> Option<TransactionView> {
         if let Some(cache) = self.cache() {
             if let Some(data) = cache.cellbase.lock().get(hash) {
@@ -348,6 +363,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         }
     }
 
+    /// TODO(doc): @quake
     fn next_epoch_ext(
         &'a self,
         consensus: &Consensus,
@@ -362,6 +378,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         )
     }
 
+    /// TODO(doc): @quake
     fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
         self.get_packed_block_header(hash).map(|header| {
             let txs = {
@@ -402,6 +419,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         })
     }
 
+    /// TODO(doc): @quake
     fn get_packed_block_header(&'a self, hash: &packed::Byte32) -> Option<packed::Header> {
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());

@@ -1,3 +1,4 @@
+//! TODO(doc): @zhangsoledad
 #![allow(clippy::inconsistent_digit_grouping)]
 
 use crate::{
@@ -52,11 +53,11 @@ const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256
 const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
 
-// cycles of a typical two-in-two-out tx
+/// cycles of a typical two-in-two-out tx.
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_500_000;
-// bytes of a typical two-in-two-out tx
+/// bytes of a typical two-in-two-out tx.
 pub const TWO_IN_TWO_OUT_BYTES: u64 = 597;
-// count of two-in-two-out txs a block should capable to package
+/// count of two-in-two-out txs a block should capable to package.
 const TWO_IN_TWO_OUT_COUNT: u64 = 1_000;
 pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
@@ -65,10 +66,12 @@ const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL
 pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
     4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
+/// TODO(doc): @zhangsoledad
 pub const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
+/// TODO(doc): @zhangsoledad
 // 1.5 * TWO_IN_TWO_OUT_COUNT
-const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
+pub const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
@@ -77,12 +80,14 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
-// "TYPE_ID" in hex
+/// "TYPE_ID" in hex
 pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 
+/// TODO(doc): @zhangsoledad
 // 500_000 total difficulty
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 // const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
@@ -106,19 +111,23 @@ const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 ///
 
 impl ProposalWindow {
+    /// TODO(doc): @zhangsoledad
     pub fn closest(&self) -> BlockNumber {
         self.0
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn farthest(&self) -> BlockNumber {
         self.1
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn length(&self) -> BlockNumber {
         self.1 - self.0 + 1
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct ConsensusBuilder {
     inner: Consensus,
 }
@@ -174,6 +183,7 @@ impl Default for ConsensusBuilder {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub fn build_genesis_epoch_ext(
     epoch_reward: Capacity,
     compact_target: u32,
@@ -200,6 +210,7 @@ pub fn build_genesis_epoch_ext(
         .build()
 }
 
+/// TODO(doc): @zhangsoledad
 pub fn build_genesis_dao_data(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
@@ -218,6 +229,7 @@ pub fn build_genesis_dao_data(
 }
 
 impl ConsensusBuilder {
+    /// TODO(doc): @zhangsoledad
     pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
         ConsensusBuilder {
             inner: Consensus {
@@ -264,6 +276,7 @@ impl ConsensusBuilder {
             .map(|type_script| type_script.calc_script_hash())
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn build(mut self) -> Consensus {
         debug_assert!(
             self.inner.genesis_block.difficulty() > U256::zero(),
@@ -324,129 +337,180 @@ impl ConsensusBuilder {
         self.inner
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn id(mut self, id: String) -> Self {
         self.inner.id = id;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn genesis_block(mut self, genesis_block: BlockView) -> Self {
         self.inner.genesis_block = genesis_block;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn initial_primary_epoch_reward(mut self, initial_primary_epoch_reward: Capacity) -> Self {
         self.inner.initial_primary_epoch_reward = initial_primary_epoch_reward;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
         self.inner.secondary_epoch_reward = secondary_epoch_reward;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
         self.inner.max_block_cycles = max_block_cycles;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn max_block_bytes(mut self, max_block_bytes: u64) -> Self {
         self.inner.max_block_bytes = max_block_bytes;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn cellbase_maturity(mut self, cellbase_maturity: EpochNumberWithFraction) -> Self {
         self.inner.cellbase_maturity = cellbase_maturity;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.inner.tx_proposal_window = proposal_window;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn pow(mut self, pow: Pow) -> Self {
         self.inner.pow = pow;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn satoshi_pubkey_hash(mut self, pubkey_hash: H160) -> Self {
         self.inner.satoshi_pubkey_hash = pubkey_hash;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn satoshi_cell_occupied_ratio(mut self, ratio: Ratio) -> Self {
         self.inner.satoshi_cell_occupied_ratio = ratio;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn primary_epoch_reward_halving_interval(mut self, halving_interval: u64) -> Self {
         self.inner.primary_epoch_reward_halving_interval = halving_interval;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
     #[must_use]
     pub fn epoch_duration_target(mut self, target: u64) -> Self {
         self.inner.epoch_duration_target = target;
         self
     }
 
+    /// TODO(doc): @zhangsoledad
+    #[must_use]
     pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
         self.inner.permanent_difficulty_in_dummy = permanent;
         self
     }
+
+    /// TODO(doc): @zhangsoledad
+    #[must_use]
+    pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
+        self.inner.max_block_proposals_limit = max_block_proposals_limit;
+        self
+    }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, Debug)]
 pub struct Consensus {
+    /// TODO(doc): @zhangsoledad
     pub id: String,
+    /// TODO(doc): @zhangsoledad
     pub genesis_block: BlockView,
+    /// TODO(doc): @zhangsoledad
     pub genesis_hash: Byte32,
+    /// TODO(doc): @zhangsoledad
     pub dao_type_hash: Option<Byte32>,
+    /// TODO(doc): @zhangsoledad
     pub secp256k1_blake160_sighash_all_type_hash: Option<Byte32>,
+    /// TODO(doc): @zhangsoledad
     pub secp256k1_blake160_multisig_all_type_hash: Option<Byte32>,
+    /// TODO(doc): @zhangsoledad
     pub initial_primary_epoch_reward: Capacity,
+    /// TODO(doc): @zhangsoledad
     pub secondary_epoch_reward: Capacity,
+    /// TODO(doc): @zhangsoledad
     pub max_uncles_num: usize,
+    /// TODO(doc): @zhangsoledad
     pub orphan_rate_target: RationalU256,
+    /// TODO(doc): @zhangsoledad
     pub epoch_duration_target: u64,
+    /// TODO(doc): @zhangsoledad
     pub tx_proposal_window: ProposalWindow,
+    /// TODO(doc): @zhangsoledad
     pub proposer_reward_ratio: Ratio,
+    /// TODO(doc): @zhangsoledad
     pub pow: Pow,
+    /// TODO(doc): @zhangsoledad
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
     // else reject this transaction.
     pub cellbase_maturity: EpochNumberWithFraction,
+    /// TODO(doc): @zhangsoledad
     // This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
+    /// TODO(doc): @zhangsoledad
     // Maximum cycles that all the scripts in all the commit transactions can take
     pub max_block_cycles: Cycle,
+    /// TODO(doc): @zhangsoledad
     // Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
+    /// TODO(doc): @zhangsoledad
     // block version number supported
     pub block_version: Version,
+    /// TODO(doc): @zhangsoledad
     // tx version number supported
     pub tx_version: Version,
+    /// TODO(doc): @zhangsoledad
     // "TYPE_ID" in hex
     pub type_id_code_hash: H256,
+    /// TODO(doc): @zhangsoledad
     // Limit to the number of proposals per block
     pub max_block_proposals_limit: u64,
+    /// TODO(doc): @zhangsoledad
     pub genesis_epoch_ext: EpochExt,
+    /// TODO(doc): @zhangsoledad
     // Satoshi's pubkey hash in Bitcoin genesis.
     pub satoshi_pubkey_hash: H160,
+    /// TODO(doc): @zhangsoledad
     // Ratio of satoshi cell occupied of capacity,
     // only affects genesis cellbase's satoshi lock cells.
     pub satoshi_cell_occupied_ratio: Ratio,
+    /// TODO(doc): @zhangsoledad
     // Primary reward is cut in half every halving_interval epoch
     // which will occur approximately every 4 years.
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    /// TODO(doc): @zhangsoledad
     // Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// TODO(doc): @zhangsoledad
     // Proof of minimum work during synchronization
     pub min_chain_work: U256,
 }
@@ -460,18 +524,22 @@ impl Default for Consensus {
 
 #[allow(clippy::op_ref)]
 impl Consensus {
+    /// TODO(doc): @zhangsoledad
     pub fn genesis_block(&self) -> &BlockView {
         &self.genesis_block
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn proposer_reward_ratio(&self) -> Ratio {
         self.proposer_reward_ratio
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn finalization_delay_length(&self) -> BlockNumber {
         self.tx_proposal_window.farthest() + 1
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
         if block_number != 0 {
             Some(block_number.saturating_sub(self.finalization_delay_length()))
@@ -481,109 +549,136 @@ impl Consensus {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn genesis_hash(&self) -> Byte32 {
         self.genesis_hash.clone()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn dao_type_hash(&self) -> Option<Byte32> {
         self.dao_type_hash.clone()
     }
+    /// TODO(doc): @zhangsoledad
     pub fn secp256k1_blake160_sighash_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_sighash_all_type_hash.clone()
     }
+    /// TODO(doc): @zhangsoledad
     pub fn secp256k1_blake160_multisig_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_multisig_all_type_hash.clone()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_uncles_num(&self) -> usize {
         self.max_uncles_num
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn min_difficulty(&self) -> U256 {
         self.genesis_block.difficulty()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn initial_primary_epoch_reward(&self) -> Capacity {
         self.initial_primary_epoch_reward
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn primary_epoch_reward(&self, epoch_number: u64) -> Capacity {
         let halvings = epoch_number / self.primary_epoch_reward_halving_interval();
         Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halvings)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn primary_epoch_reward_halving_interval(&self) -> EpochNumber {
         self.primary_epoch_reward_halving_interval
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn epoch_duration_target(&self) -> u64 {
         self.epoch_duration_target
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn genesis_epoch_ext(&self) -> &EpochExt {
         &self.genesis_epoch_ext
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_epoch_length(&self) -> BlockNumber {
         MAX_EPOCH_LENGTH
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn min_epoch_length(&self) -> BlockNumber {
         MIN_EPOCH_LENGTH
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn secondary_epoch_reward(&self) -> Capacity {
         self.secondary_epoch_reward
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn orphan_rate_target(&self) -> &RationalU256 {
         &self.orphan_rate_target
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn permanent_difficulty(&self) -> bool {
         self.pow.is_dummy() && self.permanent_difficulty_in_dummy
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn median_time_block_count(&self) -> usize {
         self.median_time_block_count
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_cycles(&self) -> Cycle {
         self.max_block_cycles
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_bytes(&self) -> u64 {
         self.max_block_bytes
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn max_block_proposals_limit(&self) -> u64 {
         self.max_block_proposals_limit
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn block_version(&self) -> Version {
         self.block_version
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tx_version(&self) -> Version {
         self.tx_version
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn type_id_code_hash(&self) -> &H256 {
         &self.type_id_code_hash
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn tx_proposal_window(&self) -> ProposalWindow {
         self.tx_proposal_window
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn bounding_hash_rate(
         &self,
         last_epoch_hash_rate: U256,
@@ -605,6 +700,7 @@ impl Consensus {
         last_epoch_hash_rate
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn bounding_epoch_length(
         &self,
         length: BlockNumber,
@@ -621,6 +717,7 @@ impl Consensus {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn next_epoch_ext<A, B>(
         &self,
         last_epoch: &EpochExt,
@@ -764,11 +861,13 @@ impl Consensus {
         Some(epoch_ext)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn identify_name(&self) -> String {
         let genesis_hash = format!("{:x}", Unpack::<H256>::unpack(&self.genesis_hash));
         format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn get_secp_type_script_hash(&self) -> Byte32 {
         let secp_cell_data =
             Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())

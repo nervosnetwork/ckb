@@ -1,3 +1,5 @@
+//! TODO(doc): @doitian
+
 mod estimator;
 mod fee_rate;
 mod tx_confirm_stat;

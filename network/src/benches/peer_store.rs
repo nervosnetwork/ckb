@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #[macro_use]
 extern crate criterion;
 extern crate ckb_network;

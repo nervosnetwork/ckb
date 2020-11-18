@@ -4,6 +4,7 @@ use eaglesong::eaglesong;
 use log::Level::Debug;
 use log::{debug, log_enabled};
 
+/// TODO(doc): @quake
 pub struct EaglesongPowEngine;
 
 impl PowEngine for EaglesongPowEngine {

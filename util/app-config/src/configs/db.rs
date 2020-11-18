@@ -2,16 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// TODO(doc): @doitian
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub path: PathBuf,
+    /// TODO(doc): @doitian
     #[serde(default)]
     pub options: HashMap<String, String>,
+    /// TODO(doc): @doitian
     pub options_file: Option<PathBuf>,
 }
 
 impl Config {
+    /// TODO(doc): @doitian
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P, name: &str) {
         // If path is not set, use the default path
         if self.path.to_str().is_none() || self.path.to_str() == Some("") {

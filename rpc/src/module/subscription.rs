@@ -87,6 +87,7 @@ pub enum Topic {
 #[allow(clippy::needless_return)]
 #[rpc(server)]
 pub trait SubscriptionRpc {
+    /// TODO(doc): @doitian
     type Metadata;
 
     /// Subscribes to a topic.

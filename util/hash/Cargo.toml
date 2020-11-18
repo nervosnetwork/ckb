@@ -1,10 +1,10 @@
 [package]
 name = "ckb-hash"
-version = "0.37.0"
+version = "0.38.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): crate description"
+description = "TODO(doc): @doitian crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

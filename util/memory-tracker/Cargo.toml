@@ -1,25 +1,18 @@
 [package]
 name = "ckb-memory-tracker"
-version = "0.37.0"
+version = "0.38.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
-description = "TODO(doc): crate description"
+description = "Track the memory usage of CKB."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.37.0" }
-ckb-metrics = { path = "../metrics", version = "= 0.37.0" }
-ckb-db = { path = "../../db", version = "= 0.37.0" }
+ckb-logger = { path = "../logger", version = "= 0.38.0" }
+ckb-metrics = { path = "../metrics", version = "= 0.38.0" }
+ckb-db = { path = "../../db", version = "= 0.38.0" }
 
-# TODO Why don't disable this crate by "target.*" in the crates which are dependent on this crate?
-#
-# I really don't like to write such dirty code. I try a lot. But due to the limit of the "cargo"
-# (and a lot of stupid bugs), at last, I have to write these stupid code.
-#
-# References:
-# - [Cargo Issue-1197: Target-specific features](https://github.com/rust-lang/cargo/issues/1197)
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 heim = "0.0.10"
 futures = "0.3.1"

@@ -18,10 +18,12 @@ pub struct Import {
 }
 
 impl Import {
+    /// TODO(doc): @doitian
     pub fn new(chain: ChainController, source: PathBuf) -> Self {
         Import { chain, source }
     }
 
+    /// TODO(doc): @doitian
     pub fn execute(self) -> Result<(), Box<dyn Error>> {
         self.read_from_json()
     }
@@ -44,6 +46,7 @@ impl Import {
         Ok(())
     }
 
+    /// TODO(doc): @doitian
     #[cfg(feature = "progress_bar")]
     pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         let metadata = fs::metadata(&self.source)?;

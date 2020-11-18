@@ -1,55 +1,105 @@
+//! TODO(doc): @doitian
 use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
+/// TODO(doc): @doitian
 pub const CMD_RUN: &str = "run";
+/// TODO(doc): @doitian
 pub const CMD_MINER: &str = "miner";
+/// TODO(doc): @doitian
 pub const CMD_EXPORT: &str = "export";
+/// TODO(doc): @doitian
 pub const CMD_IMPORT: &str = "import";
+/// TODO(doc): @doitian
 pub const CMD_INIT: &str = "init";
+/// TODO(doc): @doitian
 pub const CMD_REPLAY: &str = "replay";
+/// TODO(doc): @doitian
 pub const CMD_STATS: &str = "stats";
+/// TODO(doc): @doitian
 pub const CMD_LIST_HASHES: &str = "list-hashes";
+/// TODO(doc): @doitian
 pub const CMD_RESET_DATA: &str = "reset-data";
+/// TODO(doc): @doitian
 pub const CMD_PEERID: &str = "peer-id";
+/// TODO(doc): @doitian
 pub const CMD_GEN_SECRET: &str = "gen";
+/// TODO(doc): @doitian
 pub const CMD_FROM_SECRET: &str = "from-secret";
+/// TODO(doc): @doitian
+pub const CMD_MIGRATE: &str = "migrate";
 
+/// TODO(doc): @doitian
 pub const ARG_CONFIG_DIR: &str = "config-dir";
+/// TODO(doc): @doitian
 pub const ARG_FORMAT: &str = "format";
+/// TODO(doc): @doitian
 pub const ARG_TARGET: &str = "target";
+/// TODO(doc): @doitian
 pub const ARG_SOURCE: &str = "source";
+/// TODO(doc): @doitian
 pub const ARG_DATA: &str = "data";
+/// TODO(doc): @doitian
 pub const ARG_LIST_CHAINS: &str = "list-chains";
+/// TODO(doc): @doitian
 pub const ARG_INTERACTIVE: &str = "interactive";
+/// TODO(doc): @doitian
 pub const ARG_CHAIN: &str = "chain";
+/// TODO(doc): @doitian
 pub const ARG_IMPORT_SPEC: &str = "import-spec";
+/// TODO(doc): @doitian
 pub const ARG_P2P_PORT: &str = "p2p-port";
+/// TODO(doc): @doitian
 pub const ARG_RPC_PORT: &str = "rpc-port";
+/// TODO(doc): @doitian
 pub const ARG_FORCE: &str = "force";
+/// TODO(doc): @doitian
 pub const ARG_LOG_TO: &str = "log-to";
+/// TODO(doc): @doitian
 pub const ARG_BUNDLED: &str = "bundled";
+/// TODO(doc): @doitian
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
+/// TODO(doc): @doitian
 pub const ARG_BA_ARG: &str = "ba-arg";
+/// TODO(doc): @doitian
 pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
+/// TODO(doc): @doitian
 pub const ARG_BA_MESSAGE: &str = "ba-message";
+/// TODO(doc): @doitian
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
+/// TODO(doc): @doitian
 pub const ARG_FROM: &str = "from";
+/// TODO(doc): @doitian
 pub const ARG_TO: &str = "to";
+/// TODO(doc): @doitian
 pub const ARG_ALL: &str = "all";
+/// TODO(doc): @doitian
 pub const ARG_LIMIT: &str = "limit";
+/// TODO(doc): @doitian
 pub const ARG_DATABASE: &str = "database";
+/// TODO(doc): @doitian
 pub const ARG_INDEXER: &str = "indexer";
+/// TODO(doc): @doitian
 pub const ARG_NETWORK: &str = "network";
+/// TODO(doc): @doitian
 pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
+/// TODO(doc): @doitian
 pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
+/// TODO(doc): @doitian
 pub const ARG_LOGS: &str = "logs";
+/// TODO(doc): @doitian
 pub const ARG_TMP_TARGET: &str = "tmp-target";
+/// TODO(doc): @doitian
 pub const ARG_SECRET_PATH: &str = "secret-path";
+/// TODO(doc): @doitian
 pub const ARG_PROFILE: &str = "profile";
+/// TODO(doc): @doitian
 pub const ARG_SANITY_CHECK: &str = "sanity-check";
+/// TODO(doc): @doitian
 pub const ARG_FULL_VERFICATION: &str = "full-verfication";
 
+/// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
 
 fn basic_app<'b>() -> App<'static, 'b> {
@@ -77,8 +127,10 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(stats())
         .subcommand(reset_data())
         .subcommand(peer_id())
+        .subcommand(migrate())
 }
 
+/// TODO(doc): @doitian
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     basic_app()
         .version(version.short().as_str())
@@ -240,6 +292,10 @@ fn import() -> App<'static, 'static> {
                 .index(1)
                 .help("Specifies the exported data path."),
         )
+}
+
+fn migrate() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_MIGRATE).about("Runs ckb migration")
 }
 
 fn list_hashes() -> App<'static, 'static> {

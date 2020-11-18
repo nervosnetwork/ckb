@@ -14,6 +14,7 @@ pub struct PeerState {
 }
 
 impl PeerState {
+    /// TODO(doc): @doitian
     pub fn new(peer: usize, last_updated: u64, blocks_in_flight: usize) -> Self {
         Self {
             peer: (peer as u32).into(),

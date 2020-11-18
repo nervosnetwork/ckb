@@ -1,3 +1,4 @@
+//! TODO(doc): @zhangsoledad
 #[macro_use]
 extern crate enum_display_derive;
 
@@ -30,11 +31,15 @@ pub use crate::transaction_verifier::{
     SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
 };
 
+/// TODO(doc): @zhangsoledad
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second
 
 pub(crate) const LOG_TARGET: &str = "ckb_chain";
 
+/// TODO(doc): @zhangsoledad
 pub trait Verifier {
+    /// TODO(doc): @zhangsoledad
     type Target;
+    /// TODO(doc): @zhangsoledad
     fn verify(&self, target: &Self::Target) -> Result<(), ckb_error::Error>;
 }

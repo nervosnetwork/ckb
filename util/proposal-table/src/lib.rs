@@ -1,8 +1,10 @@
+//! TODO(doc): @zhangsoledad
 use ckb_chain_spec::consensus::ProposalWindow;
 use ckb_types::{core::BlockNumber, packed::ProposalShortId};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound;
 
+/// TODO(doc): @zhangsoledad
 #[derive(Default, Clone, Debug)]
 pub struct ProposalView {
     pub(crate) gap: HashSet<ProposalShortId>,
@@ -10,27 +12,33 @@ pub struct ProposalView {
 }
 
 impl ProposalView {
+    /// TODO(doc): @zhangsoledad
     pub fn new(gap: HashSet<ProposalShortId>, set: HashSet<ProposalShortId>) -> ProposalView {
         ProposalView { gap, set }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn gap(&self) -> &HashSet<ProposalShortId> {
         &self.gap
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn set(&self) -> &HashSet<ProposalShortId> {
         &self.set
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn contains_proposed(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
         self.gap.contains(id)
     }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct ProposalTable {
     pub(crate) table: BTreeMap<BlockNumber, HashSet<ProposalShortId>>,
@@ -38,6 +46,7 @@ pub struct ProposalTable {
 }
 
 impl ProposalTable {
+    /// TODO(doc): @zhangsoledad
     pub fn new(proposal_window: ProposalWindow) -> Self {
         ProposalTable {
             proposal_window,
@@ -45,20 +54,24 @@ impl ProposalTable {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     // If the TABLE did not have this value present, true is returned.
     // If the TABLE did have this value present, false is returned
     pub fn insert(&mut self, number: BlockNumber, ids: HashSet<ProposalShortId>) -> bool {
         self.table.insert(number, ids).is_none()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn remove(&mut self, number: BlockNumber) -> Option<HashSet<ProposalShortId>> {
         self.table.remove(&number)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn all(&self) -> &BTreeMap<BlockNumber, HashSet<ProposalShortId>> {
         &self.table
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn finalize(
         &mut self,
         origin: &ProposalView,

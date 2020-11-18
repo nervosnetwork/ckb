@@ -1,7 +1,10 @@
+//! TODO(doc): @keroro520
+
 use crate::generated::packed::{Byte32, OutPoint};
 use ckb_error::{Error, ErrorKind};
 use failure::Fail;
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum OutPointError {
     /// The specified cell is already dead
@@ -23,10 +26,12 @@ pub enum OutPointError {
     InvalidDepGroup(OutPoint),
 
     // TODO: This error should be move into HeaderError or TransactionError
+    /// TODO(doc): @keroro520
     #[fail(display = "InvalidHeader({})", _0)]
     InvalidHeader(Byte32),
 
     // TODO: This error should be move into HeaderError or TransactionError
+    /// TODO(doc): @keroro520
     #[fail(display = "ImmatureHeader({})", _0)]
     ImmatureHeader(Byte32),
 }

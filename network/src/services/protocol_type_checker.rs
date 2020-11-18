@@ -86,7 +86,7 @@ impl ProtocolTypeCheckerService {
                 }
 
                 // check open protocol type
-                if let Err(err) = self.opened_procotol_type(peer) {
+                if let Err(err) = self.opened_protocol_type(peer) {
                     debug!(
                         "close peer {:?} due to open protocols error: {}",
                         peer.peer_id, err
@@ -103,7 +103,7 @@ impl ProtocolTypeCheckerService {
         });
     }
 
-    fn opened_procotol_type(&self, peer: &Peer) -> Result<ProtocolType, ProtocolTypeError> {
+    fn opened_protocol_type(&self, peer: &Peer) -> Result<ProtocolType, ProtocolTypeError> {
         if peer
             .protocols
             .contains_key(&SupportProtocols::Feeler.protocol_id())

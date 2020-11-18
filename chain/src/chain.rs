@@ -1,3 +1,4 @@
+//! TODO(doc): @zhangsoledad
 use crate::switch::Switch;
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
@@ -30,6 +31,7 @@ use std::{cmp, thread};
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
@@ -44,10 +46,12 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
+    /// TODO(doc): @zhangsoledad
     pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
         self.internal_process_block(block, Switch::NONE)
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn internal_process_block(
         &self,
         block: Arc<BlockView>,
@@ -71,6 +75,7 @@ impl ChainController {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 #[derive(Debug, Default)]
 pub struct ForkChanges {
     // blocks attached to index after forks
@@ -84,26 +89,32 @@ pub struct ForkChanges {
 }
 
 impl ForkChanges {
+    /// TODO(doc): @zhangsoledad
     pub fn attached_blocks(&self) -> &VecDeque<BlockView> {
         &self.attached_blocks
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn detached_blocks(&self) -> &VecDeque<BlockView> {
         &self.detached_blocks
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn detached_proposal_id(&self) -> &HashSet<ProposalShortId> {
         &self.detached_proposal_id
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn has_detached(&self) -> bool {
         !self.detached_blocks.is_empty()
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn verified_len(&self) -> usize {
         self.attached_blocks.len() - self.dirty_exts.len()
     }
 
+    /// TODO(doc): @zhangsoledad
     #[cfg(debug_assertions)]
     pub fn is_sorted(&self) -> bool {
         IsSorted::is_sorted_by_key(&mut self.attached_blocks().iter(), |blk| {
@@ -135,12 +146,14 @@ impl GlobalIndex {
     }
 }
 
+/// TODO(doc): @zhangsoledad
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
 }
 
 impl ChainService {
+    /// TODO(doc): @zhangsoledad
     pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         ChainService {
             shared,
@@ -148,6 +161,7 @@ impl ChainService {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
@@ -197,6 +211,7 @@ impl ChainService {
         }
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn external_process_block(&mut self, block: Arc<BlockView>) -> Result<bool, Error> {
         self.process_block(block, Switch::NONE)
     }
@@ -259,6 +274,7 @@ impl ChainService {
         Ok(())
     }
 
+    /// TODO(doc): @zhangsoledad
     // process_block will do block verify
     // but invoker should guarantee block header be verified
     pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {

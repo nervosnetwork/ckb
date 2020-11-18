@@ -2,6 +2,7 @@ use bit_vec::BitVec;
 
 use crate::packed::Byte32;
 
+/// TODO(doc): @quake
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionMeta {
     pub(crate) block_number: u64,
@@ -13,6 +14,7 @@ pub struct TransactionMeta {
 }
 
 impl TransactionMeta {
+    /// TODO(doc): @quake
     pub fn new(
         block_number: u64,
         epoch_number: u64,
@@ -58,36 +60,44 @@ impl TransactionMeta {
         self.dead_cell.len()
     }
 
+    /// TODO(doc): @quake
     pub fn block_number(&self) -> u64 {
         self.block_number
     }
 
+    /// TODO(doc): @quake
     pub fn epoch_number(&self) -> u64 {
         self.epoch_number
     }
 
+    /// TODO(doc): @quake
     pub fn block_hash(&self) -> Byte32 {
         self.block_hash.clone()
     }
 
+    /// TODO(doc): @quake
     pub fn is_empty(&self) -> bool {
         self.dead_cell.is_empty()
     }
 
+    /// TODO(doc): @quake
     pub fn is_dead(&self, index: usize) -> Option<bool> {
         self.dead_cell.get(index)
     }
 
+    /// TODO(doc): @quake
     pub fn all_dead(&self) -> bool {
         self.dead_cell.all()
     }
 
+    /// TODO(doc): @quake
     pub fn set_dead(&mut self, index: usize) {
         if index < self.len() {
             self.dead_cell.set(index, true);
         }
     }
 
+    /// TODO(doc): @quake
     pub fn unset_dead(&mut self, index: usize) {
         if index < self.len() {
             self.dead_cell.set(index, false);
@@ -95,6 +105,7 @@ impl TransactionMeta {
     }
 }
 
+/// TODO(doc): @quake
 #[derive(Default)]
 pub struct TransactionMetaBuilder {
     block_number: u64,
@@ -106,36 +117,43 @@ pub struct TransactionMetaBuilder {
 }
 
 impl TransactionMetaBuilder {
+    /// TODO(doc): @quake
     pub fn block_number(mut self, block_number: u64) -> Self {
         self.block_number = block_number;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn epoch_number(mut self, epoch_number: u64) -> Self {
         self.epoch_number = epoch_number;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn block_hash(mut self, block_hash: Byte32) -> Self {
         self.block_hash = block_hash;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn cellbase(mut self, cellbase: bool) -> Self {
         self.cellbase = cellbase;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn bits(mut self, bits: Vec<u8>) -> Self {
         self.bits = bits;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn len(mut self, len: usize) -> Self {
         self.len = len;
         self
     }
 
+    /// TODO(doc): @quake
     pub fn build(self) -> TransactionMeta {
         let TransactionMetaBuilder {
             block_number,

@@ -16,6 +16,7 @@ pub enum TransactionErrorSource {
     Witnesses,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
     /// output.occupied_capacity() > output.capacity()
@@ -24,9 +25,13 @@ pub enum TransactionError {
         source, index, occupied_capacity, capacity
     )]
     InsufficientCellCapacity {
+        /// TODO(doc): @keroro520
         source: TransactionErrorSource,
+        /// TODO(doc): @keroro520
         index: usize,
+        /// TODO(doc): @keroro520
         occupied_capacity: Capacity,
+        /// TODO(doc): @keroro520
         capacity: Capacity,
     },
 
@@ -36,21 +41,32 @@ pub enum TransactionError {
         outputs_sum, inputs_sum
     )]
     OutputsSumOverflow {
+        /// TODO(doc): @keroro520
         inputs_sum: Capacity,
+        /// TODO(doc): @keroro520
         outputs_sum: Capacity,
     },
 
     /// inputs.is_empty() || outputs.is_empty()
     #[fail(display = "Empty({})", source)]
-    Empty { source: TransactionErrorSource },
+    Empty {
+        /// TODO(doc): @keroro520
+        source: TransactionErrorSource,
+    },
 
     /// Duplicated dep-out-points within the same transaction
     #[fail(display = "DuplicateCellDeps({})", out_point)]
-    DuplicateCellDeps { out_point: OutPoint },
+    DuplicateCellDeps {
+        /// TODO(doc): @keroro520
+        out_point: OutPoint,
+    },
 
     /// Duplicated headers deps without within the same transaction
     #[fail(display = "DuplicateHeaderDeps({})", hash)]
-    DuplicateHeaderDeps { hash: Byte32 },
+    DuplicateHeaderDeps {
+        /// TODO(doc): @keroro520
+        hash: Byte32,
+    },
 
     /// outputs.len() != outputs_data.len()
     #[fail(
@@ -58,7 +74,9 @@ pub enum TransactionError {
         outputs_data_len, outputs_len
     )]
     OutputsDataLengthMismatch {
+        /// TODO(doc): @keroro520
         outputs_len: usize,
+        /// TODO(doc): @keroro520
         outputs_data_len: usize,
     },
 
@@ -67,56 +85,85 @@ pub enum TransactionError {
         display = "InvalidSince(Inputs[{}]): the field since is invalid",
         index
     )]
-    InvalidSince { index: usize },
+    InvalidSince {
+        /// TODO(doc): @keroro520
+        index: usize,
+    },
 
     /// The transaction is not mature which is required by `transaction.since`
     #[fail(
         display = "Immature(Inputs[{}]): the transaction is immature because of the since requirement",
         index
     )]
-    Immature { index: usize },
+    Immature {
+        /// TODO(doc): @keroro520
+        index: usize,
+    },
 
     /// The transaction is not mature which is required by cellbase maturity rule
     #[fail(display = "CellbaseImmaturity({}[{}])", source, index)]
     CellbaseImmaturity {
+        /// TODO(doc): @keroro520
         source: TransactionErrorSource,
+        /// TODO(doc): @keroro520
         index: usize,
     },
 
     /// The transaction version is mismatched with the system can hold
     #[fail(display = "MismatchedVersion: expected {}, got {}", expected, actual)]
-    MismatchedVersion { expected: Version, actual: Version },
+    MismatchedVersion {
+        /// TODO(doc): @keroro520
+        expected: Version,
+        /// TODO(doc): @keroro520
+        actual: Version,
+    },
 
     /// The transaction size is too large
     #[fail(
         display = "ExceededMaximumBlockBytes: expected transaction serialized size ({}) < block size limit ({})",
         actual, limit
     )]
-    ExceededMaximumBlockBytes { limit: u64, actual: u64 },
+    ExceededMaximumBlockBytes {
+        /// TODO(doc): @keroro520
+        limit: u64,
+        /// TODO(doc): @keroro520
+        actual: u64,
+    },
 }
 
+/// TODO(doc): @keroro520
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum HeaderErrorKind {
+    /// TODO(doc): @keroro520
     InvalidParent,
+    /// TODO(doc): @keroro520
     Pow,
+    /// TODO(doc): @keroro520
     Timestamp,
+    /// TODO(doc): @keroro520
     Number,
+    /// TODO(doc): @keroro520
     Epoch,
+    /// TODO(doc): @keroro520
     Version,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Debug)]
 pub struct HeaderError {
     kind: Context<HeaderErrorKind>,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Debug)]
 pub struct BlockError {
     kind: Context<BlockErrorKind>,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Debug, PartialEq, Eq, Clone, Display)]
 pub enum BlockErrorKind {
+    /// TODO(doc): @keroro520
     ProposalTransactionDuplicate,
 
     /// There are duplicate committed transactions.
@@ -136,134 +183,215 @@ pub enum BlockErrorKind {
     /// transaction index in the block and the second item is the transaction verification error.
     BlockTransactions,
 
+    /// TODO(doc): @keroro520
     UnknownParent,
 
+    /// TODO(doc): @keroro520
     Uncles,
 
+    /// TODO(doc): @keroro520
     Cellbase,
 
     /// This error is returned when the committed transactions does not meet the 2-phases
     /// propose-then-commit consensus rule.
     Commit,
 
+    /// TODO(doc): @keroro520
     ExceededMaximumProposalsLimit,
 
+    /// TODO(doc): @keroro520
     ExceededMaximumCycles,
 
+    /// TODO(doc): @keroro520
     ExceededMaximumBlockBytes,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug)]
 #[fail(display = "BlockTransactionsError(index: {}, error: {})", index, error)]
 pub struct BlockTransactionsError {
+    /// TODO(doc): @keroro520
     pub index: u32,
+    /// TODO(doc): @keroro520
     pub error: Error,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 #[fail(display = "UnknownParentError(parent_hash: {})", parent_hash)]
 pub struct UnknownParentError {
+    /// TODO(doc): @keroro520
     pub parent_hash: Byte32,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CommitError {
+    /// TODO(doc): @keroro520
     AncestorNotFound,
+    /// TODO(doc): @keroro520
     Invalid,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CellbaseError {
+    /// TODO(doc): @keroro520
     InvalidInput,
+    /// TODO(doc): @keroro520
     InvalidRewardAmount,
+    /// TODO(doc): @keroro520
     InvalidRewardTarget,
+    /// TODO(doc): @keroro520
     InvalidWitness,
+    /// TODO(doc): @keroro520
     InvalidTypeScript,
+    /// TODO(doc): @keroro520
     InvalidOutputQuantity,
+    /// TODO(doc): @keroro520
     InvalidQuantity,
+    /// TODO(doc): @keroro520
     InvalidPosition,
+    /// TODO(doc): @keroro520
     InvalidOutputData,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum UnclesError {
+    /// TODO(doc): @keroro520
     #[fail(display = "OverCount(max: {}, actual: {})", max, actual)]
-    OverCount { max: u32, actual: u32 },
+    OverCount {
+        /// TODO(doc): @keroro520
+        max: u32,
+        /// TODO(doc): @keroro520
+        actual: u32,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(
         display = "InvalidDepth(min: {}, max: {}, actual: {})",
         min, max, actual
     )]
-    InvalidDepth { max: u64, min: u64, actual: u64 },
+    InvalidDepth {
+        /// TODO(doc): @keroro520
+        max: u64,
+        /// TODO(doc): @keroro520
+        min: u64,
+        /// TODO(doc): @keroro520
+        actual: u64,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(display = "InvalidHash(expected: {}, actual: {})", expected, actual)]
-    InvalidHash { expected: Byte32, actual: Byte32 },
+    InvalidHash {
+        /// TODO(doc): @keroro520
+        expected: Byte32,
+        /// TODO(doc): @keroro520
+        actual: Byte32,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(display = "InvalidNumber")]
     InvalidNumber,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "InvalidTarget")]
     InvalidTarget,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "InvalidDifficultyEpoch")]
     InvalidDifficultyEpoch,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "ProposalsHash")]
     ProposalsHash,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "ProposalDuplicate")]
     ProposalDuplicate,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "Duplicate({})", _0)]
     Duplicate(Byte32),
 
+    /// TODO(doc): @keroro520
     #[fail(display = "DoubleInclusion({})", _0)]
     DoubleInclusion(Byte32),
 
+    /// TODO(doc): @keroro520
     #[fail(display = "DescendantLimit")]
     DescendantLimit,
 
+    /// TODO(doc): @keroro520
     #[fail(display = "ExceededMaximumProposalsLimit")]
     ExceededMaximumProposalsLimit,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 #[fail(
     display = "BlockVersionError(expected: {}, actual: {})",
     expected, actual
 )]
 pub struct BlockVersionError {
+    /// TODO(doc): @keroro520
     pub expected: Version,
+    /// TODO(doc): @keroro520
     pub actual: Version,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 #[fail(display = "InvalidParentError(parent_hash: {})", parent_hash)]
 pub struct InvalidParentError {
+    /// TODO(doc): @keroro520
     pub parent_hash: Byte32,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
+    /// TODO(doc): @keroro520
     #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
-    Boundary { expected: Byte32, actual: Byte32 },
+    Boundary {
+        /// TODO(doc): @keroro520
+        expected: Byte32,
+        /// TODO(doc): @keroro520
+        actual: Byte32,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(
         display = "InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log"
     )]
     InvalidNonce,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
+    /// TODO(doc): @keroro520
     #[fail(display = "BlockTimeTooOld(min: {}, actual: {})", min, actual)]
-    BlockTimeTooOld { min: u64, actual: u64 },
+    BlockTimeTooOld {
+        /// TODO(doc): @keroro520
+        min: u64,
+        /// TODO(doc): @keroro520
+        actual: u64,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(display = "BlockTimeTooNew(max: {}, actual: {})", max, actual)]
-    BlockTimeTooNew { max: u64, actual: u64 },
+    BlockTimeTooNew {
+        /// TODO(doc): @keroro520
+        max: u64,
+        /// TODO(doc): @keroro520
+        actual: u64,
+    },
 }
 
 impl TimestampError {
+    /// TODO(doc): @keroro520
     pub fn is_too_new(&self) -> bool {
         match self {
             Self::BlockTimeTooOld { .. } => false,
@@ -272,26 +400,43 @@ impl TimestampError {
     }
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 #[fail(display = "NumberError(expected: {}, actual: {})", expected, actual)]
 pub struct NumberError {
+    /// TODO(doc): @keroro520
     pub expected: u64,
+    /// TODO(doc): @keroro520
     pub actual: u64,
 }
 
+/// TODO(doc): @keroro520
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
+    /// TODO(doc): @keroro520
     #[fail(
         display = "TargetMismatch(expected: {:x}, actual: {:x})",
         expected, actual
     )]
-    TargetMismatch { expected: u32, actual: u32 },
+    TargetMismatch {
+        /// TODO(doc): @keroro520
+        expected: u32,
+        /// TODO(doc): @keroro520
+        actual: u32,
+    },
 
+    /// TODO(doc): @keroro520
     #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
-    NumberMismatch { expected: u64, actual: u64 },
+    NumberMismatch {
+        /// TODO(doc): @keroro520
+        expected: u64,
+        /// TODO(doc): @keroro520
+        actual: u64,
+    },
 }
 
 impl TransactionError {
+    /// TODO(doc): @keroro520
     pub fn is_malformed_tx(&self) -> bool {
         match self {
             TransactionError::OutputsSumOverflow { .. }
@@ -347,18 +492,22 @@ impl Fail for HeaderError {
 }
 
 impl HeaderError {
+    /// TODO(doc): @keroro520
     pub fn kind(&self) -> &HeaderErrorKind {
         self.kind.get_context()
     }
 
+    /// TODO(doc): @keroro520
     pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
         self.cause().and_then(|cause| cause.downcast_ref::<T>())
     }
 
+    /// TODO(doc): @keroro520
     pub fn inner(&self) -> &Context<HeaderErrorKind> {
         &self.kind
     }
 
+    /// TODO(doc): @keroro520
     // Note: if the header is invalid, that may also be grounds for disconnecting the peer,
     // However, there is a circumstance where that does not hold:
     // if the header's timestamp is more than ALLOWED_FUTURE_BLOCKTIME ahead of our current time.
@@ -389,14 +538,17 @@ impl Fail for BlockError {
 }
 
 impl BlockError {
+    /// TODO(doc): @keroro520
     pub fn kind(&self) -> &BlockErrorKind {
         self.kind.get_context()
     }
 
+    /// TODO(doc): @keroro520
     pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
         self.cause().and_then(|cause| cause.downcast_ref::<T>())
     }
 
+    /// TODO(doc): @keroro520
     pub fn inner(&self) -> &Context<BlockErrorKind> {
         &self.kind
     }

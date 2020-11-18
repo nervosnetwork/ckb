@@ -11,5 +11,6 @@ pub struct DryRunResult {
 /// The estimated fee rate.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct EstimateResult {
+    /// The estimated fee rate.
     pub fee_rate: FeeRate,
 }

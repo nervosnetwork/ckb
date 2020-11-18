@@ -4,6 +4,7 @@ use ckb_logger::debug;
 use ckb_types::packed::Byte32;
 use std::collections::HashMap;
 
+/// TODO(doc): @doitian
 pub const MAX_CONFIRM_BLOCKS: usize = 1000;
 const MIN_BUCKET_FEERATE: f64 = 1000f64;
 const MAX_BUCKET_FEERATE: f64 = 1e7;
@@ -47,6 +48,7 @@ impl Default for Estimator {
 }
 
 impl Estimator {
+    /// TODO(doc): @doitian
     pub fn new() -> Self {
         let mut buckets = Vec::new();
         let mut bucket_fee_boundary = MIN_BUCKET_FEERATE;

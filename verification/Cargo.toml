@@ -1,36 +1,36 @@
 [package]
 name = "ckb-verification"
-version = "0.37.0"
+version = "0.38.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): crate description"
+description = "TODO(doc): @zhangsoledad crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.37.0" }
-ckb-store = { path = "../store", version = "= 0.37.0" }
-ckb-script = { path = "../script", version = "= 0.37.0" }
-ckb-pow = { path = "../pow", version = "= 0.37.0" }
+ckb-types = { path = "../util/types", version = "= 0.38.0" }
+ckb-store = { path = "../store", version = "= 0.38.0" }
+ckb-script = { path = "../script", version = "= 0.38.0" }
+ckb-pow = { path = "../pow", version = "= 0.38.0" }
 faketime = "0.2.0"
 rayon = "1.0"
 lru = "0.6.0"
-ckb-traits = { path = "../traits", version = "= 0.37.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.37.0" }
-ckb-dao = { path = "../util/dao", version = "= 0.37.0" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.37.0" }
-ckb-logger = {path = "../util/logger", version = "= 0.37.0"}
-ckb-reward-calculator= { path = "../util/reward-calculator", version = "= 0.37.0" }
+ckb-traits = { path = "../traits", version = "= 0.38.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.38.0" }
+ckb-dao = { path = "../util/dao", version = "= 0.38.0" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.0" }
+ckb-logger = {path = "../util/logger", version = "= 0.38.0"}
+ckb-reward-calculator= { path = "../util/reward-calculator", version = "= 0.38.0" }
 failure = "0.1.5"
-ckb-error = { path = "../error", version = "= 0.37.0" }
+ckb-error = { path = "../error", version = "= 0.38.0" }
 enum-display-derive = "0.1.0"
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.37.0" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.38.0" }
 
 [dev-dependencies]
-ckb-chain = { path = "../chain", version = "= 0.37.0" }
-ckb-shared = { path = "../shared", version = "= 0.37.0" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.37.0" }
-ckb-resource = { path = "../resource", version = "= 0.37.0" }
+ckb-chain = { path = "../chain", version = "= 0.38.0" }
+ckb-shared = { path = "../shared", version = "= 0.38.0" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.0" }
+ckb-resource = { path = "../resource", version = "= 0.38.0" }
 rand = "0.6"

@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 mod client;
 mod error;
 mod miner;
@@ -11,9 +12,12 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::packed::Block;
 use std::convert::From;
 
+/// TODO(doc): @quake
 #[derive(Clone)]
 pub struct Work {
+    /// TODO(doc): @quake
     work_id: u64,
+    /// TODO(doc): @quake
     block: Block,
 }
 

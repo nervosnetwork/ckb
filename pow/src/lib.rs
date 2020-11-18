@@ -1,3 +1,4 @@
+//! TODO(doc): @quake
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::{
     packed::{Byte32, Header},
@@ -16,11 +17,15 @@ pub use crate::dummy::DummyPowEngine;
 pub use crate::eaglesong::EaglesongPowEngine;
 pub use crate::eaglesong_blake2b::EaglesongBlake2bPowEngine;
 
+/// TODO(doc): @quake
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
+    /// TODO(doc): @quake
     Dummy,
+    /// TODO(doc): @quake
     Eaglesong,
+    /// TODO(doc): @quake
     EaglesongBlake2b,
 }
 
@@ -35,6 +40,7 @@ impl fmt::Display for Pow {
 }
 
 impl Pow {
+    /// TODO(doc): @quake
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine),
@@ -43,11 +49,13 @@ impl Pow {
         }
     }
 
+    /// TODO(doc): @quake
     pub fn is_dummy(&self) -> bool {
         *self == Pow::Dummy
     }
 }
 
+/// TODO(doc): @quake
 pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
     let mut message = [0; 48];
     message[0..32].copy_from_slice(pow_hash.as_slice());
@@ -55,11 +63,15 @@ pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
     message
 }
 
+/// TODO(doc): @quake
 pub trait PowEngine: Send + Sync + AsAny {
+    /// TODO(doc): @quake
     fn verify(&self, header: &Header) -> bool;
 }
 
+/// TODO(doc): @quake
 pub trait AsAny {
+    /// TODO(doc): @quake
     fn as_any(&self) -> &dyn Any;
 }
 

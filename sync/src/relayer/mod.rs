@@ -60,6 +60,7 @@ pub enum ReconstructionResult {
     Error(Status),
 }
 
+/// TODO(doc): @driftluo
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
@@ -70,6 +71,7 @@ pub struct Relayer {
 }
 
 impl Relayer {
+    /// TODO(doc): @driftluo
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncShared>,
@@ -90,6 +92,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -197,6 +200,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn request_proposal_txs(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -247,6 +251,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     pub fn accept_block(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -296,6 +301,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     // nodes should attempt to reconstruct the full block by taking the prefilledtxn transactions
     // from the original CompactBlock message and placing them in the marked positions,
     // then for each short transaction ID from the original compact_block message, in order,
@@ -526,6 +532,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     // Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         let state = self.shared().state();
@@ -568,6 +575,7 @@ impl Relayer {
         }
     }
 
+    /// TODO(doc): @driftluo
     // Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         let connected_peers = nc.connected_peers();

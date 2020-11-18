@@ -1,3 +1,4 @@
+//! TODO(doc): @driftluo
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_types::{packed::Alert, prelude::*};
@@ -6,6 +7,7 @@ use std::collections::HashMap;
 
 const CANCEL_FILTER_SIZE: usize = 128;
 
+/// TODO(doc): @driftluo
 pub struct Notifier {
     /// cancelled alerts
     cancel_filter: LruCache<u32, ()>,
@@ -18,6 +20,7 @@ pub struct Notifier {
 }
 
 impl Notifier {
+    /// TODO(doc): @driftluo
     pub fn new(client_version: String, notify_controller: NotifyController) -> Self {
         Notifier {
             cancel_filter: LruCache::new(CANCEL_FILTER_SIZE),
@@ -65,6 +68,7 @@ impl Notifier {
         true
     }
 
+    /// TODO(doc): @driftluo
     pub fn add(&mut self, alert: &Alert) {
         let alert_id = alert.raw().id().unpack();
         let alert_cancel = alert.raw().cancel().unpack();
@@ -96,6 +100,7 @@ impl Notifier {
         });
     }
 
+    /// TODO(doc): @driftluo
     pub fn cancel(&mut self, cancel_id: u32) {
         self.cancel_filter.put(cancel_id, ());
         self.received_alerts.remove(&cancel_id);
@@ -105,6 +110,7 @@ impl Notifier {
         });
     }
 
+    /// TODO(doc): @driftluo
     pub fn clear_expired_alerts(&mut self, now: u64) {
         self.received_alerts.retain(|_id, alert| {
             let notice_until: u64 = alert.raw().notice_until().unpack();
@@ -116,15 +122,18 @@ impl Notifier {
         });
     }
 
+    /// TODO(doc): @driftluo
     pub fn has_received(&self, id: u32) -> bool {
         self.received_alerts.contains_key(&id) || self.cancel_filter.contains(&id)
     }
 
+    /// TODO(doc): @driftluo
     // all unexpired alerts
     pub fn received_alerts(&self) -> Vec<Alert> {
         self.received_alerts.values().cloned().collect()
     }
 
+    /// TODO(doc): @driftluo
     // alerts that self node should noticed
     pub fn noticed_alerts(&self) -> Vec<Alert> {
         self.noticed_alerts.clone()

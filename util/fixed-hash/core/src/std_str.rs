@@ -76,8 +76,50 @@ macro_rules! impl_std_str_fromstr {
 }
 
 macro_rules! impl_from_trimmed_str {
-    ($name:ident, $bytes_size:expr) => {
+    ($name:ident, $bytes_size:expr, $use_stmt:expr, $bytes_size_stmt:expr) => {
         impl $name {
+            /// To convert a trimmed hexadecimal string into `Self`.
+            ///
+            /// If the beginning of a hexadecimal string are one or more zeros, then these zeros
+            /// should be omitted.
+            ///
+            /// There should be only one zero at the beginning of a hexadecimal string at most.
+            ///
+            /// For example, if `x` is `H16` (a 16 bits binary data):
+            /// - when `x = [0, 0]`, the trimmed hexadecimal string should be "0" or "".
+            /// - when `x = [0, 1]`, the trimmed hexadecimal string should be "1".
+            /// - when `x = [1, 0]`, the trimmed hexadecimal string should be "100".
+            ///
+            /// ```rust
+            #[doc = $use_stmt]
+            #[doc = $bytes_size_stmt]
+            ///
+            /// let mut inner = [0u8; bytes_size];
+            ///
+            /// {
+            ///     let actual = Hash(inner.clone());
+            ///     let expected1 = Hash::from_trimmed_str("").unwrap();
+            ///     let expected2 = Hash::from_trimmed_str("0").unwrap();
+            ///     assert_eq!(actual, expected1);
+            ///     assert_eq!(actual, expected2);
+            /// }
+            ///
+            /// {
+            ///     inner[bytes_size - 1] = 1;
+            ///     let actual = Hash(inner);
+            ///     let expected = Hash::from_trimmed_str("1").unwrap();
+            ///     assert_eq!(actual, expected);
+            /// }
+            ///
+            /// {
+            ///     assert!(Hash::from_trimmed_str("00").is_err());
+            ///     assert!(Hash::from_trimmed_str("000").is_err());
+            ///     assert!(Hash::from_trimmed_str("0000").is_err());
+            ///     assert!(Hash::from_trimmed_str("01").is_err());
+            ///     assert!(Hash::from_trimmed_str("001").is_err());
+            ///     assert!(Hash::from_trimmed_str("0001").is_err());
+            /// }
+            /// ```
             pub fn from_trimmed_str(input: &str) -> Result<Self, FromStrError> {
                 let bytes = input.as_bytes();
                 let len = bytes.len();
@@ -119,6 +161,14 @@ macro_rules! impl_from_trimmed_str {
             }
         }
     };
+    ($name:ident, $bytes_size:expr) => {
+        impl_from_trimmed_str!(
+            $name,
+            $bytes_size,
+            concat!("use ckb_fixed_hash_core::", stringify!($name), " as Hash;"),
+            concat!("const bytes_size: usize = ", stringify!($bytes_size), ";")
+        );
+    }
 }
 
 impl_std_str_fromstr!(H160, 20);

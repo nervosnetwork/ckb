@@ -7,6 +7,7 @@ use secp256k1::Message as SecpMessage;
 use std::str::FromStr;
 use std::{ptr, sync::atomic};
 
+/// TODO(doc): @zhangsoledad
 #[derive(Clone, Eq, PartialEq)]
 pub struct Privkey {
     /// ECDSA key.
@@ -25,6 +26,7 @@ impl Privkey {
         Ok(Signature::from_compact(rec_id, data))
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
         let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
@@ -32,6 +34,7 @@ impl Privkey {
         Ok(Pubkey::from(pubkey))
     }
 
+    /// TODO(doc): @zhangsoledad
     pub fn from_slice(key: &[u8]) -> Self {
         assert_eq!(32, key.len(), "should provide 32-byte length slice");
 

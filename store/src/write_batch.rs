@@ -4,15 +4,18 @@ use ckb_db::RocksDBWriteBatch;
 use ckb_error::Error;
 use ckb_types::{packed, prelude::*};
 
+/// TODO(doc): @quake
 pub struct StoreWriteBatch {
     pub(crate) inner: RocksDBWriteBatch,
 }
 
 impl StoreWriteBatch {
+    /// TODO(doc): @quake
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
     }
 
+    /// TODO(doc): @quake
     pub fn delete(&mut self, col: Col, key: &[u8]) -> Result<(), Error> {
         self.inner.delete(col, key)
     }
@@ -22,18 +25,22 @@ impl StoreWriteBatch {
         self.inner.size_in_bytes()
     }
 
+    /// TODO(doc): @quake
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// TODO(doc): @quake
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// TODO(doc): @quake
     pub fn clear(&mut self) -> Result<(), Error> {
         self.inner.clear()
     }
 
+    /// TODO(doc): @quake
     pub fn insert_cells(
         &mut self,
         cells: impl Iterator<
@@ -56,6 +63,7 @@ impl StoreWriteBatch {
         Ok(())
     }
 
+    /// TODO(doc): @quake
     pub fn delete_cells(
         &mut self,
         out_points: impl Iterator<Item = packed::OutPoint>,

@@ -61,6 +61,11 @@ def transform_href(href):
     elif href.startswith('type.'):
         type_name = href.split('.')[1]
         return '#type-{}'.format(type_name.lower())
+    elif href == 'trait.ChainRpc.html#canonical-chain':
+        return '#canonical-chain'
+    elif ('struct.' in href or 'enum.' in href) and href.endswith('.html'):
+        type_name = href.split('.')[-2]
+        return '#type-{}'.format(type_name.lower())
 
     return href
 
@@ -128,8 +133,8 @@ class MarkdownParser():
             self.append("```\n")
             self.preserve_whitespaces = True
         elif tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            self.append((int(tag[1:]) + self.title_level - 1) * '#')
-            self.append(' ')
+            # The content here will be used in tag a to ignore the first anchor
+            self.append(((int(tag[1:]) + self.title_level - 1) * '#') + ' ')
         elif tag in ['strong', 'b']:
             self.append('**')
         elif tag in ['em', 'i']:
@@ -138,7 +143,7 @@ class MarkdownParser():
             self.append('`')
         elif tag == 'a':
             # ignore the first anchor link in title
-            if self.chunks[-1].strip().replace('#', '') != '':
+            if not self.chunks[-1].startswith('#') or self.chunks[-1].strip().replace('#', '') != '':
                 self.pending_href = transform_href(dict(attrs)['href'])
                 self.append('[')
         elif tag == 'thead':
@@ -193,7 +198,10 @@ class MarkdownParser():
             return
 
         if not self.preserve_whitespaces:
-            self.append(' '.join(data.splitlines()))
+            if data != '\n':
+                self.append(' '.join(data.splitlines()))
+                if data.endswith('\n'):
+                    self.append(' ')
         else:
             if self.chunks[-1] == '```\n' and data[0] == '\n':
                 data = data[1:]
@@ -263,7 +271,7 @@ class RPCVar():
                     if self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
                         self.ty = '{} `|` `null`'.format(self.children[0].ty)
                     elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
-                        self.ty = '`Array<`{}`>`'.format(self.children[0].ty)
+                        self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                         molecule_name = self.children[1].ty.split(
                             '`](')[0][2:]
@@ -278,6 +286,10 @@ class RPCVar():
     def handle_data(self, data):
         if self.ty is None:
             self.name = self.sanitize_name(data)
+            if self.name.endswith(': U256'):
+                parts = self.name.split(': ')
+                self.name = parts[0]
+                self.ty = '[`U256`](#type-u256)'
 
     def completed(self):
         return self.ty is not None and (len(self.children) == 0 or self.children[-1].completed())
@@ -291,9 +303,6 @@ class RPCVar():
             name = name[:-1]
         if name.startswith(', '):
             name = name[2:]
-
-        if name == ') -> Result<':
-            name = 'result'
 
         return name
 
@@ -326,7 +335,8 @@ class RPCMethod():
         if self.rpc_var_parser is not None:
             self.rpc_var_parser.handle_endtag(tag)
             if self.rpc_var_parser.completed():
-                self.params.append(self.rpc_var_parser)
+                if '->' not in self.rpc_var_parser.name or 'Result' in self.rpc_var_parser.name:
+                    self.params.append(self.rpc_var_parser)
                 self.rpc_var_parser = RPCVar()
         elif not self.doc_parser.completed():
             self.doc_parser.handle_endtag(tag)
@@ -595,12 +605,32 @@ class RPCType(HTMLParser):
             file.write('\n')
 
 
+class DummyRPCType():
+    def __init__(self, name, module_doc):
+        super().__init__()
+        self.name = name
+        self.module_doc = module_doc
+
+    def write(self, file):
+        file.write('\n')
+        file.write(self.module_doc)
+        file.write('\n')
+
+
 class RPCDoc(object):
     def __init__(self):
         self.modules = []
-        self.types = []
         self.errors = RPCErrorParser()
         self.parsed_types = set()
+
+        self.types = [
+            DummyRPCType(
+                "SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
+            DummyRPCType(
+                "SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
+            DummyRPCType(
+                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.")
+        ]
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -621,6 +651,8 @@ class RPCDoc(object):
             for path in pending:
                 self.collect_type(path)
 
+        # PoolTransactionEntry is not used in RPC but in the Subscription events.
+        self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
@@ -630,9 +662,12 @@ class RPCDoc(object):
 
         if path in self.parsed_types:
             return
+        self.parsed_types.add(path)
+
         if 'ckb_types/packed' in path:
             return
-        self.parsed_types.add(path)
+        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html']:
+            return
 
         with open(path) as file:
             content = file.read()
@@ -642,10 +677,11 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        parser = RPCType(name, path)
-        parser.feed(content)
+        if name != 'U256':
+            parser = RPCType(name, path)
+            parser.feed(content)
 
-        self.types.append(parser)
+            self.types.append(parser)
 
     def write(self, file):
         file.write(PREAMBLE)
@@ -663,10 +699,6 @@ class RPCDoc(object):
         for t in self.types:
             file.write(
                 "    * [Type `{}`](#type-{})\n".format(t.name, t.name.lower()))
-        file.write(
-            "    * [Type `SerializedHeader`](#type-serializedheader)\n")
-        file.write(
-            "    * [Type `SerializedBlock`](#type-serializedblock)\n")
 
         file.write("\n## RPC Methods\n\n")
 
@@ -681,13 +713,6 @@ class RPCDoc(object):
         for ty in self.types:
             file.write("\n### Type `{}`\n".format(ty.name))
             ty.write(file)
-
-        file.write("\n### Type `SerializedHeader`\n\n")
-        file.write(
-            "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.\n")
-        file.write("\n### Type `SerializedBlock`\n\n")
-        file.write(
-            "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.\n")
 
 
 def main():
