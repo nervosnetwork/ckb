@@ -27,7 +27,7 @@ ckb-channel = { path = "../util/channel", version = "= 0.38.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.38.0-pre" }
 failure = "0.1.5"
 lru = "0.6.0"
-sentry = "0.17.0"
+sentry = { version = "0.17.0", optional = true }
 futures = "0.3"
 ckb-error = {path = "../error", version = "= 0.38.0-pre"}
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.0-pre" }
@@ -44,3 +44,4 @@ ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.0-pre" }
 [features]
 default = []
 stats = []
+with_sentry = ["sentry"]

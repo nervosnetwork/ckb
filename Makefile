@@ -35,12 +35,12 @@ submodule-init:
 
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
-	cargo build --features deadlock_detection
+	cargo build --features deadlock_detection with_sentry
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test
-	cargo build --release --features deadlock_detection
+	cargo build --release --features deadlock_detection with_sentry
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
@@ -86,11 +86,11 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
+	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release --features with_sentry
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="--cfg disable_faketime --cfg docker" cargo build --verbose --release
+	RUSTFLAGS="--cfg disable_faketime --cfg docker" cargo build --verbose --release --features with_sentry
 
 .PHONY: prod-test
 prod-test:

@@ -90,6 +90,7 @@ jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_
 [features]
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
+with_sentry = ["ckb-bin/with_sentry"]
 profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
 
 [patch.crates-io]

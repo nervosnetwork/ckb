@@ -9,6 +9,7 @@ use ckb_build_info::Version;
 use setup_guard::SetupGuard;
 
 pub(crate) const LOG_TARGET_MAIN: &str = "main";
+#[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 /// TODO(doc): @doitian

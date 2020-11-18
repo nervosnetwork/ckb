@@ -41,6 +41,8 @@ use p2p::{
     utils::extract_peer_id,
     SessionId,
 };
+#[cfg(feature = "with_sentry")]
+use sentry::{capture_message, with_scope, Level};
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -382,7 +384,7 @@ impl NetworkState {
                 addr
             );
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
-                use sentry::{capture_message, with_scope, Level};
+                #[cfg(feature = "with_sentry")]
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "dialing-timeout"])),
                     || {
@@ -652,7 +654,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             }
             ServiceError::ProtocolHandleError { proto_id, error } => {
                 debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
-                use sentry::{capture_message, with_scope, Level};
+                #[cfg(feature = "with_sentry")]
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
                     || {
