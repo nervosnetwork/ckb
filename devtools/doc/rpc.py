@@ -84,7 +84,10 @@ def write_method_signature(file, method_name, vars):
             file.write('    * `{}`: {}\n'.format(var.name, var.ty))
     else:
         file.write('* `{}()`\n'.format(method_name))
-    file.write('* result: {}\n'.format(vars[-1].ty))
+    if method_name == 'subscribe':
+        file.write('* result: `string`\n')
+    else:
+        file.write('* result: {}\n'.format(vars[-1].ty))
 
 
 class MarkdownParser():
@@ -690,7 +693,7 @@ class RPCDoc(object):
 
         if 'ckb_types/packed' in path:
             return
-        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html']:
+        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html', 'enum.Topic.html']:
             return
 
         with open(path) as file:
