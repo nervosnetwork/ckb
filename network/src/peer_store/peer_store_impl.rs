@@ -14,7 +14,7 @@ use ipnetwork::IpNetwork;
 use std::cell::{Ref, RefCell};
 use std::collections::{hash_map::Entry, HashMap};
 
-/// TODO(doc): @driftluo
+/// peer store
 #[derive(Default)]
 pub struct PeerStore {
     addr_manager: AddrManager,
@@ -24,7 +24,7 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    /// TODO(doc): @driftluo
+    /// new with address list and ban list
     pub fn new(addr_manager: AddrManager, ban_list: BanList) -> Self {
         PeerStore {
             addr_manager,
@@ -83,12 +83,12 @@ impl PeerStore {
         Ok(())
     }
 
-    /// TODO(doc): @driftluo
+    /// get address manager
     pub fn addr_manager(&self) -> &AddrManager {
         &self.addr_manager
     }
 
-    /// TODO(doc): @driftluo
+    /// get mut address manager
     pub fn mut_addr_manager(&mut self) -> &mut AddrManager {
         &mut self.addr_manager
     }
@@ -115,12 +115,12 @@ impl PeerStore {
         Ok(ReportResult::Ok)
     }
 
-    /// TODO(doc): @driftluo
+    /// remove peer id
     pub fn remove_disconnected_peer(&mut self, peer_id: &PeerId) -> Option<PeerInfo> {
         self.peers.borrow_mut().remove(peer_id)
     }
 
-    /// TODO(doc): @driftluo
+    /// get peer status
     pub fn peer_status(&self, peer_id: &PeerId) -> Status {
         if self.peers.borrow().contains_key(peer_id) {
             Status::Connected
@@ -203,22 +203,22 @@ impl PeerStore {
         Ok(())
     }
 
-    /// TODO(doc): @driftluo
+    /// whether address banned
     pub fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
         self.ban_list().is_addr_banned(addr)
     }
 
-    /// TODO(doc): @driftluo
+    /// get ban list
     pub fn ban_list(&self) -> Ref<BanList> {
         self.ban_list.borrow()
     }
 
-    /// TODO(doc): @driftluo
+    /// get mut ban list
     pub fn mut_ban_list(&mut self) -> &mut BanList {
         self.ban_list.get_mut()
     }
 
-    /// TODO(doc): @driftluo
+    /// clear ban list
     pub fn clear_ban_list(&self) {
         self.ban_list.replace(Default::default());
     }

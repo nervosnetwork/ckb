@@ -4,45 +4,44 @@ use p2p::{secio::PeerId, SessionId};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// TODO(doc): @driftluo
+/// Peer info from identify protocol message
 #[derive(Clone, Debug)]
 pub struct PeerIdentifyInfo {
-    /// TODO(doc): @driftluo
+    /// node version
     pub client_version: String,
 }
 
-/// TODO(doc): @driftluo
+/// Peer info
 #[derive(Clone, Debug)]
 pub struct Peer {
-    /// TODO(doc): @driftluo
+    /// Peer address
     pub connected_addr: Multiaddr,
-    /// TODO(doc): @driftluo
+    /// Peer listen addresses
     pub listened_addrs: Vec<Multiaddr>,
-    /// TODO(doc): @driftluo
+    /// Peer id
     pub peer_id: PeerId,
-    /// TODO(doc): @driftluo
-    // Client or Server
+    /// Peer info from identify protocol message
     pub identify_info: Option<PeerIdentifyInfo>,
-    /// TODO(doc): @driftluo
+    /// Ping/Pong message last received time
     pub last_ping_protocol_message_received_at: Option<Instant>,
-    /// TODO(doc): @driftluo
+    /// ping pong rtt
     pub ping_rtt: Option<Duration>,
     /// Indicates whether it is a probe connection of the fleer protocol
     pub is_feeler: bool,
-    /// TODO(doc): @driftluo
+    /// Peer connected time
     pub connected_time: Instant,
-    /// TODO(doc): @driftluo
+    /// Session id
     pub session_id: SessionId,
-    /// TODO(doc): @driftluo
+    /// Session type, Inbound or Outbound
     pub session_type: SessionType,
-    /// TODO(doc): @driftluo
+    /// Opened protocols on this session
     pub protocols: HashMap<ProtocolId, ProtocolVersion>,
-    /// TODO(doc): @driftluo
+    /// Whether a whitelist
     pub is_whitelist: bool,
 }
 
 impl Peer {
-    /// TODO(doc): @driftluo
+    /// Init session info
     pub fn new(
         session_id: SessionId,
         session_type: SessionType,
@@ -66,22 +65,22 @@ impl Peer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether outbound session
     pub fn is_outbound(&self) -> bool {
         self.session_type.is_outbound()
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether inbound session
     pub fn is_inbound(&self) -> bool {
         self.session_type.is_inbound()
     }
 
-    /// TODO(doc): @driftluo
+    /// Get net group
     pub fn network_group(&self) -> Group {
         self.connected_addr.network_group()
     }
 
-    /// TODO(doc): @driftluo
+    /// Opened protocol version
     pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<ProtocolVersion> {
         self.protocols.get(&protocol_id).cloned()
     }

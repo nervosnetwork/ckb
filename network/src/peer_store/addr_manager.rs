@@ -1,9 +1,9 @@
-//! TODO(doc): @driftluo
+//! address manager
 use crate::peer_store::types::{AddrInfo, IpPort};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
-/// TODO(doc): @driftluo
+/// address manager
 #[derive(Default)]
 pub struct AddrManager {
     next_id: u64,
@@ -13,7 +13,7 @@ pub struct AddrManager {
 }
 
 impl AddrManager {
-    /// TODO(doc): @driftluo
+    /// add
     pub fn add(&mut self, mut addr_info: AddrInfo) {
         let id = self.next_id;
         let key = addr_info.ip_port();
@@ -65,17 +65,17 @@ impl AddrManager {
         addr_infos
     }
 
-    /// TODO(doc): @driftluo
+    /// count
     pub fn count(&self) -> usize {
         self.addr_to_id.len()
     }
 
-    /// TODO(doc): @driftluo
+    /// addresses iter
     pub fn addrs_iter(&self) -> impl Iterator<Item = &AddrInfo> {
         self.id_to_info.values()
     }
 
-    /// TODO(doc): @driftluo
+    /// remove address
     pub fn remove(&mut self, addr: &IpPort) -> Option<AddrInfo> {
         if let Some(id) = self.addr_to_id.remove(&addr) {
             let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
@@ -88,14 +88,14 @@ impl AddrManager {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// get info from ip port
     pub fn get(&self, addr: &IpPort) -> Option<&AddrInfo> {
         self.addr_to_id
             .get(addr)
             .and_then(|id| self.id_to_info.get(&id))
     }
 
-    /// TODO(doc): @driftluo
+    /// get mut info from ip port
     pub fn get_mut(&mut self, addr: &IpPort) -> Option<&mut AddrInfo> {
         if let Some(id) = self.addr_to_id.get(addr) {
             self.id_to_info.get_mut(&id)

@@ -6,31 +6,31 @@ use p2p::{
 };
 use tokio_util::codec::length_delimited;
 
-/// TODO(doc): @driftluo
+/// all support protocols
 #[derive(Clone, Debug)]
 pub enum SupportProtocols {
-    /// TODO(doc): @driftluo
+    /// ping
     Ping,
-    /// TODO(doc): @driftluo
+    /// discovery
     Discovery,
-    /// TODO(doc): @driftluo
+    /// identify
     Identify,
-    /// TODO(doc): @driftluo
+    /// feeler
     Feeler,
-    /// TODO(doc): @driftluo
+    /// disconnect message
     DisconnectMessage,
-    /// TODO(doc): @driftluo
+    /// sync
     Sync,
-    /// TODO(doc): @driftluo
+    /// relay
     Relay,
-    /// TODO(doc): @driftluo
+    /// time
     Time,
-    /// TODO(doc): @driftluo
+    /// alert
     Alert,
 }
 
 impl SupportProtocols {
-    /// TODO(doc): @driftluo
+    /// protocol id
     pub fn protocol_id(&self) -> ProtocolId {
         match self {
             SupportProtocols::Ping => 0,
@@ -46,7 +46,7 @@ impl SupportProtocols {
         .into()
     }
 
-    /// TODO(doc): @driftluo
+    /// protocol name
     pub fn name(&self) -> String {
         match self {
             SupportProtocols::Ping => "/ckb/ping",
@@ -62,7 +62,7 @@ impl SupportProtocols {
         .to_owned()
     }
 
-    /// TODO(doc): @driftluo
+    /// support versions
     pub fn support_versions(&self) -> Vec<String> {
         // we didn't invoke MetaBuilder#support_versions fn for these protocols (Ping/Discovery/Identify/Feeler/DisconnectMessage)
         // in previous code, so the default 0.0.1 value is used ( https://github.com/nervosnetwork/tentacle/blob/master/src/builder.rs#L312 )
@@ -80,7 +80,7 @@ impl SupportProtocols {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// protocol message max length
     pub fn max_frame_length(&self) -> usize {
         match self {
             SupportProtocols::Ping => 1024,              // 1   KB
@@ -95,7 +95,7 @@ impl SupportProtocols {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// blocking flag
     pub fn flag(&self) -> BlockingFlag {
         match self {
             SupportProtocols::Ping
@@ -119,7 +119,7 @@ impl SupportProtocols {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// builder with service handle
     // a helper fn to build `ProtocolMeta`
     pub fn build_meta_with_service_handle<
         SH: FnOnce() -> ProtocolHandle<Box<dyn ServiceProtocol + Send + 'static + Unpin>>,

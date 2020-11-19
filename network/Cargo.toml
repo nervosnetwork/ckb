@@ -4,7 +4,7 @@ version = "0.39.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): @driftluo crate description"
+description = "ckb network impl"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

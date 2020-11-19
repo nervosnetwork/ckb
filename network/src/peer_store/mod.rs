@@ -1,4 +1,4 @@
-//! TODO(doc): @driftluo
+//! peer store manager
 pub mod addr_manager;
 pub mod ban_list;
 mod peer_id_serde;
@@ -18,17 +18,17 @@ const ADDR_TIMEOUT_MS: u64 = 7 * 24 * 3600 * 1000;
 const ADDR_MAX_RETRIES: u32 = 3;
 const ADDR_MAX_FAILURES: u32 = 10;
 
-/// TODO(doc): @driftluo
+/// alias score
 pub type Score = i32;
 
 /// PeerStore Scoring configuration
 #[derive(Copy, Clone, Debug)]
 pub struct PeerScoreConfig {
-    /// TODO(doc): @driftluo
+    /// default score
     pub default_score: Score,
-    /// TODO(doc): @driftluo
+    /// ban score
     pub ban_score: Score,
-    /// TODO(doc): @driftluo
+    /// ban time
     pub ban_timeout_ms: u64,
 }
 
@@ -45,28 +45,28 @@ impl Default for PeerScoreConfig {
 /// Peer Status
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Status {
-    /// TODO(doc): @driftluo
+    /// connected
     Connected,
-    /// TODO(doc): @driftluo
+    /// disconnected
     Disconnected,
 }
 
-/// TODO(doc): @driftluo
+/// report result
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ReportResult {
-    /// TODO(doc): @driftluo
+    /// ok
     Ok,
-    /// TODO(doc): @driftluo
+    /// ban
     Banned,
 }
 
 impl ReportResult {
-    /// TODO(doc): @driftluo
+    /// whether ban
     pub fn is_banned(self) -> bool {
         self == ReportResult::Banned
     }
 
-    /// TODO(doc): @driftluo
+    /// whether ok
     pub fn is_ok(self) -> bool {
         self == ReportResult::Ok
     }
