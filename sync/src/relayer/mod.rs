@@ -60,7 +60,7 @@ pub enum ReconstructionResult {
     Error(Status),
 }
 
-/// TODO(doc): @driftluo
+/// Relayer protocol handle
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
@@ -71,7 +71,7 @@ pub struct Relayer {
 }
 
 impl Relayer {
-    /// TODO(doc): @driftluo
+    /// init
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncShared>,
@@ -92,7 +92,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get shared state
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -200,7 +200,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Request the transaction corresponding to the proposal id from the specified node
     pub fn request_proposal_txs(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -251,7 +251,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Accept a new block from network
     pub fn accept_block(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -301,7 +301,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Reorganize the full block according to the compact block/txs/uncles
     // nodes should attempt to reconstruct the full block by taking the prefilledtxn transactions
     // from the original CompactBlock message and placing them in the marked positions,
     // then for each short transaction ID from the original compact_block message, in order,
@@ -532,8 +532,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
-    // Ask for relay transaction by hash from all peers
+    /// Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         let state = self.shared().state();
         for (peer, peer_state) in state.peers().state.write().iter_mut() {
@@ -575,8 +574,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
-    // Send bulk of tx hashes to selected peers
+    /// Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         let connected_peers = nc.connected_peers();
         if connected_peers.is_empty() {
