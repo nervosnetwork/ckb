@@ -277,6 +277,12 @@ impl NetworkState {
         &self.local_peer_id
     }
 
+    /// Use on test
+    #[allow(dead_code)]
+    pub(crate) fn local_private_key(&self) -> &secio::SecioKeyPair {
+        &self.local_private_key
+    }
+
     /// Get self peer id base58 format string
     pub fn node_id(&self) -> String {
         self.local_peer_id().to_base58()

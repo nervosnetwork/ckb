@@ -1,4 +1,4 @@
-//! TODO(doc): @driftluo
+//! verify module
 use ckb_app_config::NetworkAlertConfig;
 use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
@@ -6,14 +6,14 @@ use ckb_types::{packed, prelude::*};
 use failure::Error;
 use std::collections::HashSet;
 
-/// TODO(doc): @driftluo
+/// message verify
 pub struct Verifier {
     config: NetworkAlertConfig,
     pubkeys: HashSet<Pubkey>,
 }
 
 impl Verifier {
-    /// TODO(doc): @driftluo
+    /// init
     pub fn new(config: NetworkAlertConfig) -> Self {
         let pubkeys = config
             .public_keys
@@ -24,7 +24,7 @@ impl Verifier {
         Verifier { config, pubkeys }
     }
 
-    /// TODO(doc): @driftluo
+    /// verify signatures
     pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), Error> {
         trace!("verify alert {:?}", alert);
         let message = Message::from_slice(alert.calc_alert_hash().as_slice())?;
