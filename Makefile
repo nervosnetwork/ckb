@@ -35,12 +35,12 @@ submodule-init:
 
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
-	cargo build --features deadlock_detection with_sentry
+	cargo build --features deadlock_detection
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test
-	cargo build --release --features deadlock_detection with_sentry
+	cargo build --release --features deadlock_detection
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
