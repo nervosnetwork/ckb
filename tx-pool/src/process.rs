@@ -761,7 +761,7 @@ fn _update_tx_pool_for_reorg(
             tx_pool.proposed_tx_and_descendants(cycles, entry.size, entry.transaction.clone())
         {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            tx_pool.callbacks.call_reject(entry, &e);
+            tx_pool.callbacks.call_reject(entry, e.clone());
         } else {
             tx_pool.callbacks.call_proposed(entry);
         }
@@ -772,7 +772,7 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = entry.transaction.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, entry.size, entry.transaction.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            tx_pool.callbacks.call_reject(entry, &e);
+            tx_pool.callbacks.call_reject(entry, e.clone());
         }
     }
 

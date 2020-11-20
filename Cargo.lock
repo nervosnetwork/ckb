@@ -1363,7 +1363,6 @@ dependencies = [
  "numext-fixed-uint",
  "once_cell",
  "proptest",
- "serde",
 ]
 
 [[package]]

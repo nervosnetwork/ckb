@@ -4,14 +4,14 @@ use ckb_channel::{bounded, select, Receiver, RecvError, Sender};
 use ckb_logger::{debug, error, trace};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
-    core::{service::Request, BlockView},
+    core::{service::Request, tx_pool::Reject, BlockView},
     packed::Alert,
 };
 use std::collections::HashMap;
 use std::process::Command;
 use std::thread;
 
-pub use ckb_types::core::service::{PoolTransactionEntry, TransactionTopic};
+pub use ckb_types::core::service::PoolTransactionEntry;
 
 /// TODO(doc): @quake
 pub const SIGNAL_CHANNEL_SIZE: usize = 1;
@@ -22,7 +22,6 @@ pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
 /// TODO(doc): @quake
 pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
-type TransactionRegister<M> = Sender<Request<TransactionTopic, Receiver<M>>>;
 
 /// TODO(doc): @quake
 #[derive(Clone)]
@@ -30,8 +29,12 @@ pub struct NotifyController {
     stop: StopHandler<()>,
     new_block_register: NotifyRegister<BlockView>,
     new_block_notifier: Sender<BlockView>,
-    transaction_register: TransactionRegister<PoolTransactionEntry>,
-    transaction_notifier: Sender<(TransactionTopic, PoolTransactionEntry)>,
+    new_transaction_register: NotifyRegister<PoolTransactionEntry>,
+    new_transaction_notifier: Sender<PoolTransactionEntry>,
+    proposed_transaction_register: NotifyRegister<PoolTransactionEntry>,
+    proposed_transaction_notifier: Sender<PoolTransactionEntry>,
+    reject_transaction_register: NotifyRegister<(PoolTransactionEntry, Reject)>,
+    reject_transaction_notifier: Sender<(PoolTransactionEntry, Reject)>,
     network_alert_register: NotifyRegister<Alert>,
     network_alert_notifier: Sender<Alert>,
 }
@@ -46,7 +49,9 @@ impl Drop for NotifyController {
 pub struct NotifyService {
     config: NotifyConfig,
     new_block_subscribers: HashMap<String, Sender<BlockView>>,
-    transaction_subscribers: HashMap<TransactionTopic, Sender<PoolTransactionEntry>>,
+    new_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
+    proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
+    reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
     network_alert_subscribers: HashMap<String, Sender<Alert>>,
 }
 
@@ -56,7 +61,9 @@ impl NotifyService {
         Self {
             config,
             new_block_subscribers: HashMap::default(),
-            transaction_subscribers: HashMap::default(),
+            new_transaction_subscribers: HashMap::default(),
+            proposed_transaction_subscribers: HashMap::default(),
+            reject_transaction_subscribers: HashMap::default(),
             network_alert_subscribers: HashMap::default(),
         }
     }
@@ -66,10 +73,23 @@ impl NotifyService {
     #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> NotifyController {
         let (signal_sender, signal_receiver) = bounded(SIGNAL_CHANNEL_SIZE);
+
         let (new_block_register, new_block_register_receiver) = bounded(REGISTER_CHANNEL_SIZE);
         let (new_block_sender, new_block_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
-        let (transaction_register, transaction_register_receiver) = bounded(REGISTER_CHANNEL_SIZE);
-        let (transaction_sender, transaction_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+
+        let (new_transaction_register, new_transaction_register_receiver) =
+            bounded(REGISTER_CHANNEL_SIZE);
+        let (new_transaction_sender, new_transaction_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+
+        let (proposed_transaction_register, proposed_transaction_register_receiver) =
+            bounded(REGISTER_CHANNEL_SIZE);
+        let (proposed_transaction_sender, proposed_transaction_receiver) =
+            bounded(NOTIFY_CHANNEL_SIZE);
+
+        let (reject_transaction_register, reject_transaction_register_receiver) =
+            bounded(REGISTER_CHANNEL_SIZE);
+        let (reject_transaction_sender, reject_transaction_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+
         let (network_alert_register, network_alert_register_receiver) =
             bounded(REGISTER_CHANNEL_SIZE);
         let (network_alert_sender, network_alert_receiver) = bounded(NOTIFY_CHANNEL_SIZE);
@@ -86,8 +106,12 @@ impl NotifyService {
                     }
                     recv(new_block_register_receiver) -> msg => self.handle_register_new_block(msg),
                     recv(new_block_receiver) -> msg => self.handle_notify_new_block(msg),
-                    recv(transaction_register_receiver) -> msg => self.handle_register_transaction(msg),
-                    recv(transaction_receiver) -> msg => self.handle_notify_transaction(msg),
+                    recv(new_transaction_register_receiver) -> msg => self.handle_register_new_transaction(msg),
+                    recv(new_transaction_receiver) -> msg => self.handle_notify_new_transaction(msg),
+                    recv(proposed_transaction_register_receiver) -> msg => self.handle_register_proposed_transaction(msg),
+                    recv(proposed_transaction_receiver) -> msg => self.handle_notify_proposed_transaction(msg),
+                    recv(reject_transaction_register_receiver) -> msg => self.handle_register_reject_transaction(msg),
+                    recv(reject_transaction_receiver) -> msg => self.handle_notify_reject_transaction(msg),
                     recv(network_alert_register_receiver) -> msg => self.handle_register_network_alert(msg),
                     recv(network_alert_receiver) -> msg => self.handle_notify_network_alert(msg),
                 }
@@ -97,8 +121,12 @@ impl NotifyService {
         NotifyController {
             new_block_register,
             new_block_notifier: new_block_sender,
-            transaction_register,
-            transaction_notifier: transaction_sender,
+            new_transaction_register,
+            new_transaction_notifier: new_transaction_sender,
+            proposed_transaction_register,
+            proposed_transaction_notifier: proposed_transaction_sender,
+            reject_transaction_register,
+            reject_transaction_notifier: reject_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
             stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(join_handle)),
@@ -146,39 +174,99 @@ impl NotifyService {
         }
     }
 
-    fn handle_register_transaction(
+    fn handle_register_new_transaction(
         &mut self,
-        msg: Result<Request<TransactionTopic, Receiver<PoolTransactionEntry>>, RecvError>,
+        msg: Result<Request<String, Receiver<PoolTransactionEntry>>, RecvError>,
     ) {
         match msg {
             Ok(Request {
                 responder,
-                arguments: topic,
+                arguments: name,
             }) => {
-                debug!("Register transaction topic {:?}", topic);
+                debug!("Register new_transaction {:?}", name);
                 let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
-                self.transaction_subscribers.insert(topic, sender);
+                self.new_transaction_subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
             _ => debug!("Register new_transaction channel is closed"),
         }
     }
 
-    fn handle_notify_transaction(
-        &mut self,
-        msg: Result<(TransactionTopic, PoolTransactionEntry), RecvError>,
-    ) {
+    fn handle_notify_new_transaction(&mut self, msg: Result<PoolTransactionEntry, RecvError>) {
         match msg {
-            Ok((topic, tx_entry)) => {
+            Ok(tx_entry) => {
                 trace!("event new tx {:?}", tx_entry);
                 // notify all subscribers
-                if let Some(subscriber) = self.transaction_subscribers.get(&topic) {
-                    if let Err(e) = subscriber.send(tx_entry) {
-                        error!("notify_transaction error {}", e);
-                    }
+                for subscriber in self.new_transaction_subscribers.values() {
+                    let _ = subscriber.send(tx_entry.clone());
                 }
             }
             _ => debug!("new transaction channel is closed"),
+        }
+    }
+
+    fn handle_register_proposed_transaction(
+        &mut self,
+        msg: Result<Request<String, Receiver<PoolTransactionEntry>>, RecvError>,
+    ) {
+        match msg {
+            Ok(Request {
+                responder,
+                arguments: name,
+            }) => {
+                debug!("Register proposed_transaction {:?}", name);
+                let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+                self.proposed_transaction_subscribers.insert(name, sender);
+                let _ = responder.send(receiver);
+            }
+            _ => debug!("Register proposed_transaction channel is closed"),
+        }
+    }
+
+    fn handle_notify_proposed_transaction(&mut self, msg: Result<PoolTransactionEntry, RecvError>) {
+        match msg {
+            Ok(tx_entry) => {
+                trace!("event proposed tx {:?}", tx_entry);
+                // notify all subscribers
+                for subscriber in self.proposed_transaction_subscribers.values() {
+                    let _ = subscriber.send(tx_entry.clone());
+                }
+            }
+            _ => debug!("proposed transaction channel is closed"),
+        }
+    }
+
+    fn handle_register_reject_transaction(
+        &mut self,
+        msg: Result<Request<String, Receiver<(PoolTransactionEntry, Reject)>>, RecvError>,
+    ) {
+        match msg {
+            Ok(Request {
+                responder,
+                arguments: name,
+            }) => {
+                debug!("Register reject_transaction {:?}", name);
+                let (sender, receiver) = bounded(NOTIFY_CHANNEL_SIZE);
+                self.reject_transaction_subscribers.insert(name, sender);
+                let _ = responder.send(receiver);
+            }
+            _ => debug!("Register reject_transaction channel is closed"),
+        }
+    }
+
+    fn handle_notify_reject_transaction(
+        &mut self,
+        msg: Result<(PoolTransactionEntry, Reject), RecvError>,
+    ) {
+        match msg {
+            Ok(tx_entry) => {
+                trace!("event reject tx {:?}", tx_entry);
+                // notify all subscribers
+                for subscriber in self.reject_transaction_subscribers.values() {
+                    let _ = subscriber.send(tx_entry.clone());
+                }
+            }
+            _ => debug!("reject transaction channel is closed"),
         }
     }
 
@@ -243,14 +331,45 @@ impl NotifyController {
     }
 
     /// TODO(doc): @quake
-    pub fn subscribe_transaction(&self, topic: TransactionTopic) -> Receiver<PoolTransactionEntry> {
-        Request::call(&self.transaction_register, topic)
-            .expect("Subscribe transaction should be OK")
+    pub fn subscribe_new_transaction<S: ToString>(
+        &self,
+        name: S,
+    ) -> Receiver<PoolTransactionEntry> {
+        Request::call(&self.new_transaction_register, name.to_string())
+            .expect("Subscribe new transaction should be OK")
     }
 
     /// TODO(doc): @quake
-    pub fn notify_transaction(&self, topic: TransactionTopic, tx_entry: PoolTransactionEntry) {
-        let _ = self.transaction_notifier.send((topic, tx_entry));
+    pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
+        let _ = self.new_transaction_notifier.send(tx_entry);
+    }
+
+    /// TODO(doc): @quake
+    pub fn subscribe_proposed_transaction<S: ToString>(
+        &self,
+        name: S,
+    ) -> Receiver<PoolTransactionEntry> {
+        Request::call(&self.proposed_transaction_register, name.to_string())
+            .expect("Subscribe proposed transaction should be OK")
+    }
+
+    /// TODO(doc): @quake
+    pub fn notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
+        let _ = self.proposed_transaction_notifier.send(tx_entry);
+    }
+
+    /// TODO(doc): @quake
+    pub fn subscribe_reject_transaction<S: ToString>(
+        &self,
+        name: S,
+    ) -> Receiver<(PoolTransactionEntry, Reject)> {
+        Request::call(&self.reject_transaction_register, name.to_string())
+            .expect("Subscribe rejected transaction should be OK")
+    }
+
+    /// TODO(doc): @quake
+    pub fn notify_reject_transaction(&self, tx_entry: PoolTransactionEntry, reject: Reject) {
+        let _ = self.reject_transaction_notifier.send((tx_entry, reject));
     }
 
     /// TODO(doc): @quake

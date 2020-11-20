@@ -1,7 +1,7 @@
 use ckb_channel::select;
 use ckb_jsonrpc_types::Topic;
 use ckb_logger::error;
-use ckb_notify::{NotifyController, TransactionTopic};
+use ckb_notify::NotifyController;
 use jsonrpc_core::{futures::Future, Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
@@ -262,11 +262,11 @@ impl SubscriptionRpcImpl {
     pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
         let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
         let new_transaction_receiver =
-            notify_controller.subscribe_transaction(TransactionTopic::New);
+            notify_controller.subscribe_new_transaction(name.to_string());
         let proposed_transaction_receiver =
-            notify_controller.subscribe_transaction(TransactionTopic::Proposed);
-        let abandoned_transaction_receiver =
-            notify_controller.subscribe_transaction(TransactionTopic::Abandoned);
+            notify_controller.subscribe_proposed_transaction(name.to_string());
+        let reject_transaction_receiver =
+            notify_controller.subscribe_reject_transaction(name.to_string());
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
@@ -331,12 +331,13 @@ impl SubscriptionRpcImpl {
                         },
                     },
 
-                    recv(abandoned_transaction_receiver) -> msg => match msg {
-                        Ok(tx_entry) => {
+                    recv(reject_transaction_receiver) -> msg => match msg {
+                        Ok((tx_entry, reject)) => {
                             let subscribers = subscribers.read().expect("acquiring subscribers read lock");
-                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::AbandonedTransaction) {
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::RejectedTransaction) {
                                 let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
-                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                                let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
+                                let json_string = Ok(serde_json::to_string(&(entry, reject)).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
                                     let _ = sink.notify(json_string.clone()).wait();
                                 }

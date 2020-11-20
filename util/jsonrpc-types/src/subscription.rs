@@ -13,5 +13,5 @@ pub enum Topic {
     /// Subscribe in-pool transactions which proposed on chain.
     ProposedTransaction,
     /// Subscribe transactions which are abandoned by tx-pool.
-    AbandonedTransaction,
+    RejectedTransaction,
 }

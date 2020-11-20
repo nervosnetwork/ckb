@@ -1,9 +1,8 @@
 use crate::core::Capacity;
-use serde::{Deserialize, Serialize};
 
 /// shannons per kilobytes
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct FeeRate(u64);
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FeeRate(pub u64);
 
 const KB: u64 = 1000;
 

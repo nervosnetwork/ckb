@@ -1,6 +1,6 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
-use ckb_types::core::tx_pool::{TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds};
+use ckb_types::core::tx_pool::{Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds};
 use ckb_types::prelude::Unpack;
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
@@ -177,6 +177,48 @@ pub enum RawTxPool {
     Ids(TxPoolIds),
     /// verbose = true
     Verbose(TxPoolVerbosity),
+}
+
+/// TX reject message
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "type", content = "description")]
+pub enum PoolTransactionReject {
+    /// Transaction fee lower than config
+    LowFeeRate(String),
+
+    /// Transaction exceeded maximum ancestors count limit
+    ExceededMaximumAncestorsCount(String),
+
+    /// Transaction pool exceeded maximum size or cycles limit,
+    Full(String),
+
+    /// Transaction already exist in transaction_pool
+    Duplicated(String),
+
+    /// Malformed transaction
+    Malformed(String),
+
+    /// Resolve failed
+    Resolve(String),
+
+    /// Verification failed
+    Verification(String),
+}
+
+impl From<Reject> for PoolTransactionReject {
+    fn from(reject: Reject) -> Self {
+        match reject {
+            Reject::LowFeeRate(..) => Self::LowFeeRate(format!("{}", reject)),
+            Reject::ExceededMaximumAncestorsCount => {
+                Self::ExceededMaximumAncestorsCount(format!("{}", reject))
+            }
+            Reject::Full(..) => Self::Full(format!("{}", reject)),
+            Reject::Duplicated(_) => Self::Duplicated(format!("{}", reject)),
+            Reject::Malformed(_) => Self::Malformed(format!("{}", reject)),
+            Reject::Resolve(_) => Self::Resolve(format!("{}", reject)),
+            Reject::Verification(_) => Self::Verification(format!("{}", reject)),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use crate::error::Reject;
 /// Callback boxed fn pointer wrapper
 pub type Callback = Box<dyn Fn(TxEntry) + Sync + Send>;
 /// Reject Callback boxed fn pointer wrapper
-pub type RejectCallback = Box<dyn Fn(TxEntry, &Reject) + Sync + Send>;
+pub type RejectCallback = Box<dyn Fn(TxEntry, Reject) + Sync + Send>;
 
 /// Struct hold callbacks
 pub struct Callbacks {
@@ -55,9 +55,9 @@ impl Callbacks {
     }
 
     /// Call on after reject
-    pub fn call_reject(&self, entry: TxEntry, reject: &Reject) {
+    pub fn call_reject(&self, entry: TxEntry, reject: Reject) {
         self.reject
             .iter()
-            .for_each(|call| call(entry.clone(), reject))
+            .for_each(|call| call(entry.clone(), reject.clone()))
     }
 }

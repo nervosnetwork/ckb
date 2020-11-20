@@ -316,13 +316,13 @@ impl TxPool {
             for entry in self.gap.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired gap to pending error {}", err);
-                    self.callbacks.call_reject(entry, &err);
+                    self.callbacks.call_reject(entry, err.clone());
                 }
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired proposed to pending error {}", err);
-                    self.callbacks.call_reject(entry, &err);
+                    self.callbacks.call_reject(entry, err.clone());
                 }
             }
         }

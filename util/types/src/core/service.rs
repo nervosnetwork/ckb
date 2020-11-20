@@ -31,17 +31,6 @@ impl<A, R> Request<A, R> {
     }
 }
 
-/// Transaction notify topic
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TransactionTopic {
-    /// Subscribe new transactions which are submitted to the pool.
-    New,
-    /// Subscribe in-pool transactions which proposed on chain.
-    Proposed,
-    /// Subscribe transactions which are abandoned by tx-pool.
-    Abandoned,
-}
-
 /// Notify pool transaction entry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PoolTransactionEntry {
