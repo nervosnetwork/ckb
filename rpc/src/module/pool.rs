@@ -1,6 +1,5 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_network::PeerIndex;
@@ -218,7 +217,7 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     sync_shared: Arc<SyncShared>,
     shared: Shared,
-    min_fee_rate: FeeRate,
+    min_fee_rate: core::FeeRate,
     reject_ill_transactions: bool,
 }
 
@@ -226,7 +225,7 @@ impl PoolRpcImpl {
     pub fn new(
         shared: Shared,
         sync_shared: Arc<SyncShared>,
-        min_fee_rate: FeeRate,
+        min_fee_rate: core::FeeRate,
         reject_ill_transactions: bool,
     ) -> PoolRpcImpl {
         PoolRpcImpl {

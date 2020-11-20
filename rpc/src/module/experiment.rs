@@ -6,7 +6,10 @@ use ckb_jsonrpc_types::{
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+    core::{
+        cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+        error::OutPointError,
+    },
     packed,
     prelude::*,
     H256,
@@ -343,10 +346,7 @@ impl<'a> CellProvider for DryRunner<'a> {
 }
 
 impl<'a> HeaderChecker for DryRunner<'a> {
-    fn check_valid(
-        &self,
-        block_hash: &packed::Byte32,
-    ) -> std::result::Result<(), ckb_error::Error> {
+    fn check_valid(&self, block_hash: &packed::Byte32) -> std::result::Result<(), OutPointError> {
         self.shared.snapshot().check_valid(block_hash)
     }
 }

@@ -161,6 +161,8 @@ impl RPCError {
             Reject::Full(_, _) => RPCError::PoolIsFull,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
             Reject::Malformed(_) => RPCError::PoolRejectedMalformedTransaction,
+            Reject::Resolve(_) => RPCError::TransactionFailedToResolve,
+            Reject::Verification(_) => RPCError::TransactionFailedToVerify,
         };
         RPCError::custom_with_error(code, reject)
     }
@@ -244,8 +246,10 @@ impl RPCError {
 mod tests {
     use super::*;
     use ckb_dao_utils::DaoError;
-    use ckb_fee_estimator::FeeRate;
-    use ckb_types::{core::error::OutPointError, packed::Byte32};
+    use ckb_types::{
+        core::{error::OutPointError, FeeRate},
+        packed::Byte32,
+    };
 
     #[test]
     fn test_dao_error_from_ckb_error() {

@@ -94,11 +94,11 @@ impl CellProvider for MockStore {
 }
 
 impl HeaderChecker for MockStore {
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), ckb_error::Error> {
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
         if self.0.get_block_number(block_hash).is_some() {
             Ok(())
         } else {
-            Err(OutPointError::InvalidHeader(block_hash.clone()).into())
+            Err(OutPointError::InvalidHeader(block_hash.clone()))
         }
     }
 }

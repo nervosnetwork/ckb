@@ -1,7 +1,6 @@
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
-use ckb_types::core::Cycle;
+use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 

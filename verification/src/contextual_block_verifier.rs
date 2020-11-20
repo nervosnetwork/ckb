@@ -87,7 +87,7 @@ impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
 }
 
 impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
         match self.store.get_block_header(block_hash) {
             Some(header) => {
                 let tip_header = self.store.get_tip_header().expect("tip should exist");
@@ -95,12 +95,12 @@ impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
                     self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
                 let current = tip_header.epoch().to_rational();
                 if current < threshold {
-                    Err(OutPointError::ImmatureHeader(block_hash.clone()).into())
+                    Err(OutPointError::ImmatureHeader(block_hash.clone()))
                 } else {
                     Ok(())
                 }
             }
-            None => Err(OutPointError::InvalidHeader(block_hash.clone()).into()),
+            None => Err(OutPointError::InvalidHeader(block_hash.clone())),
         }
     }
 }

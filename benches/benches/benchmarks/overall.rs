@@ -3,7 +3,6 @@ use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_fee_estimator::FeeRate;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -13,8 +12,8 @@ use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, FeeRate,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,

@@ -6,7 +6,6 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_fee_estimator::FeeRate;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
@@ -21,7 +20,7 @@ use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
-        EpochNumberWithFraction, HeaderView, TransactionBuilder, TransactionView,
+        EpochNumberWithFraction, FeeRate, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},

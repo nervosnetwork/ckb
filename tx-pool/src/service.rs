@@ -1,7 +1,7 @@
 //! Tx-pool background service
 
 use crate::block_assembler::BlockAssembler;
-use crate::callback::{Callback, Callbacks};
+use crate::callback::{Callback, Callbacks, RejectCallback};
 use crate::component::entry::TxEntry;
 use crate::error::{handle_recv_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
@@ -420,8 +420,8 @@ impl TxPoolServiceBuilder {
     }
 
     /// Register a new abandon callback
-    pub fn register_abandon(&mut self, callback: Callback) {
-        self.callbacks.register_abandon(callback);
+    pub fn register_reject(&mut self, callback: RejectCallback) {
+        self.callbacks.register_reject(callback);
     }
 
     fn build_service(self) -> TxPoolService {
@@ -431,6 +431,7 @@ impl TxPoolServiceBuilder {
             self.tx_pool_config,
             self.snapshot,
             Arc::clone(&last_txs_updated_at),
+            Arc::new(self.callbacks),
         );
 
         TxPoolService::new(
@@ -440,12 +441,11 @@ impl TxPoolServiceBuilder {
             self.txs_verify_cache,
             last_txs_updated_at,
             self.snapshot_mgr,
-            self.callbacks,
         )
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(mut self, handle: &Handle) -> TxPoolController {
+    pub fn start(self, handle: &Handle) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
 
@@ -483,7 +483,6 @@ pub(crate) struct TxPoolService {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
-    pub(crate) callbacks: Arc<Callbacks>,
 }
 
 impl TxPoolService {
@@ -495,7 +494,6 @@ impl TxPoolService {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
-        callbacks: Callbacks,
     ) -> Self {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
@@ -506,7 +504,6 @@ impl TxPoolService {
             txs_verify_cache,
             last_txs_updated_at,
             snapshot_mgr,
-            callbacks: Arc::new(callbacks),
         }
     }
 

@@ -1,7 +1,6 @@
 use crate::{Relayer, SyncShared};
 use ckb_chain::{chain::ChainService, switch::Switch};
 use ckb_chain_spec::consensus::ConsensusBuilder;
-use ckb_fee_estimator::FeeRate;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
     TargetSession,
@@ -13,7 +12,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, FeeRate,
         HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{

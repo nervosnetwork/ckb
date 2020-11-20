@@ -779,7 +779,7 @@ impl ChainService {
                             }
                         }
                         Err(err) => {
-                            found_error = Some(err);
+                            found_error = Some(err.into());
                             let mut mut_ext = ext.clone();
                             mut_ext.verified = Some(false);
                             txn.insert_block_ext(&b.header().hash(), &mut_ext)?;

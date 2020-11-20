@@ -2,8 +2,10 @@ use crate::component::{
     entry::{TxEntry, TxModifiedEntries},
     proposed::ProposedPool,
 };
-use ckb_fee_estimator::FeeRate;
-use ckb_types::{core::Cycle, packed::ProposalShortId};
+use ckb_types::{
+    core::{Cycle, FeeRate},
+    packed::ProposalShortId,
+};
 use std::cmp::max;
 use std::collections::HashSet;
 

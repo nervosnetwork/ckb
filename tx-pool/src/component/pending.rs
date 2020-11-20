@@ -1,11 +1,10 @@
 use crate::component::container::{AncestorsScoreSortKey, SortedTxMap};
 use crate::component::entry::TxEntry;
 use crate::error::Reject;
-use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus},
-        TransactionView,
+        FeeRate, TransactionView,
     },
     packed::{OutPoint, ProposalShortId},
     prelude::*,
