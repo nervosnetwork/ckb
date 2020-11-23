@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-spec"
-version = "0.38.0-pre"
+version = "0.39.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,13 +11,13 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
-ckb-types = { path = "../util/types", version = "= 0.38.0-pre" }
-ckb-pow = { path = "../pow", version = "= 0.38.0-pre" }
-ckb-resource = { path = "../resource", version = "= 0.38.0-pre" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.38.0-pre" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.0-pre" }
-ckb-rational = { path = "../util/rational", version = "= 0.38.0-pre" }
-ckb-crypto = { path = "../util/crypto", version = "= 0.38.0-pre"}
-ckb-hash = { path = "../util/hash", version = "= 0.38.0-pre"}
+ckb-types = { path = "../util/types", version = "= 0.39.0-pre" }
+ckb-pow = { path = "../pow", version = "= 0.39.0-pre" }
+ckb-resource = { path = "../resource", version = "= 0.39.0-pre" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.39.0-pre" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.39.0-pre" }
+ckb-rational = { path = "../util/rational", version = "= 0.39.0-pre" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.39.0-pre"}
+ckb-hash = { path = "../util/hash", version = "= 0.39.0-pre"}
 failure = "0.1.5"
-ckb-error = { path = "../error", version = "= 0.38.0-pre" }
+ckb-error = { path = "../error", version = "= 0.39.0-pre" }
