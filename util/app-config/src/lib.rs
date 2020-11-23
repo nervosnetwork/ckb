@@ -92,11 +92,12 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
-    pub fn migrate<'m>(self, _matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
+    /// `migrate` subcommand has one `flags` arg, trigger this arg with "--check"
+    pub fn migrate<'m>(self, matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
         let config = self.config.into_ckb()?;
+        let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
 
-        Ok(MigrateArgs { config })
+        Ok(MigrateArgs { config, check })
     }
 
     /// TODO(doc): @doitian

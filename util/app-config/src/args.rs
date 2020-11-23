@@ -157,4 +157,6 @@ pub struct PeerIDArgs {
 pub struct MigrateArgs {
     /// TODO(doc): @doitian
     pub config: Box<CKBAppConfig>,
+    /// check flag present
+    pub check: bool,
 }

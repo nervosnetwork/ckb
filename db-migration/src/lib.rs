@@ -32,6 +32,27 @@ impl Migrations {
             .insert(migration.version().to_string(), migration);
     }
 
+    /// Check whether database requires migration
+    ///
+    /// Return true if migration is required
+    pub fn check(&self, db: &RocksDB) -> bool {
+        let db_version = match db
+            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .expect("get the version of database")
+        {
+            Some(version_bytes) => {
+                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+            }
+            None => return true,
+        };
+
+        self.migrations
+            .values()
+            .last()
+            .map(|m| m.version() > db_version.as_str())
+            .unwrap_or(false)
+    }
+
     /// TODO(doc): @quake
     pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
         let db_version = db

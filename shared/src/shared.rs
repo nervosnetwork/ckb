@@ -264,6 +264,13 @@ impl SharedBuilder {
 }
 
 impl SharedBuilder {
+    /// Check whether database requires migration
+    ///
+    /// Return true if migration is required
+    pub fn migration_check(&self) -> bool {
+        self.migrations.check(&self.db)
+    }
+
     /// TODO(doc): @quake
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
