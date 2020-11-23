@@ -1,3 +1,18 @@
+# [v0.38.0](https://github.com/nervosnetwork/ckb/compare/v0.37.0...v0.38.0) (2020-11-18)
+
+### Features
+
+* #2329: Configurable block proposals limit (@zhangsoledad)
+* #2330: Migrate subcommand (@zhangsoledad)
+
+### Bug Fixes
+
+* #2328: Fix u256 rpc doc (@doitian)
+
+### Improvements
+
+* #2312: Use cargo-deny to replace cargo-audit (@yangby-cryptape)
+
 # [v0.37.0](https://github.com/nervosnetwork/ckb/compare/v0.36.0...v0.37.0) (2020-10-20)
 
 ### Features
