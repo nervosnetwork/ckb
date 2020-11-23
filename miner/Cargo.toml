@@ -26,5 +26,5 @@ lru = "0.6.0"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.0" }
 failure = "0.1.5"
 indicatif = "0.15"
-console = "0.8.0"
+console = "0.13.0"
 eaglesong = "0.1"
