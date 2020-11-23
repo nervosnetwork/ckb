@@ -8,11 +8,9 @@ use metrics_runtime::{
     observers::{JsonBuilder, PrometheusBuilder, YamlBuilder},
     Receiver,
 };
-use tokio::sync::oneshot;
 
-use ckb_async_runtime::{new_runtime, Builder, Handle};
+use ckb_async_runtime::Handle;
 use ckb_metrics_config::{Config, Exporter, Format, Target};
-use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::strings;
 
 /// Ensures the metrics service can shutdown gracefully.
@@ -21,47 +19,16 @@ pub enum Guard {
     /// The metrics service is disabled.
     Off,
     /// The metrics service is enabled.
-    On {
-        #[doc(hidden)]
-        handle: Handle,
-        #[doc(hidden)]
-        stop: StopHandler<()>,
-    },
-}
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        if let Self::On { ref mut stop, .. } = self {
-            stop.try_send();
-        }
-    }
+    On,
 }
 
 /// Initializes the metrics service and lets it run in the background.
 ///
 /// Returns [Guard](enum.Guard.html) if succeeded, or an `String` to describes the reason for the failure.
-pub fn init(config: Config) -> Result<Guard, String> {
+pub fn init(config: Config, handle: Handle) -> Result<Guard, String> {
     if config.exporter.is_empty() {
         return Ok(Guard::Off);
     }
-
-    let mut runtime_builder = Builder::new();
-    runtime_builder
-        .threaded_scheduler()
-        .enable_io()
-        .enable_time();
-    if config.threads != 0 {
-        runtime_builder.core_threads(config.threads);
-    } else {
-        runtime_builder.core_threads(2);
-    };
-    let (signal_sender, mut signal_receiver) = oneshot::channel();
-    let service = move |_: Handle| async move {
-        loop {
-            tokio::select! { _ = &mut signal_receiver => break }
-        }
-    };
-    let (handle, thread) = new_runtime("Metrics", Some(runtime_builder), service);
 
     let receiver = {
         let histogram_window_secs = if config.histogram_window > 0 {
@@ -97,9 +64,7 @@ pub fn init(config: Config) -> Result<Guard, String> {
 
     receiver.install();
 
-    let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
-
-    Ok(Guard::On { handle, stop })
+    Ok(Guard::On)
 }
 
 fn check_exporter_name(name: &str) -> Result<(), String> {
@@ -121,23 +86,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
             };
         }
@@ -149,23 +108,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(async {
-                        tokio::spawn(exporter.async_run());
-                    });
+                    handle.spawn(exporter.async_run());
                 }
             };
         }

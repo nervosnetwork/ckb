@@ -1,10 +1,11 @@
 use ckb_app_config::{ExitCode, StatsArgs};
+use ckb_async_runtime::Handle;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 
-pub fn stats(args: StatsArgs) -> Result<(), ExitCode> {
-    let stats = Statics::build(args)?;
+pub fn stats(args: StatsArgs, async_handle: Handle) -> Result<(), ExitCode> {
+    let stats = Statics::build(args, async_handle)?;
     stats.print_uncle_rate()?;
     Ok(())
 }
@@ -16,8 +17,8 @@ struct Statics {
 }
 
 impl Statics {
-    pub fn build(args: StatsArgs) -> Result<Self, ExitCode> {
-        let (shared, _) = SharedBuilder::with_db_config(&args.config.db)
+    pub fn build(args: StatsArgs, async_handle: Handle) -> Result<Self, ExitCode> {
+        let (shared, _) = SharedBuilder::new(&args.config.db, async_handle)
             .consensus(args.consensus)
             .build()
             .map_err(|err| {

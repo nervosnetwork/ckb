@@ -1,5 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -19,14 +20,14 @@ use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
-pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
+pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, table) = SharedBuilder::new(&args.config.db, async_handle)
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
         .notify_config(args.config.notify.clone())
@@ -134,7 +135,7 @@ pub fn run(mut args: RunArgs, version: Version) -> Result<(), ExitCode> {
         version.to_string(),
         exit_handler.clone(),
     )
-    .start(Some("NetworkService"))
+    .start(shared.async_handle())
     .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)

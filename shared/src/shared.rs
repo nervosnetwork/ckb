@@ -2,6 +2,7 @@
 use crate::{migrations, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
+use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_db::RocksDB;
@@ -10,6 +11,7 @@ use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
+use ckb_stop_handler::StopHandler;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
@@ -18,6 +20,7 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
+use once_cell::sync::OnceCell;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -30,6 +33,7 @@ pub struct Shared {
     pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
+    pub(crate) async_handle: Handle,
 }
 
 impl Shared {
@@ -40,6 +44,7 @@ impl Shared {
         tx_pool_config: TxPoolConfig,
         notify_config: NotifyConfig,
         block_assembler_config: Option<BlockAssemblerConfig>,
+        async_handle: Handle,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -73,7 +78,7 @@ impl Shared {
             notify_controller.clone(),
         );
 
-        let tx_pool_controller = tx_pool_builder.start();
+        let tx_pool_controller = tx_pool_builder.start(&async_handle);
 
         let shared = Shared {
             store,
@@ -82,6 +87,7 @@ impl Shared {
             snapshot_mgr,
             tx_pool_controller,
             notify_controller,
+            async_handle,
         };
 
         Ok((shared, proposal_table))
@@ -204,6 +210,11 @@ impl Shared {
         &self.consensus
     }
 
+    /// Return async runtime handle
+    pub fn async_handle(&self) -> &Handle {
+        &self.async_handle
+    }
+
     /// TODO(doc): @quake
     pub fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
@@ -224,6 +235,14 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     migrations: Migrations,
+    async_handle: Handle,
+}
+
+static RUNTIME: OnceCell<(Handle, StopHandler<()>)> = OnceCell::new();
+
+fn static_runtime_handle() -> Handle {
+    let runtime = RUNTIME.get_or_init(new_global_runtime);
+    runtime.0.clone()
 }
 
 impl Default for SharedBuilder {
@@ -236,6 +255,7 @@ impl Default for SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             migrations: Migrations::default(),
+            async_handle: static_runtime_handle(),
         }
     }
 }
@@ -244,7 +264,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     /// TODO(doc): @quake
-    pub fn with_db_config(config: &DBConfig) -> Self {
+    pub fn new(config: &DBConfig, async_handle: Handle) -> Self {
         let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
@@ -259,6 +279,7 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             migrations,
+            async_handle,
         }
     }
 }
@@ -301,6 +322,12 @@ impl SharedBuilder {
         self
     }
 
+    /// specifies the async_handle for the shared
+    pub fn async_handle(mut self, async_handle: Handle) -> Self {
+        self.async_handle = async_handle;
+        self
+    }
+
     /// TODO(doc): @quake
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
@@ -316,6 +343,7 @@ impl SharedBuilder {
             tx_pool_config,
             notify_config,
             self.block_assembler_config,
+            self.async_handle,
         )
     }
 }

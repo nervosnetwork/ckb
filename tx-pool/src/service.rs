@@ -6,7 +6,7 @@ use crate::error::handle_try_send_error;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_async_runtime::{new_runtime, Handle};
+use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -386,28 +386,30 @@ impl TxPoolServiceBuilder {
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(mut self) -> TxPoolController {
+    pub fn start(mut self, handle: &Handle) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
 
         let service = self.service.take().expect("tx pool service start once");
-        let server = move |handle: Handle| async move {
+        let handle_clone = handle.clone();
+
+        handle.spawn(async move {
             loop {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
                         let service_clone = service.clone();
-                        handle.spawn(process(service_clone, message));
+                        handle_clone.spawn(process(service_clone, message));
                     },
                     _ = &mut signal_receiver => break,
                     else => break,
                 }
             }
-        };
-        let (handle, thread) = new_runtime("Global", None, server);
-        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), thread);
+        });
+
+        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
         TxPoolController {
             sender,
-            handle,
+            handle: handle.clone(),
             stop,
         }
     }
