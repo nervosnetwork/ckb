@@ -29,7 +29,7 @@ pub struct PeerRegistry {
 /// Global network connection status
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectionStatus {
-    /// Total connected session number
+    /// Total session number
     pub total: u32,
     /// Not whitelist inbound number
     pub non_whitelist_inbound: u32,
@@ -192,7 +192,7 @@ impl PeerRegistry {
         self.feeler_peers.insert(peer_id);
     }
 
-    /// Remove feeler dail task on session disconnect or fails
+    /// Remove feeler dail task on session disconnects or fails
     pub fn remove_feeler(&mut self, peer_id: &PeerId) {
         self.feeler_peers.remove(peer_id);
     }
@@ -232,12 +232,12 @@ impl PeerRegistry {
             .and_then(|session_id| self.peers.remove(&session_id))
     }
 
-    /// Get all connected peer info
+    /// Get all connected peers' information
     pub fn peers(&self) -> &HashMap<SessionId, Peer> {
         &self.peers
     }
 
-    /// Get all connected session id
+    /// Get all sessions' id
     pub fn connected_peers(&self) -> Vec<SessionId> {
         self.peers.keys().cloned().collect()
     }

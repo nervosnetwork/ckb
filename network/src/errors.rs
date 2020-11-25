@@ -11,7 +11,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
 
-/// alias result on network module
+/// Alias result on network module
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// All error on network module
@@ -21,9 +21,9 @@ pub enum Error {
     Peer(PeerError),
     /// Io error
     Io(IoError),
-    /// error from tentacle
+    /// Error from tentacle
     P2P(P2PError),
-    /// address error
+    /// Address error
     Addr(AddrError),
     /// Dail error
     Dial(String),
@@ -31,7 +31,7 @@ pub enum Error {
     PeerStore(PeerStoreError),
 }
 
-/// error from tentacle
+/// Error from tentacle
 #[derive(Debug)]
 pub enum P2PError {
     /// Not support transport or some other error
@@ -42,42 +42,42 @@ pub enum P2PError {
     Dail(DialerErrorKind),
     /// Listen error
     Listen(ListenErrorKind),
-    /// Net shutdown or too many message block on
+    /// Net shutdown or too many messages blocked on
     Send(SendErrorKind),
 }
 
 /// Peer store error
 #[derive(Debug)]
 pub enum PeerStoreError {
-    /// indicate the peer store is full
+    /// Indicate the peer store is full
     EvictionFailed,
-    /// file data is not json format
+    /// File data is not json format
     Serde(serde_json::Error),
 }
 
 /// Peer error
 #[derive(Debug, Eq, PartialEq)]
 pub enum PeerError {
-    /// session already exist
+    /// Session already exists
     SessionExists(SessionId),
-    /// peer id exist
+    /// Peer id exist
     PeerIdExists(PeerId),
     /// Non-reserved peers
     NonReserved,
-    /// peer is banned
+    /// Peer is banned
     Banned,
-    /// reach max inbound limit
+    /// Reach max inbound limit
     ReachMaxInboundLimit,
-    /// reach max outbound limit
+    /// Reach max outbound limit
     ReachMaxOutboundLimit,
 }
 
 /// Address error
 #[derive(Debug)]
 pub enum AddrError {
-    /// missing ip
+    /// Missing ip
     MissingIP,
-    /// missing port
+    /// Missing port
     MissingPort,
 }
 

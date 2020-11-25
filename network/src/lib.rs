@@ -1,6 +1,6 @@
 //! ckb network module
 //!
-//! This module is based on the Tentacle library, once again abstracting the context that protocols can use,
+//! This module is based on the Tentacle library, once again abstract the context that protocols can use,
 //! and providing a unified implementation of the peer storage and registration mechanism.
 //!
 //! And implemented several basic protocols: identify, discovery, ping, feeler, disconnect_message

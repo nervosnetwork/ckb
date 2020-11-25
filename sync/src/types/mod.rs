@@ -1442,7 +1442,7 @@ impl SyncShared {
             .or_else(|| self.store().get_block_header(hash))
     }
 
-    /// Check whether block's parent has been insert to chain store
+    /// Check whether block's parent has been inserted to chain store
     pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
         self.store()
             .get_block_header(&block.data().header().raw().parent_hash())

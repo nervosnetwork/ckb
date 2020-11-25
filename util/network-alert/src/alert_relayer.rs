@@ -30,7 +30,7 @@ pub struct AlertRelayer {
 }
 
 impl AlertRelayer {
-    /// init
+    /// Init
     pub fn new(
         client_version: String,
         notify_controller: NotifyController,

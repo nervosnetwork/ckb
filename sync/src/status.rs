@@ -125,7 +125,7 @@ pub struct Status {
 }
 
 impl Status {
-    /// new with code
+    /// New with code
     pub fn new<S: ToString>(code: StatusCode, context: Option<S>) -> Self {
         Self {
             code,
@@ -138,7 +138,7 @@ impl Status {
         Self::new::<&str>(StatusCode::OK, None)
     }
 
-    /// ignored status
+    /// Ignored status
     pub fn ignored() -> Self {
         Self::new::<&str>(StatusCode::Ignored, None)
     }
@@ -159,7 +159,7 @@ impl Status {
         }
     }
 
-    /// Whether should output a warn log
+    /// Whether should output a warning log
     pub fn should_warn(&self) -> bool {
         self.code as u16 >= 500
     }

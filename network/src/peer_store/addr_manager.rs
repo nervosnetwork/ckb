@@ -1,9 +1,9 @@
-//! address manager
+//! Address manager
 use crate::peer_store::types::{AddrInfo, IpPort};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
-/// address manager
+/// Address manager
 #[derive(Default)]
 pub struct AddrManager {
     next_id: u64,
@@ -13,7 +13,7 @@ pub struct AddrManager {
 }
 
 impl AddrManager {
-    /// add
+    /// Add an address information to address manager
     pub fn add(&mut self, mut addr_info: AddrInfo) {
         let id = self.next_id;
         let key = addr_info.ip_port();
@@ -34,7 +34,7 @@ impl AddrManager {
         self.next_id += 1;
     }
 
-    /// randomly return addrs that worth to try or connect.
+    /// Randomly return addrs that worth to try or connect.
     pub fn fetch_random<F>(&mut self, count: usize, filter: F) -> Vec<AddrInfo>
     where
         F: Fn(&AddrInfo) -> bool,
@@ -65,17 +65,17 @@ impl AddrManager {
         addr_infos
     }
 
-    /// count
+    /// The count of address in address manager
     pub fn count(&self) -> usize {
         self.addr_to_id.len()
     }
 
-    /// addresses iter
+    /// Addresses iterator
     pub fn addrs_iter(&self) -> impl Iterator<Item = &AddrInfo> {
         self.id_to_info.values()
     }
 
-    /// remove address
+    /// Remove an address by ip and port
     pub fn remove(&mut self, addr: &IpPort) -> Option<AddrInfo> {
         if let Some(id) = self.addr_to_id.remove(&addr) {
             let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
@@ -88,14 +88,14 @@ impl AddrManager {
         }
     }
 
-    /// get info from ip port
+    /// Get an address information by ip and port
     pub fn get(&self, addr: &IpPort) -> Option<&AddrInfo> {
         self.addr_to_id
             .get(addr)
             .and_then(|id| self.id_to_info.get(&id))
     }
 
-    /// get mut info from ip port
+    /// Get a mutable address information by ip and port
     pub fn get_mut(&mut self, addr: &IpPort) -> Option<&mut AddrInfo> {
         if let Some(id) = self.addr_to_id.get(addr) {
             self.id_to_info.get_mut(&id)

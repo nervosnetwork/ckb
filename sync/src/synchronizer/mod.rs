@@ -208,7 +208,9 @@ pub struct Synchronizer {
 }
 
 impl Synchronizer {
-    /// init
+    /// Init sync protocol handle
+    ///
+    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,

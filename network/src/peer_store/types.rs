@@ -11,30 +11,30 @@ use p2p::multiaddr::{self, Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, net::IpAddr};
 
-/// ip and port
+/// Ip and port
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpPort {
-    /// ip addr
+    /// Ip address
     pub ip: IpAddr,
-    /// port
+    /// Port
     pub port: u16,
 }
 
-/// peer info
+/// Peer info
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
     /// Peer id
     pub peer_id: PeerId,
-    /// address
+    /// Address
     pub connected_addr: Multiaddr,
-    /// session type
+    /// Session type
     pub session_type: SessionType,
-    /// connected time
+    /// Connected time
     pub last_connected_at_ms: u64,
 }
 
 impl PeerInfo {
-    /// init
+    /// Init
     pub fn new(
         peer_id: PeerId,
         connected_addr: Multiaddr,
@@ -53,22 +53,22 @@ impl PeerInfo {
 /// Address info
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AddrInfo {
-    /// peer id
+    /// Peer id
     #[serde(with = "peer_id_serde")]
     pub peer_id: PeerId,
-    /// ip and port
+    /// Ip and port
     pub ip_port: IpPort,
-    /// multiaddr
+    /// Multiaddr
     pub addr: Multiaddr,
-    /// score about this addr
+    /// Score about this addr
     pub score: Score,
-    /// last connected time
+    /// Last connected time
     pub last_connected_at_ms: u64,
-    /// last try time
+    /// Last try time
     pub last_tried_at_ms: u64,
-    /// attempts count
+    /// Attempts count
     pub attempts_count: u32,
-    /// random id
+    /// Random id
     pub random_id_pos: usize,
 }
 
@@ -108,7 +108,7 @@ impl AddrInfo {
         self.last_tried_at_ms >= now_ms.saturating_sub(60_000)
     }
 
-    /// whether terrible peer
+    /// Whether terrible peer
     pub fn is_terrible(&self, now_ms: u64) -> bool {
         // do not remove addr tried in last minute
         if self.tried_in_last_minute(now_ms) {
@@ -127,20 +127,20 @@ impl AddrInfo {
         false
     }
 
-    /// try dail count
+    /// Try dail count
     pub fn mark_tried(&mut self, tried_at_ms: u64) {
         self.last_tried_at_ms = tried_at_ms;
         self.attempts_count = self.attempts_count.saturating_add(1);
     }
 
-    /// mart last connected time
+    /// Mark last connected time
     pub fn mark_connected(&mut self, connected_at_ms: u64) {
         self.last_connected_at_ms = connected_at_ms;
         // reset attempts
         self.attempts_count = 0;
     }
 
-    /// get multiaddr
+    /// Get multiaddr
     pub fn multiaddr(&self) -> Result<Multiaddr, Error> {
         self.addr.attach_p2p(&self.peer_id)
     }
@@ -149,17 +149,17 @@ impl AddrInfo {
 /// Banned addr info
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct BannedAddr {
-    /// ip address
+    /// Ip address
     pub address: IpNetwork,
-    /// ban until time
+    /// Ban until time
     pub ban_until: u64,
-    /// ban reason
+    /// Ban reason
     pub ban_reason: String,
-    /// ban time
+    /// Ban time
     pub created_at: u64,
 }
 
-/// convert multiaddr to IpNetwork
+/// Convert multiaddr to IpNetwork
 pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
     for addr_component in multiaddr {
         match addr_component {
@@ -171,7 +171,7 @@ pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
     None
 }
 
-/// convert IpAddr to IpNetwork
+/// Convert IpAddr to IpNetwork
 pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
     match ip {
         IpAddr::V4(ipv4) => IpNetwork::V4(ipv4.into()),
@@ -181,11 +181,11 @@ pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
 
 /// Some util patch to multiaddr
 pub trait MultiaddrExt {
-    /// extract IP from multiaddr,
+    /// Extract IP from multiaddr,
     fn extract_ip_addr(&self) -> Result<IpPort, Error>;
-    /// remove peer id
+    /// Remove peer id
     fn exclude_p2p(&self) -> Multiaddr;
-    /// attach peer id
+    /// Attach peer id
     fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error>;
 }
 

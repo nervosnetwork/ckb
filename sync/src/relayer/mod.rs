@@ -71,7 +71,12 @@ pub struct Relayer {
 }
 
 impl Relayer {
-    /// init
+    /// Init relay protocol handle
+    ///
+    /// This is a runtime relay protocol shared state, and any relay messages will be processed and forwarded by it
+    ///
+    /// min_fee_rate: Default transaction fee unit, can be modified by configuration file
+    /// max_tx_verify_cycles: Maximum transaction consumption allowed by default, can be modified by configuration file
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncShared>,

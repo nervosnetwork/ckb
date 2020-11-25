@@ -53,7 +53,7 @@ pub trait CKBProtocolContext: Send {
     ) -> Result<(), Error>;
     /// Send message through quick queue
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
-    /// filter broadcast message through quick queue
+    /// Filter broadcast message through quick queue
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
     /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
@@ -66,27 +66,27 @@ pub trait CKBProtocolContext: Send {
     ) -> Result<(), Error>;
     /// Send message
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
-    /// filter broadcast message
+    /// Filter broadcast message
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    /// disconnect session
+    /// Disconnect session
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     // Interact with NetworkState
-    /// get peer info
+    /// Get peer info
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
-    /// modify peer info
+    /// Modify peer info
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
-    /// get all session id
+    /// Get all session id
     fn connected_peers(&self) -> Vec<PeerIndex>;
-    /// report peer behavior
+    /// Report peer behavior
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
-    /// ban peer
+    /// Ban peer
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
-    /// can send message again?
+    /// Can send message again?
     fn send_paused(&self) -> bool;
     /// current protocol id
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
-    /// raw tentacle controller
+    /// Raw tentacle controller
     fn p2p_control(&self) -> Option<&ServiceControl> {
         None
     }
@@ -94,7 +94,7 @@ pub trait CKBProtocolContext: Send {
 
 /// Abstract protocol handle base on tentacle service handle
 pub trait CKBProtocolHandler: Sync + Send {
-    /// init action on service run
+    /// Init action on service run
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
     /// Called when opening protocol
     fn connected(
@@ -122,7 +122,7 @@ pub trait CKBProtocolHandler: Sync + Send {
     }
 }
 
-/// help to build protocol meta
+/// Help to build protocol meta
 pub struct CKBProtocol {
     id: ProtocolId,
     // for example: b"/ckb/"
@@ -181,17 +181,17 @@ impl CKBProtocol {
         }
     }
 
-    /// protocol id
+    /// Protocol id
     pub fn id(&self) -> ProtocolId {
         self.id
     }
 
-    /// protocol name
+    /// Protocol name
     pub fn protocol_name(&self) -> String {
         self.protocol_name.clone()
     }
 
-    /// whether support this version
+    /// Whether support this version
     pub fn match_version(&self, version: ProtocolVersion) -> bool {
         self.supported_versions.contains(&version)
     }

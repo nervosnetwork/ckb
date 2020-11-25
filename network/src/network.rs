@@ -81,7 +81,7 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
-    /// init from config
+    /// Init from config
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
@@ -272,7 +272,7 @@ impl NetworkState {
         callback(&mut self.peer_store.lock())
     }
 
-    /// Get self peer id
+    /// Get peer id of local node
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
@@ -283,7 +283,7 @@ impl NetworkState {
         &self.local_private_key
     }
 
-    /// Get self peer id base58 format string
+    /// Get local node's peer id in base58 format string
     pub fn node_id(&self) -> String {
         self.local_peer_id().to_base58()
     }
@@ -301,7 +301,7 @@ impl NetworkState {
         self.peer_registry.read().connection_status()
     }
 
-    /// Get self listen address list
+    /// Get local node's listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         let listened_addrs = self.listened_addrs.read();
         self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
@@ -494,7 +494,7 @@ impl NetworkState {
         }
     }
 
-    /// network message processing controller, always true, if false, discard any received messages
+    /// Network message processing controller, default is true, if false, discard any received messages
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
@@ -506,7 +506,7 @@ pub struct EventHandler<T> {
     pub(crate) exit_handler: T,
 }
 
-/// Exit trait use to notify all other module to exit
+/// Exit trait used to notify all other module to exit
 pub trait ExitHandler: Send + Unpin + 'static {
     /// notify other module to exit
     fn notify_exit(&self);
@@ -1200,7 +1200,7 @@ impl NetworkController {
             .cloned()
     }
 
-    /// Ban a ip
+    /// Ban an ip
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
         self.network_state
             .peer_store
@@ -1208,7 +1208,7 @@ impl NetworkController {
             .ban_network(address, ban_until, ban_reason)
     }
 
-    /// Unban a ip
+    /// Unban an ip
     pub fn unban(&self, address: &IpNetwork) {
         self.network_state
             .peer_store
@@ -1217,7 +1217,7 @@ impl NetworkController {
             .unban_network(address);
     }
 
-    /// Return all connected peer info
+    /// Return all connected peers' information
     pub fn connected_peers(&self) -> Vec<(PeerIndex, Peer)> {
         self.network_state.with_peer_registry(|reg| {
             reg.peers()
@@ -1262,21 +1262,21 @@ impl NetworkController {
         }
     }
 
-    /// Broadcast a message to all session
+    /// Broadcast a message to all connected peers
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
-    /// Broadcast a message to all session through quick queue
+    /// Broadcast a message to all connected peers through quick queue
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
     }
 
-    /// Send message to one session
+    /// Send message to one connected peer
     pub fn send_message_to(
         &self,
         session_id: SessionId,
@@ -1292,17 +1292,17 @@ impl NetworkController {
         self.network_state.is_active()
     }
 
-    /// Change active status, discard any received messages
+    /// Change active status, if set false discard any received messages
     pub fn set_active(&self, active: bool) {
         self.network_state.active.store(active, Ordering::Relaxed);
     }
 
-    /// Return all connected session's protocols info
+    /// Return all connected peers' protocols info
     pub fn protocols(&self) -> Vec<(ProtocolId, String, Vec<String>)> {
         self.network_state.protocols.read().clone()
     }
 
-    /// Try ping all connected session
+    /// Try ping all connected peers
     pub fn ping_peers(&self) {
         let mut ping_controller = self.ping_controller.clone();
         let _ignore = ping_controller.try_send(());

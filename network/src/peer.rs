@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 /// Peer info from identify protocol message
 #[derive(Clone, Debug)]
 pub struct PeerIdentifyInfo {
-    /// node version
+    /// Node version
     pub client_version: String,
 }
 

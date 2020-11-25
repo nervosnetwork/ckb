@@ -21,7 +21,7 @@ pub use crate::synchronizer::Synchronizer;
 pub use crate::types::SyncShared;
 use std::time::Duration;
 
-/// Default max get header response len, if it is greater than this value, the message will be ignored
+/// Default max get header response length, if it is greater than this value, the message will be ignored
 pub const MAX_HEADERS_LEN: usize = 2_000;
 /// The default init download block interval is 24 hours
 /// If the time of the local highest block is within this range, exit the ibd state
@@ -58,7 +58,7 @@ pub const HEADERS_DOWNLOAD_INSPECT_WINDOW: u64 = 2 * 60 * 1000;
 pub const HEADERS_DOWNLOAD_HEADERS_PER_SECOND: u64 = 1600;
 /// Acceptable Lowest Instantaneous Speed: 75.0 KiB/second (300/4)
 pub const HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE: u64 = 4;
-/// pow interval
+/// Pow interval
 pub const POW_INTERVAL: u64 = 10;
 
 /// Protect at least this many outbound peers from disconnection due to slow
@@ -90,6 +90,6 @@ pub const RETRY_ASK_TX_TIMEOUT_INCREASE: Duration = Duration::from_secs(30);
 // ban time
 // 5 minutes
 pub const BAD_MESSAGE_BAN_TIME: Duration = Duration::from_secs(5 * 60);
-/// Default ban tim for sync useless
+/// Default ban time for sync useless
 // 10 minutes, peer have no common ancestor block
 pub const SYNC_USELESS_BAN_TIME: Duration = Duration::from_secs(10 * 60);
