@@ -4,8 +4,8 @@ mod setup_guard;
 mod subcommand;
 
 use ckb_app_config::{cli, ExitCode, Setup};
+use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
-
 use setup_guard::SetupGuard;
 
 pub(crate) const LOG_TARGET_MAIN: &str = "main";
@@ -37,18 +37,19 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         }
     }
 
+    let (handle, _stop) = new_global_runtime();
     let setup = Setup::from_matches(&app_matches)?;
-    let _guard = SetupGuard::from_setup(&setup, &version)?;
+    let _guard = SetupGuard::from_setup(&setup, &version, handle.clone())?;
 
     match app_matches.subcommand() {
-        (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version),
+        (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version, handle),
         (cli::CMD_MINER, Some(matches)) => subcommand::miner(setup.miner(&matches)?),
-        (cli::CMD_REPLAY, Some(matches)) => subcommand::replay(setup.replay(&matches)?),
-        (cli::CMD_EXPORT, Some(matches)) => subcommand::export(setup.export(&matches)?),
-        (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?),
-        (cli::CMD_STATS, Some(matches)) => subcommand::stats(setup.stats(&matches)?),
+        (cli::CMD_REPLAY, Some(matches)) => subcommand::replay(setup.replay(&matches)?, handle),
+        (cli::CMD_EXPORT, Some(matches)) => subcommand::export(setup.export(&matches)?, handle),
+        (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?, handle),
+        (cli::CMD_STATS, Some(matches)) => subcommand::stats(setup.stats(&matches)?, handle),
         (cli::CMD_RESET_DATA, Some(matches)) => subcommand::reset_data(setup.reset_data(&matches)?),
-        (cli::CMD_MIGRATE, Some(matches)) => subcommand::migrate(setup.migrate(&matches)?),
+        (cli::CMD_MIGRATE, Some(matches)) => subcommand::migrate(setup.migrate(&matches)?, handle),
         _ => unreachable!(),
     }
 }

@@ -1,4 +1,5 @@
 use ckb_app_config::{ExitCode, Setup};
+use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_logger_service::{self, LoggerInitGuard};
 use ckb_metrics_service::{self, Guard as MetricsInitGuard};
@@ -12,7 +13,11 @@ pub struct SetupGuard {
 
 impl SetupGuard {
     #[cfg(feature = "with_sentry")]
-    pub(crate) fn from_setup(setup: &Setup, version: &Version) -> Result<Self, ExitCode> {
+    pub(crate) fn from_setup(
+        setup: &Setup,
+        version: &Version,
+        async_handle: Handle,
+    ) -> Result<Self, ExitCode> {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
@@ -47,10 +52,11 @@ impl SetupGuard {
         };
 
         let metrics_config = setup.config.metrics().to_owned();
-        let metrics_guard = ckb_metrics_service::init(metrics_config).map_err(|err| {
-            eprintln!("Config Error: {:?}", err);
-            ExitCode::Config
-        })?;
+        let metrics_guard =
+            ckb_metrics_service::init(metrics_config, async_handle).map_err(|err| {
+                eprintln!("Config Error: {:?}", err);
+                ExitCode::Config
+            })?;
 
         Ok(Self {
             _logger_guard: logger_guard,
@@ -60,15 +66,20 @@ impl SetupGuard {
     }
 
     #[cfg(not(feature = "with_sentry"))]
-    pub(crate) fn from_setup(setup: &Setup, _version: &Version) -> Result<Self, ExitCode> {
+    pub(crate) fn from_setup(
+        setup: &Setup,
+        _version: &Version,
+        async_handle: Handle,
+    ) -> Result<Self, ExitCode> {
         let logger_config = setup.config.logger().to_owned();
         let logger_guard = ckb_logger_service::init(logger_config)?;
 
         let metrics_config = setup.config.metrics().to_owned();
-        let metrics_guard = ckb_metrics_service::init(metrics_config).map_err(|err| {
-            eprintln!("Config Error: {:?}", err);
-            ExitCode::Config
-        })?;
+        let metrics_guard =
+            ckb_metrics_service::init(metrics_config, async_handle).map_err(|err| {
+                eprintln!("Config Error: {:?}", err);
+                ExitCode::Config
+            })?;
 
         Ok(Self {
             _logger_guard: logger_guard,

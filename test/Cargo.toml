@@ -26,6 +26,8 @@ ckb-dao = { path = "../util/dao", version = "= 0.39.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.39.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.39.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.39.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.39.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.0-pre" }
 tempfile = "3.0"
 reqwest = "0.9"
 rand = "0.6"
