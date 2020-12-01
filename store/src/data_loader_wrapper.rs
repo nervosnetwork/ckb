@@ -17,8 +17,14 @@ impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
 }
 
 impl<'a, T: ChainStore<'a>> CellDataProvider for DataLoaderWrapper<'a, T> {
-    fn get_cell_data(&self, out_point: &OutPoint) -> Option<(Bytes, Byte32)> {
-        self.0.get_cell_data(out_point)
+    fn get_cell_data(&self, out_point: &OutPoint) -> Option<Bytes> {
+        self.0.get_cell_data(out_point).map(|(data, _)| data)
+    }
+
+    fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<Byte32> {
+        self.0
+            .get_cell_data(out_point)
+            .map(|(_, data_hash)| data_hash)
     }
 }
 

@@ -201,6 +201,7 @@ fn test_transaction_spend_in_same_block() {
                 2
             )),
             mem_cell_data: None,
+            mem_cell_data_hash: None,
         })
     );
 }
