@@ -98,7 +98,7 @@ impl<'a> LoadCell<'a> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if let Some((_, data_hash)) = &cell.mem_cell_data {
+                if let Some(data_hash) = &cell.mem_cell_data_hash {
                     let bytes = data_hash.raw_data();
                     (SUCCESS, store_data(machine, &bytes)?)
                 } else {
