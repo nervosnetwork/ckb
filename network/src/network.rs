@@ -14,8 +14,8 @@ use crate::protocols::{
     support_protocols::SupportProtocols,
 };
 use crate::services::{
-    dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
-    outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
+    dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
+    protocol_type_checker::ProtocolTypeCheckerService,
 };
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, PublicKey, ServiceControl};
 use ckb_app_config::NetworkConfig;
@@ -963,9 +963,12 @@ impl<T: ExitHandler> NetworkService<T> {
             bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
 
+        #[cfg(feature = "with_dns_seeding")]
         if config.dns_seeding_service_enabled() {
-            let dns_seeding_service =
-                DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
+            let dns_seeding_service = crate::services::dns_seeding::DnsSeedingService::new(
+                Arc::clone(&network_state),
+                config.dns_seeds.clone(),
+            );
             bg_services.push(Box::pin(dns_seeding_service.start()) as Pin<Box<_>>);
         };
 
