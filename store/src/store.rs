@@ -284,6 +284,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
                                     transaction_info: Some(tx_info.unpack()),
                                     data_bytes,
                                     mem_cell_data: None,
+                                    mem_cell_data_hash: None,
                                 }
                             })
                     })
@@ -442,7 +443,10 @@ where
                         .get_cell_meta(&tx_hash, index)
                         .expect("store should be consistent with cell_set");
                     if with_data {
-                        cell_meta.mem_cell_data = self.0.get_cell_data(&tx_hash, index);
+                        if let Some((data, data_hash)) = self.0.get_cell_data(&tx_hash, index) {
+                            cell_meta.mem_cell_data = Some(data);
+                            cell_meta.mem_cell_data_hash = Some(data_hash);
+                        }
                     }
                     CellStatus::live_cell(cell_meta)
                 }

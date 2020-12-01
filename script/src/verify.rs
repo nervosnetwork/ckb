@@ -80,7 +80,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     out_point,
                     transaction_info: None,
                     data_bytes: data.len() as u64,
-                    mem_cell_data: Some((data, data_hash)),
+                    mem_cell_data: Some(data),
+                    mem_cell_data_hash: Some(data_hash),
                 }
             })
             .collect();
@@ -88,7 +89,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut binaries_by_data_hash: HashMap<Byte32, Bytes> = HashMap::default();
         let mut binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)> = HashMap::default();
         for cell_meta in resolved_cell_deps {
-            let (data, data_hash) = data_loader.load_cell_data(cell_meta).expect("cell data");
+            let data = data_loader.load_cell_data(cell_meta).expect("cell data");
+            let data_hash = data_loader
+                .load_cell_data_hash(cell_meta)
+                .expect("cell data hash");
             binaries_by_data_hash.insert(data_hash, data.to_owned());
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
