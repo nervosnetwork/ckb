@@ -1,3 +1,5 @@
+//! Freezer is an memory mapped append-only database to store immutable chain data into flat files
+
 mod freezer;
 mod freezer_files;
 #[cfg(test)]

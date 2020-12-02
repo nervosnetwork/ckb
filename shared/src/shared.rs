@@ -35,6 +35,7 @@ const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
 const THRESHOLD_EPOCH: EpochNumber = 2;
 const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
 
+/// An owned permission to close on a freezer thread
 pub struct FreezerClose {
     stopped: Arc<AtomicBool>,
     stop: StopHandler<()>,
@@ -179,7 +180,7 @@ impl Shared {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
     pub fn spawn_freeze(&self) -> FreezerClose {
         let (signal_sender, signal_receiver) =
             ckb_channel::bounded::<()>(service::SIGNAL_CHANNEL_SIZE);
@@ -247,7 +248,7 @@ impl Shared {
         // Wipe out frozen data
         self.wipe_out_frozen_data(&snapshot, ret)?;
 
-        ckb_logger::trace!("freezer finish ");
+        ckb_logger::trace!("freezer finish");
 
         Ok(())
     }
@@ -403,6 +404,7 @@ fn static_runtime_handle() -> Handle {
 const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
+    /// Generates the base SharedBuilder with ancient path and async_handle
     pub fn new(config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
         let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
@@ -424,6 +426,7 @@ impl SharedBuilder {
         }
     }
 
+    /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
         SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),

@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000;
+const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000; // 2G
 const INDEX_FILE_NAME: &str = "INDEX";
 pub(crate) const INDEX_ENTRY_SIZE: u64 = 12;
 
+/// File id alias
 pub type FileId = u32;
 
 pub(crate) struct Head {
@@ -36,8 +37,8 @@ impl Head {
     }
 }
 
-// FreezerFiles represents a single chained block data,
-// it consists of a data file and an index file
+/// FreezerFiles represents a single chained block data,
+/// it consists of a data file and an index file
 pub struct FreezerFiles {
     // opened files
     pub(crate) files: BTreeMap<FileId, File>,
@@ -59,6 +60,7 @@ pub struct FreezerFiles {
     pub(crate) enable_compression: bool,
 }
 
+/// An instance of IndexEntry represents an entry inside of a index files
 pub struct IndexEntry {
     pub file_id: FileId,
     pub offset: u64,
@@ -74,6 +76,7 @@ impl Default for IndexEntry {
 }
 
 impl IndexEntry {
+    /// Encodes this entry into the provided byte buffer
     pub fn encode(&self) -> Vec<u8> {
         fail_point!("IndexEntry encode");
         let mut bytes = Vec::with_capacity(INDEX_ENTRY_SIZE as usize);
@@ -82,6 +85,7 @@ impl IndexEntry {
         bytes
     }
 
+    /// Decode entry from the provided bytes
     pub fn decode(raw: &[u8]) -> Result<Self, IoError> {
         fail_point!("IndexEntry decode");
         debug_assert!(raw.len() == INDEX_ENTRY_SIZE as usize);
@@ -101,17 +105,20 @@ impl IndexEntry {
 }
 
 impl FreezerFiles {
+    /// Opens freezer files at path.
     pub fn open(file_path: PathBuf) -> Result<FreezerFiles, IoError> {
         let mut files = FreezerFilesBuilder::new(file_path).build()?;
         files.preopen()?;
         Ok(files)
     }
 
+    /// Return frozen item number
     #[inline]
     pub fn number(&self) -> u64 {
         self.number.load(Ordering::SeqCst)
     }
 
+    /// Append item into freezer files
     pub fn append(&mut self, number: u64, input: &[u8]) -> Result<(), IoError> {
         let expected = self.number.load(Ordering::SeqCst);
         fail_point!("append-unexpected-number");
@@ -164,12 +171,14 @@ impl FreezerFiles {
         Ok(())
     }
 
+    /// Attempts to sync all OS-internal metadata to disk.
     pub fn sync_all(&self) -> Result<(), IoError> {
         self.head.file.sync_all()?;
         self.index.sync_all()?;
         Ok(())
     }
 
+    /// Retrieve frozen item by number
     pub fn retrieve(&self, item: u64) -> Result<Option<Vec<u8>>, IoError> {
         if item < 1 {
             return Ok(None);
@@ -254,7 +263,7 @@ impl FreezerFiles {
         )))
     }
 
-    // keeping the the provided threshold number item and dropping the rest.
+    /// keeping the the provided threshold number item and dropping the rest.
     pub fn truncate(&mut self, item: u64) -> Result<(), IoError> {
         // out of bound, this has no effect.
         if item < 1 || ((item + 1) >= self.number()) {
@@ -285,6 +294,7 @@ impl FreezerFiles {
         Ok(())
     }
 
+    /// Attempts to open files, initialize fd map
     pub fn preopen(&mut self) -> Result<(), IoError> {
         self.release_after(0);
 
@@ -355,6 +365,7 @@ impl FreezerFiles {
     }
 }
 
+/// Freezer factory, which can be used in order to configure the properties of a new freezer.
 pub struct FreezerFilesBuilder {
     file_path: PathBuf,
     max_file_size: u64,
@@ -362,6 +373,7 @@ pub struct FreezerFilesBuilder {
 }
 
 impl FreezerFilesBuilder {
+    /// Generates the base configuration for a new freezer instance
     pub fn new(file_path: PathBuf) -> Self {
         FreezerFilesBuilder {
             file_path,
@@ -370,19 +382,21 @@ impl FreezerFilesBuilder {
         }
     }
 
-    // for test
+    /// Sets the max  size of the file (in bytes) for the new freezer.
     #[allow(dead_code)]
     pub fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
         self
     }
 
+    /// Sets the compression enable for the new freezer.
     #[allow(dead_code)]
     pub fn enable_compression(mut self, enable_compression: bool) -> Self {
         self.enable_compression = enable_compression;
         self
     }
 
+    /// Creates the freezer with the options configured in this builder.
     pub fn build(self) -> Result<FreezerFiles, IoError> {
         fs::create_dir_all(&self.file_path)?;
         let (mut index, mut index_size) = self.open_index()?;

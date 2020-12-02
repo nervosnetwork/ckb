@@ -79,6 +79,7 @@ impl StoreWriteBatch {
         Ok(())
     }
 
+    /// Removes the block body from database with corresponding hash, number and txs number
     pub fn delete_block_body(
         &mut self,
         number: BlockNumber,
@@ -114,6 +115,7 @@ impl StoreWriteBatch {
         Ok(())
     }
 
+    /// Removes the entire block from database with corresponding hash, number and txs number
     pub fn delete_block(
         &mut self,
         number: BlockNumber,

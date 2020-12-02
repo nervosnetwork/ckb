@@ -57,6 +57,7 @@ impl ChainDB {
         }
     }
 
+    /// Open new ChainDB with freezer instance
     pub fn new_with_freezer(db: RocksDB, freezer: Freezer, config: StoreConfig) -> Self {
         let cache = StoreCache::from_config(config);
         ChainDB {

@@ -29,6 +29,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     fn cache(&'a self) -> Option<&'a StoreCache>;
     /// Return freezer reference
     fn freezer(&'a self) -> Option<&'a Freezer>;
+    /// Return the bytes associated with a key value and the given column family.
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
@@ -95,6 +96,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         .collect()
     }
 
+    /// Get unfrozen block from ky-store with given hash
     fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
         let header = self.get_block_header(h)?;
         let body = self.get_block_body(h);
@@ -249,6 +251,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
+    /// Gets transaction and associated info with correspond hash
     fn get_transaction_with_info(
         &'a self,
         hash: &packed::Byte32,
@@ -272,6 +275,7 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
+    /// Gets cell meta data with out_point
     fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
         let key = out_point.to_cell_key();
         self.get(COLUMN_CELL, &key).map(|slice| {

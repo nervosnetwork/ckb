@@ -21,15 +21,19 @@ struct Inner {
     pub(crate) tip: Option<HeaderView>,
 }
 
+/// Freezer is an memory mapped append-only database to store immutable chain data into flat files
 #[derive(Clone)]
 pub struct Freezer {
     inner: Arc<Mutex<Inner>>,
     number: Arc<AtomicU64>,
+    /// file lock to prevent double opens
     pub(crate) lock: Arc<File>,
+    /// stop flag
     pub stopped: Arc<AtomicBool>,
 }
 
 impl Freezer {
+    /// creates a freezer at specified path
     pub fn open(path: PathBuf) -> Result<Freezer, Error> {
         let lock_path = path.join(LOCKNAME);
         let lock = OpenOptions::new()
@@ -62,6 +66,8 @@ impl Freezer {
         })
     }
 
+    /// freeze background process that periodically checks the chain data for any
+    /// import progress and moves ancient data from the kv-db into the freezer.
     pub fn freeze<F>(
         &self,
         threshold: BlockNumber,
@@ -112,6 +118,7 @@ impl Freezer {
         Ok(ret)
     }
 
+    /// Retrieve an item with the given number
     pub fn retrieve(&self, number: BlockNumber) -> Result<Option<Vec<u8>>, Error> {
         self.inner
             .lock()
@@ -120,10 +127,12 @@ impl Freezer {
             .map_err(internal_error)
     }
 
+    /// Return total item number in the freezer
     pub fn number(&self) -> BlockNumber {
         self.number.load(Ordering::SeqCst)
     }
 
+    /// Truncate discards any recent data above the provided threshold number.
     pub fn truncate(&self, item: u64) -> Result<(), Error> {
         if item > 0 && ((item + 1) < self.number()) {
             let mut inner = self.inner.lock();
