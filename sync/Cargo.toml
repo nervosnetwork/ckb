@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.38.0"
+version = "0.38.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,37 +9,37 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain = { path = "../chain", version = "= 0.38.0" }
-ckb-shared = { path = "../shared", version = "= 0.38.0" }
-ckb-store = { path = "../store", version = "= 0.38.0" }
-ckb-db = { path = "../db", version = "= 0.38.0" }
-ckb-app-config = {path = "../util/app-config", version = "= 0.38.0"}
-ckb-types = {path = "../util/types", version = "= 0.38.0"}
-ckb-network = { path = "../network", version = "= 0.38.0" }
-ckb-logger = {path = "../util/logger", version = "= 0.38.0"}
-ckb-metrics = {path = "../util/metrics", version = "= 0.38.0"}
-ckb-util = { path = "../util", version = "= 0.38.0" }
+ckb-chain = { path = "../chain", version = "= 0.38.1" }
+ckb-shared = { path = "../shared", version = "= 0.38.1" }
+ckb-store = { path = "../store", version = "= 0.38.1" }
+ckb-db = { path = "../db", version = "= 0.38.1" }
+ckb-app-config = {path = "../util/app-config", version = "= 0.38.1"}
+ckb-types = {path = "../util/types", version = "= 0.38.1"}
+ckb-network = { path = "../network", version = "= 0.38.1" }
+ckb-logger = {path = "../util/logger", version = "= 0.38.1"}
+ckb-metrics = {path = "../util/metrics", version = "= 0.38.1"}
+ckb-util = { path = "../util", version = "= 0.38.1" }
 faketime = "0.2.0"
 bitflags = "1.0"
-ckb-verification = { path = "../verification", version = "= 0.38.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.38.0" }
-ckb-channel = { path = "../util/channel", version = "= 0.38.0" }
-ckb-traits = { path = "../traits", version = "= 0.38.0" }
+ckb-verification = { path = "../verification", version = "= 0.38.1" }
+ckb-chain-spec = { path = "../spec", version = "= 0.38.1" }
+ckb-channel = { path = "../util/channel", version = "= 0.38.1" }
+ckb-traits = { path = "../traits", version = "= 0.38.1" }
 failure = "0.1.5"
 lru = "0.6.0"
 sentry = "0.17.0"
 futures = "0.3"
-ckb-error = {path = "../error", version = "= 0.38.0"}
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.0" }
-ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.38.0" }
+ckb-error = {path = "../error", version = "= 0.38.1"}
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.1" }
+ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.38.1" }
 ratelimit_meter = "5.0"
 tempfile = "3.0"
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.0" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.1" }
 rand = "0.6"
-ckb-dao = { path = "../util/dao", version = "= 0.38.0" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.0" }
+ckb-dao = { path = "../util/dao", version = "= 0.38.1" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.1" }
 
 [features]
 default = []

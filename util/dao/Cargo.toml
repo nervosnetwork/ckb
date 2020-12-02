@@ -1,6 +1,6 @@
 [package]
 name = "ckb-dao"
-version = "0.38.0"
+version = "0.38.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,12 +10,12 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 byteorder = "1.3.1"
-ckb-types = { path = "../types", version = "= 0.38.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.38.0" }
-ckb-store = { path = "../../store", version = "= 0.38.0" }
-ckb-dao-utils = { path = "./utils", version = "= 0.38.0" }
-ckb-error = { path = "../../error", version = "= 0.38.0" }
-ckb-traits = { path = "../../traits", version = "= 0.38.0" }
+ckb-types = { path = "../types", version = "= 0.38.1" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.38.1" }
+ckb-store = { path = "../../store", version = "= 0.38.1" }
+ckb-dao-utils = { path = "./utils", version = "= 0.38.1" }
+ckb-error = { path = "../../error", version = "= 0.38.1" }
+ckb-traits = { path = "../../traits", version = "= 0.38.1" }
 
 [dev-dependencies]
-ckb-db = { path = "../../db", version = "= 0.38.0" }
+ckb-db = { path = "../../db", version = "= 0.38.1" }
