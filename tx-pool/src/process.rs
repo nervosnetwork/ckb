@@ -6,7 +6,7 @@ use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, info};
 use ckb_notify::PoolTransactionEntry;
@@ -29,7 +29,6 @@ use ckb_verification::{
     cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier,
 };
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -96,7 +95,7 @@ impl TxPoolService {
         &self,
         snapshot: &Snapshot,
         config: &BlockAssemblerConfig,
-    ) -> Result<TransactionView, FailureError> {
+    ) -> Result<TransactionView, AnyError> {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
@@ -139,7 +138,7 @@ impl TxPoolService {
         max_block_cycles: Cycle,
         cellbase: &TransactionView,
         uncles: &[UncleBlockView],
-    ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), FailureError> {
+    ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), AnyError> {
         let guard = self.tx_pool.read().await;
         let uncle_proposals = uncles
             .iter()
@@ -185,7 +184,7 @@ impl TxPoolService {
         uncles: Vec<UncleBlockView>,
         bytes_limit: u64,
         version: Version,
-    ) -> Result<BlockTemplate, FailureError> {
+    ) -> Result<BlockTemplate, AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
@@ -266,10 +265,10 @@ impl TxPoolService {
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<BlockTemplate, FailureError> {
+    ) -> Result<BlockTemplate, AnyError> {
         if self.block_assembler.is_none() && block_assembler_config.is_none() {
             Err(InternalErrorKind::Config
-                .reason("BlockAssembler disabled")
+                .other("BlockAssembler disabled")
                 .into())
         } else {
             let block_assembler = block_assembler_config

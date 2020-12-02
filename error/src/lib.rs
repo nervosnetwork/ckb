@@ -1,12 +1,13 @@
 //! TODO(doc): @keroro520
 mod convert;
 mod internal;
+pub mod prelude;
 pub mod util;
 
+pub use anyhow::Error as AnyError;
 use derive_more::Display;
-use failure::{Backtrace, Context, Fail};
-pub use internal::{InternalError, InternalErrorKind};
-use std::fmt;
+pub use internal::{InternalError, InternalErrorKind, OtherError, SilentError};
+use prelude::*;
 
 /// TODO(doc): @keroro520
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
@@ -31,55 +32,4 @@ pub enum ErrorKind {
     Spec,
 }
 
-/// TODO(doc): @keroro520
-#[derive(Debug)]
-pub struct Error {
-    kind: Context<ErrorKind>,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(cause) = self.cause() {
-            if f.alternate() {
-                write!(f, "{}: {}", self.kind(), cause)
-            } else {
-                write!(f, "{}({})", self.kind(), cause)
-            }
-        } else {
-            write!(f, "{}", self.kind())
-        }
-    }
-}
-
-impl From<Context<ErrorKind>> for Error {
-    fn from(inner: Context<ErrorKind>) -> Self {
-        Self { kind: inner }
-    }
-}
-
-impl Fail for Error {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
-impl Error {
-    /// TODO(doc): @keroro520
-    pub fn kind(&self) -> &ErrorKind {
-        self.kind.get_context()
-    }
-
-    /// TODO(doc): @keroro520
-    pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
-        self.cause().and_then(|cause| cause.downcast_ref::<T>())
-    }
-
-    /// TODO(doc): @keroro520
-    pub fn unwrap_cause_or_self(&self) -> &dyn Fail {
-        self.cause().unwrap_or(self)
-    }
-}
+def_error_base_on_kind!(Error, ErrorKind);

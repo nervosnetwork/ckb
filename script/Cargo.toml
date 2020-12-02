@@ -26,7 +26,6 @@ faster-hex = "0.4"
 ckb-logger = { path = "../util/logger", version = "= 0.39.0-pre", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error", version = "= 0.39.0-pre" }
-failure = "0.1.5"
 ckb-chain-spec = { path = "../spec", version = "= 0.39.0-pre" }
 goblin = "0.2"
 ckb-vm-definitions = "0.19.1"

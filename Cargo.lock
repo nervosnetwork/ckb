@@ -67,6 +67,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf8dcb5b4bbaa28653b647d8c77bd4ed40183b48882e130c1f1ffb73de069fd7"
+
+[[package]]
 name = "arc-swap"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -536,7 +542,6 @@ dependencies = [
  "ckb-rational",
  "ckb-resource",
  "ckb-types",
- "failure",
  "serde",
  "toml",
 ]
@@ -582,8 +587,6 @@ dependencies = [
  "byteorder",
  "ckb-error",
  "ckb-types",
- "derive_more",
- "failure",
 ]
 
 [[package]]
@@ -621,9 +624,10 @@ version = "0.39.0-pre"
 name = "ckb-error"
 version = "0.39.0-pre"
 dependencies = [
+ "anyhow",
  "ckb-occupied-capacity",
  "derive_more",
- "failure",
+ "thiserror",
 ]
 
 [[package]]
@@ -1021,7 +1025,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "failure",
  "faketime",
  "futures 0.1.29",
  "jsonrpc-core",
@@ -1064,7 +1067,6 @@ dependencies = [
  "ckb-types",
  "ckb-vm",
  "ckb-vm-definitions",
- "failure",
  "faster-hex 0.4.1",
  "goblin",
  "proptest",
@@ -1234,7 +1236,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "failure",
  "faketime",
  "lru",
  "tokio 0.2.23",
@@ -1252,7 +1253,6 @@ dependencies = [
  "ckb-hash",
  "ckb-occupied-capacity",
  "ckb-rational",
- "failure",
  "merkle-cbt",
  "molecule",
  "numext-fixed-uint",
@@ -1291,7 +1291,6 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "derive_more",
- "failure",
  "faketime",
  "lru",
  "rand 0.6.5",
@@ -4766,18 +4765,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.20"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dfdd070ccd8ccb78f4ad66bf1982dc37f620ef696c6b5028fe2ed83dd3d0d08"
+checksum = "0e9ae34b84616eedaaf1e9dd6026dbe00dcafa92aa0c8077cb69df1fcfe5e53e"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.20"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd80fc12f73063ac132ac92aceea36734f04a1d93c1240c6944e23a3b8841793"
+checksum = "9ba20f23e85b10754cd195504aebf6a27e2e6cbe28c17778a0c930724628dd56"
 dependencies = [
  "proc-macro2",
  "quote",

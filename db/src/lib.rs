@@ -4,8 +4,7 @@
 //! which provides key-value store interface
 
 use ckb_error::{Error, InternalErrorKind};
-use std::fmt::{Debug, Display};
-use std::result;
+use std::{fmt, result};
 
 pub mod db;
 pub mod iter;
@@ -25,6 +24,6 @@ pub use rocksdb::{
 /// The type returned by database methods.
 pub type Result<T> = result::Result<T, Error>;
 
-fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Error {
-    InternalErrorKind::Database.reason(reason).into()
+fn internal_error<S: fmt::Display>(reason: S) -> Error {
+    InternalErrorKind::Database.other(reason).into()
 }

@@ -72,7 +72,7 @@ impl ChainController {
     ) -> Result<bool, Error> {
         Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
-                .reason("Chain service has gone")
+                .other("Chain service has gone")
                 .into())
         })
     }
@@ -83,7 +83,7 @@ impl ChainController {
     pub fn truncate(&self, target_tip_hash: Byte32) -> Result<(), Error> {
         Request::call(&self.truncate_sender, target_tip_hash).unwrap_or_else(|| {
             Err(InternalErrorKind::System
-                .reason("Chain service has gone")
+                .other("Chain service has gone")
                 .into())
         })
     }

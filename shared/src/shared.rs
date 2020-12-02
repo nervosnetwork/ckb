@@ -49,7 +49,7 @@ impl Shared {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| InternalErrorKind::Database.reason("failed to get tip's block_ext"))?
+            .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
 
@@ -143,7 +143,7 @@ impl Shared {
                     }
                 } else {
                     Err(InternalErrorKind::Database
-                        .reason("genesis does not exist in database")
+                        .other("genesis does not exist in database")
                         .into())
                 }
             }

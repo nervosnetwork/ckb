@@ -2,13 +2,13 @@
 
 use crate::block_assembler::BlockAssembler;
 use crate::component::entry::TxEntry;
-use crate::error::handle_try_send_error;
+use crate::error::{handle_recv_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_error::Error;
+use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_notify::NotifyController;
@@ -22,7 +22,6 @@ use ckb_types::{
     packed::ProposalShortId,
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
@@ -55,7 +54,7 @@ impl<A> Notify<A> {
     }
 }
 
-pub(crate) type BlockTemplateResult = Result<BlockTemplate, FailureError>;
+pub(crate) type BlockTemplateResult = Result<BlockTemplate, AnyError>;
 type BlockTemplateArgs = (
     Option<u64>,
     Option<u64>,
@@ -124,7 +123,7 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> Result<BlockTemplateResult, FailureError> {
+    ) -> Result<BlockTemplateResult, AnyError> {
         self.get_block_template_with_block_assembler_config(
             bytes_limit,
             proposals_limit,
@@ -140,7 +139,7 @@ impl TxPoolController {
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<BlockTemplateResult, FailureError> {
+    ) -> Result<BlockTemplateResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(
@@ -159,11 +158,14 @@ impl TxPoolController {
                 e
             })?;
 
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Notify new uncle
-    pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), FailureError> {
+    pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify(uncle);
         sender.try_send(Message::NewUncle(notify)).map_err(|e| {
@@ -182,7 +184,7 @@ impl TxPoolController {
         attached_blocks: VecDeque<BlockView>,
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
-    ) -> Result<(), FailureError> {
+    ) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify((
             detached_blocks,
@@ -197,7 +199,7 @@ impl TxPoolController {
     }
 
     /// Submit local txs to tx-pool
-    pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, FailureError> {
+    pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(txs, responder);
@@ -205,15 +207,14 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
-    pub fn plug_entry(
-        &self,
-        entries: Vec<TxEntry>,
-        target: PlugTarget,
-    ) -> Result<(), FailureError> {
+    pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((entries, target), responder);
@@ -221,7 +222,10 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Receive txs from network, try to add txs to tx-pool
@@ -229,7 +233,7 @@ impl TxPoolController {
         &self,
         txs: Vec<TransactionView>,
         callback: NotifyTxsCallback,
-    ) -> Result<(), FailureError> {
+    ) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
         let notify = Notify::notify((txs, callback));
         sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
@@ -239,7 +243,7 @@ impl TxPoolController {
     }
 
     /// Return tx-pool information
-    pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, FailureError> {
+    pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
@@ -249,14 +253,17 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Return fresh proposals
     pub fn fresh_proposals_filter(
         &self,
         proposals: Vec<ProposalShortId>,
-    ) -> Result<Vec<ProposalShortId>, FailureError> {
+    ) -> Result<Vec<ProposalShortId>, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(proposals, responder);
@@ -266,11 +273,14 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Return tx for rpc
-    pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, FailureError> {
+    pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(id, responder);
@@ -278,14 +288,17 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Return txs for network
     pub fn fetch_txs(
         &self,
         short_ids: Vec<ProposalShortId>,
-    ) -> Result<HashMap<ProposalShortId, TransactionView>, FailureError> {
+    ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
@@ -293,14 +306,17 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Return txs with cycles
     pub fn fetch_txs_with_cycles(
         &self,
         short_ids: Vec<ProposalShortId>,
-    ) -> Result<FetchTxsWithCyclesResult, FailureError> {
+    ) -> Result<FetchTxsWithCyclesResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
@@ -310,11 +326,14 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Clears the tx-pool, removing all txs, update snapshot.
-    pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), FailureError> {
+    pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(new_snapshot, responder);
@@ -322,11 +341,14 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// TODO(doc): @zhangsoledad
-    pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, FailureError> {
+    pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
@@ -336,11 +358,14 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// TODO(doc): @zhangsoledad
-    pub fn get_all_ids(&self) -> Result<TxPoolIds, FailureError> {
+    pub fn get_all_ids(&self) -> Result<TxPoolIds, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
@@ -348,7 +373,10 @@ impl TxPoolController {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
-        self.handle.block_on(response).map_err(Into::into)
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 }
 

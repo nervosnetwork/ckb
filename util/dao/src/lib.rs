@@ -542,7 +542,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Internal(CapacityOverflow)"));
+            .contains("Internal(CapacityOverflow(OccupiedCapacity: overflow))"));
     }
 
     #[test]
