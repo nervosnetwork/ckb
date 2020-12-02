@@ -1,3 +1,9 @@
+# [v0.38.1](https://github.com/nervosnetwork/ckb/compare/v0.38.0...v0.38.1) (2020-12-02)
+
+### Bug Fixes
+
+* #2357: Conflict transaction stuck in the tx pool (@zhangsoledad)
+
 # [v0.38.0](https://github.com/nervosnetwork/ckb/compare/v0.37.0...v0.38.0) (2020-11-18)
 
 ### Features
