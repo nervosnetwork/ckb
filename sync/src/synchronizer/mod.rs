@@ -19,6 +19,7 @@ use crate::{
 };
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
+use ckb_error::AnyError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
 use ckb_network::{
@@ -30,7 +31,6 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::{
     collections::HashSet,
@@ -301,7 +301,7 @@ impl Synchronizer {
 
     /// TODO(doc): @driftluo
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
+    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, AnyError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding

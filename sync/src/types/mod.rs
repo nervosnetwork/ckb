@@ -10,6 +10,7 @@ use crate::{
 use ckb_app_config::SyncConfig;
 use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
 use ckb_metrics::{metrics, Timer};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
@@ -26,7 +27,6 @@ use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::cmp;
@@ -1268,7 +1268,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<bool, AnyError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         if !self.is_parent_stored(&block) {
             debug!(
@@ -1329,7 +1329,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<bool, AnyError> {
         let ret = {
             let mut assume_valid_target = self.state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {

@@ -17,8 +17,8 @@ ckb-notify = { path = "../../notify", version = "= 0.39.0-pre"}
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.39.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.39.0-pre"}
 ckb-app-config = { path = "../app-config", version = "= 0.39.0-pre" }
+ckb-error = { path = "../../error", version = "= 0.39.0-pre" }
 faketime = "0.2.0"
-failure = "0.1.5"
 lru = "0.6"
 semver = "0.9"
 

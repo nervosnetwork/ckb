@@ -558,11 +558,11 @@ name = "ckb-crypto"
 version = "0.39.0-pre"
 dependencies = [
  "ckb-fixed-hash",
- "failure",
  "faster-hex 0.4.1",
  "lazy_static",
  "rand 0.6.5",
  "secp256k1",
+ "thiserror",
 ]
 
 [[package]]
@@ -651,9 +651,9 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "0.39.0-pre"
 dependencies = [
- "failure",
  "faster-hex 0.4.1",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -807,6 +807,7 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-channel",
+ "ckb-error",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -815,7 +816,6 @@ dependencies = [
  "ckb-types",
  "console",
  "eaglesong",
- "failure",
  "futures 0.1.29",
  "hyper 0.12.35",
  "hyper-tls",
@@ -831,8 +831,8 @@ name = "ckb-multisig"
 version = "0.39.0-pre"
 dependencies = [
  "ckb-crypto",
+ "ckb-error",
  "ckb-logger",
- "failure",
  "rand 0.6.5",
 ]
 
@@ -876,6 +876,7 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-crypto",
+ "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-multisig",
@@ -883,7 +884,6 @@ dependencies = [
  "ckb-notify",
  "ckb-types",
  "ckb-util",
- "failure",
  "faketime",
  "lru",
  "semver",
@@ -1169,7 +1169,6 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "failure",
  "faketime",
  "futures 0.3.8",
  "lru",
