@@ -204,6 +204,14 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             .map(Into::into)
     }
 
+    /// Returns true if the transaction confirmed in main chain.
+    ///
+    /// This function is base on transaction index `COLUMN_TRANSACTION_INFO`.
+    /// Current release maintains a full index of historical transaction by default, this may be changed in future
+    fn transaction_exists(&'a self, hash: &packed::Byte32) -> bool {
+        self.get(COLUMN_TRANSACTION_INFO, hash.as_slice()).is_some()
+    }
+
     /// Get commit transaction and block hash by its hash
     fn get_transaction(
         &'a self,

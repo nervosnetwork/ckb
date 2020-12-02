@@ -747,18 +747,21 @@ fn _update_tx_pool_for_reorg(
     });
 
     // try move conflict to proposed
-    let mut removed_conflict = Vec::with_capacity(tx_pool.conflict.len());
-    for (key, entry) in tx_pool.conflict.iter() {
-        if snapshot.proposals().contains_proposed(key) {
-            removed_conflict.push(key.clone());
-            entries.push((entry.cache_entry, entry.size, entry.transaction.clone()));
-        } else if snapshot.proposals().contains_gap(key) {
-            removed_conflict.push(key.clone());
-            gaps.push((entry.cache_entry, entry.size, entry.transaction.clone()));
+    // If detached is not empty, check cached conflict tx again
+    if !detached.is_empty() {
+        let mut removed_conflict = Vec::with_capacity(tx_pool.conflict.len());
+        for (key, entry) in tx_pool.conflict.iter() {
+            if snapshot.proposals().contains_proposed(key) {
+                removed_conflict.push(key.clone());
+                entries.push((entry.cache_entry, entry.size, entry.transaction.clone()));
+            } else if snapshot.proposals().contains_gap(key) {
+                removed_conflict.push(key.clone());
+                gaps.push((entry.cache_entry, entry.size, entry.transaction.clone()));
+            }
         }
-    }
-    for removed_key in removed_conflict {
-        tx_pool.conflict.pop(&removed_key);
+        for removed_key in removed_conflict {
+            tx_pool.conflict.pop(&removed_key);
+        }
     }
 
     for (cycles, size, tx) in entries {

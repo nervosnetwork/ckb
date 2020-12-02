@@ -44,5 +44,9 @@ impl Spec for DifferentTxsWithSameInput {
 
         assert!(commit_txs_hash.contains(&tx2.hash()));
         assert!(!commit_txs_hash.contains(&tx1.hash()));
+
+        // when tx2 was confirmed, tx1 should be discarded
+        let tx = node0.rpc_client().get_transaction(tx1.hash());
+        assert!(tx.is_none(), "tx1 should be discarded");
     }
 }
