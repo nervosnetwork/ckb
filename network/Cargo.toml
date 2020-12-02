@@ -25,7 +25,7 @@ bs58 = "0.3.0"
 sentry = { version = "0.17.0", optional = true }
 faster-hex = "0.4"
 ckb-hash = {path = "../util/hash", version = "= 0.39.0-pre"}
-secp256k1 = {version = "0.17", features = ["recovery"] }
+secp256k1 = {version = "0.19", features = ["recovery"] }
 trust-dns-resolver = { version = "0.19" }
 num_cpus = "1.10"
 snap = "1"
