@@ -101,8 +101,13 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let mut parent = genesis_block.header();
-                    let epoch_ext =
-                        build_genesis_epoch_ext(DEFAULT_EPOCH_REWARD, DIFF_TWO, 1000, 14400);
+                    let epoch_ext = build_genesis_epoch_ext(
+                        DEFAULT_EPOCH_REWARD,
+                        DIFF_TWO,
+                        1000,
+                        14400,
+                        (1, 40),
+                    );
                     let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)
                         .initial_primary_epoch_reward(DEFAULT_EPOCH_REWARD)
                         .build();

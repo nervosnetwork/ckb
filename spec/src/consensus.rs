@@ -21,7 +21,6 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
     prelude::*,
-    u256,
     utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
     H160, H256, U256,
 };
@@ -50,7 +49,7 @@ const TAU: u64 = 2;
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
 // o_ideal = 1/40 = 2.5%
-const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("40"));
+pub(crate) const DEFAULT_ORPHAN_RATE_TARGET: (u32, u32) = (1, 40);
 
 const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
@@ -159,6 +158,7 @@ impl Default for ConsensusBuilder {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let primary_issuance =
             calculate_block_reward(INITIAL_PRIMARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
@@ -191,13 +191,16 @@ pub fn build_genesis_epoch_ext(
     compact_target: u32,
     genesis_epoch_length: BlockNumber,
     epoch_duration_target: u64,
+    genesis_orphan_rate: (u32, u32),
 ) -> EpochExt {
     let block_reward = Capacity::shannons(epoch_reward.as_u64() / genesis_epoch_length);
     let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % genesis_epoch_length);
 
-    let genesis_orphan_count = genesis_epoch_length / 40;
+    // let genesis_orphan_count = genesis_epoch_length * genesis_orphan_rate.0 / genesis_orphan_rate.1;
     let genesis_hash_rate = compact_to_difficulty(compact_target)
-        * (genesis_epoch_length + genesis_orphan_count)
+        * genesis_epoch_length
+        * (genesis_orphan_rate.0 + genesis_orphan_rate.1)
+        / genesis_orphan_rate.1
         / epoch_duration_target;
 
     EpochExt::new_builder()
@@ -233,6 +236,10 @@ pub fn build_genesis_dao_data(
 impl ConsensusBuilder {
     /// Generates the base configuration for build a Consensus, from which configuration methods can be chained.
     pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
+        let orphan_rate_target = RationalU256::new_raw(
+            U256::from(DEFAULT_ORPHAN_RATE_TARGET.0),
+            U256::from(DEFAULT_ORPHAN_RATE_TARGET.1),
+        );
         ConsensusBuilder {
             inner: Consensus {
                 genesis_hash: genesis_block.header().hash(),
@@ -240,7 +247,7 @@ impl ConsensusBuilder {
                 id: "main".to_owned(),
                 max_uncles_num: MAX_UNCLE_NUM,
                 initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
-                orphan_rate_target: ORPHAN_RATE_TARGET,
+                orphan_rate_target,
                 epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
                 secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
                 tx_proposal_window: TX_PROPOSAL_WINDOW,
@@ -343,6 +350,15 @@ impl ConsensusBuilder {
     #[must_use]
     pub fn initial_primary_epoch_reward(mut self, initial_primary_epoch_reward: Capacity) -> Self {
         self.inner.initial_primary_epoch_reward = initial_primary_epoch_reward;
+        self
+    }
+
+    /// Sets orphan_rate_target for the new Consensus.
+    pub fn orphan_rate_target(mut self, orphan_rate_target: (u32, u32)) -> Self {
+        self.inner.orphan_rate_target = RationalU256::new_raw(
+            U256::from(orphan_rate_target.0),
+            U256::from(orphan_rate_target.1),
+        );
         self
     }
 
@@ -963,6 +979,7 @@ pub mod test {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis, epoch_ext)
@@ -981,6 +998,7 @@ pub mod test {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis.clone(), epoch_ext)
