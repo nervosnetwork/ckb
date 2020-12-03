@@ -206,9 +206,9 @@ impl RPCError {
 
     /// TODO(doc): @doitian
     pub fn from_any_error(err: AnyError) -> Error {
-        match err.downcast::<CKBError>() {
-            Ok(ckb_error) => Self::from_ckb_error(ckb_error),
-            Err(err) => Self::ckb_internal_error(err),
+        match err.downcast_ref::<CKBError>() {
+            Some(ckb_error) => Self::from_ckb_error(ckb_error.clone()),
+            None => Self::ckb_internal_error(err.clone()),
         }
     }
 

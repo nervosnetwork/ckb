@@ -52,10 +52,10 @@ macro_rules! impl_error_conversion_with_adaptor {
 macro_rules! def_error_base_on_kind {
     ($error:ident, $error_kind:ty, $comment_error:expr, $comment_because:expr, $comment_simple:expr) => {
         #[doc = $comment_error]
-        #[derive(Error, Debug)]
+        #[derive(Error, Debug, Clone)]
         pub struct $error {
             kind: $error_kind,
-            source: $crate::AnyError,
+            inner: $crate::AnyError,
         }
 
         impl ::std::fmt::Display for $error {
@@ -86,7 +86,7 @@ macro_rules! def_error_base_on_kind {
             {
                 $error {
                     kind: self,
-                    source: reason.into(),
+                    inner: reason.into(),
                 }
             }
 
@@ -97,7 +97,7 @@ macro_rules! def_error_base_on_kind {
             {
                 $error {
                     kind: self,
-                    source: $crate::OtherError::new(reason.to_string()).into(),
+                    inner: $crate::OtherError::new(reason.to_string()).into(),
                 }
             }
         }
@@ -108,30 +108,22 @@ macro_rules! def_error_base_on_kind {
                 self.kind
             }
 
-            /// Attempt to downcast the error object to a concrete type.
-            pub fn downcast<E>(self) -> Result<E, $crate::AnyError>
-            where
-                E: ::std::fmt::Display + ::std::fmt::Debug + Send + Sync + 'static,
-            {
-                self.source.downcast::<E>()
-            }
-
             /// Downcast this error object by reference.
             pub fn downcast_ref<E>(&self) -> Option<&E>
             where
                 E: ::std::fmt::Display + ::std::fmt::Debug + Send + Sync + 'static,
             {
-                self.source.downcast_ref::<E>()
+                self.inner.downcast_ref::<E>()
             }
 
             /// The lowest level cause of this error — this error's cause's cause's cause etc.
             pub fn root_cause(&self) -> &(dyn ::std::error::Error + 'static) {
-                self.source.root_cause()
+                self.inner.root_cause()
             }
 
             /// The lower-level source of this error, if any.
             pub fn cause(&self) -> Option<&(dyn ::std::error::Error + 'static)> {
-                self.source.chain().next()
+                self.inner.chain().next()
             }
         }
     };
