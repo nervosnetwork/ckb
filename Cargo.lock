@@ -1301,9 +1301,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.19.2"
+version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8acac1ef10d936825955474c2a12c5bbde9b824a450b3b6dfe3724112d8ae5"
+checksum = "bfc2fb181a6653bb13315dc7f60fbe32cd3d697553b24687613da984faf2a2c5"
 dependencies = [
  "byteorder",
  "bytes 0.5.6",
@@ -1312,15 +1312,15 @@ dependencies = [
  "derive_more",
  "goblin",
  "libc",
- "memmap",
+ "mapr",
  "scroll",
 ]
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.19.2"
+version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "062e91a4ae2eb8a79ad9ba78471bff0eb82ea313a4d6a04b2d454c6553b13fa9"
+checksum = "ea76d3867d00736c64876ab0cd304be73691b91990a90ebbf100d36af85fdb05"
 
 [[package]]
 name = "clap"
@@ -2953,6 +2953,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mapr"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46a28a55dbc005b2f6f123c4058933d57add373d362f6fd3a76aab4fe6973500"
+dependencies = [
+ "libc",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2977,16 +2987,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memmap"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6585fd95e7bb50d6cc31e20d4cf9afb4e2ba16c5846fc76793f11218da9c475b"
-dependencies = [
- "libc",
- "winapi 0.3.8",
 ]
 
 [[package]]
