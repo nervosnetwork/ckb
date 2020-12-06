@@ -255,3 +255,33 @@ fn truncate() {
     let retrieve_out_of_bound = freezer.retrieve(2).unwrap();
     assert_eq!(None, retrieve_out_of_bound);
 }
+
+#[test]
+fn open_files_limit_retrieve() {
+    let tempdir = tempfile::Builder::new().tempdir().unwrap();
+    let mut freezer = FreezerFilesBuilder::new(tempdir.path().to_path_buf())
+        .enable_compression(false)
+        .max_file_size(10)
+        .open_files_limit(2)
+        .build()
+        .unwrap();
+
+    freezer.preopen().unwrap();
+    for i in 1..100 {
+        let data = make_bytes(15, i);
+        freezer.append(i.into(), &data).unwrap();
+    }
+
+    assert_eq!(freezer.number(), 100);
+    for i in 1..100 {
+        let expect = make_bytes(15, i);
+        let actual = freezer.retrieve(i.into()).unwrap();
+        assert_eq!(Some(expect), actual);
+    }
+
+    for i in (1..100).rev() {
+        let expect = make_bytes(15, i);
+        let actual = freezer.retrieve(i.into()).unwrap();
+        assert_eq!(Some(expect), actual);
+    }
+}

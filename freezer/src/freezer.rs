@@ -42,7 +42,7 @@ impl Freezer {
             .open(lock_path)
             .map_err(internal_error)?;
         lock.try_lock_exclusive().map_err(internal_error)?;
-        let files = FreezerFiles::open(path).map_err(internal_error)?;
+        let mut files = FreezerFiles::open(path).map_err(internal_error)?;
         let freezer_number = files.number();
 
         let mut tip = None;
