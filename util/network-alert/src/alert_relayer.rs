@@ -23,7 +23,6 @@ const KNOWN_LIST_SIZE: usize = 64;
 
 /// AlertRelayer
 /// relay alert messages
-
 pub struct AlertRelayer {
     notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
@@ -31,7 +30,7 @@ pub struct AlertRelayer {
 }
 
 impl AlertRelayer {
-    /// TODO(doc): @driftluo
+    /// Init
     pub fn new(
         client_version: String,
         notify_controller: NotifyController,
@@ -44,12 +43,12 @@ impl AlertRelayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get notifier
     pub fn notifier(&self) -> &Arc<Mutex<Notifier>> {
         &self.notifier
     }
 
-    /// TODO(doc): @driftluo
+    /// Get verifier
     pub fn verifier(&self) -> &Arc<Verifier> {
         &self.verifier
     }

@@ -198,17 +198,19 @@ impl BlockFetchCMD {
     }
 }
 
-/// TODO(doc): @driftluo
+/// Sync protocol handle
 #[derive(Clone)]
 pub struct Synchronizer {
     chain: ChainController,
-    /// TODO(doc): @driftluo
+    /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
-    /// TODO(doc): @driftluo
+    /// Init sync protocol handle
+    ///
+    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
@@ -217,7 +219,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get shared state
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -277,7 +279,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get peers info
     pub fn peers(&self) -> &Peers {
         self.shared().state().peers()
     }
@@ -299,7 +301,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Process a new block sync from other peer
     //TODO: process block which we don't request
     pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
         let block_hash = block.hash();
@@ -321,7 +323,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get blocks to fetch
     pub fn get_blocks_to_fetch(
         &self,
         peer: PeerIndex,
@@ -359,7 +361,7 @@ impl Synchronizer {
         );
     }
 
-    /// TODO(doc): @driftluo
+    /// Regularly check and eject some nodes that do not respond in time
     //   - If at timeout their best known block now has more work than our tip
     //     when the timeout was set, then either reset the timeout or clear it
     //     (after comparing against our current tip's work)

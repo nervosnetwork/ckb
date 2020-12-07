@@ -14,7 +14,7 @@ pub enum Behaviour {
 }
 
 impl Behaviour {
-    /// TODO(doc): @driftluo
+    /// Behaviour score
     pub fn score(self) -> Score {
         #[cfg(test)]
         match self {

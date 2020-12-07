@@ -1,4 +1,4 @@
-//! TODO(doc): @driftluo
+//! Peer registry
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
@@ -13,7 +13,7 @@ use std::iter::FromIterator;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
-/// TODO(doc): @driftluo
+/// Memory records of opened session information
 pub struct PeerRegistry {
     peers: HashMap<SessionId, Peer>,
     // max inbound limitation
@@ -26,18 +26,18 @@ pub struct PeerRegistry {
     feeler_peers: HashSet<PeerId>,
 }
 
-/// TODO(doc): @driftluo
+/// Global network connection status
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectionStatus {
-    /// TODO(doc): @driftluo
+    /// Total session number
     pub total: u32,
-    /// TODO(doc): @driftluo
+    /// Not whitelist inbound number
     pub non_whitelist_inbound: u32,
-    /// TODO(doc): @driftluo
+    /// Not whitelist outbound number
     pub non_whitelist_outbound: u32,
-    /// TODO(doc): @driftluo
+    /// Maximum number of inbound session
     pub max_inbound: u32,
-    /// TODO(doc): @driftluo
+    /// Maximum number of outbound session
     pub max_outbound: u32,
 }
 
@@ -52,7 +52,7 @@ where
 }
 
 impl PeerRegistry {
-    /// TODO(doc): @driftluo
+    /// Init registry from config
     pub fn new(
         max_inbound: u32,
         max_outbound: u32,
@@ -187,27 +187,27 @@ impl PeerRegistry {
         })
     }
 
-    /// TODO(doc): @driftluo
+    /// Add feeler dail task
     pub fn add_feeler(&mut self, peer_id: PeerId) {
         self.feeler_peers.insert(peer_id);
     }
 
-    /// TODO(doc): @driftluo
+    /// Remove feeler dail task on session disconnects or fails
     pub fn remove_feeler(&mut self, peer_id: &PeerId) {
         self.feeler_peers.remove(peer_id);
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether this session is feeler session
     pub fn is_feeler(&self, peer_id: &PeerId) -> bool {
         self.feeler_peers.contains(peer_id)
     }
 
-    /// TODO(doc): @driftluo
+    /// Get peer info
     pub fn get_peer(&self, session_id: SessionId) -> Option<&Peer> {
         self.peers.get(&session_id)
     }
 
-    /// TODO(doc): @driftluo
+    /// Get mut peer info
     pub fn get_peer_mut(&mut self, session_id: SessionId) -> Option<&mut Peer> {
         self.peers.get_mut(&session_id)
     }
@@ -216,7 +216,7 @@ impl PeerRegistry {
         self.peers.remove(&session_id)
     }
 
-    /// TODO(doc): @driftluo
+    /// Get session id by peer id
     pub fn get_key_by_peer_id(&self, peer_id: &PeerId) -> Option<SessionId> {
         self.peers.values().find_map(|peer| {
             if &peer.peer_id == peer_id {
@@ -232,12 +232,12 @@ impl PeerRegistry {
             .and_then(|session_id| self.peers.remove(&session_id))
     }
 
-    /// TODO(doc): @driftluo
+    /// Get all connected peers' information
     pub fn peers(&self) -> &HashMap<SessionId, Peer> {
         &self.peers
     }
 
-    /// TODO(doc): @driftluo
+    /// Get all sessions' id
     pub fn connected_peers(&self) -> Vec<SessionId> {
         self.peers.keys().cloned().collect()
     }
