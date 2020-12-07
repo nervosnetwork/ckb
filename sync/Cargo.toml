@@ -32,7 +32,7 @@ futures = "0.3"
 ckb-error = {path = "../error", version = "= 0.39.0-pre"}
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.39.0-pre" }
 ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.39.0-pre" }
-ratelimit_meter = "5.0"
+governor = "0.3.1"
 tempfile = "3.0"
 
 [dev-dependencies]
