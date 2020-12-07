@@ -77,7 +77,7 @@ pub struct ChainSpec {
 /// The default_params mod defines the default parameters for CKB Mainnet
 pub mod default_params {
     use crate::consensus::{
-        CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
+        CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET, DEFAULT_ORPHAN_RATE_TARGET,
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
         GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_BYTES, MAX_BLOCK_CYCLES,
         MAX_BLOCK_PROPOSALS_LIMIT,
@@ -153,6 +153,13 @@ pub mod default_params {
     pub fn permanent_difficulty_in_dummy() -> bool {
         false
     }
+
+    /// The default orphan_rate_target
+    ///
+    /// Apply to [`orphan_rate_target`](../consensus/struct.Consensus.html#structfield.orphan_rate_target)
+    pub fn orphan_rate_target() -> (u32, u32) {
+        DEFAULT_ORPHAN_RATE_TARGET
+    }
 }
 
 /// Parameters for CKB block chain
@@ -208,6 +215,11 @@ pub struct Params {
     /// See [`max_block_proposals_limit`](consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_block_proposals_limit: Option<u64>,
+    /// The orphan_rate_target
+    ///
+    /// See [`orphan_rate_target`](consensus/struct.Consensus.html#structfield.orphan_rate_target)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphan_rate_target: Option<(u32, u32)>,
 }
 
 impl Params {
@@ -269,6 +281,12 @@ impl Params {
     pub fn max_block_proposals_limit(&self) -> BlockNumber {
         self.max_block_proposals_limit
             .unwrap_or_else(default_params::max_block_proposals_limit)
+    }
+
+    /// Return the `orphan_rate_target`, otherwise if None, returns the default value
+    pub fn orphan_rate_target(&self) -> (u32, u32) {
+        self.orphan_rate_target
+            .unwrap_or_else(default_params::orphan_rate_target)
     }
 }
 
@@ -450,6 +468,7 @@ impl ChainSpec {
             self.genesis.compact_target,
             self.params.genesis_epoch_length(),
             self.params.epoch_duration_target(),
+            self.params.orphan_rate_target(),
         );
         let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
@@ -472,6 +491,7 @@ impl ChainSpec {
             .epoch_duration_target(self.params.epoch_duration_target())
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
             .max_block_proposals_limit(self.params.max_block_proposals_limit())
+            .orphan_rate_target(self.params.orphan_rate_target())
             .build();
 
         Ok(consensus)
@@ -1083,6 +1103,16 @@ pub mod test {
         let params: Params = toml::from_str(&test_params).unwrap();
         let mut expected = Params::default();
         expected.max_block_proposals_limit = Some(100);
+
+        assert_eq!(params, expected);
+
+        let test_params: &str = r#"
+            orphan_rate_target = [1, 40]
+        "#;
+
+        let params: Params = toml::from_str(&test_params).unwrap();
+        let mut expected = Params::default();
+        expected.orphan_rate_target = Some((1, 40));
 
         assert_eq!(params, expected);
     }

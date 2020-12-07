@@ -14,7 +14,7 @@ use ipnetwork::IpNetwork;
 use std::cell::{Ref, RefCell};
 use std::collections::{hash_map::Entry, HashMap};
 
-/// TODO(doc): @driftluo
+/// Peer store
 #[derive(Default)]
 pub struct PeerStore {
     addr_manager: AddrManager,
@@ -24,7 +24,7 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    /// TODO(doc): @driftluo
+    /// New with address list and ban list
     pub fn new(addr_manager: AddrManager, ban_list: BanList) -> Self {
         PeerStore {
             addr_manager,
@@ -83,12 +83,12 @@ impl PeerStore {
         Ok(())
     }
 
-    /// TODO(doc): @driftluo
+    /// Get address manager
     pub fn addr_manager(&self) -> &AddrManager {
         &self.addr_manager
     }
 
-    /// TODO(doc): @driftluo
+    /// Get mut address manager
     pub fn mut_addr_manager(&mut self) -> &mut AddrManager {
         &mut self.addr_manager
     }
@@ -115,12 +115,12 @@ impl PeerStore {
         Ok(ReportResult::Ok)
     }
 
-    /// TODO(doc): @driftluo
+    /// Remove peer id
     pub fn remove_disconnected_peer(&mut self, peer_id: &PeerId) -> Option<PeerInfo> {
         self.peers.borrow_mut().remove(peer_id)
     }
 
-    /// TODO(doc): @driftluo
+    /// Get peer status
     pub fn peer_status(&self, peer_id: &PeerId) -> Status {
         if self.peers.borrow().contains_key(peer_id) {
             Status::Connected
@@ -160,7 +160,7 @@ impl PeerStore {
             })
     }
 
-    /// return valid addrs that success connected, used for discovery.
+    /// Return valid addrs that success connected, used for discovery.
     pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
@@ -203,27 +203,27 @@ impl PeerStore {
         Ok(())
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether the address is banned
     pub fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
         self.ban_list().is_addr_banned(addr)
     }
 
-    /// TODO(doc): @driftluo
+    /// Get ban list
     pub fn ban_list(&self) -> Ref<BanList> {
         self.ban_list.borrow()
     }
 
-    /// TODO(doc): @driftluo
+    /// Get mut ban list
     pub fn mut_ban_list(&mut self) -> &mut BanList {
         self.ban_list.get_mut()
     }
 
-    /// TODO(doc): @driftluo
+    /// Clear ban list
     pub fn clear_ban_list(&self) {
         self.ban_list.replace(Default::default());
     }
 
-    /// check and try delete addrs if reach limit
+    /// Check and try delete addrs if reach limit
     /// return Err if peer_store is full and can't be purge
     fn check_purge(&mut self) -> Result<()> {
         if self.addr_manager.count() < ADDR_COUNT_LIMIT {

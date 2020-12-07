@@ -5,5 +5,5 @@ mod migrations;
 mod store;
 mod types;
 
-pub use store::{DefaultIndexerStore, IndexerStore};
+pub use store::{DefaultIndexerStore, Dummy, IndexerStore};
 pub use types::{CellTransaction, LiveCell, TransactionPoint};

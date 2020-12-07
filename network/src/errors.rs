@@ -1,4 +1,4 @@
-//! TODO(doc): @driftluo
+//! Error module
 use p2p::{
     error::{
         DialerErrorKind, ListenErrorKind, ProtocolHandleErrorKind, SendErrorKind,
@@ -11,73 +11,73 @@ use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
 
-/// TODO(doc): @driftluo
+/// Alias result on network module
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-/// TODO(doc): @driftluo
+/// All error on network module
 #[derive(Debug)]
 pub enum Error {
-    /// TODO(doc): @driftluo
+    /// Peer error
     Peer(PeerError),
-    /// TODO(doc): @driftluo
+    /// Io error
     Io(IoError),
-    /// TODO(doc): @driftluo
+    /// Error from tentacle
     P2P(P2PError),
-    /// TODO(doc): @driftluo
+    /// Address error
     Addr(AddrError),
-    /// TODO(doc): @driftluo
+    /// Dail error
     Dial(String),
-    /// TODO(doc): @driftluo
+    /// Peer store error
     PeerStore(PeerStoreError),
 }
 
-/// TODO(doc): @driftluo
+/// Error from tentacle
 #[derive(Debug)]
 pub enum P2PError {
-    /// TODO(doc): @driftluo
+    /// Not support transport or some other error
     Transport(TransportErrorKind),
-    /// TODO(doc): @driftluo
+    /// Handle panic or other error
     Protocol(ProtocolHandleErrorKind),
-    /// TODO(doc): @driftluo
+    /// Dail error
     Dail(DialerErrorKind),
-    /// TODO(doc): @driftluo
+    /// Listen error
     Listen(ListenErrorKind),
-    /// TODO(doc): @driftluo
+    /// Net shutdown or too many messages blocked on
     Send(SendErrorKind),
 }
 
-/// TODO(doc): @driftluo
+/// Peer store error
 #[derive(Debug)]
 pub enum PeerStoreError {
-    /// indicate the peer store is full
+    /// Indicate the peer store is full
     EvictionFailed,
-    /// TODO(doc): @driftluo
+    /// File data is not json format
     Serde(serde_json::Error),
 }
 
-/// TODO(doc): @driftluo
+/// Peer error
 #[derive(Debug, Eq, PartialEq)]
 pub enum PeerError {
-    /// TODO(doc): @driftluo
+    /// Session already exists
     SessionExists(SessionId),
-    /// TODO(doc): @driftluo
+    /// Peer id exist
     PeerIdExists(PeerId),
-    /// TODO(doc): @driftluo
+    /// Non-reserved peers
     NonReserved,
-    /// TODO(doc): @driftluo
+    /// Peer is banned
     Banned,
-    /// TODO(doc): @driftluo
+    /// Reach max inbound limit
     ReachMaxInboundLimit,
-    /// TODO(doc): @driftluo
+    /// Reach max outbound limit
     ReachMaxOutboundLimit,
 }
 
-/// TODO(doc): @driftluo
+/// Address error
 #[derive(Debug)]
 pub enum AddrError {
-    /// TODO(doc): @driftluo
+    /// Missing ip
     MissingIP,
-    /// TODO(doc): @driftluo
+    /// Missing port
     MissingPort,
 }
 

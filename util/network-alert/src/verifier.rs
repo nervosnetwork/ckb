@@ -1,4 +1,9 @@
-//! TODO(doc): @driftluo
+//! verify module
+//!
+//! The message of this protocol must be verified by multi-signature before notifying the user.
+//! The implementation of any client must be consistent with ckb to prevent useless information from being broadcast on the entire network.
+//! The set of public keys is currently in the possession of the Nervos foundation
+//!
 use ckb_app_config::NetworkAlertConfig;
 use ckb_error::AnyError;
 use ckb_logger::{debug, trace};
@@ -6,14 +11,14 @@ use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 
-/// TODO(doc): @driftluo
+/// Message verify
 pub struct Verifier {
     config: NetworkAlertConfig,
     pubkeys: HashSet<Pubkey>,
 }
 
 impl Verifier {
-    /// TODO(doc): @driftluo
+    /// Init with ckb alert config
     pub fn new(config: NetworkAlertConfig) -> Self {
         let pubkeys = config
             .public_keys
@@ -24,7 +29,7 @@ impl Verifier {
         Verifier { config, pubkeys }
     }
 
-    /// TODO(doc): @driftluo
+    /// Verify signatures
     pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), AnyError> {
         trace!("verify alert {:?}", alert);
         let message = Message::from_slice(alert.calc_alert_hash().as_slice())?;

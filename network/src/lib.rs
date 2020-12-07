@@ -1,4 +1,11 @@
-//! TODO(doc): @driftluo
+//! ckb network module
+//!
+//! This module is based on the Tentacle library, once again abstract the context that protocols can use,
+//! and providing a unified implementation of the peer storage and registration mechanism.
+//!
+//! And implemented several basic protocols: identify, discovery, ping, feeler, disconnect_message
+//!
+
 mod behaviour;
 mod compress;
 pub mod errors;
@@ -34,5 +41,5 @@ pub use p2p::{
 };
 pub use tokio;
 
-/// TODO(doc): @driftluo
+/// Protocol version used by network protocol open
 pub type ProtocolVersion = String;
