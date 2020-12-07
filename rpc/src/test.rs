@@ -309,7 +309,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         rpc_server.http_address().ip(),
         rpc_server.http_address().port()
     );
-    let rpc_client = reqwest::Client::new();
+    let rpc_client = reqwest::blocking::Client::new();
 
     let suite = RpcTestSuite {
         shared,
@@ -576,7 +576,7 @@ impl RpcTestExample {
 
 #[allow(dead_code)]
 struct RpcTestSuite {
-    rpc_client: reqwest::Client,
+    rpc_client: reqwest::blocking::Client,
     rpc_uri: String,
     shared: Shared,
     chain_controller: ChainController,

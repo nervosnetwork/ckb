@@ -19,8 +19,7 @@ use failure::Error;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
-        .gzip(true)
+    pub static ref HTTP_CLIENT: reqwest::blocking::Client = reqwest::blocking::Client::builder()
         .timeout(::std::time::Duration::from_secs(30))
         .build()
         .expect("reqwest Client build");
