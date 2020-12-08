@@ -50,6 +50,10 @@ The `master` branch is regularly built and tested, however, it is not guaranteed
 
 The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md). To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
 
+## Minimum Supported Rust Version policy (MSRV)
+
+The crate `ckb`'s minimum supported rustc version is 1.46.0.
+
 ---
 
 ## Documentations

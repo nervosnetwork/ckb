@@ -5,13 +5,14 @@ set -u
 [ -n "${DEBUG:-}" ] && set -x || true
 
 CRATES="$(cat Cargo.toml| sed -n -e '0, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
+RUST_VERSION="$(cat rust-toolchain)"
 
 retry_cargo_publish() {
   # Ignore dev dependencies
   rm -f Cargo.toml.bak
   sed -i.bak -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' Cargo.toml
 
-  local RETRIES=3
+  local RETRIES=5
   local INTERVAL=2
   local EXITSTATUS=127
   while [ $RETRIES != 0 ]; do
@@ -34,6 +35,7 @@ retry_cargo_publish() {
   done
 
   rm -f cargo-publish.log
+  git clean -f README.md
   if [ -f Cargo.toml.bak ]; then
     mv -f Cargo.toml.bak Cargo.toml
   fi
@@ -44,19 +46,50 @@ retry_cargo_publish() {
   fi
 }
 
+generate_readme() {
+  CRATE_DESCRIPTION="$(sed -n -e '/^description\s*=\s*"""/,/^"""/p' -e 's/description\s*=\s*"\([^"].*\)"$/\1/p' Cargo.toml | grep -v '"""$')"
+  CRATE_NAME="$(sed -n -e 's/name\s*=\s*"\([^"].*\)"$/\1/p' Cargo.toml)"
+
+  echo "# $CRATE_NAME" > README.md
+  echo >> README.md
+  echo "This crate is a component of [ckb](https://github.com/nervosnetwork/ckb)." >> README.md
+  echo >> README.md
+  echo "$CRATE_DESCRIPTION" >> README.md
+  echo >> README.md
+  echo '## Minimum Supported Rust Version policy (MSRV)' >> README.md
+  echo >> README.md
+  echo "This crate's minimum supported rustc version is $RUST_VERSION" >> README.md
+}
+
 cp -f Cargo.lock Cargo.lock.bak
+
+PUBLISH_FROM="${CKB_PUBLISH_FROM:-}"
+SKIP=false
+if [ -n "$PUBLISH_FROM" ]; then
+  SKIP=true
+fi
+
 for crate_dir in $CRATES; do
   case "$crate_dir" in
-    benches | util/test-chain-utils | util/instrument | util/metrics-service | ckb-bin)
+    benches | util/test-chain-utils )
       # ignore
       ;;
     *)
-      echo "=> publish $crate_dir"
-      pushd "$crate_dir"
-      retry_cargo_publish "$@"
-      popd
-      rm -rf target/package/*
+      if [ "$crate_dir" = "$PUBLISH_FROM" ]; then
+        SKIP=false
+      fi
+      if [ "$SKIP" = true ]; then
+        echo "=> skip $crate_dir"
+      else
+        echo "=> publish $crate_dir"
+        pushd "$crate_dir"
+        generate_readme
+        retry_cargo_publish "$@"
+        popd
+        rm -rf target/package/*
+      fi
       ;;
   esac
 done
+retry_cargo_publish "$@"
 mv -f Cargo.lock.bak Cargo.lock
