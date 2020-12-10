@@ -8,9 +8,8 @@ description = "TODO(doc): @keroro520 crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-failure = "0.1.5"
+thiserror = "1.0.22"
+anyhow = "1.0.34"
 ckb-occupied-capacity = { path = "../util/occupied-capacity", version = "= 0.39.0-pre" }
 derive_more = { version = "0.99.0", default-features = false, features = ["display"] }

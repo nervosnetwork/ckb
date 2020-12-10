@@ -14,7 +14,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-types = { path = "../util/types", version = "= 0.39.0-pre" }
 ckb-logger = {path = "../util/logger", version = "= 0.39.0-pre"}
 ckb-verification = { path = "../verification", version = "= 0.39.0-pre" }
-failure = "0.1.5"
 faketime = "0.2"
 lru = "0.6.0"
 ckb-dao = { path = "../util/dao", version = "= 0.39.0-pre" }

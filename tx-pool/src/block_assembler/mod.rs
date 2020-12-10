@@ -1,10 +1,11 @@
 mod candidate_uncles;
 
 use crate::component::entry::TxEntry;
-use crate::error::BlockAssemblerError as Error;
+use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
@@ -18,7 +19,6 @@ use ckb_types::{
     packed::{self, Byte32, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Transaction},
     prelude::*,
 };
-use failure::Error as FailureError;
 use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, Arc};
@@ -130,7 +130,7 @@ impl BlockAssembler {
         cellbase: Transaction,
         uncles: &[UncleBlockView],
         proposals: &HashSet<ProposalShortId>,
-    ) -> Result<usize, FailureError> {
+    ) -> Result<usize, AnyError> {
         let empty_dao = packed::Byte32::default();
         let raw_header = packed::RawHeader::new_builder().dao(empty_dao).build();
         let header = packed::Header::new_builder().raw(raw_header).build();
@@ -148,9 +148,9 @@ impl BlockAssembler {
             .build();
         let serialized_size = block.serialized_size_without_uncle_proposals();
         let bytes_limit = bytes_limit as usize;
-        bytes_limit
-            .checked_sub(serialized_size)
-            .ok_or_else(|| Error::InvalidParams(format!("bytes_limit {}", bytes_limit)).into())
+        bytes_limit.checked_sub(serialized_size).ok_or_else(|| {
+            BlockAssemblerError::InvalidParams(format!("bytes_limit {}", bytes_limit)).into()
+        })
     }
 
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
@@ -161,7 +161,7 @@ impl BlockAssembler {
         snapshot: &Snapshot,
         tip: &HeaderView,
         cellbase_witness: CellbaseWitness,
-    ) -> Result<TransactionView, FailureError> {
+    ) -> Result<TransactionView, AnyError> {
         let candidate_number = tip.number() + 1;
 
         let tx = {

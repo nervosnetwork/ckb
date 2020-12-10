@@ -22,7 +22,6 @@ ckb-dao = { path = "../util/dao", version = "= 0.39.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.39.0-pre" }
 ckb-logger = {path = "../util/logger", version = "= 0.39.0-pre"}
 ckb-reward-calculator= { path = "../util/reward-calculator", version = "= 0.39.0-pre" }
-failure = "0.1.5"
 ckb-error = { path = "../error", version = "= 0.39.0-pre" }
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }

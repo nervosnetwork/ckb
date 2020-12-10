@@ -254,7 +254,7 @@ impl MinerRpc for MinerRpcImpl {
             })?
             .map_err(|err| {
                 error!("get_block_template result error {}", err);
-                RPCError::from_failure_error(err)
+                RPCError::from_any_error(err)
             })
     }
 
