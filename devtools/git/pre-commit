@@ -90,7 +90,7 @@ else
         "protocol/src/protocol_generated_verifier.rs"|"protocol/src/protocol_generated.rs")
           ;;
         *)
-          if ! rustfmt --check "$file"; then
+          if ! rustfmt --check "$file" --edition 2018; then
             FAILED=1
             FMTFAILED=1
           fi
