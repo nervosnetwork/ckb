@@ -1,4 +1,4 @@
-//! TODO(doc): @keroro520
+//! Underlying error types used over ckb crates.
 
 use std::{error::Error as StdError, fmt, ops::Deref, sync::Arc};
 
@@ -15,30 +15,54 @@ use prelude::*;
 #[derive(Debug, Clone)]
 pub struct AnyError(Arc<anyhow::Error>);
 
-/// TODO(doc): @keroro520
+/// A list specifying categories of ckb error.
+///
+/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+///
+/// It is used with [`Error`].
+///
+/// [`Error`]: ./struct.Error.html
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum ErrorKind {
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`OutPointError`].
+    ///
+    /// [`OutPointError`]: ../ckb_types/core/error/enum.OutPointError.html
     OutPoint,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`TransactionError`].
+    ///
+    /// [`TransactionError`]: ../ckb_verification/enum.TransactionError.html
     Transaction,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`Reject`].
+    ///
+    /// [`Reject`]: ../ckb_tx_pool/error/enum.Reject.html
     SubmitTransaction,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`TransactionScriptError`].
+    ///
+    /// [`TransactionScriptError`]: ../ckb_script/struct.TransactionScriptError.html
     Script,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`HeaderError`].
+    ///
+    /// [`HeaderError`]: ../ckb_verification/struct.HeaderError.html
     Header,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`BlockError`]
+    ///
+    /// [`BlockError`]: ../ckb_verification/struct.BlockError.html
     Block,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`InternalError`]
+    ///
+    /// [`InternalError`]: ./struct.InternalError.html
     Internal,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`DaoError`]
+    ///
+    /// [`DaoError`]: ../ckb_types/core/error/enum.OutPointError.html
     Dao,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`SpecError`]
+    ///
+    /// [`SpecError`]: ../ckb_chain_spec/enum.SpecError.html
     Spec,
 }
 
-def_error_base_on_kind!(Error, ErrorKind);
+def_error_base_on_kind!(Error, ErrorKind, "Top-level ckb error type.");
 
 impl<E> From<E> for AnyError
 where

@@ -1,8 +1,9 @@
-//! TODO(doc): @keroro520
+//! Error-related macros
 
-/// Compare two errors
+/// Compare two errors.
 ///
-/// Used for testing only
+/// NOTE: Used for testing only!
+#[doc(hidden)]
 #[macro_export]
 macro_rules! assert_error_eq {
     ($left:expr, $right:expr) => {
@@ -23,7 +24,27 @@ macro_rules! assert_error_eq {
     }
 }
 
-/// TODO(doc): @keroro520
+/// A macro to implement conversion from source type to target type with an implicit error kind.
+///
+/// ## Examples
+///
+/// ```ignore
+/// impl_error_conversion_with_kind!(SourceType, error_kind, TargetType)
+/// ```
+///
+/// the expanded code:
+///
+/// ```ignore
+/// impl From<SourceType> for TargetType {
+///     fn from(source: SourceType) -> TargetType {
+///         TargetType {
+///             kind: error_kind,
+///             inner: source.into(),
+///         }
+///     }
+/// }
+/// ```
+#[doc(hidden)]
 #[macro_export]
 macro_rules! impl_error_conversion_with_kind {
     ($source:ty, $kind:expr, $target:ty) => {
@@ -35,7 +56,26 @@ macro_rules! impl_error_conversion_with_kind {
     };
 }
 
-/// TODO(doc): @keroro520
+/// A macro to implement conversion from source type to target type based on an implicit middle adaptor.
+///
+/// ## Examples
+///
+/// ```ignore
+/// impl_error_conversion_with_adaptor!(SourceType, AdaptorType, TargetType)
+/// ```
+///
+/// the expanded code:
+///
+/// ```ignore
+/// impl From<SourceType> for TargetType {
+///     fn from(source: SourceType) -> TargetType {
+///         let adaptor: AdaptorType = source.into();
+///         let target: TargetType = adaptor.into();
+///         target
+///     }
+/// }
+/// ```
+#[doc(hidden)]
 #[macro_export]
 macro_rules! impl_error_conversion_with_adaptor {
     ($source:ty, $adaptor:ty, $target:ty) => {
