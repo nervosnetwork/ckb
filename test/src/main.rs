@@ -20,6 +20,19 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum TestResultStatus {
+    Passed,
+    Failed,
+    Panicked,
+}
+
+struct TestResult {
+    spec_name: String,
+    status: TestResultStatus,
+    duration: u64,
+}
+
 #[allow(clippy::cognitive_complexity)]
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
@@ -72,6 +85,7 @@ fn main() {
     workers.start();
 
     let mut rerun_specs = Vec::new();
+    let mut test_results = Vec::new();
     let mut worker_running = worker_count;
     let mut done_specs = 0;
     while worker_running > 0 {
@@ -96,8 +110,14 @@ fn main() {
             Notify::Error {
                 spec_error,
                 spec_name,
+                seconds,
                 node_log_paths,
             } => {
+                test_results.push(TestResult {
+                    spec_name: spec_name.clone(),
+                    status: TestResultStatus::Failed,
+                    duration: seconds,
+                });
                 error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name.clone());
                 if fail_fast {
@@ -112,8 +132,14 @@ fn main() {
             }
             Notify::Panick {
                 spec_name,
+                seconds,
                 node_log_paths,
             } => {
+                test_results.push(TestResult {
+                    spec_name: spec_name.clone(),
+                    status: TestResultStatus::Panicked,
+                    duration: seconds,
+                });
                 error_spec_names.push(spec_name.clone());
                 rerun_specs.push(spec_name.clone());
                 if fail_fast {
@@ -127,6 +153,11 @@ fn main() {
                 }
             }
             Notify::Done { spec_name, seconds } => {
+                test_results.push(TestResult {
+                    spec_name: spec_name.clone(),
+                    status: TestResultStatus::Passed,
+                    duration: seconds,
+                });
                 done_specs += 1;
                 info!(
                     "{}/{} .............. [{}] Done in {} seconds",
@@ -149,7 +180,8 @@ fn main() {
         );
     }
 
-    info!("Total elapsed time: {:?}", start_time.elapsed());
+    print_results(test_results);
+    println!("Total elapsed time: {:?}", start_time.elapsed());
 
     rerun_specs.extend(specs.lock().iter().map(|t| t.name().to_string()));
 
@@ -476,4 +508,20 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
     }
 
     Ok(())
+}
+
+fn print_results(mut test_results: Vec<TestResult>) {
+    println!("{}", "-".repeat(20));
+    println!("{:50} | {:10} | {:10}", "TEST", "STATUS", "DURATION");
+
+    test_results.sort_by(|a, b| a.status.cmp(&b.status));
+
+    for result in test_results.iter() {
+        println!(
+            "{:50} | {:10} | {:<10}",
+            result.spec_name,
+            format!("{:?}", result.status),
+            format!("{} s", result.duration),
+        );
+    }
 }

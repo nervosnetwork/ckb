@@ -27,10 +27,12 @@ pub enum Notify {
     Error {
         spec_error: Box<dyn Any + Send>,
         spec_name: String,
+        seconds: u64,
         node_log_paths: Vec<PathBuf>,
     },
     Panick {
         spec_name: String,
+        seconds: u64,
         node_log_paths: Vec<PathBuf>,
     },
     Stop,
@@ -128,6 +130,7 @@ impl Worker {
             outbox
                 .send(Notify::Panick {
                     spec_name: spec.name().to_string(),
+                    seconds: now.elapsed().as_secs(),
                     node_log_paths,
                 })
                 .unwrap();
@@ -136,6 +139,7 @@ impl Worker {
                 .send(Notify::Error {
                     spec_error,
                     spec_name: spec.name().to_string(),
+                    seconds: now.elapsed().as_secs(),
                     node_log_paths,
                 })
                 .unwrap();
