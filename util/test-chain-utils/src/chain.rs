@@ -88,6 +88,48 @@ pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
     &LOAD_INPUT_DATA_HASH
 }
 
+// #include "ckb_syscalls.h"
+
+// int main() {
+//   int ret;
+//   uint8_t data[1];
+//   uint64_t len = 1;
+
+//   ret = ckb_load_cell_data(data, &len, 0, 0, CKB_SOURCE_INPUT);
+
+//   if (ret != CKB_SUCCESS) {
+//     return ret;
+//   }
+
+//   return 0;
+// }
+lazy_static! {
+    static ref LOAD_INPUT_ONE_BYTE: (CellOutput, Bytes, Script) = {
+        let mut file =
+            File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/load_input_one_byte"))
+                .unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+        let data: Bytes = buffer.into();
+
+        let cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .build();
+
+        let script = Script::new_builder()
+            .hash_type(ScriptHashType::Data.into())
+            .code_hash(CellOutput::calc_data_hash(&data))
+            .build();
+
+        (cell, data, script)
+    };
+}
+
+/// Script load one byte from input data
+pub fn load_input_one_byte_cell() -> &'static (CellOutput, Bytes, Script) {
+    &LOAD_INPUT_ONE_BYTE
+}
+
 /// TODO(doc): @chuijiaolianying
 pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL

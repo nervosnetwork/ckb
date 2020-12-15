@@ -45,7 +45,6 @@ ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.39.
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.39.0-pre" }
 ckb-script = { path = "../script", version = "= 0.39.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.39.0-pre" }
-failure = "0.1.5"
 
 [dev-dependencies]
 reqwest = { version = "0.10.9", features = ["blocking", "json"] }

@@ -341,12 +341,12 @@ impl<'a> EmptyVerifier<'a> {
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.inputs().is_empty() {
             Err(TransactionError::Empty {
-                source: TransactionErrorSource::Inputs,
+                inner: TransactionErrorSource::Inputs,
             }
             .into())
         } else if self.transaction.outputs().is_empty() && !self.transaction.is_cellbase() {
             Err(TransactionError::Empty {
-                source: TransactionErrorSource::Outputs,
+                inner: TransactionErrorSource::Outputs,
             }
             .into())
         } else {
@@ -399,7 +399,7 @@ impl<'a> MaturityVerifier<'a> {
             .position(cellbase_immature)
         {
             return Err(TransactionError::CellbaseImmaturity {
-                source: TransactionErrorSource::Inputs,
+                inner: TransactionErrorSource::Inputs,
                 index,
             }
             .into());
@@ -412,7 +412,7 @@ impl<'a> MaturityVerifier<'a> {
             .position(cellbase_immature)
         {
             return Err(TransactionError::CellbaseImmaturity {
-                source: TransactionErrorSource::CellDeps,
+                inner: TransactionErrorSource::CellDeps,
                 index,
             }
             .into());
@@ -500,7 +500,7 @@ impl<'a> CapacityVerifier<'a> {
             if output.is_lack_of_capacity(data_occupied_capacity)? {
                 return Err((TransactionError::InsufficientCellCapacity {
                     index,
-                    source: TransactionErrorSource::Outputs,
+                    inner: TransactionErrorSource::Outputs,
                     capacity: output.capacity().unpack(),
                     occupied_capacity: output.occupied_capacity(data_occupied_capacity)?,
                 })

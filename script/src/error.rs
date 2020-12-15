@@ -1,37 +1,33 @@
 use crate::types::{ScriptGroup, ScriptGroupType};
-use ckb_error::{Error, ErrorKind};
+use ckb_error::{prelude::*, Error, ErrorKind};
 use ckb_types::core::Cycle;
-use failure::Fail;
-use std::fmt;
+use std::{error::Error as StdError, fmt};
 
 /// TODO(doc): @doitian
-#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum ScriptError {
     /// The field code_hash in script is invalid
-    #[fail(display = "InvalidCodeHash")]
+    #[error("InvalidCodeHash")]
     InvalidCodeHash,
 
     /// The script consumes too much cycles
-    #[fail(display = "ExceededMaximumCycles: expect cycles <= {}", _0)]
+    #[error("ExceededMaximumCycles: expect cycles <= {0}")]
     ExceededMaximumCycles(Cycle),
 
     /// `script.type_hash` hits multiple cells with different data
-    #[fail(display = "MultipleMatches")]
+    #[error("MultipleMatches")]
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[fail(
-        display = "ValidationFailure({}): the exit code is per script specific, for system scripts, please check https://github.com/nervosnetwork/ckb-system-scripts/wiki/Error-codes",
-        _0
-    )]
+    #[error("ValidationFailure({0}): the exit code is per script specific, for system scripts, please check https://github.com/nervosnetwork/ckb-system-scripts/wiki/Error-codes")]
     ValidationFailure(i8),
 
     /// Known bugs are detected in transaction script outputs
-    #[fail(display = "Known bugs encountered in output {}: {}", _1, _0)]
+    #[error("Known bugs encountered in output {1}: {0}")]
     EncounteredKnownBugs(String, usize),
 
     /// Known bugs are detected in transaction script outputs
-    #[fail(display = "VM Internal Error: {}", _0)]
+    #[error("VM Internal Error: {0}")]
     VMInternalError(String),
 }
 
@@ -68,11 +64,13 @@ impl fmt::Display for TransactionScriptErrorSource {
 }
 
 /// TODO(doc): @doitian
-#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TransactionScriptError {
     source: TransactionScriptErrorSource,
     cause: ScriptError,
 }
+
+impl StdError for TransactionScriptError {}
 
 impl fmt::Display for TransactionScriptError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -119,6 +117,6 @@ impl ScriptError {
 
 impl From<TransactionScriptError> for Error {
     fn from(error: TransactionScriptError) -> Self {
-        error.context(ErrorKind::Script).into()
+        ErrorKind::Script.because(error)
     }
 }

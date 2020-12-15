@@ -40,6 +40,7 @@ pub struct CKBAppConfig {
     pub logger: LogConfig,
     /// TODO(doc): @doitian
     #[cfg(feature = "with_sentry")]
+    #[serde(default)]
     pub sentry: SentryConfig,
     /// TODO(doc): @doitian
     #[serde(default)]

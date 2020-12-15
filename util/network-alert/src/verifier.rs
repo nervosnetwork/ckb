@@ -5,10 +5,10 @@
 //! The set of public keys is currently in the possession of the Nervos foundation
 //!
 use ckb_app_config::NetworkAlertConfig;
+use ckb_error::AnyError;
 use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 use ckb_types::{packed, prelude::*};
-use failure::Error;
 use std::collections::HashSet;
 
 /// Message verify
@@ -30,7 +30,7 @@ impl Verifier {
     }
 
     /// Verify signatures
-    pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), Error> {
+    pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), AnyError> {
         trace!("verify alert {:?}", alert);
         let message = Message::from_slice(alert.calc_alert_hash().as_slice())?;
         let signatures: Vec<Signature> = alert

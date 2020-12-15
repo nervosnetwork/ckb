@@ -24,7 +24,7 @@ macro_rules! jsonrpc {
 
             $(
                 $(#[$attr])*
-                pub fn $method(&$selff $(, $arg_name: $arg_ty)*) -> Result<$return_ty, failure::Error> {
+                pub fn $method(&$selff $(, $arg_name: $arg_ty)*) -> Result<$return_ty, ckb_error::AnyError> {
                     let method = String::from(stringify!($method));
                     let params = serialize_parameters!($($arg_name,)*);
                     let id = $selff.id_generator.next();
