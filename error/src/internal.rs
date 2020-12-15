@@ -1,16 +1,22 @@
-use crate::{Error, ErrorKind};
+use crate::{
+    def_error_base_on_kind, impl_error_conversion_with_adaptor, impl_error_conversion_with_kind,
+};
 use derive_more::Display;
-use failure::{err_msg, Backtrace, Context, Fail};
-use std::fmt::{self, Debug};
+use std::fmt;
+use thiserror::Error;
+
+/// An error with no reason.
+#[derive(Error, Debug, Clone, Copy)]
+#[error("no reason is provided")]
+pub struct SilentError;
+
+/// An error with only a string as the reason.
+#[derive(Error, Debug, Clone)]
+#[error("{0}")]
+pub struct OtherError(String);
 
 /// TODO(doc): @keroro520
-#[derive(Debug)]
-pub struct InternalError {
-    kind: Context<InternalErrorKind>,
-}
-
-/// TODO(doc): @keroro520
-#[derive(Debug, PartialEq, Eq, Clone, Display)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Display)]
 pub enum InternalErrorKind {
     /// An arithmetic overflow occurs during capacity calculation,
     /// e.g. `Capacity::safe_add`
@@ -22,6 +28,9 @@ pub enum InternalErrorKind {
     /// Database exception
     Database,
 
+    /// Block Assembler error
+    BlockAssembler,
+
     /// VM internal error
     VM,
 
@@ -30,70 +39,24 @@ pub enum InternalErrorKind {
 
     /// The feature is disabled or is conflicted with the configuration
     Config,
+
+    /// Other system error
+    Other,
 }
 
-impl fmt::Display for InternalError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(cause) = self.cause() {
-            write!(f, "{}({})", self.kind(), cause)
-        } else {
-            write!(f, "{}", self.kind())
-        }
-    }
-}
+def_error_base_on_kind!(InternalError, InternalErrorKind);
 
-impl From<InternalError> for Error {
-    fn from(error: InternalError) -> Self {
-        error.context(ErrorKind::Internal).into()
-    }
-}
+impl_error_conversion_with_kind!(InternalError, crate::ErrorKind::Internal, crate::Error);
 
-impl From<InternalErrorKind> for InternalError {
-    fn from(kind: InternalErrorKind) -> Self {
-        InternalError {
-            kind: Context::new(kind),
-        }
-    }
-}
+impl_error_conversion_with_kind!(OtherError, InternalErrorKind::Other, InternalError);
+impl_error_conversion_with_adaptor!(OtherError, InternalError, crate::Error);
 
-impl From<InternalErrorKind> for Error {
-    fn from(kind: InternalErrorKind) -> Self {
-        Into::<InternalError>::into(kind).into()
-    }
-}
-
-impl InternalErrorKind {
-    /// TODO(doc): @keroro520
-    pub fn cause<F: Fail>(self, cause: F) -> InternalError {
-        InternalError {
-            kind: cause.context(self),
-        }
-    }
-
-    /// TODO(doc): @keroro520
-    pub fn reason<S: fmt::Display + Debug + Sync + Send + 'static>(
-        self,
-        reason: S,
-    ) -> InternalError {
-        InternalError {
-            kind: err_msg(reason).compat().context(self),
-        }
-    }
-}
-
-impl InternalError {
-    /// TODO(doc): @keroro520
-    pub fn kind(&self) -> &InternalErrorKind {
-        &self.kind.get_context()
-    }
-}
-
-impl Fail for InternalError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
+impl OtherError {
+    /// Creates an error with only a string as the reason.
+    pub fn new<T>(reason: T) -> Self
+    where
+        T: fmt::Display,
+    {
+        Self(reason.to_string())
     }
 }

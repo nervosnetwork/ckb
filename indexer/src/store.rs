@@ -68,6 +68,52 @@ pub trait IndexerStore: Sync + Send {
 }
 
 #[derive(Clone)]
+pub struct Dummy;
+
+impl IndexerStore for Dummy {
+    fn get_live_cells(
+        &self,
+        _lock_hash: &Byte32,
+        _skip_num: usize,
+        _take_num: usize,
+        _reverse_order: bool,
+    ) -> Vec<LiveCell> {
+        Vec::new()
+    }
+
+    fn get_transactions(
+        &self,
+        _lock_hash: &Byte32,
+        _skip_num: usize,
+        _take_num: usize,
+        _reverse_order: bool,
+    ) -> Vec<CellTransaction> {
+        Vec::new()
+    }
+
+    fn get_capacity(&self, _lock_hash: &Byte32) -> Option<LockHashCapacity> {
+        None
+    }
+
+    fn get_lock_hash_index_states(&self) -> HashMap<Byte32, LockHashIndexState> {
+        HashMap::new()
+    }
+
+    fn insert_lock_hash(
+        &self,
+        _lock_hash: &Byte32,
+        _index_from: Option<BlockNumber>,
+    ) -> LockHashIndexState {
+        LockHashIndexState {
+            block_hash: Byte32::zero(),
+            block_number: 0,
+        }
+    }
+
+    fn remove_lock_hash(&self, _lock_hash: &Byte32) {}
+}
+
+#[derive(Clone)]
 pub struct DefaultIndexerStore {
     db: Arc<RocksDB>,
     shared: Shared,

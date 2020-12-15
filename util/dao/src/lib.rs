@@ -261,7 +261,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                     };
                     let is_withdrawing_input =
                         |cell_meta: &CellMeta| match self.data_loader.load_cell_data(&cell_meta) {
-                            Some((data, _)) => data.len() == 8 && LittleEndian::read_u64(&data) > 0,
+                            Some(data) => data.len() == 8 && LittleEndian::read_u64(&data) > 0,
                             None => false,
                         };
                     if output
@@ -542,7 +542,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Internal(CapacityOverflow)"));
+            .contains("Internal(CapacityOverflow(OccupiedCapacity: overflow))"));
     }
 
     #[test]

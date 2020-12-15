@@ -213,7 +213,8 @@ mod tests {
             transaction_info: None,
             cell_output: builder.build(),
             data_bytes: data.len() as u64,
-            mem_cell_data: Some((data, data_hash)),
+            mem_cell_data: Some(data),
+            mem_cell_data_hash: Some(data_hash),
         }
     }
 
@@ -480,7 +481,8 @@ mod tests {
             transaction_info: None,
             cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
             data_bytes: 0,
-            mem_cell_data: Some((data, data_hash)),
+            mem_cell_data: Some(data),
+            mem_cell_data_hash: Some(data_hash),
         };
         let outputs = vec![];
         let resolved_inputs = vec![input_cell];
@@ -563,7 +565,11 @@ mod tests {
     }
 
     impl CellDataProvider for MockDataLoader {
-        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<(Bytes, Byte32)> {
+        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+            None
+        }
+
+        fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
             None
         }
     }

@@ -117,7 +117,7 @@ impl CellProvider for PendingQueue {
                         .out_point(out_point.to_owned())
                         .build();
                     if !with_data {
-                        cell_meta.mem_cell_data = None;
+                        cell_meta.mem_cell_data_hash = None;
                     }
                     CellStatus::live_cell(cell_meta)
                 }
