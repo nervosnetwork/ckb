@@ -2,33 +2,37 @@ use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
-/// TODO(doc): @doitian
+/// Miner config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// TODO(doc): @doitian
+    /// RPC client config options.
+    ///
+    /// Miner connects to CKB node via RPC.
     pub client: ClientConfig,
-    /// TODO(doc): @doitian
+    /// Miner workers config options.
     pub workers: Vec<WorkerConfig>,
 }
 
-/// TODO(doc): @doitian
+/// RPC client config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientConfig {
-    /// TODO(doc): @doitian
+    /// CKB node RPC endpoint.
     pub rpc_url: String,
-    /// TODO(doc): @doitian
+    /// The pool interval in seconds to get work from the CKB node.
     pub poll_interval: u64,
-    /// TODO(doc): @doitian
+    /// By default, miner submits a block and continues to get the next work.
+    ///
+    /// When this is enabled, miner will block until the submission RPC returns.
     pub block_on_submit: bool,
 }
 
-/// TODO(doc): @doitian
+/// Miner woker config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "worker_type")]
 pub enum WorkerConfig {
-    /// TODO(doc): @doitian
+    /// Dummy worker which submits an arbitrary answer.
     Dummy(DummyConfig),
-    /// TODO(doc): @doitian
+    /// Eaglesong worker which solves Eaglesong PoW.
     EaglesongSimple(EaglesongSimpleConfig),
 }
 
@@ -41,49 +45,52 @@ pub struct BlockAssemblerConfig {
     pub message: JsonBytes,
 }
 
-/// TODO(doc): @doitian
+/// Dummy worker config options.
+///
+/// Dummy worker can submit the new block at any time. This controls the pace that how much time
+/// the worker must wait before submitting a new block.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "delay_type")]
 pub enum DummyConfig {
-    /// TODO(doc): @doitian
+    /// Waits for a constant delay.
     Constant {
-        /// TODO(doc): @doitian
+        /// The delay in seconds.
         value: u64,
     },
-    /// TODO(doc): @doitian
+    /// Waits for a time which is uniformly sampled from a range.
     Uniform {
-        /// TODO(doc): @doitian
+        /// The lower bound of the range (in seconds).
         low: u64,
-        /// TODO(doc): @doitian
+        /// The upper bound of the range (in seconds).
         high: u64,
     },
-    /// TODO(doc): @doitian
+    /// Picks the wait time from a normal distribution.
     Normal {
-        /// TODO(doc): @doitian
+        /// The mean of the distribution (in seconds).
         mean: f64,
-        /// TODO(doc): @doitian
+        /// The standard deviation.
         std_dev: f64,
     },
-    /// TODO(doc): @doitian
+    /// Picks the wait time from a poisson distribution.
     Poisson {
-        /// TODO(doc): @doitian
+        /// The parameter lambda of the poisson distribution.
         lambda: f64,
     },
 }
 
-/// TODO(doc): @doitian
+/// Eaglesong worker config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EaglesongSimpleConfig {
-    /// TODO(doc): @doitian
+    /// Number of worker threads.
     pub threads: usize,
-    /// TODO(doc): @doitian
+    /// Whether to perform an extra round of hash function on the Eaglesong output.
     #[serde(default)]
     pub extra_hash_function: Option<ExtraHashFunction>,
 }
 
-/// TODO(doc): @doitian
+/// Specifies the hash function.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExtraHashFunction {
-    /// TODO(doc): @doitian
+    /// Blake2b hash with CKB preferences.
     Blake2b,
 }

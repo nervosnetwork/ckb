@@ -20,94 +20,111 @@ use super::configs::*;
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
 
-/// TODO(doc): @doitian
+/// The parsed config file.
+///
+/// CKB process reads `ckb.toml` or `ckb-miner.toml`, depending what subcommand to be executed.
 pub enum AppConfig {
-    /// TODO(doc): @doitian
+    /// The parsed `ckb.toml.`
     CKB(Box<CKBAppConfig>),
-    /// TODO(doc): @doitian
+    /// The parsed `ckb-miner.toml.`
     Miner(Box<MinerAppConfig>),
 }
 
-/// TODO(doc): @doitian
-// change the order of fields will break integration test, see module doc.
+/// The main config file for the most subcommands. Usually it is the `ckb.toml` in the CKB root
+/// directory.
+///
+/// **Attention:** Changing the order of fields will break integration test, see module doc.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
-    /// TODO(doc): @doitian
+    /// The data directory.
     pub data_dir: PathBuf,
     /// freezer files path
     #[serde(default)]
     pub ancient: PathBuf,
-    /// TODO(doc): @doitian
+    /// The directory to store temporary files.
     pub tmp_dir: Option<PathBuf>,
-    /// TODO(doc): @doitian
+    /// Logger config options.
     pub logger: LogConfig,
-    /// TODO(doc): @doitian
+    /// Sentry config options.
     #[cfg(feature = "with_sentry")]
     #[serde(default)]
     pub sentry: SentryConfig,
-    /// TODO(doc): @doitian
+    /// Metrics options.
+    ///
+    /// Developers can collect metrics for performance tuning and troubleshooting.
     #[serde(default)]
     pub metrics: MetricsConfig,
-    /// TODO(doc): @doitian
+    /// Memory tracker options.
+    ///
+    /// Developers can enable memory tracker to analyze the process memory usage.
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
-    /// TODO(doc): @doitian
+    /// Chain config options.
     pub chain: ChainConfig,
 
-    /// TODO(doc): @doitian
+    /// Block assembler options.
     pub block_assembler: Option<BlockAssemblerConfig>,
-    /// TODO(doc): @doitian
+    /// Database config options.
     #[serde(default)]
     pub db: DBConfig,
-    /// TODO(doc): @doitian
+    /// Network config options.
     pub network: NetworkConfig,
-    /// TODO(doc): @doitian
+    /// RPC config options.
     pub rpc: RpcConfig,
-    /// TODO(doc): @doitian
+    /// Tx pool config options.
     pub tx_pool: TxPoolConfig,
-    /// TODO(doc): @doitian
+    /// Store config options.
     #[serde(default)]
     pub store: StoreConfig,
-    /// TODO(doc): @doitian
+    /// P2P alert config options.
     pub alert_signature: Option<NetworkAlertConfig>,
-    /// TODO(doc): @doitian
+    /// Notify config options.
     #[serde(default)]
     pub notify: NotifyConfig,
 }
 
-/// TODO(doc): @doitian
-// change the order of fields will break integration test, see module doc.
+/// The miner config file for `ckb miner`. Usually it is the `ckb-miner.toml` in the CKB root
+/// directory.
+///
+/// **Attention:** Changing the order of fields will break integration test, see module doc.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinerAppConfig {
-    /// TODO(doc): @doitian
+    /// The data directory.
     pub data_dir: PathBuf,
-    /// TODO(doc): @doitian
+    /// Chain config options.
     pub chain: ChainConfig,
-    /// TODO(doc): @doitian
+    /// Logger config options.
     pub logger: LogConfig,
-    /// TODO(doc): @doitian
+    /// Sentry config options.
     #[cfg(feature = "with_sentry")]
     pub sentry: SentryConfig,
-    /// TODO(doc): @doitian
+    /// Metrics options.
+    ///
+    /// Developers can collect metrics for performance tuning and troubleshooting.
     #[serde(default)]
     pub metrics: MetricsConfig,
-    /// TODO(doc): @doitian
+    /// Memory tracker options.
+    ///
+    /// Developers can enable memory tracker to analyze the process memory usage.
     #[serde(default)]
     pub memory_tracker: MemoryTrackerConfig,
 
-    /// TODO(doc): @doitian
+    /// The miner config options.
     pub miner: MinerConfig,
 }
 
-/// TODO(doc): @doitian
+/// The chain config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChainConfig {
-    /// TODO(doc): @doitian
+    /// Specifies the chain spec.
     pub spec: Resource,
 }
 
 impl AppConfig {
-    /// TODO(doc): @doitian
+    /// Reads the config file for the subcommand.
+    ///
+    /// This will reads the `ckb-miner.toml` in the CKB directory for `ckb miner`, and `ckb.toml`
+    /// for all other subcommands.
     pub fn load_for_subcommand<P: AsRef<Path>>(
         root_dir: P,
         subcommand_name: &str,
@@ -131,7 +148,7 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets logger options.
     pub fn logger(&self) -> &LogConfig {
         match self {
             AppConfig::CKB(config) => &config.logger,
@@ -139,7 +156,7 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets sentry options.
     #[cfg(feature = "with_sentry")]
     pub fn sentry(&self) -> &SentryConfig {
         match self {
@@ -148,7 +165,7 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets metrics options.
     pub fn metrics(&self) -> &MetricsConfig {
         match self {
             AppConfig::CKB(config) => &config.metrics,
@@ -156,7 +173,7 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets memory tracker options.
     pub fn memory_tracker(&self) -> &MemoryTrackerConfig {
         match self {
             AppConfig::CKB(config) => &config.memory_tracker,
@@ -164,7 +181,7 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets chain spec.
     pub fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let spec_resource = match self {
             AppConfig::CKB(config) => &config.chain.spec,
@@ -176,7 +193,9 @@ impl AppConfig {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Unpacks the parsed ckb.toml config file.
+    ///
+    /// Panics when this is a parsed ckb-miner.toml.
     pub fn into_ckb(self) -> Result<Box<CKBAppConfig>, ExitCode> {
         match self {
             AppConfig::CKB(config) => Ok(config),
@@ -187,7 +206,9 @@ impl AppConfig {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Unpacks the parsed ckb-miner.toml config file.
+    ///
+    /// Panics when this is a parsed ckb.toml.
     pub fn into_miner(self) -> Result<Box<MinerAppConfig>, ExitCode> {
         match self {
             AppConfig::Miner(config) => Ok(config),
