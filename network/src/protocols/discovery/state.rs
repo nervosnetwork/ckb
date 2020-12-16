@@ -11,7 +11,7 @@ use p2p::{
 use super::{
     addr::AddrKnown,
     protocol::{encode, DiscoveryMessage, Node, Nodes},
-    MAX_ADDR_TO_SEND,
+    AddressManager, MAX_ADDR_TO_SEND,
 };
 
 // FIXME: should be a more high level version number
@@ -35,14 +35,24 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub(crate) fn new(context: ProtocolContextMutRef) -> SessionState {
+    pub(crate) fn new<M: AddressManager>(
+        context: ProtocolContextMutRef,
+        addr_manager: &M,
+    ) -> SessionState {
         let mut addr_known = AddrKnown::default();
         let remote_addr = if context.session.ty.is_outbound() {
             let port = context
                 .listens()
                 .iter()
-                .filter_map(|address| multiaddr_to_socketaddr(address))
-                .map(|addr| addr.port())
+                .flat_map(|address| {
+                    // Verify self is a public node first
+                    // if not, try to make public network nodes broadcast hole punching information
+                    if addr_manager.is_valid_addr(address) {
+                        multiaddr_to_socketaddr(address).map(|socket_addr| socket_addr.port())
+                    } else {
+                        None
+                    }
+                })
                 .next();
 
             let msg = encode(DiscoveryMessage::GetNodes {
