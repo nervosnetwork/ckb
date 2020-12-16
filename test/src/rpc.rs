@@ -3,6 +3,7 @@ mod id_generator;
 mod macros;
 mod error;
 
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
     BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
@@ -15,12 +16,10 @@ use ckb_types::core::{
     Version as CoreVersion,
 };
 use ckb_types::{packed::Byte32, prelude::*, H256};
-use failure::Error;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    pub static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::builder()
-        .gzip(true)
+    pub static ref HTTP_CLIENT: reqwest::blocking::Client = reqwest::blocking::Client::builder()
         .timeout(::std::time::Duration::from_secs(30))
         .build()
         .expect("reqwest Client build");
@@ -169,7 +168,7 @@ impl RpcClient {
             .expect("rpc call get_block_template")
     }
 
-    pub fn submit_block(&self, work_id: String, block: Block) -> Result<Byte32, Error> {
+    pub fn submit_block(&self, work_id: String, block: Block) -> Result<Byte32, AnyError> {
         self.inner.submit_block(work_id, block).map(|x| x.pack())
     }
 
@@ -185,7 +184,7 @@ impl RpcClient {
             .pack()
     }
 
-    pub fn send_transaction_result(&self, tx: Transaction) -> Result<H256, Error> {
+    pub fn send_transaction_result(&self, tx: Transaction) -> Result<H256, AnyError> {
         self.inner
             .send_transaction(tx, Some("passthrough".to_string()))
     }
@@ -196,7 +195,7 @@ impl RpcClient {
             .expect("rpc call dry_run_transaction")
     }
 
-    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> Result<H256, Error> {
+    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> Result<H256, AnyError> {
         self.inner.broadcast_transaction(tx, cycles)
     }
 

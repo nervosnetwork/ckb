@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn internal_error(reason: String) -> Error {
-    InternalErrorKind::Database.reason(reason).into()
+    InternalErrorKind::Database.other(reason).into()
 }
 
 /// TODO(doc): @quake

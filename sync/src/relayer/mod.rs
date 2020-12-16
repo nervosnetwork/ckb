@@ -38,7 +38,6 @@ use ckb_types::{
 };
 use ckb_util::Mutex;
 use faketime::unix_time_as_millis;
-use ratelimit_meter::KeyedRateLimiter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,6 +50,12 @@ pub const SEARCH_ORPHAN_POOL_TOKEN: u64 = 3;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
 pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
+
+type RateLimiter<T> = governor::RateLimiter<
+    T,
+    governor::state::keyed::DefaultKeyedStateStore<T>,
+    governor::clock::DefaultClock,
+>;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionResult {
@@ -67,7 +72,7 @@ pub struct Relayer {
     pub(crate) shared: Arc<SyncShared>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
-    rate_limiter: Arc<Mutex<KeyedRateLimiter<(PeerIndex, u32)>>>,
+    rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
 }
 
 impl Relayer {
@@ -85,9 +90,8 @@ impl Relayer {
     ) -> Self {
         // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
-        let rate_limiter = Arc::new(Mutex::new(KeyedRateLimiter::per_second(
-            std::num::NonZeroU32::new(30).unwrap(),
-        )));
+        let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
+        let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
         Relayer {
             chain,
             shared,
@@ -118,7 +122,7 @@ impl Relayer {
             && self
                 .rate_limiter
                 .lock()
-                .check((peer, message.item_id()))
+                .check_key(&(peer, message.item_id()))
                 .is_err()
         {
             return StatusCode::TooManyRequests.with_context(message.item_name());
@@ -716,8 +720,8 @@ impl CKBProtocolHandler for Relayer {
             "RelayProtocol.disconnected peer={}",
             peer_index
         );
-        // remove all rate limiter keys that have been expireable for 1 minutes:
-        self.rate_limiter.lock().cleanup(Duration::from_secs(60));
+        // Retains all keys in the rate limiter that were used recently enough.
+        self.rate_limiter.lock().retain_recent();
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

@@ -20,14 +20,13 @@ tokio-util = { version = "0.3.0", features = ["codec"] }
 futures = "0.3"
 p2p = { version="0.3.3", package="tentacle", features = ["molc"] }
 faketime = "0.2.0"
-lazy_static = "1.3.0"
-bs58 = "0.3.0"
+lazy_static = { version = "1.3.0", optional = true }
+bs58 = { version = "0.3.0", optional = true }
 sentry = { version = "0.21.0", optional = true }
-faster-hex = "0.4"
+faster-hex = { version = "0.4", optional = true }
 ckb-hash = {path = "../util/hash", version = "= 0.39.0-pre"}
-secp256k1 = {version = "0.19", features = ["recovery"] }
-trust-dns-resolver = { version = "0.19" }
-num_cpus = "1.10"
+secp256k1 = {version = "0.19", features = ["recovery"], optional = true }
+trust-dns-resolver = { version = "0.19", optional = true }
 snap = "1"
 ckb-types = { path = "../util/types", version = "= 0.39.0-pre" }
 ipnetwork = "0.14"
@@ -37,11 +36,13 @@ ckb-spawn = { path = "../util/spawn", version = "= 0.39.0-pre" }
 
 [features]
 with_sentry = ["sentry"]
+with_dns_seeding = ["lazy_static", "bs58", "faster-hex", "trust-dns-resolver", "secp256k1"]
 
 [dev-dependencies]
 tempfile = "3.0"
 criterion = "0.3"
 proptest = "0.9"
+num_cpus = "1.10"
 
 [[bench]]
 name = "peer_store"

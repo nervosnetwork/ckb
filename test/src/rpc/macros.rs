@@ -10,7 +10,7 @@ macro_rules! jsonrpc {
     ) => (
         $(#[$struct_attr])*
         pub struct $struct_name {
-            pub client: &'static reqwest::Client,
+            pub client: &'static reqwest::blocking::Client,
             pub url: reqwest::Url,
             pub id_generator: $crate::rpc::id_generator::IdGenerator,
         }
@@ -24,7 +24,7 @@ macro_rules! jsonrpc {
 
             $(
                 $(#[$attr])*
-                pub fn $method(&$selff $(, $arg_name: $arg_ty)*) -> Result<$return_ty, failure::Error> {
+                pub fn $method(&$selff $(, $arg_name: $arg_ty)*) -> Result<$return_ty, ckb_error::AnyError> {
                     let method = String::from(stringify!($method));
                     let params = serialize_parameters!($($arg_name,)*);
                     let id = $selff.id_generator.next();
@@ -35,7 +35,7 @@ macro_rules! jsonrpc {
                     req_json.insert("method".to_owned(), serde_json::json!(method));
                     req_json.insert("params".to_owned(), params);
 
-                    let mut resp = $selff.client.post($selff.url.clone()).json(&req_json).send()?;
+                    let resp = $selff.client.post($selff.url.clone()).json(&req_json).send()?;
                     let output = resp.json::<ckb_jsonrpc_types::response::Output>()?;
                     match output {
                         ckb_jsonrpc_types::response::Output::Success(success) => {

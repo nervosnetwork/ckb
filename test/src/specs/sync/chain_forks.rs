@@ -10,9 +10,9 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use failure::_core::time::Duration;
 use log::info;
 use std::thread::sleep;
+use std::time::Duration;
 
 pub struct ChainFork1;
 

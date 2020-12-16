@@ -1,12 +1,19 @@
 //! TODO(doc): @keroro520
+
+use std::{error::Error as StdError, fmt, ops::Deref, sync::Arc};
+
 mod convert;
 mod internal;
+pub mod prelude;
 pub mod util;
 
 use derive_more::Display;
-use failure::{Backtrace, Context, Fail};
-pub use internal::{InternalError, InternalErrorKind};
-use std::fmt;
+pub use internal::{InternalError, InternalErrorKind, OtherError, SilentError};
+use prelude::*;
+
+/// A wrapper around a dynamic error type.
+#[derive(Debug, Clone)]
+pub struct AnyError(Arc<anyhow::Error>);
 
 /// TODO(doc): @keroro520
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
@@ -31,55 +38,27 @@ pub enum ErrorKind {
     Spec,
 }
 
-/// TODO(doc): @keroro520
-#[derive(Debug)]
-pub struct Error {
-    kind: Context<ErrorKind>,
+def_error_base_on_kind!(Error, ErrorKind);
+
+impl<E> From<E> for AnyError
+where
+    E: StdError + Send + Sync + 'static,
+{
+    fn from(error: E) -> Self {
+        Self(Arc::new(error.into()))
+    }
 }
 
-impl fmt::Display for Error {
+impl Deref for AnyError {
+    type Target = Arc<anyhow::Error>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Display for AnyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(cause) = self.cause() {
-            if f.alternate() {
-                write!(f, "{}: {}", self.kind(), cause)
-            } else {
-                write!(f, "{}({})", self.kind(), cause)
-            }
-        } else {
-            write!(f, "{}", self.kind())
-        }
-    }
-}
-
-impl From<Context<ErrorKind>> for Error {
-    fn from(inner: Context<ErrorKind>) -> Self {
-        Self { kind: inner }
-    }
-}
-
-impl Fail for Error {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
-impl Error {
-    /// TODO(doc): @keroro520
-    pub fn kind(&self) -> &ErrorKind {
-        self.kind.get_context()
-    }
-
-    /// TODO(doc): @keroro520
-    pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
-        self.cause().and_then(|cause| cause.downcast_ref::<T>())
-    }
-
-    /// TODO(doc): @keroro520
-    pub fn unwrap_cause_or_self(&self) -> &dyn Fail {
-        self.cause().unwrap_or(self)
+        self.0.fmt(f)
     }
 }
