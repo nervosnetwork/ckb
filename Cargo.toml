@@ -100,4 +100,3 @@ profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
 metrics         = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
 metrics-runtime = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
 metrics-core    = { git = "https://github.com/nervosnetwork/metrics-rs", tag = "metrics-runtime-v0.13.1-patch.1" }
-sentry          = { git = "https://github.com/nervosnetwork/sentry-rust", tag = "sentry-v0.21.0-patch.1" }

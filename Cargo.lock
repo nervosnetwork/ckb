@@ -420,11 +420,11 @@ dependencies = [
  "ckb-metrics-config",
  "ckb-pow",
  "ckb-resource",
+ "ckb-sentry",
  "ckb-types",
  "clap",
  "path-clean",
  "rand 0.6.5",
- "sentry",
  "serde",
  "serde_plain",
  "tempfile",
@@ -491,6 +491,7 @@ dependencies = [
  "ckb-network-alert",
  "ckb-resource",
  "ckb-rpc",
+ "ckb-sentry",
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
@@ -500,7 +501,6 @@ dependencies = [
  "clap",
  "ctrlc",
  "rayon",
- "sentry",
  "serde",
  "serde_plain",
  "tempfile",
@@ -772,12 +772,12 @@ dependencies = [
  "chrono",
  "ckb-channel",
  "ckb-logger-config",
+ "ckb-sentry",
  "ckb-util",
  "env_logger",
  "log",
  "once_cell",
  "regex",
- "sentry",
 ]
 
 [[package]]
@@ -863,6 +863,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-hash",
  "ckb-logger",
+ "ckb-sentry",
  "ckb-spawn",
  "ckb-stop-handler",
  "ckb-types",
@@ -877,7 +878,6 @@ dependencies = [
  "proptest",
  "rand 0.6.5",
  "secp256k1 0.19.0",
- "sentry",
  "serde",
  "serde_json",
  "snap",
@@ -1093,6 +1093,96 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-sentry"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21490dd3d6595e6cc1309c8328220a469d6a44d7966484776a29c978f6fce0c5"
+dependencies = [
+ "ckb-sentry-backtrace",
+ "ckb-sentry-contexts",
+ "ckb-sentry-core",
+ "ckb-sentry-log",
+ "ckb-sentry-panic",
+ "httpdate",
+ "reqwest",
+]
+
+[[package]]
+name = "ckb-sentry-backtrace"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d79f9a7879675c60c410900aa3219e054229d13dcfac6be02e5dd2e7aa394a2a"
+dependencies = [
+ "backtrace",
+ "ckb-sentry-core",
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
+name = "ckb-sentry-contexts"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "531c0484bf408d7b7df2853c329e1dd0604260fba655831623c2370f1a3a38dd"
+dependencies = [
+ "ckb-sentry-core",
+ "hostname",
+ "lazy_static",
+ "libc",
+ "regex",
+ "rustc_version",
+ "uname",
+]
+
+[[package]]
+name = "ckb-sentry-core"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f47c8cae05a9a0ab147f01c8918f09df0e5f4334e045b9efb842db56291745c"
+dependencies = [
+ "ckb-sentry-types",
+ "lazy_static",
+ "rand 0.7.3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ckb-sentry-log"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "930dabc43171d69f320e636fad2c3713b9746ff475ee8d0a2ad7a01e0048347a"
+dependencies = [
+ "ckb-sentry-core",
+ "log",
+]
+
+[[package]]
+name = "ckb-sentry-panic"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f726ac09c3201b8ddbdd5d7b4e763082e59828624a68106259d19fa62e13bcf2"
+dependencies = [
+ "ckb-sentry-backtrace",
+ "ckb-sentry-core",
+]
+
+[[package]]
+name = "ckb-sentry-types"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d62c3eded5c2af5ec8851b658a1eb149db487fbfe6a25a06ecf8da920c08886"
+dependencies = [
+ "chrono",
+ "debugid",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url 2.2.0",
+ "uuid",
+]
+
+[[package]]
 name = "ckb-shared"
 version = "0.39.0-pre"
 dependencies = [
@@ -1179,6 +1269,7 @@ dependencies = [
  "ckb-logger",
  "ckb-metrics",
  "ckb-network",
+ "ckb-sentry",
  "ckb-shared",
  "ckb-store",
  "ckb-test-chain-utils",
@@ -1192,7 +1283,6 @@ dependencies = [
  "governor",
  "lru",
  "rand 0.6.5",
- "sentry",
  "tempfile",
 ]
 
@@ -4377,89 +4467,6 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
-
-[[package]]
-name = "sentry"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "httpdate",
- "reqwest",
- "sentry-backtrace",
- "sentry-contexts",
- "sentry-core",
- "sentry-log",
- "sentry-panic",
-]
-
-[[package]]
-name = "sentry-backtrace"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "backtrace",
- "lazy_static",
- "regex",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-contexts"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "hostname",
- "lazy_static",
- "libc",
- "regex",
- "rustc_version",
- "sentry-core",
- "uname",
-]
-
-[[package]]
-name = "sentry-core"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "lazy_static",
- "rand 0.7.3",
- "sentry-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "sentry-log"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "log",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-panic"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "sentry-backtrace",
- "sentry-core",
-]
-
-[[package]]
-name = "sentry-types"
-version = "0.21.0"
-source = "git+https://github.com/nervosnetwork/sentry-rust?tag=sentry-v0.21.0-patch.1#ae2253866b7cfe895e962f01e3a894c5db841fb0"
-dependencies = [
- "chrono",
- "debugid",
- "serde",
- "serde_json",
- "thiserror",
- "url 2.2.0",
- "uuid",
-]
 
 [[package]]
 name = "serde"
