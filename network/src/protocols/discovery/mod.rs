@@ -81,7 +81,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions.insert(session.id, SessionState::new(context));
+        self.sessions
+            .insert(session.id, SessionState::new(context, &self.addr_mgr));
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
