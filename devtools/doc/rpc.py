@@ -24,7 +24,7 @@ CKB JSON-RPC only supports HTTP now. If you need SSL, please set up a proxy via 
 
 Subscriptions require a full duplex connection. CKB offers such connections in the form of TCP (enable with `rpc.tcp_listen_address` configuration option) and WebSockets (enable with `rpc.ws_listen_address`).
 
-# JSONRPC Deprecation Process
+## JSONRPC Deprecation Process
 
 A CKB RPC method is deprecated in three steps.
 
@@ -35,6 +35,10 @@ The CKB dev team will disable any deprecated RPC methods starting from the next 
 Once a deprecated method is disabled, the CKB dev team will remove it in a future minor version release.
 
 For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and removed in 0.37.0. The minor versions are released monthly, so there's at least a two-month buffer for a deprecated RPC method.
+
+## Minimum Supported Rust Version policy (MSRV)
+
+The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
 
 """
 
