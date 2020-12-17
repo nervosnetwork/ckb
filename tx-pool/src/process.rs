@@ -8,7 +8,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, info};
+use ckb_logger::{debug, error, info};
 use ckb_notify::PoolTransactionEntry;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -206,7 +206,13 @@ impl TxPoolService {
                     rtxs
                 })
             })
-            .map_err(|_| BlockAssemblerError::InvalidInput)?;
+            .map_err(|err| {
+                error!(
+                    "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
+                    tip_header.number(), tip_hash, err
+                );
+                BlockAssemblerError::InvalidInput
+            })?;
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
