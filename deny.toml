@@ -5,7 +5,6 @@ yanked = "deny"
 notice = "deny"
 ignore = [
     "RUSTSEC-2020-0016", # TODO net2 has been deprecated, but still a lot of required crates are dependent on it
-    "RUSTSEC-2020-0036", # TODO failure is officially deprecated/unmaintained, but still a lot of required crates are dependent on it
     "RUSTSEC-2020-0043", # TODO ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
     "RUSTSEC-2020-0056", # We did not use the `stdweb` library, only `wasm32-unknown-unknown` would use `getrandom` and `wasm-bindgen`, `stdweb` would only be used in cargo-web
     "RUSTSEC-2020-0082", # TODO ordered_float:NotNan may contain NaN after panic in assignment operators
@@ -48,5 +47,4 @@ unknown-git = "deny"
 allow-git = [
     # TODO fix RUSTSEC-2020-0041 temporarily
     "https://github.com/nervosnetwork/metrics-rs",
-    "https://github.com/nervosnetwork/sentry-rust",
 ]
