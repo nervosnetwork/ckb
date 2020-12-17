@@ -694,6 +694,7 @@ dependencies = [
  "ckb-util",
  "fail",
  "fs2",
+ "lru",
  "snap",
  "tempfile",
 ]

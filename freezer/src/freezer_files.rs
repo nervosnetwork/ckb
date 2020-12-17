@@ -1,7 +1,7 @@
 use ckb_metrics::metrics;
 use fail::fail_point;
+use lru::LruCache;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
-use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000; // 2G
+const OPEN_FILES_LIMIT: usize = 256;
 const INDEX_FILE_NAME: &str = "INDEX";
 pub(crate) const INDEX_ENTRY_SIZE: u64 = 12;
 
@@ -41,7 +42,7 @@ impl Head {
 /// it consists of a data file and an index file
 pub struct FreezerFiles {
     // opened files
-    pub(crate) files: BTreeMap<FileId, File>,
+    pub(crate) files: LruCache<FileId, File>,
     // head file
     pub(crate) head: Head,
     // number of frozen
@@ -179,7 +180,7 @@ impl FreezerFiles {
     }
 
     /// Retrieve frozen item by number
-    pub fn retrieve(&self, item: u64) -> Result<Option<Vec<u8>>, IoError> {
+    pub fn retrieve(&mut self, item: u64) -> Result<Option<Vec<u8>>, IoError> {
         if item < 1 {
             return Ok(None);
         }
@@ -189,9 +190,14 @@ impl FreezerFiles {
 
         let bounds = self.get_bounds(item)?;
         if let Some((start_offset, end_offset, file_id)) = bounds {
-            let mut file = self.files.get(&file_id).ok_or_else(|| {
-                IoError::new(IoErrorKind::Other, format!("missing blk file {}", file_id))
-            })?;
+            let open_read_only;
+
+            let mut file = if let Some(file) = self.files.get(&file_id) {
+                file
+            } else {
+                open_read_only = self.open_read_only(file_id)?;
+                &open_read_only
+            };
 
             let size = (end_offset - start_offset) as usize;
             let mut data = vec![0u8; size];
@@ -296,12 +302,12 @@ impl FreezerFiles {
 
     /// Attempts to open files, initialize fd map
     pub fn preopen(&mut self) -> Result<(), IoError> {
-        self.release_after(0);
+        self.release_all();
 
         for id in self.tail_id..self.head_id {
             self.open_read_only(id)?;
         }
-        self.files.insert(self.head_id, self.head.file.try_clone()?);
+        self.files.put(self.head_id, self.head.file.try_clone()?);
         Ok(())
     }
 
@@ -314,16 +320,24 @@ impl FreezerFiles {
     }
 
     fn release(&mut self, id: FileId) {
-        self.files.remove(&id);
+        self.files.pop(&id);
     }
 
-    fn release_after(&mut self, id: FileId) {
-        self.files.split_off(&(id + 1));
+    fn release_all(&mut self) {
+        self.files.clear();
     }
 
     fn delete_after(&mut self, id: FileId) -> Result<(), IoError> {
-        let released = self.files.split_off(&(id + 1));
-        self.delete_files_by_id(released.keys().cloned())
+        let released: Vec<_> = self
+            .files
+            .iter()
+            .filter_map(|(k, _)| if k > &id { Some(k) } else { None })
+            .copied()
+            .collect();
+        for k in released.iter() {
+            self.files.pop(k);
+        }
+        self.delete_files_by_id(released.into_iter())
     }
 
     fn delete_files_by_id(&self, file_ids: impl Iterator<Item = FileId>) -> Result<(), IoError> {
@@ -360,7 +374,7 @@ impl FreezerFiles {
     fn open_file(&mut self, id: FileId, opt: fs::OpenOptions) -> Result<File, IoError> {
         let name = helper::file_name(id);
         let file = opt.open(self.file_path.join(name))?;
-        self.files.insert(id, file.try_clone()?);
+        self.files.put(id, file.try_clone()?);
         Ok(file)
     }
 }
@@ -370,6 +384,7 @@ pub struct FreezerFilesBuilder {
     file_path: PathBuf,
     max_file_size: u64,
     enable_compression: bool,
+    open_files_limit: usize,
 }
 
 impl FreezerFilesBuilder {
@@ -379,13 +394,26 @@ impl FreezerFilesBuilder {
             file_path,
             max_file_size: MAX_FILE_SIZE,
             enable_compression: true,
+            open_files_limit: OPEN_FILES_LIMIT,
         }
     }
 
-    /// Sets the max  size of the file (in bytes) for the new freezer.
+    /// Sets the max size of the file (in bytes) for the new freezer.
     #[allow(dead_code)]
     pub fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = size;
+        self
+    }
+
+    /// Sets the the limit of opened files for the new freezer.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `limit <= 1`, meaning freezer must open at least 2 files.
+    #[allow(dead_code)]
+    pub fn open_files_limit(mut self, limit: usize) -> Self {
+        assert!(limit > 1);
+        self.open_files_limit = limit;
         self
     }
 
@@ -464,7 +492,7 @@ impl FreezerFilesBuilder {
         let number = index_size / INDEX_ENTRY_SIZE;
 
         Ok(FreezerFiles {
-            files: BTreeMap::new(),
+            files: LruCache::new(self.open_files_limit),
             head: Head::new(head, head_size),
             tail_id,
             number: Arc::new(AtomicU64::new(number)),
