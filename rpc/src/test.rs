@@ -141,7 +141,7 @@ fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
 
 // Setup the running environment
 fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
-    let (shared, table) = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),

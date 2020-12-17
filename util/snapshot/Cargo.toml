@@ -21,3 +21,4 @@ ckb-proposal-table = { path = "../proposal-table", version = "= 0.39.0-pre" }
 arc-swap = "0.4"
 ckb-reward-calculator = { path = "../reward-calculator", version = "= 0.39.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.39.0-pre" }
+ckb-freezer = { path = "../../freezer", version = "= 0.39.0-pre" }

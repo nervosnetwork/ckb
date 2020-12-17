@@ -16,10 +16,9 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @quake
-pub const VERSION_KEY: &str = "db-version";
-
-/// TODO(doc): @quake
+/// RocksDB wrapper base on OptimisticTransactionDB
+///
+/// https://github.com/facebook/rocksdb/wiki/Transactions#optimistictransactiondb
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,

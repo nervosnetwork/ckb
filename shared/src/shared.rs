@@ -5,24 +5,48 @@ use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, 
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_db::RocksDB;
+use ckb_db::{Direction, IteratorMode, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::COLUMNS;
+use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
+use ckb_freezer::Freezer;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
-use ckb_stop_handler::StopHandler;
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_tx_pool::{TokioRwLock, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
-    core::{EpochExt, HeaderView},
-    packed::Byte32,
+    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
+    packed::{self, Byte32},
+    prelude::*,
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
 use once_cell::sync::OnceCell;
+use std::cmp;
 use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
+const THRESHOLD_EPOCH: EpochNumber = 2;
+const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
+
+/// An owned permission to close on a freezer thread
+pub struct FreezerClose {
+    stopped: Arc<AtomicBool>,
+    stop: StopHandler<()>,
+}
+
+impl Drop for FreezerClose {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.stop.try_send();
+    }
+}
 
 /// TODO(doc): @quake
 #[derive(Clone)]
@@ -156,6 +180,137 @@ impl Shared {
         }
     }
 
+    /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
+    pub fn spawn_freeze(&self) -> FreezerClose {
+        let (signal_sender, signal_receiver) =
+            ckb_channel::bounded::<()>(service::SIGNAL_CHANNEL_SIZE);
+        let shared = self.clone();
+        let thread = thread::Builder::new()
+            .spawn(move || loop {
+                match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
+                    Err(_) => {
+                        if let Err(e) = shared.freeze() {
+                            ckb_logger::error!("Freezer error {}", e);
+                            break;
+                        }
+                    }
+                    Ok(_) => {
+                        ckb_logger::info!("Freezer closing");
+                        break;
+                    }
+                }
+            })
+            .expect("Start FreezerService failed");
+
+        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
+        let freezer = self.store.freezer().expect("freezer inited");
+        FreezerClose {
+            stopped: Arc::clone(&freezer.stopped),
+            stop,
+        }
+    }
+
+    fn freeze(&self) -> Result<(), Error> {
+        let freezer = self.store.freezer().expect("freezer inited");
+        let snapshot = self.snapshot();
+        let current_epoch = snapshot.epoch_ext().number();
+
+        ckb_logger::trace!("freezer current_epoch {}", current_epoch);
+
+        if current_epoch <= THRESHOLD_EPOCH {
+            ckb_logger::trace!("freezer loaf");
+            return Ok(());
+        }
+
+        let limit_block_hash = snapshot
+            .get_epoch_index(current_epoch + 1 - THRESHOLD_EPOCH)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .expect("get_epoch_ext")
+            .last_block_hash_in_previous_epoch();
+
+        let frozen_number = freezer.number();
+
+        let threshold = cmp::min(
+            snapshot
+                .get_block_number(&limit_block_hash)
+                .expect("get_block_number"),
+            frozen_number + MAX_FREEZE_LIMIT,
+        );
+
+        let get_unfrozen_block = |number: BlockNumber| {
+            self.store()
+                .get_block_hash(number)
+                .and_then(|hash| self.store().get_unfrozen_block(&hash))
+        };
+
+        let ret = freezer.freeze(threshold, get_unfrozen_block)?;
+
+        // Wipe out frozen data
+        self.wipe_out_frozen_data(&snapshot, ret)?;
+
+        ckb_logger::trace!("freezer finish");
+
+        Ok(())
+    }
+
+    fn wipe_out_frozen_data(
+        &self,
+        snapshot: &Snapshot,
+        frozen: Vec<(BlockNumber, packed::Byte32, u32)>,
+    ) -> Result<(), Error> {
+        let mut side = Vec::with_capacity(frozen.len());
+        let mut batch = self.store.new_write_batch();
+
+        ckb_logger::trace!("freezer wipe_out_frozen_data {} ", frozen.len());
+
+        // remain header
+        for (number, hash, txs) in frozen {
+            batch.delete_block_body(number, &hash, txs).map_err(|e| {
+                ckb_logger::error!("freezer delete_block_body failed {}", e);
+                e
+            })?;
+
+            let pack_number: packed::Uint64 = number.pack();
+            let prefix = pack_number.as_slice();
+            for (key, value) in snapshot
+                .get_iter(
+                    COLUMN_NUMBER_HASH,
+                    IteratorMode::From(prefix, Direction::Forward),
+                )
+                .take_while(|(key, _)| key.starts_with(prefix))
+            {
+                let reader = packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
+                let block_hash = reader.block_hash().to_entity();
+                if block_hash != hash {
+                    let txs =
+                        packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..]).unpack();
+                    side.push((reader.number().to_entity(), block_hash, txs));
+                }
+            }
+        }
+        self.store.write(&batch).map_err(|e| {
+            ckb_logger::error!("freezer write_batch delete failed {}", e);
+            e
+        })?;
+        batch.clear()?;
+
+        // Wipe out side chain
+        for (number, hash, txs) in side {
+            batch
+                .delete_block(number.unpack(), &hash, txs)
+                .map_err(|e| {
+                    ckb_logger::error!("freezer delete_block_body failed {}", e);
+                    e
+                })?;
+        }
+
+        self.store.write(&batch).map_err(|e| {
+            ckb_logger::error!("freezer write_batch delete failed {}", e);
+            e
+        })?;
+        Ok(())
+    }
+
     /// TODO(doc): @quake
     pub fn tx_pool_controller(&self) -> &TxPoolController {
         &self.tx_pool_controller
@@ -229,6 +384,7 @@ impl Shared {
 /// TODO(doc): @quake
 pub struct SharedBuilder {
     db: RocksDB,
+    ancient_path: Option<PathBuf>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
@@ -245,34 +401,21 @@ fn static_runtime_handle() -> Handle {
     runtime.0.clone()
 }
 
-impl Default for SharedBuilder {
-    fn default() -> Self {
-        SharedBuilder {
-            db: RocksDB::open_tmp(COLUMNS),
-            consensus: None,
-            tx_pool_config: None,
-            notify_config: None,
-            store_config: None,
-            block_assembler_config: None,
-            migrations: Migrations::default(),
-            async_handle: static_runtime_handle(),
-        }
-    }
-}
-
 const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
-    /// TODO(doc): @quake
-    pub fn new(config: &DBConfig, async_handle: Handle) -> Self {
+    /// Generates the base SharedBuilder with ancient path and async_handle
+    pub fn new(config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
         let db = RocksDB::open(config, COLUMNS);
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
         migrations.add_migration(Box::new(migrations::CellMigration));
+        migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
 
         SharedBuilder {
             db,
+            ancient_path: ancient,
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
@@ -280,6 +423,21 @@ impl SharedBuilder {
             block_assembler_config: None,
             migrations,
             async_handle,
+        }
+    }
+
+    /// Generates the SharedBuilder with temp db
+    pub fn with_temp_db() -> Self {
+        SharedBuilder {
+            db: RocksDB::open_tmp(COLUMNS),
+            ancient_path: None,
+            consensus: None,
+            tx_pool_config: None,
+            notify_config: None,
+            store_config: None,
+            block_assembler_config: None,
+            migrations: Migrations::default(),
+            async_handle: static_runtime_handle(),
         }
     }
 }
@@ -335,7 +493,12 @@ impl SharedBuilder {
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
         let db = self.migrations.migrate(self.db)?;
-        let store = ChainDB::new(db, store_config);
+        let store = if let Some(path) = self.ancient_path {
+            let freezer = Freezer::open(path)?;
+            ChainDB::new_with_freezer(db, freezer, store_config)
+        } else {
+            ChainDB::new(db, store_config)
+        };
 
         Shared::init(
             store,

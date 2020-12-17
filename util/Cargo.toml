@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-parking_lot = "=0.7.1"
+parking_lot = "0.10"
 linked-hash-map = "0.5"
 regex = "1.1.6"
 

@@ -7,6 +7,7 @@ use ckb_db_schema::{
     COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
+use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -26,7 +27,9 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     type Vector: AsRef<[u8]>;
     /// TODO(doc): @quake
     fn cache(&'a self) -> Option<&'a StoreCache>;
-    /// TODO(doc): @quake
+    /// Return freezer reference
+    fn freezer(&'a self) -> Option<&'a Freezer>;
+    /// Return the bytes associated with a key value and the given column family.
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
@@ -37,16 +40,23 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
-        self.get_block_header(h).map(|header| {
-            let body = self.get_block_body(h);
-            let uncles = self
-                .get_block_uncles(h)
-                .expect("block uncles must be stored");
-            let proposals = self
-                .get_block_proposal_txs_ids(h)
-                .expect("block proposal_ids must be stored");
-            BlockView::new_unchecked(header, uncles, body, proposals)
-        })
+        let header = self.get_block_header(h)?;
+        if let Some(freezer) = self.freezer() {
+            if header.number() > 0 && header.number() < freezer.number() {
+                let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
+                let raw_block =
+                    packed::BlockReader::from_slice_should_be_ok(&raw_block).to_entity();
+                return Some(raw_block.into_view());
+            }
+        }
+        let body = self.get_block_body(h);
+        let uncles = self
+            .get_block_uncles(h)
+            .expect("block uncles must be stored");
+        let proposals = self
+            .get_block_proposal_txs_ids(h)
+            .expect("block proposal_ids must be stored");
+        Some(BlockView::new_unchecked(header, uncles, body, proposals))
     }
 
     /// Get header by block header hash
@@ -84,6 +94,19 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             Unpack::<TransactionView>::unpack(&reader)
         })
         .collect()
+    }
+
+    /// Get unfrozen block from ky-store with given hash
+    fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
+        let header = self.get_block_header(h)?;
+        let body = self.get_block_body(h);
+        let uncles = self
+            .get_block_uncles(h)
+            .expect("block uncles must be stored");
+        let proposals = self
+            .get_block_proposal_txs_ids(h)
+            .expect("block proposal_ids must be stored");
+        Some(BlockView::new_unchecked(header, uncles, body, proposals))
     }
 
     /// Get all transaction-hashes in block body by block header hash
@@ -219,20 +242,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 
     /// TODO(doc): @quake
-    fn get_transaction_with_info(
-        &'a self,
-        hash: &packed::Byte32,
-    ) -> Option<(TransactionView, TransactionInfo)> {
-        let tx_info = self.get_transaction_info(hash)?;
-        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-            .map(|slice| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
-                (reader.unpack(), tx_info)
-            })
-    }
-
-    /// TODO(doc): @quake
     fn get_transaction_info(&'a self, hash: &packed::Byte32) -> Option<TransactionInfo> {
         self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
             .map(|slice| {
@@ -242,7 +251,31 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
-    /// TODO(doc): @quake
+    /// Gets transaction and associated info with correspond hash
+    fn get_transaction_with_info(
+        &'a self,
+        hash: &packed::Byte32,
+    ) -> Option<(TransactionView, TransactionInfo)> {
+        let tx_info = self.get_transaction_info(hash)?;
+        if let Some(freezer) = self.freezer() {
+            if tx_info.block_number > 0 && tx_info.block_number < freezer.number() {
+                let raw_block = freezer
+                    .retrieve(tx_info.block_number)
+                    .expect("block frozen")?;
+                let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
+                return Some((tx_reader.to_entity().into_view(), tx_info));
+            }
+        }
+        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
+            .map(|slice| {
+                let reader =
+                    packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
+                (reader.unpack(), tx_info)
+            })
+    }
+
+    /// Gets cell meta data with out_point
     fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
         let key = out_point.to_cell_key();
         self.get(COLUMN_CELL, &key).map(|slice| {
@@ -385,43 +418,37 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// TODO(doc): @quake
     fn get_packed_block(&'a self, hash: &packed::Byte32) -> Option<packed::Block> {
-        self.get_packed_block_header(hash).map(|header| {
-            let txs = {
-                let prefix = hash.as_slice();
-                self.get_iter(
-                    COLUMN_BLOCK_BODY,
-                    IteratorMode::From(prefix, Direction::Forward),
-                )
-                .take_while(|(key, _)| key.starts_with(prefix))
-                .map(|(_key, value)| {
-                    let reader =
-                        packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                    reader.data().to_entity()
-                })
-                .pack()
-            };
-            let uncles = self
-                .get(COLUMN_BLOCK_UNCLE, hash.as_slice())
-                .map(|slice| {
-                    let reader =
-                        packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
-                    reader.data().to_entity()
-                })
-                .expect("block uncles must be stored");
-            let proposals = self
-                .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
-                .map(|slice| {
-                    packed::ProposalShortIdVecReader::from_slice_should_be_ok(&slice.as_ref())
-                        .to_entity()
-                })
-                .expect("block proposal_ids must be stored");
-            packed::BlockBuilder::default()
+        let header = self
+            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
+            .map(|slice| {
+                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
+                reader.data().to_entity()
+            })?;
+
+        let prefix = hash.as_slice();
+        let transactions: packed::TransactionVec = self
+            .get_iter(
+                COLUMN_BLOCK_BODY,
+                IteratorMode::From(prefix, Direction::Forward),
+            )
+            .take_while(|(key, _)| key.starts_with(prefix))
+            .map(|(_key, value)| {
+                let reader =
+                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
+                reader.data().to_entity()
+            })
+            .pack();
+
+        let uncles = self.get_block_uncles(hash)?;
+        let proposals = self.get_block_proposal_txs_ids(hash)?;
+        Some(
+            packed::Block::new_builder()
                 .header(header)
-                .transactions(txs)
-                .uncles(uncles)
+                .uncles(uncles.data())
+                .transactions(transactions)
                 .proposals(proposals)
-                .build()
-        })
+                .build(),
+        )
     }
 
     /// TODO(doc): @quake
