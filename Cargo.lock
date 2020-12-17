@@ -684,6 +684,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-freezer"
+version = "0.39.0-pre"
+dependencies = [
+ "ckb-error",
+ "ckb-logger",
+ "ckb-metrics",
+ "ckb-types",
+ "ckb-util",
+ "fail",
+ "fs2",
+ "snap",
+ "tempfile",
+]
+
+[[package]]
 name = "ckb-hash"
 version = "0.39.0-pre"
 dependencies = [
@@ -1189,11 +1204,15 @@ dependencies = [
  "arc-swap",
  "ckb-app-config",
  "ckb-async-runtime",
+ "ckb-chain-iter",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-db",
  "ckb-db-migration",
  "ckb-db-schema",
  "ckb-error",
+ "ckb-freezer",
+ "ckb-logger",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -1215,6 +1234,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-error",
+ "ckb-freezer",
  "ckb-proposal-table",
  "ckb-reward-calculator",
  "ckb-store",
@@ -1246,6 +1266,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-error",
+ "ckb-freezer",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
@@ -1373,7 +1394,7 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
- "parking_lot 0.7.1",
+ "parking_lot 0.10.2",
  "regex",
 ]
 
@@ -1906,6 +1927,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fail"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3be3c61c59fdc91f5dbc3ea31ee8623122ce80057058be560654c5d410d181a6"
+dependencies = [
+ "lazy_static",
+ "log",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1934,9 +1966,9 @@ checksum = "348138dd23e03bb0018caef99647fb1a5befec5ff4b501991de88f09854d4c28"
 
 [[package]]
 name = "fixedbitset"
-version = "0.1.9"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86d4de0081402f5e88cdac65c8dcdcc73118c1a7a465e2a05f0da05843a8ea33"
+checksum = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
 
 [[package]]
 name = "flate2"
@@ -1979,6 +2011,16 @@ checksum = "ece68d15c92e84fa4f19d3780f1294e5ca82a78a6d515f1efaabcc144688be00"
 dependencies = [
  "matches",
  "percent-encoding 2.1.0",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.8",
 ]
 
 [[package]]
@@ -3605,12 +3647,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ordermap"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
-
-[[package]]
 name = "output_vt100"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3665,13 +3701,10 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94c8c7923936b28d546dfd14d4472eaf34c99b14e1c973a32b3e6d4eb04298c9"
 dependencies = [
- "backtrace",
  "libc",
- "petgraph",
  "rand 0.6.5",
  "rustc_version",
  "smallvec 0.6.13",
- "thread-id",
  "winapi 0.3.8",
 ]
 
@@ -3681,11 +3714,14 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e136c1904604defe99ce5fd71a28d473fa60a12255d511aa78a9ddf11237aeb"
 dependencies = [
+ "backtrace",
  "cfg-if 0.1.10",
  "cloudabi",
  "libc",
+ "petgraph",
  "redox_syscall",
  "smallvec 1.3.0",
+ "thread-id",
  "winapi 0.3.8",
 ]
 
@@ -3745,12 +3781,12 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "petgraph"
-version = "0.4.13"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c3659d1ee90221741f65dd128d9998311b0e40c5d3c23a62445938214abce4f"
+checksum = "467d164a6de56270bd7c4d070df81d07beace25012d5103ced4e9ff08d6afdb7"
 dependencies = [
  "fixedbitset",
- "ordermap",
+ "indexmap",
 ]
 
 [[package]]

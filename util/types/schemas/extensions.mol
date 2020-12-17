@@ -64,6 +64,11 @@ struct TransactionKey {
     index:          BeUint32,
 }
 
+struct NumberHash {
+    number:         Uint64,
+    block_hash:     Byte32,
+}
+
 struct TransactionInfo {
     block_number:   Uint64,
     block_epoch:    Uint64,

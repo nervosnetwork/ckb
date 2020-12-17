@@ -77,7 +77,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table) = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();
@@ -299,7 +299,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table) = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();

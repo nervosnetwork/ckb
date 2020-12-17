@@ -100,7 +100,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .genesis_block(block.clone())
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build();
-    let (shared, table) = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .build()
         .unwrap();

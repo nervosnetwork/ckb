@@ -12,6 +12,7 @@ use ckb_db::{
 };
 use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY};
 use ckb_error::Error;
+use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ChainDB {
     db: RocksDB,
+    freezer: Option<Freezer>,
     cache: Arc<StoreCache>,
 }
 
@@ -27,6 +29,10 @@ impl<'a> ChainStore<'a> for ChainDB {
 
     fn cache(&'a self) -> Option<&'a StoreCache> {
         Some(&self.cache)
+    }
+
+    fn freezer(&'a self) -> Option<&'a Freezer> {
+        self.freezer.as_ref()
     }
 
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
@@ -46,6 +52,17 @@ impl ChainDB {
         let cache = StoreCache::from_config(config);
         ChainDB {
             db,
+            freezer: None,
+            cache: Arc::new(cache),
+        }
+    }
+
+    /// Open new ChainDB with freezer instance
+    pub fn new_with_freezer(db: RocksDB, freezer: Freezer, config: StoreConfig) -> Self {
+        let cache = StoreCache::from_config(config);
+        ChainDB {
+            db,
+            freezer: Some(freezer),
             cache: Arc::new(cache),
         }
     }
@@ -77,6 +94,7 @@ impl ChainDB {
     pub fn begin_transaction(&self) -> StoreTransaction {
         StoreTransaction {
             inner: self.db.transaction(),
+            freezer: self.freezer.clone(),
             cache: Arc::clone(&self.cache),
         }
     }
@@ -85,6 +103,7 @@ impl ChainDB {
     pub fn get_snapshot(&self) -> StoreSnapshot {
         StoreSnapshot {
             inner: self.db.get_snapshot(),
+            freezer: self.freezer.clone(),
             cache: Arc::clone(&self.cache),
         }
     }

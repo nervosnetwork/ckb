@@ -23,7 +23,7 @@ use std::sync::Arc;
 //   1--2--3--4
 #[test]
 fn test_find_fork_case1() {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), table);
     let genesis = shared
@@ -95,7 +95,7 @@ fn test_find_fork_case1() {
 //      2--3--4
 #[test]
 fn test_find_fork_case2() {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), table);
 
@@ -167,7 +167,7 @@ fn test_find_fork_case2() {
 //   1--2--3--4--5--6
 #[test]
 fn test_find_fork_case3() {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), table);
 
@@ -239,7 +239,7 @@ fn test_find_fork_case3() {
 //   1--2--3
 #[test]
 fn test_find_fork_case4() {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), table);
 
@@ -309,7 +309,7 @@ fn test_find_fork_case4() {
 // this case is create for issuse from https://github.com/nervosnetwork/ckb/pull/1470
 #[test]
 fn repeatedly_switch_fork() {
-    let (shared, _) = SharedBuilder::default()
+    let (shared, _) = SharedBuilder::with_temp_db()
         .consensus(Consensus::default())
         .build()
         .unwrap();
@@ -321,7 +321,7 @@ fn repeatedly_switch_fork() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
     let mut fork2 = MockChain::new(genesis, shared.consensus());
 
-    let (shared, table) = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::with_temp_db()
         .consensus(Consensus::default())
         .build()
         .unwrap();
@@ -414,7 +414,7 @@ fn repeatedly_switch_fork() {
 
 #[test]
 fn test_fork_proposal_table() {
-    let builder = SharedBuilder::default();
+    let builder = SharedBuilder::with_temp_db();
     let mut consensus = Consensus::default();
     consensus.tx_proposal_window = ProposalWindow(2, 3);
 

@@ -50,6 +50,7 @@ members = [
     "util/types",
     "util/jsonrpc-types",
     "util/fee-estimator",
+    "freezer",
     "resource",
     "pow",
     "util/dao/utils",

@@ -27,7 +27,7 @@ impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
         self.tip + 1
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the ChainIterator has a length of 0.
     // we always have genesis, this function may be meaningless
     // but for convention, mute len-without-is-empty lint
     pub fn is_empty(&self) -> bool {

@@ -5,7 +5,7 @@ use ckb_instrument::Import;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
-    let (shared, table) = SharedBuilder::new(&args.config.db, async_handle)
+    let (shared, table) = SharedBuilder::new(&args.config.db, None, async_handle)
         .consensus(args.consensus)
         .build()
         .map_err(|err| {

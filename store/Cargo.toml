@@ -18,3 +18,4 @@ ckb-util = { path = "../util", version = "= 0.39.0-pre" }
 ckb-error = { path = "../error", version = "= 0.39.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.39.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.39.0-pre" }
+ckb-freezer = { path = "../freezer", version = "= 0.39.0-pre" }
