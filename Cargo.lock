@@ -440,7 +440,7 @@ dependencies = [
  "ckb-logger",
  "ckb-spawn",
  "ckb-stop-handler",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -883,7 +883,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-util",
  "trust-dns-resolver",
 ]
@@ -1234,7 +1234,7 @@ dependencies = [
  "ckb-logger",
  "futures 0.1.29",
  "parking_lot 0.7.1",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -1345,7 +1345,7 @@ dependencies = [
  "ckb-verification",
  "faketime",
  "lru",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -1402,7 +1402,7 @@ dependencies = [
  "lru",
  "rand 0.6.5",
  "rayon",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -2246,7 +2246,7 @@ dependencies = [
  "http 0.2.1",
  "indexmap",
  "slab",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-util",
  "tracing",
 ]
@@ -2648,7 +2648,7 @@ dependencies = [
  "pin-project 0.4.23",
  "socket2",
  "time",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tower-service",
  "tracing",
  "want 0.3.0",
@@ -2676,7 +2676,7 @@ dependencies = [
  "bytes 0.5.6",
  "hyper 0.13.7",
  "native-tls",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-tls",
 ]
 
@@ -3167,7 +3167,7 @@ source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0
 dependencies = [
  "log",
  "metrics-core",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -4276,7 +4276,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-tls",
  "url 2.2.0",
  "wasm-bindgen",
@@ -4779,7 +4779,7 @@ dependencies = [
  "tentacle-multiaddr",
  "tentacle-secio",
  "thiserror",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-util",
  "tokio-yamux",
  "wasm-bindgen",
@@ -4821,7 +4821,7 @@ dependencies = [
  "ring",
  "secp256k1 0.17.2",
  "sha2 0.9.1",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-util",
  "unsigned-varint",
  "x25519-dalek",
@@ -4980,9 +4980,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "0.2.23"
+version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6d7ad61edd59bfcc7e80dababf0f4aed2e6d5e0ba1659356ae889752dfc12ff"
+checksum = "099837d3464c16a808060bb3f02263b412f6fafcb5d01c533d309985fbeebe48"
 dependencies = [
  "bytes 0.5.6",
  "fnv",
@@ -5165,7 +5165,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
 dependencies = [
  "native-tls",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -5212,7 +5212,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite 0.1.4",
- "tokio 0.2.23",
+ "tokio 0.2.24",
 ]
 
 [[package]]
@@ -5224,7 +5224,7 @@ dependencies = [
  "bytes 0.5.6",
  "futures 0.3.8",
  "log",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "tokio-util",
 ]
 
@@ -5279,7 +5279,7 @@ dependencies = [
  "rand 0.7.3",
  "smallvec 1.3.0",
  "thiserror",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "url 2.2.0",
 ]
 
@@ -5299,7 +5299,7 @@ dependencies = [
  "resolv-conf",
  "smallvec 1.3.0",
  "thiserror",
- "tokio 0.2.23",
+ "tokio 0.2.24",
  "trust-dns-proto",
 ]
 
