@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
@@ -259,10 +259,15 @@ impl MinerRpc for MinerRpcImpl {
     }
 
     fn submit_block(&self, work_id: String, block: Block) -> Result<H256> {
-        debug!("[{}] submit block", work_id);
         let block: packed::Block = block.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();
+        debug!(
+            "start to submit block, work_id = {}, block = #{}({})",
+            work_id,
+            block.number(),
+            block.hash()
+        );
 
         // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
@@ -276,6 +281,13 @@ impl MinerRpc for MinerRpcImpl {
             .chain
             .process_block(Arc::clone(&block))
             .map_err(|err| handle_submit_error(&work_id, &err))?;
+        info!(
+            "end to submit block, work_id = {}, is_new = {}, block = #{}({})",
+            work_id,
+            is_new,
+            block.number(),
+            block.hash()
+        );
 
         // Announce only new block
         if is_new {
