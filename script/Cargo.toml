@@ -35,6 +35,6 @@ proptest = "0.9"
 ckb-db = { path = "../db", version = "= 0.39.0-pre" }
 ckb-store = { path = "../store", version = "= 0.39.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.39.0-pre" }
-tiny-keccak = "1.4"
+tiny-keccak = "2.0"
 ckb-crypto = { path = "../util/crypto", version = "= 0.39.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.39.0-pre" }

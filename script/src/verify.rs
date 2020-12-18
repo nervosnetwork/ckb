@@ -459,7 +459,12 @@ mod tests {
     const CYCLE_BOUND: Cycle = 200_000;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
-        tiny_keccak::sha3_256(s.as_ref())
+        use tiny_keccak::{Hasher, Sha3};
+        let mut output = [0; 32];
+        let mut sha3 = Sha3::v256();
+        sha3.update(s.as_ref());
+        sha3.finalize(&mut output);
+        output
     }
 
     // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate functions
