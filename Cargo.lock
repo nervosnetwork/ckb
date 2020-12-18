@@ -424,7 +424,7 @@ dependencies = [
  "ckb-types",
  "clap",
  "path-clean",
- "rand 0.6.5",
+ "rand 0.7.3",
  "serde",
  "serde_plain",
  "tempfile",
@@ -465,7 +465,7 @@ dependencies = [
  "criterion",
  "faketime",
  "lazy_static",
- "rand 0.6.5",
+ "rand 0.7.3",
 ]
 
 [[package]]
@@ -577,7 +577,7 @@ dependencies = [
  "ckb-fixed-hash",
  "faster-hex 0.4.1",
  "lazy_static",
- "rand 0.6.5",
+ "rand 0.7.3",
  "secp256k1 0.19.0",
  "thiserror",
 ]
@@ -855,7 +855,7 @@ dependencies = [
  "hyper-tls 0.3.2",
  "indicatif",
  "lru",
- "rand 0.6.5",
+ "rand 0.7.3",
  "serde",
  "serde_json",
 ]
@@ -867,7 +867,7 @@ dependencies = [
  "ckb-crypto",
  "ckb-error",
  "ckb-logger",
- "rand 0.6.5",
+ "rand 0.7.3",
 ]
 
 [[package]]
@@ -892,7 +892,7 @@ dependencies = [
  "lazy_static",
  "num_cpus",
  "proptest",
- "rand 0.6.5",
+ "rand 0.7.3",
  "secp256k1 0.19.0",
  "serde",
  "serde_json",
@@ -1304,7 +1304,7 @@ dependencies = [
  "futures 0.3.8",
  "governor",
  "lru",
- "rand 0.6.5",
+ "rand 0.7.3",
  "tempfile",
 ]
 
@@ -1422,7 +1422,7 @@ dependencies = [
  "derive_more",
  "faketime",
  "lru",
- "rand 0.6.5",
+ "rand 0.7.3",
  "rayon",
  "tokio 0.2.24",
 ]
