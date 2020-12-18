@@ -852,7 +852,7 @@ dependencies = [
  "eaglesong",
  "futures 0.1.29",
  "hyper 0.12.35",
- "hyper-tls 0.3.2",
+ "hyper-tls",
  "indicatif",
  "lru",
  "rand 0.6.5",
@@ -2699,19 +2699,6 @@ dependencies = [
 
 [[package]]
 name = "hyper-tls"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a800d6aa50af4b5850b2b0f659625ce9504df908e9733b635720483be26174f"
-dependencies = [
- "bytes 0.4.12",
- "futures 0.1.29",
- "hyper 0.12.35",
- "native-tls",
- "tokio-io",
-]
-
-[[package]]
-name = "hyper-tls"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d979acc56dcb5b8dddba3917601745e877576475aa046df3226eabdecef78eed"
@@ -4300,7 +4287,7 @@ dependencies = [
  "http 0.2.1",
  "http-body 0.3.1",
  "hyper 0.13.7",
- "hyper-tls 0.4.3",
+ "hyper-tls",
  "ipnet",
  "js-sys",
  "lazy_static",
