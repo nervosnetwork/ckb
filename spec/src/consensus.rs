@@ -196,11 +196,10 @@ pub fn build_genesis_epoch_ext(
     let block_reward = Capacity::shannons(epoch_reward.as_u64() / genesis_epoch_length);
     let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % genesis_epoch_length);
 
-    // let genesis_orphan_count = genesis_epoch_length * genesis_orphan_rate.0 / genesis_orphan_rate.1;
+    let genesis_orphan_count =
+        genesis_epoch_length * genesis_orphan_rate.0 as u64 / genesis_orphan_rate.1 as u64;
     let genesis_hash_rate = compact_to_difficulty(compact_target)
-        * genesis_epoch_length
-        * (genesis_orphan_rate.0 + genesis_orphan_rate.1)
-        / genesis_orphan_rate.1
+        * (genesis_epoch_length + genesis_orphan_count)
         / epoch_duration_target;
 
     EpochExt::new_builder()
