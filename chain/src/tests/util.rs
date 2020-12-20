@@ -1,7 +1,9 @@
 use crate::chain::{ChainController, ChainService};
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -18,9 +20,10 @@ use ckb_types::{
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
         TransactionView,
     },
+    h256,
     packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::{difficulty_to_compact, DIFF_TWO},
-    U256,
+    H256, U256,
 };
 use std::collections::HashSet;
 
@@ -106,7 +109,19 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .genesis_block(genesis_block)
             .build()
     });
-    let (shared, table) = builder.consensus(consensus).build().unwrap();
+
+    let config = BlockAssemblerConfig {
+        code_hash: h256!("0x0"),
+        args: Default::default(),
+        hash_type: ScriptHashType::Data,
+        message: Default::default(),
+    };
+
+    let (shared, table) = builder
+        .consensus(consensus)
+        .block_assembler_config(Some(config))
+        .build()
+        .unwrap();
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
