@@ -1426,6 +1426,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-version-bits"
+version = "0.39.0-pre"
+dependencies = [
+ "ckb-chain-spec",
+ "ckb-store",
+ "ckb-types",
+ "ckb-util",
+ "lazy_static",
+]
+
+[[package]]
 name = "ckb-vm"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

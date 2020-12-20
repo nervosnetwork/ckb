@@ -43,6 +43,8 @@ pub use error::SpecError;
 
 pub mod consensus;
 mod error;
+/// version bits relate type define
+pub mod version_bits;
 
 // Just a random secp256k1 secret key for dep group input cell's lock
 const SPECIAL_CELL_PRIVKEY: H256 =

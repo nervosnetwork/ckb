@@ -3,6 +3,7 @@
 
 #![allow(clippy::inconsistent_digit_grouping)]
 
+use crate::version_bits::{Deployment, DeploymentId};
 use crate::{
     calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
@@ -25,6 +26,7 @@ use ckb_types::{
     H160, H256, U256,
 };
 use std::cmp;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // 1.344 billion per year
@@ -269,6 +271,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
+                vbit_deployments: HashMap::new(),
             },
         }
     }
@@ -518,6 +521,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// version bits deployments info
+    pub vbit_deployments: HashMap<DeploymentId, Deployment>,
 }
 
 // genesis difficulty should not be zero
