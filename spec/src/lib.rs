@@ -1126,4 +1126,36 @@ pub mod test {
 
         assert_eq!(serialized, except);
     }
+
+    #[test]
+    fn test_default_genesis_epoch_ext() {
+        use ckb_types::core::EpochExt;
+        use ckb_types::{packed, U256};
+
+        let params = Params::default();
+        let compact_target = 0x1a08a97e;
+        let genesis_epoch_length = 1743;
+
+        let genesis_epoch_ext = build_genesis_epoch_ext(
+            params.initial_primary_epoch_reward(),
+            compact_target,
+            genesis_epoch_length,
+            params.epoch_duration_target(),
+            params.orphan_rate_target(),
+        );
+
+        // hard code mainnet
+        let expected = EpochExt::new_builder()
+            .number(0)
+            .base_block_reward(Capacity::shannons(110029157726))
+            .remainder_reward(Capacity::shannons(1390))
+            .previous_epoch_hash_rate(U256::from(0x3aa602ee1f497u64))
+            .last_block_hash_in_previous_epoch(packed::Byte32::zero())
+            .start_number(0)
+            .length(genesis_epoch_length)
+            .compact_target(compact_target)
+            .build();
+
+        assert_eq!(genesis_epoch_ext, expected);
+    }
 }
