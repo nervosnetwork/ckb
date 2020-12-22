@@ -41,6 +41,7 @@ if [ "$EXIT_CODE" != 0 ] && [ "${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}" = "nervos
   done
 
   CKB_RELEASE="$("$CKB_BIN" --version)"
+  unset encrypted_82dff4145bbf_iv encrypted_82dff4145bbf_key GITHUB_TOKEN GPG_SIGNER QINIU_ACCESS_KEY QINIU_SECRET_KEY
   cat "$CKB_INTEGRATION_FAILURE_FILE" | xargs -t -L 1 -I '%' sentry-cli send-event -m '%' -r "$CKB_RELEASE" --logfile integration.log
 fi
 
