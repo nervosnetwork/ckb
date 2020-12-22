@@ -706,6 +706,7 @@ impl CKBProtocolHandler for Relayer {
         peer_index: PeerIndex,
         version: &str,
     ) {
+        self.shared().state().peers().relay_connected(peer_index);
         info_target!(
             crate::LOG_TARGET_RELAY,
             "RelayProtocol({}).connected peer={}",

@@ -351,7 +351,7 @@ impl Synchronizer {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers().on_connected(
+        self.peers().sync_connected(
             peer,
             PeerFlags {
                 is_outbound,
