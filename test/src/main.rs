@@ -37,7 +37,7 @@ struct TestResult {
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let _ = {
-        let filter = env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
+        let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
     };
 
