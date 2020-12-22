@@ -32,4 +32,4 @@ ckb-chain = { path = "../chain", version = "= 0.39.0-pre" }
 ckb-shared = { path = "../shared", version = "= 0.39.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.39.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.39.0-pre" }
-rand = "0.6"
+rand = "0.7"

@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-rand = "0.6"
+rand = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 ckb-util = { path = "../util", version = "= 0.39.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.0-pre" }

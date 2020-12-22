@@ -4,10 +4,9 @@ use ckb_channel::{Receiver, Sender};
 use ckb_logger::error;
 use ckb_types::packed::Byte32;
 use indicatif::ProgressBar;
-use rand::{
-    distributions::{self as dist, Distribution as _},
-    thread_rng,
-};
+use rand::thread_rng;
+use rand_distr::{self as dist, Distribution as _};
+use std::convert::TryFrom;
 use std::thread;
 use std::time::Duration;
 
@@ -22,19 +21,25 @@ pub struct Dummy {
 pub enum Delay {
     Constant(u64),
     Uniform(dist::Uniform<u64>),
-    Normal(dist::Normal),
-    Poisson(dist::Poisson),
+    Normal(dist::Normal<f64>),
+    Poisson(dist::Poisson<f64>),
 }
 
-impl From<&DummyConfig> for Delay {
-    fn from(config: &DummyConfig) -> Self {
+impl TryFrom<&DummyConfig> for Delay {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(config: &DummyConfig) -> Result<Self, Self::Error> {
         match config {
-            DummyConfig::Constant { value } => Delay::Constant(*value),
-            DummyConfig::Uniform { low, high } => Delay::Uniform(dist::Uniform::new(*low, *high)),
-            DummyConfig::Normal { mean, std_dev } => {
-                Delay::Normal(dist::Normal::new(*mean, *std_dev))
+            DummyConfig::Constant { value } => Ok(Delay::Constant(*value)),
+            DummyConfig::Uniform { low, high } => {
+                Ok(Delay::Uniform(dist::Uniform::new(*low, *high)))
             }
-            DummyConfig::Poisson { lambda } => Delay::Poisson(dist::Poisson::new(*lambda)),
+            DummyConfig::Normal { mean, std_dev } => dist::Normal::new(*mean, *std_dev)
+                .map(Delay::Normal)
+                .map_err(Into::into),
+            DummyConfig::Poisson { lambda } => dist::Poisson::new(*lambda)
+                .map(Delay::Poisson)
+                .map_err(Into::into),
         }
     }
 }
@@ -52,25 +57,25 @@ impl Delay {
             Delay::Constant(v) => *v,
             Delay::Uniform(ref d) => d.sample(&mut rng),
             Delay::Normal(ref d) => d.sample(&mut rng) as u64,
-            Delay::Poisson(ref d) => d.sample(&mut rng),
+            Delay::Poisson(ref d) => d.sample(&mut rng) as u64,
         };
         Duration::from_millis(millis)
     }
 }
 
 impl Dummy {
-    pub fn new(
+    pub fn try_new(
         config: &DummyConfig,
         nonce_tx: Sender<(Byte32, u128)>,
         worker_rx: Receiver<WorkerMessage>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Delay::try_from(config).map(|delay| Self {
             start: true,
             pow_hash: None,
-            delay: config.into(),
+            delay,
             nonce_tx,
             worker_rx,
-        }
+        })
     }
 
     fn poll_worker_message(&mut self) {
