@@ -858,7 +858,7 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn on_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
+    pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
         self.state
             .write()
             .entry(peer)
@@ -866,6 +866,13 @@ impl Peers {
                 state.peer_flags = peer_flags;
             })
             .or_insert_with(|| PeerState::new(peer_flags));
+    }
+
+    pub fn relay_connected(&self, peer: PeerIndex) {
+        self.state
+            .write()
+            .entry(peer)
+            .or_insert_with(|| PeerState::new(PeerFlags::default()));
     }
 
     pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
