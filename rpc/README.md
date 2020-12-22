@@ -3449,7 +3449,7 @@ Subscribes to a topic.
 
 ##### Params
 
-*   `topic` - Subscription topic (enum: new_tip_header | new_tip_block)
+*   `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
 
 ##### Returns
 
@@ -3487,6 +3487,22 @@ The type of the `params.result` in the push message is [`BlockView`](#type-block
 Subscribers will get notified when a new transaction is submitted to the pool.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
+
+###### `proposed_transaction`
+
+Subscribers will get notified when an in-pool transaction is proposed by chain.
+
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
+
+###### `rejected_transaction`
+
+Subscribers will get notified when a pending transaction is rejected by tx-pool.
+
+The type of the `params.result` in the push message is an array contain:
+
+*   [`PoolTransactionEntry`](#type-pooltransactionentry).
+
+*   [`PoolTransactionReject`](#type-pooltransactionreject).
 
 ##### Examples
 

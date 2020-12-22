@@ -86,7 +86,7 @@ pub trait SubscriptionRpc {
     ///
     /// ## Params
     ///
-    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block)
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
     ///
     /// ## Returns
     ///
@@ -128,6 +128,21 @@ pub trait SubscriptionRpc {
     /// Subscribers will get notified when a new transaction is submitted to the pool.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ### `proposed_transaction`
+    ///
+    /// Subscribers will get notified when an in-pool transaction is proposed by chain.
+    ///
+    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ### `rejected_transaction`
+    ///
+    /// Subscribers will get notified when a pending transaction is rejected by tx-pool.
+    ///
+    /// The type of the `params.result` in the push message is an array contain:
+    ///
+    ///  - [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///  - [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
     ///
     /// ## Examples
     ///
@@ -344,7 +359,7 @@ impl SubscriptionRpcImpl {
                             }
                         },
                         _ => {
-                            error!("abandoned_transaction_receiver closed");
+                            error!("reject_transaction_receiver closed");
                             break;
                         },
                     },
