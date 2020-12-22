@@ -73,7 +73,8 @@ pub fn start_worker(
                 pb.set_prefix(&worker_name);
 
                 let (worker_tx, worker_rx) = unbounded();
-                let mut worker = Dummy::new(config, nonce_tx, worker_rx);
+                let mut worker = Dummy::try_new(config, nonce_tx, worker_rx)
+                    .expect("valid distribution parameters");
 
                 thread::Builder::new()
                     .name(worker_name.to_string())

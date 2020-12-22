@@ -13,7 +13,7 @@ ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.39.0-pre" }
 lazy_static = "1.3"
 secp256k1 = { version = "0.19", features = ["recovery"], optional = true }
 thiserror = "1.0.22"
-rand = "0.6"
+rand = { version = "0.7", features = ["small_rng"] }
 faster-hex = "0.4"
 
 [features]

@@ -36,7 +36,7 @@ tempfile = "3.0"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.39.0-pre" }
-rand = "0.6"
+rand = "0.7"
 ckb-dao = { path = "../util/dao", version = "= 0.39.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.39.0-pre" }
 

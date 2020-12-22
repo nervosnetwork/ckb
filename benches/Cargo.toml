@@ -18,7 +18,7 @@ ckb-types = { path = "../util/types", version = "= 0.39.0-pre" }
 ckb-shared = { path = "../shared", version = "= 0.39.0-pre" }
 ckb-store = { path = "../store", version = "= 0.39.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.39.0-pre" }
-rand = "0.6"
+rand = "0.7"
 ckb-hash = {path = "../util/hash", version = "= 0.39.0-pre"}
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.39.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.39.0-pre" }
