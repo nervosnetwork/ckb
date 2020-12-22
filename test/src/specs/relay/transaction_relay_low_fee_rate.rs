@@ -1,4 +1,5 @@
 use crate::node::connect_all;
+use crate::node::waiting_for_sync;
 use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
@@ -31,6 +32,10 @@ impl Spec for TransactionRelayLowFeeRate {
             .rpc_client()
             .dry_run_transaction(low_fee.data().into())
             .cycles;
+
+        log::debug!("make sure node1 has the cell");
+        waiting_for_sync(nodes);
+
         node0
             .rpc_client()
             .broadcast_transaction(low_fee.data().into(), low_cycles)
