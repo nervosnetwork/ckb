@@ -44,7 +44,3 @@ wildcards = "deny"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = [
-    # TODO fix RUSTSEC-2020-0041 temporarily
-    "https://github.com/nervosnetwork/metrics-rs",
-]
