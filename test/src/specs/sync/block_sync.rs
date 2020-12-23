@@ -244,12 +244,6 @@ impl Spec for BlockSyncOrphanBlocks {
     }
 }
 
-/// test case:
-/// 1. generate 1-17 block
-/// 2. sync 1-16 header to node
-/// 3. sync 2-16 block to node
-/// 4. sync 1 block to node
-/// 5. relay 17 block to node
 pub struct BlockSyncRelayerCollaboration;
 
 impl Spec for BlockSyncRelayerCollaboration {
@@ -258,9 +252,10 @@ impl Spec for BlockSyncRelayerCollaboration {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
+        // Both node0 and node1 generate 1st block to exit IBD mode
         out_ibd_mode(nodes);
 
-        // Generate some blocks from node1
+        // Generate 2nd~18th blocks from node1
         let mut blocks: Vec<BlockView> = (1..=17)
             .map(|_| {
                 let block = node1.new_block(None, None, None);
@@ -279,8 +274,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         let tip_number = rpc_client.get_tip_block_number();
 
         let last = blocks.pop().unwrap();
-
-        // Send headers to node0, keep blocks body
+        // Send 2nd~17th headers to node0, keep blocks body
         blocks.iter().for_each(|block| {
             sync_header(&net, node0, block);
         });
@@ -290,6 +284,7 @@ impl Spec for BlockSyncRelayerCollaboration {
 
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
+        // Send 3rd~17th block to node0
         blocks.into_iter().for_each(|block| {
             sync_block(&net, node0, &block);
         });
@@ -297,11 +292,13 @@ impl Spec for BlockSyncRelayerCollaboration {
         let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
+        // Sync 2nd block to node
         sync_block(&net, node0, &first);
+        // Relay 17th block to node
         net.send(node0, SupportProtocols::Relay, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
-        log::info!("{}", rpc_client.get_tip_block_number());
+        log::info!("node0 tip number is {}", rpc_client.get_tip_block_number());
         assert!(ret, "node0 should grow up");
     }
 }
@@ -488,16 +485,17 @@ fn sync_get_blocks(net: &Net, node: &Node, hashes: &[Byte32]) {
 }
 
 fn should_receive_get_blocks_message(net: &Net, node: &Node, last_block_hash: Byte32) {
-    let ret = net.should_receive(node, |data: &Bytes| {
-        SyncMessage::from_slice(&data)
-            .map(|message| match message.to_enum() {
-                packed::SyncMessageUnion::GetBlocks(get_blocks) => {
-                    let block_hashes = get_blocks.block_hashes();
-                    block_hashes.get(block_hashes.len() - 1).unwrap() == last_block_hash
-                }
-                _ => false,
-            })
-            .unwrap_or(false)
+    let ret = wait_until(5, || {
+        net.should_receive(node, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| match message.to_enum() {
+                    packed::SyncMessageUnion::GetBlocks(get_blocks) => {
+                        get_blocks.block_hashes().into_iter().last().unwrap() == last_block_hash
+                    }
+                    _ => false,
+                })
+                .unwrap_or(false)
+        })
     });
     assert!(ret, "Test node should receive GetBlocks message from node");
 }
