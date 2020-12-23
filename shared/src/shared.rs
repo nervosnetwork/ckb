@@ -22,7 +22,6 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
-use once_cell::sync::OnceCell;
 use std::cmp;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -48,6 +47,14 @@ impl Drop for FreezerClose {
     }
 }
 
+impl Drop for Shared {
+    fn drop(&mut self) {
+        if let Some(ref mut stop) = self.async_stop {
+            stop.try_send();
+        }
+    }
+}
+
 /// TODO(doc): @quake
 #[derive(Clone)]
 pub struct Shared {
@@ -58,6 +65,8 @@ pub struct Shared {
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
+    // async stop handle, only test will be assigned
+    pub(crate) async_stop: Option<StopHandler<()>>,
 }
 
 impl Shared {
@@ -69,6 +78,7 @@ impl Shared {
         notify_config: NotifyConfig,
         block_assembler_config: Option<BlockAssemblerConfig>,
         async_handle: Handle,
+        async_stop: Option<StopHandler<()>>,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -144,6 +154,7 @@ impl Shared {
             tx_pool_controller,
             notify_controller,
             async_handle,
+            async_stop,
         };
 
         Ok((shared, proposal_table))
@@ -424,13 +435,8 @@ pub struct SharedBuilder {
     notify_config: Option<NotifyConfig>,
     migrations: Migrations,
     async_handle: Handle,
-}
-
-static RUNTIME: OnceCell<(Handle, StopHandler<()>)> = OnceCell::new();
-
-fn static_runtime_handle() -> Handle {
-    let runtime = RUNTIME.get_or_init(new_global_runtime);
-    runtime.0.clone()
+    // async stop handle, only test will be assigned
+    async_stop: Option<StopHandler<()>>,
 }
 
 const INIT_DB_VERSION: &str = "20191127135521";
@@ -455,11 +461,13 @@ impl SharedBuilder {
             block_assembler_config: None,
             migrations,
             async_handle,
+            async_stop: None,
         }
     }
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
+        let (handle, stop) = new_global_runtime();
         SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             ancient_path: None,
@@ -469,7 +477,8 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             migrations: Migrations::default(),
-            async_handle: static_runtime_handle(),
+            async_handle: handle,
+            async_stop: Some(stop),
         }
     }
 }
@@ -539,6 +548,7 @@ impl SharedBuilder {
             notify_config,
             self.block_assembler_config,
             self.async_handle,
+            self.async_stop,
         )
     }
 }

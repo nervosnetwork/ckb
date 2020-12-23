@@ -1203,7 +1203,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "num_cpus",
- "once_cell",
 ]
 
 [[package]]
