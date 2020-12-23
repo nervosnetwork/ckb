@@ -816,14 +816,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-metrics-runtime"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b303fd94b4a4eaee53630a738651fcc7594b272f110afd7723f4a5af54fc9547"
+dependencies = [
+ "arc-swap",
+ "atomic-shim",
+ "crossbeam-utils 0.7.2",
+ "metrics",
+ "metrics-core",
+ "metrics-exporter-http",
+ "metrics-exporter-log",
+ "metrics-observer-json",
+ "metrics-observer-prometheus",
+ "metrics-observer-yaml",
+ "metrics-util",
+ "parking_lot 0.11.1",
+ "quanta 0.3.2",
+]
+
+[[package]]
 name = "ckb-metrics-service"
 version = "0.39.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-metrics-config",
+ "ckb-metrics-runtime",
  "ckb-util",
  "metrics-core",
- "metrics-runtime",
 ]
 
 [[package]]
@@ -3181,7 +3202,8 @@ dependencies = [
 [[package]]
 name = "metrics"
 version = "0.12.1"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51b70227ece8711a1aa2f99655efd795d0cff297a5b9fe39645a93aacf6ad39d"
 dependencies = [
  "metrics-core",
 ]
@@ -3189,12 +3211,14 @@ dependencies = [
 [[package]]
 name = "metrics-core"
 version = "0.5.2"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c064b3a1ff41f4bf6c91185c8a0caeccf8a8a27e9d0f92cc54cf3dbec812f48"
 
 [[package]]
 name = "metrics-exporter-http"
 version = "0.3.0"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e14017d204ae062dc5c68a321e3dbdcd9b30181305cb6b067932f7f03f754e27"
 dependencies = [
  "hyper 0.13.7",
  "log",
@@ -3204,7 +3228,8 @@ dependencies = [
 [[package]]
 name = "metrics-exporter-log"
 version = "0.4.0"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3fc63816bd5f8bde5eb31ce471f9633adc69ba1c55b44191b4d5fc7e263e8ab"
 dependencies = [
  "log",
  "metrics-core",
@@ -3214,7 +3239,8 @@ dependencies = [
 [[package]]
 name = "metrics-observer-json"
 version = "0.1.1"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbe930460a6c336b8f873dcfb28da3f805fd0dbadbea7beaf3042c7fb1d9fcd3"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -3225,7 +3251,8 @@ dependencies = [
 [[package]]
 name = "metrics-observer-prometheus"
 version = "0.1.4"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bfe24ad8285ef8b239232135a65f89cc5fa4690bbfaf8907f4bef38f8b08eba"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -3235,7 +3262,8 @@ dependencies = [
 [[package]]
 name = "metrics-observer-yaml"
 version = "0.1.1"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83f66811013592560efc75d75a92d6e2f415a11b52f085e51d9fb4d1edec6335"
 dependencies = [
  "hdrhistogram",
  "metrics-core",
@@ -3244,29 +3272,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "metrics-runtime"
-version = "0.13.1"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
-dependencies = [
- "arc-swap",
- "atomic-shim",
- "crossbeam-utils 0.7.2",
- "metrics",
- "metrics-core",
- "metrics-exporter-http",
- "metrics-exporter-log",
- "metrics-observer-json",
- "metrics-observer-prometheus",
- "metrics-observer-yaml",
- "metrics-util",
- "parking_lot 0.10.2",
- "quanta 0.3.2",
-]
-
-[[package]]
 name = "metrics-util"
-version = "0.3.1"
-source = "git+https://github.com/nervosnetwork/metrics-rs?tag=metrics-runtime-v0.13.1-patch.1#4fd13f6b93022c5ec0f415515948648eaec34317"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "277619f040719a5a23d75724586d5601286e8fa53451cfaaca3b8c627c2c2378"
 dependencies = [
  "crossbeam-epoch",
  "serde",
