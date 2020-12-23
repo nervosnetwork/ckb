@@ -567,7 +567,7 @@ pub struct TxStatus {
 }
 
 impl TxStatus {
-    /// TODO(doc): @doitian
+    /// Pending transaction which is in the memory pool and must be proposed first.
     pub fn pending() -> Self {
         Self {
             status: Status::Pending,
@@ -575,7 +575,7 @@ impl TxStatus {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Transaction which has been proposed but not committed yet.
     pub fn proposed() -> Self {
         Self {
             status: Status::Proposed,
@@ -583,7 +583,11 @@ impl TxStatus {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Transaction which has already been commited.
+    ///
+    /// ## Params
+    ///
+    /// * `hash` - the block hash in which the transaction is committed.
     pub fn committed(hash: H256) -> Self {
         Self {
             status: Status::Committed,
@@ -982,7 +986,7 @@ pub struct EpochView {
 }
 
 impl EpochView {
-    /// TODO(doc): @doitian
+    /// Creates the view from the stored ext.
     pub fn from_ext(ext: packed::EpochExt) -> EpochView {
         EpochView {
             number: ext.number().unpack(),

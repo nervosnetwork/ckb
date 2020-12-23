@@ -30,14 +30,15 @@ pub struct ServiceBuilder<'a> {
 }
 
 impl<'a> ServiceBuilder<'a> {
-    /// TODO(doc): @doitian
+    /// Creates the RPC service builder from config.
     pub fn new(config: &'a RpcConfig) -> Self {
         Self {
             config,
             io_handler: IoHandler::default(),
         }
     }
-    /// TODO(doc): @doitian
+
+    /// Mounts methods from module Chain if it is enabled in the config.
     pub fn enable_chain(mut self, shared: Shared) -> Self {
         let rpc_methods = ChainRpcImpl { shared }.to_delegate();
         if self.config.chain_enable() {
@@ -48,7 +49,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Pool if it is enabled in the config.
     pub fn enable_pool(
         mut self,
         shared: Shared,
@@ -67,7 +68,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Miner if `enable` is `true` and it is enabled in the config.
     pub fn enable_miner(
         mut self,
         shared: Shared,
@@ -89,7 +90,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Net if it is enabled in the config.
     pub fn enable_net(
         mut self,
         network_controller: NetworkController,
@@ -108,7 +109,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Stats if it is enabled in the config.
     pub fn enable_stats(
         mut self,
         shared: Shared,
@@ -129,7 +130,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Experiment if it is enabled in the config.
     pub fn enable_experiment(mut self, shared: Shared) -> Self {
         let rpc_methods = ExperimentRpcImpl { shared }.to_delegate();
         if self.config.experiment_enable() {
@@ -140,7 +141,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Integration if it is enabled in the config.
     pub fn enable_integration_test(
         mut self,
         shared: Shared,
@@ -161,7 +162,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Alert if it is enabled in the config.
     pub fn enable_alert(
         mut self,
         alert_verifier: Arc<AlertVerifier>,
@@ -178,7 +179,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Indexer if it is enabled in the config.
     pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
         if self.config.indexer_enable() {
             let store = DefaultIndexerStore::new(indexer_config, shared);
@@ -197,7 +198,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /// TODO(doc): @doitian
+    /// Mounts methods from module Debug if it is enabled in the config.
     pub fn enable_debug(mut self) -> Self {
         if self.config.debug_enable() {
             self.io_handler.extend_with(DebugRpcImpl {}.to_delegate());
@@ -245,7 +246,7 @@ impl<'a> ServiceBuilder<'a> {
             }));
     }
 
-    /// TODO(doc): @doitian
+    /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
         io_handler.add_method("ping", |_| futures::future::ok("pong".into()));

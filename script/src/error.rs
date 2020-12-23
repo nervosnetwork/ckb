@@ -3,7 +3,7 @@ use ckb_error::{prelude::*, Error, ErrorKind};
 use ckb_types::core::Cycle;
 use std::{error::Error as StdError, fmt};
 
-/// TODO(doc): @doitian
+/// Script execution error.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum ScriptError {
     /// The field code_hash in script is invalid
@@ -63,7 +63,7 @@ impl fmt::Display for TransactionScriptErrorSource {
     }
 }
 
-/// TODO(doc): @doitian
+/// Script execution error with the error source information.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TransactionScriptError {
     source: TransactionScriptErrorSource,
@@ -90,7 +90,7 @@ impl ScriptError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a script error originated from the lock script of the input cell at the specific index.
     pub fn input_lock_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Lock),
@@ -98,7 +98,7 @@ impl ScriptError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a script error originated from the type script of the input cell at the specific index.
     pub fn input_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Inputs(index, ScriptGroupType::Type),
@@ -106,7 +106,7 @@ impl ScriptError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a script error originated from the type script of the output cell at the specific index.
     pub fn output_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Outputs(index, ScriptGroupType::Type),

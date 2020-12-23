@@ -111,7 +111,7 @@ pub enum RPCError {
 }
 
 impl RPCError {
-    /// TODO(doc): @doitian
+    /// Invalid method parameter(s).
     pub fn invalid_params<T: Display>(message: T) -> Error {
         Error {
             code: ErrorCode::InvalidParams,
@@ -120,7 +120,7 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an RPC error with custom error code and message.
     pub fn custom<T: Display>(error_code: RPCError, message: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
@@ -129,7 +129,7 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an RPC error with custom error code, message and data.
     pub fn custom_with_data<T: Display, F: Debug>(
         error_code: RPCError,
         message: T,
@@ -142,7 +142,10 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an RPC error from std error with the custom error code.
+    ///
+    /// The parameter `err` is usually an std error. The Display form is used as the error message,
+    /// and the Debug form is used as the data.
     pub fn custom_with_error<T: Display + Debug>(error_code: RPCError, err: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
@@ -151,7 +154,7 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an RPC error from the reason that a transaction is rejected to be submitted.
     pub fn from_submit_transaction_reject(reject: &Reject) -> Error {
         let code = match reject {
             Reject::LowFeeRate(_, _, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
@@ -167,7 +170,7 @@ impl RPCError {
         RPCError::custom_with_error(code, reject)
     }
 
-    /// TODO(doc): @doitian
+    /// Downcasts a CKB error if it is created from `Reject`.
     pub fn downcast_submit_transaction_reject(err: &CKBError) -> Option<&Reject> {
         use ckb_error::ErrorKind::SubmitTransaction;
         match err.kind() {
@@ -176,7 +179,7 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an CKB error from `CKBError`.
     pub fn from_ckb_error(err: CKBError) -> Error {
         match err.kind() {
             ErrorKind::Dao => Self::custom_with_error(RPCError::DaoError, err.root_cause()),
@@ -206,7 +209,7 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates an RPC error from `AnyError`.
     pub fn from_any_error(err: AnyError) -> Error {
         match err.downcast_ref::<CKBError>() {
             Some(ckb_error) => Self::from_ckb_error(ckb_error.clone()),
@@ -214,12 +217,18 @@ impl RPCError {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// CKB internal error.
+    ///
+    /// CKB internal errors are considered to never happen or only happen when the system
+    /// resources are exhausted.
     pub fn ckb_internal_error<T: Display + Debug>(err: T) -> Error {
         Self::custom_with_error(RPCError::CKBInternalError, err)
     }
 
-    /// TODO(doc): @doitian
+    /// RPC error which indicates that the method is disabled.
+    ///
+    /// RPC methods belong to modules and they are only enabled when the belonging module is
+    /// included in the config.
     pub fn rpc_module_is_disabled(module: &str) -> Error {
         Self::custom(
             RPCError::RPCModuleIsDisabled,
@@ -231,7 +240,10 @@ impl RPCError {
         )
     }
 
-    /// TODO(doc): @doitian
+    /// RPC error which indicates that the method is deprecated.
+    ///
+    /// Deprecated methods are disabled by default unless they are enabled via the config options
+    /// `enable_deprecated_rpc`.
     pub fn rpc_method_is_deprecated() -> Error {
         Self::custom(
             RPCError::Deprecated,
