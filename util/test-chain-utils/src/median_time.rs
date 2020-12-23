@@ -5,7 +5,12 @@ use ckb_types::{
     prelude::*,
 };
 
-/// TODO(doc): @chuijiaolianying
+/// There's a consensus rule to verify that the block timestamp must be larger than
+/// the median timestamp of the previous 37 blocks.
+///
+/// `MockMedianTime` is a mock for the median time in testing.
+/// And the number of previous blocks for calculating median timestamp is set as 11.
+#[doc(hidden)]
 pub struct MockMedianTime {
     timestamps: Vec<u64>,
 }
@@ -40,18 +45,21 @@ impl HeaderProvider for MockMedianTime {
 }
 
 impl MockMedianTime {
-    /// TODO(doc): @chuijiaolianying
+    /// Create a new `MockMedianTime`.
+    #[doc(hidden)]
     pub fn new(timestamps: Vec<u64>) -> Self {
         Self { timestamps }
     }
 
-    /// TODO(doc): @chuijiaolianying
+    /// Return the block hash from block height number.
+    #[doc(hidden)]
     pub fn get_block_hash(block_number: BlockNumber) -> Byte32 {
         let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
         Byte32::from_slice(vec.as_slice()).unwrap()
     }
 
-    /// TODO(doc): @chuijiaolianying
+    /// Return transaction info corresponding to the block number, block epoch and transaction index.
+    #[doc(hidden)]
     pub fn get_transaction_info(
         block_number: BlockNumber,
         block_epoch: EpochNumberWithFraction,

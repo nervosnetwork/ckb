@@ -83,7 +83,8 @@ lazy_static! {
     };
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Script for loading input data hash from input data.
+#[doc(hidden)]
 pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
     &LOAD_INPUT_DATA_HASH
 }
@@ -125,17 +126,20 @@ lazy_static! {
     };
 }
 
-/// Script load one byte from input data
+/// Script for loading one byte from input data.
+#[doc(hidden)]
 pub fn load_input_one_byte_cell() -> &'static (CellOutput, Bytes, Script) {
     &LOAD_INPUT_ONE_BYTE
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Script for returning always success cell.
+#[doc(hidden)]
 pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Build and return an always success consensus instance.
+#[doc(hidden)]
 pub fn always_success_consensus() -> Consensus {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
@@ -158,7 +162,8 @@ pub fn always_success_consensus() -> Consensus {
         .build()
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Build and return an always success cellbase transaction view.
+#[doc(hidden)]
 pub fn always_success_cellbase(
     block_number: BlockNumber,
     reward: Capacity,
@@ -184,6 +189,12 @@ pub fn always_success_cellbase(
     }
 }
 
+/// Return chain spec by name, which could be:
+///   - ckb_mainnet
+///   - ckb_testnet
+///   - ckb_staging
+///   - ckb_dev
+#[doc(hidden)]
 fn load_spec_by_name(name: &str) -> ChainSpec {
     // remove "ckb_" prefix
     let base_name = &name[4..];
@@ -191,21 +202,25 @@ fn load_spec_by_name(name: &str) -> ChainSpec {
     ChainSpec::load_from(&res).expect("load spec by name")
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Return testnet consensus instance.
+#[doc(hidden)]
 pub fn ckb_testnet_consensus() -> Consensus {
     let name = "ckb_testnet";
     let spec = load_spec_by_name(name);
     spec.build_consensus().unwrap()
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Return code hash of genesis type_id script which built with output index of SECP256K1/blake160 script.
+#[doc(hidden)]
 pub fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Return cell output and data in genesis block's cellbase transaction with index of SECP256K1/blake160 script,
+/// the genesis block depends on the consensus parameter.
+#[doc(hidden)]
 pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Bytes) {
     let genesis_block = consensus.genesis_block();
     let tx = genesis_block.transactions()[0].clone();
@@ -216,7 +231,9 @@ pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Byt
     (cell_output, data)
 }
 
-/// TODO(doc): @chuijiaolianying
+/// Return cell output and data in genesis block's cellbase transaction with index of SECP256K1,
+/// the genesis block depends on the consensus parameter.
+#[doc(hidden)]
 pub fn secp256k1_data_cell(consensus: Consensus) -> (CellOutput, Bytes) {
     let genesis_block = consensus.genesis_block();
     let tx = genesis_block.transactions()[0].clone();
