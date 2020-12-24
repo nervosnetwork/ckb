@@ -141,8 +141,10 @@ pub trait SubscriptionRpc {
     ///
     /// The type of the `params.result` in the push message is an array contain:
     ///
-    ///  - [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
-    ///  - [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
+    /// The type of the `params.result` in the push message is a two-elements array, where
+    ///
+    /// -   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
+    /// -   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
     ///
     /// ## Examples
     ///

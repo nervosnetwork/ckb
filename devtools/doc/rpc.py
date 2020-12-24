@@ -55,6 +55,9 @@ CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
 def camel_to_snake(name):
     return CAMEL_TO_SNAKE_PATTERN.sub('_', name).lower()
 
+def snake_to_camel(name):
+    return name.title().replace('_', '')
+
 
 def transform_href(href):
     if href.startswith(HREF_PREFIX_RPCERROR):
@@ -501,11 +504,31 @@ class EnumSchema(HTMLParser):
             self.variant_parser.handle_data(data)
 
     def write(self, file):
+        if self.name == 'PoolTransactionReject':
+            self.write_pool_transaction_reject(file)
+            return
+
         file.write('`{}` is equivalent to `"{}"`.\n\n'.format(
             self.name, '" | "'.join(v[0] for v in self.variants)))
 
         for (name, v) in self.variants:
             file.write('*   ')
+            out = io.StringIO()
+            v.write(out)
+            file.write(out.getvalue().lstrip())
+            file.write('\n')
+
+    # PoolTransactionReject
+    def write_pool_transaction_reject(self, file):
+        file.write('`{}` is a JSON object with following fields.\n\n'.format(self.name))
+
+        file.write('*   `type`: `"{}"` - Reject type.\n'.format(
+            '" | "'.join(snake_to_camel(v[0]) for v in self.variants)))
+        file.write('*   `description`: `string` - Detailed description about why the transaction is rejected.\n\n')
+        file.write('Different reject types:\n\n')
+
+        for (name, v) in self.variants:
+            file.write('*   `{}`: '.format(snake_to_camel(name)))
             out = io.StringIO()
             v.write(out)
             file.write(out.getvalue().lstrip())
@@ -678,8 +701,9 @@ class RPCDoc(object):
             for path in pending:
                 self.collect_type(path)
 
-        # PoolTransactionEntry is not used in RPC but in the Subscription events.
+        # Referenced by subscription RPC.
         self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
+        self.collect_type('ckb_jsonrpc_types/enum.PoolTransactionReject.html')
         # Referenced by RawTxPool
         self.collect_type('ckb_jsonrpc_types/struct.TxPoolIds.html')
         self.collect_type('ckb_jsonrpc_types/struct.TxPoolVerbosity.html')
