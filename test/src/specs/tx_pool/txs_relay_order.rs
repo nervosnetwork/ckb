@@ -2,7 +2,7 @@ use crate::node::{connect_all, waiting_for_sync};
 use crate::util::mining::{mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::utils::sleep;
 use crate::{Node, Spec};
-use ckb_fee_estimator::FeeRate;
+use ckb_types::core::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,

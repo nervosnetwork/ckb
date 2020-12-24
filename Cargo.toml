@@ -49,7 +49,6 @@ members = [
     "util/multisig",
     "util/types",
     "util/jsonrpc-types",
-    "util/fee-estimator",
     "freezer",
     "resource",
     "pow",

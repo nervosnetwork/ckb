@@ -406,7 +406,6 @@ version = "0.39.0-pre"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
- "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-logger-config",
@@ -446,7 +445,6 @@ dependencies = [
  "ckb-crypto",
  "ckb-dao",
  "ckb-dao-utils",
- "ckb-fee-estimator",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-shared",
@@ -638,15 +636,6 @@ dependencies = [
  "ckb-occupied-capacity",
  "derive_more",
  "thiserror",
-]
-
-[[package]]
-name = "ckb-fee-estimator"
-version = "0.39.0-pre"
-dependencies = [
- "ckb-logger",
- "ckb-types",
- "serde",
 ]
 
 [[package]]
@@ -1054,7 +1043,6 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
- "ckb-fee-estimator",
  "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -1238,7 +1226,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "num_cpus",
- "once_cell",
 ]
 
 [[package]]
@@ -1302,7 +1289,6 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-db",
  "ckb-error",
- "ckb-fee-estimator",
  "ckb-logger",
  "ckb-metrics",
  "ckb-network",
@@ -1344,7 +1330,6 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-db",
  "ckb-db-schema",
- "ckb-error",
  "ckb-resource",
  "ckb-store",
  "ckb-traits",
@@ -1369,10 +1354,8 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-error",
- "ckb-fee-estimator",
  "ckb-jsonrpc-types",
  "ckb-logger",
- "ckb-notify",
  "ckb-reward-calculator",
  "ckb-snapshot",
  "ckb-stop-handler",

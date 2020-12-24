@@ -1,7 +1,6 @@
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
-use ckb_fee_estimator::FeeRate;
-use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
-use ckb_types::core::Cycle;
+use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
+use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
@@ -21,11 +20,12 @@ pub struct TxPoolConfig {
     pub max_cycles: Cycle,
     /// tx verify cache capacity
     pub max_verify_cache_size: usize,
-    /// conflict tx cache capacity
+    /// Conflict cache has been deprecated, and has no effect.
     pub max_conflict_cache_size: usize,
     /// committed transactions hash cache capacity
     pub max_committed_txs_hash_cache_size: usize,
     /// txs with lower fee rate than this will not be relayed or be mined
+    #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,

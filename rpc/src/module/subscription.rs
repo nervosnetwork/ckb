@@ -86,7 +86,7 @@ pub trait SubscriptionRpc {
     ///
     /// ## Params
     ///
-    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block)
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
     ///
     /// ## Returns
     ///
@@ -128,6 +128,21 @@ pub trait SubscriptionRpc {
     /// Subscribers will get notified when a new transaction is submitted to the pool.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ### `proposed_transaction`
+    ///
+    /// Subscribers will get notified when an in-pool transaction is proposed by chain.
+    ///
+    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///
+    /// ### `rejected_transaction`
+    ///
+    /// Subscribers will get notified when a pending transaction is rejected by tx-pool.
+    ///
+    /// The type of the `params.result` in the push message is an array contain:
+    ///
+    ///  - [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    ///  - [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
     ///
     /// ## Examples
     ///
@@ -263,6 +278,10 @@ impl SubscriptionRpcImpl {
         let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
         let new_transaction_receiver =
             notify_controller.subscribe_new_transaction(name.to_string());
+        let proposed_transaction_receiver =
+            notify_controller.subscribe_proposed_transaction(name.to_string());
+        let reject_transaction_receiver =
+            notify_controller.subscribe_reject_transaction(name.to_string());
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
@@ -298,13 +317,8 @@ impl SubscriptionRpcImpl {
                         Ok(tx_entry) => {
                             let subscribers = subscribers.read().expect("acquiring subscribers read lock");
                             if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
-                                let tx_entry = ckb_jsonrpc_types::PoolTransactionEntry {
-                                    transaction: tx_entry.transaction.into(),
-                                    cycles: tx_entry.cycles.into(),
-                                    size: (tx_entry.size as u64).into(),
-                                    fee: tx_entry.fee.into(),
-                                };
-                                let json_string = Ok(serde_json::to_string(&tx_entry).expect("serialization should be ok"));
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
                                     let _ = sink.notify(json_string.clone()).wait();
                                 }
@@ -312,6 +326,40 @@ impl SubscriptionRpcImpl {
                         },
                         _ => {
                             error!("new_transaction_receiver closed");
+                            break;
+                        },
+                    },
+                    recv(proposed_transaction_receiver) -> msg => match msg {
+                        Ok(tx_entry) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::ProposedTransaction) {
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("proposed_transaction_receiver closed");
+                            break;
+                        },
+                    },
+
+                    recv(reject_transaction_receiver) -> msg => match msg {
+                        Ok((tx_entry, reject)) => {
+                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::RejectedTransaction) {
+                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                                let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
+                                let json_string = Ok(serde_json::to_string(&(entry, reject)).expect("serialization should be ok"));
+                                for sink in new_transaction_subscribers.values() {
+                                    let _ = sink.notify(json_string.clone()).wait();
+                                }
+                            }
+                        },
+                        _ => {
+                            error!("reject_transaction_receiver closed");
                             break;
                         },
                     },

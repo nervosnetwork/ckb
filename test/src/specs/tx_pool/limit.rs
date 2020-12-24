@@ -2,7 +2,7 @@ use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::assert_send_transaction_fail;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
-use ckb_fee_estimator::FeeRate;
+use ckb_types::core::FeeRate;
 use log::info;
 
 pub struct SizeLimit;

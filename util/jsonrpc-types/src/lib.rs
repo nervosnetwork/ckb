@@ -7,6 +7,7 @@ mod cell;
 mod chain_info;
 mod debug;
 mod experiment;
+mod fee_rate;
 mod fixed_bytes;
 mod indexer;
 mod net;
@@ -32,6 +33,7 @@ pub use self::cell::{CellData, CellInfo, CellOutputWithOutPoint, CellWithStatus}
 pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DryRunResult, EstimateResult};
+pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{
     CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
@@ -41,8 +43,8 @@ pub use self::net::{
     RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{
-    OutputsValidator, PoolTransactionEntry, RawTxPool, TxPoolIds, TxPoolInfo, TxPoolVerbosity,
-    TxVerbosity,
+    OutputsValidator, PoolTransactionEntry, PoolTransactionReject, RawTxPool, TxPoolIds,
+    TxPoolInfo, TxPoolVerbosity, TxVerbosity,
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;

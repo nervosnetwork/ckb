@@ -15,7 +15,6 @@ ckb-store = { path = "../../store", version = "= 0.39.0-pre" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.39.0-pre" }
 ckb-dao-utils = { path = "../dao/utils", version = "= 0.39.0-pre" }
 ckb-traits = { path = "../../traits", version = "= 0.39.0-pre" }
-ckb-error = { path = "../../error", version = "= 0.39.0-pre" }
 lazy_static = "1.3.0"
 faketime = "0.2.0"
 ckb-resource = { path = "../../resource", version = "= 0.39.0-pre" }

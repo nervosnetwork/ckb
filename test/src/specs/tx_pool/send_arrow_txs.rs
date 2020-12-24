@@ -1,6 +1,6 @@
 use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::{Node, Spec};
-use ckb_fee_estimator::FeeRate;
+use ckb_types::core::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,

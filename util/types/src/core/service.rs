@@ -2,6 +2,7 @@
 //!
 //! A CKB service acts as an actor, which processes requests from a channel and sends back the
 //! response via one shot channel.
+use crate::core::{Capacity, Cycle, TransactionView};
 use ckb_channel::Sender;
 use std::sync::mpsc;
 
@@ -28,4 +29,17 @@ impl<A, R> Request<A, R> {
         });
         response.recv().ok()
     }
+}
+
+/// Notify pool transaction entry
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PoolTransactionEntry {
+    /// Transaction view
+    pub transaction: TransactionView,
+    /// Transaction consumed cycles
+    pub cycles: Cycle,
+    /// Transaction serialized cycles
+    pub size: usize,
+    /// Transaction fee
+    pub fee: Capacity,
 }

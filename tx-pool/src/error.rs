@@ -2,37 +2,10 @@
 
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, prelude::*, Error,
-    ErrorKind, InternalError, InternalErrorKind, OtherError,
+    InternalError, InternalErrorKind, OtherError,
 };
-use ckb_fee_estimator::FeeRate;
-use ckb_types::packed::Byte32;
+pub use ckb_types::core::tx_pool::Reject;
 use tokio::sync::{mpsc::error::TrySendError, oneshot::error::RecvError};
-
-/// TX reject message
-#[derive(Error, Debug, PartialEq, Clone, Eq)]
-pub enum Reject {
-    /// Transaction fee lower than config
-    #[error("The min fee rate is {0} shannons/KB, so the transaction fee should be {1} shannons at least, but only got {2}")]
-    LowFeeRate(FeeRate, u64, u64),
-
-    /// Transaction exceeded maximum ancestors count limit
-    #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
-    ExceededMaximumAncestorsCount,
-
-    /// Transaction pool exceeded maximum size or cycles limit,
-    #[error("Transaction pool exceeded maximum {0} limit({1}), try send it later")]
-    Full(String, u64),
-
-    /// Transaction already exist in transaction_pool
-    #[error("Transaction({0}) already exist in transaction_pool")]
-    Duplicated(Byte32),
-
-    /// Malformed transaction
-    #[error("Malformed {0} transaction")]
-    Malformed(String),
-}
-
-impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 
 /// The error type for block assemble related
 #[derive(Error, Debug, PartialEq, Clone, Eq)]
@@ -53,6 +26,7 @@ impl_error_conversion_with_kind!(
     InternalErrorKind::BlockAssembler,
     InternalError
 );
+
 impl_error_conversion_with_adaptor!(BlockAssemblerError, InternalError, Error);
 
 pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError) {

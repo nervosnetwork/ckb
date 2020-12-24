@@ -30,7 +30,6 @@ sentry = { package = "ckb-sentry", version = "0.21.0", optional = true }
 futures = "0.3"
 ckb-error = {path = "../error", version = "= 0.39.0-pre"}
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.39.0-pre" }
-ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.39.0-pre" }
 governor = "0.3.1"
 tempfile = "3.0"
 

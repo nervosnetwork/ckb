@@ -1,7 +1,42 @@
 //! Tx-pool shared type define.
-use crate::core::{Capacity, Cycle};
+use crate::core::{error::OutPointError, Capacity, Cycle, FeeRate};
 use crate::packed::Byte32;
+use ckb_error::{impl_error_conversion_with_kind, prelude::*, Error, ErrorKind};
 use std::collections::HashMap;
+
+/// TX reject message
+#[derive(Error, Debug, Clone)]
+pub enum Reject {
+    /// Transaction fee lower than config
+    #[error("The min fee rate is {0} shannons/KB, so the transaction fee should be {1} shannons at least, but only got {2}")]
+    LowFeeRate(FeeRate, u64, u64),
+
+    /// Transaction exceeded maximum ancestors count limit
+    #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
+    ExceededMaximumAncestorsCount,
+
+    /// Transaction pool exceeded maximum size or cycles limit,
+    #[error("Transaction pool exceeded maximum {0} limit({1}), try send it later")]
+    Full(String, u64),
+
+    /// Transaction already exist in transaction_pool
+    #[error("Transaction({0}) already exist in transaction_pool")]
+    Duplicated(Byte32),
+
+    /// Malformed transaction
+    #[error("Malformed {0} transaction")]
+    Malformed(String),
+
+    /// Resolve failed
+    #[error("Resolve failed {0}")]
+    Resolve(OutPointError),
+
+    /// Verification failed
+    #[error("Verification failed {0}")]
+    Verification(Error),
+}
+
+impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 
 /// Tx-pool transaction status
 #[derive(Debug, PartialEq, Eq)]

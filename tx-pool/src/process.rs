@@ -1,7 +1,7 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
-use crate::error::{BlockAssemblerError, Reject};
+use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
@@ -9,7 +9,6 @@ use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
-use ckb_notify::PoolTransactionEntry;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -188,31 +187,36 @@ impl TxPoolService {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
-        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| &entry.transaction));
         let mut seen_inputs = HashSet::new();
-        let transactions_provider = TransactionsProvider::new(txs.clone());
+
+        let dummy_cellbase_entry = TxEntry::new(cellbase.clone(), 0, Capacity::zero(), 0, vec![]);
+        let entries_iter = iter::once(&dummy_cellbase_entry).chain(entries.iter());
+
+        let transactions_provider =
+            TransactionsProvider::new(entries_iter.clone().map(|entry| &entry.transaction));
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
 
-        let rtxs = txs
-            .try_fold(vec![], |mut rtxs, tx| {
-                resolve_transaction(
-                    tx.clone(),
-                    &mut seen_inputs,
-                    &overlay_cell_provider,
-                    snapshot,
-                )
-                .map(|rtx| {
-                    rtxs.push(rtx);
-                    rtxs
-                })
-            })
-            .map_err(|err| {
+        let mut template_txs = Vec::with_capacity(entries.len());
+
+        let rtxs: Vec<_> = entries_iter.enumerate().filter_map(|(index, entry)| {
+            resolve_transaction(
+                entry.transaction.clone(),
+                &mut seen_inputs,
+                &overlay_cell_provider,
+                snapshot,
+            ).map_err(|err| {
                 error!(
                     "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
                     tip_header.number(), tip_hash, err
                 );
-                BlockAssemblerError::InvalidInput
-            })?;
+                err
+            }).map(|rtx| {
+                if index != 0 {
+                    template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
+                }
+                rtx
+            }).ok()
+        }).collect();
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
@@ -235,10 +239,7 @@ impl TxPoolService {
             bytes_limit: bytes_limit.into(),
             uncles_count_limit: u64::from(uncles_count_limit).into(),
             uncles: uncles.iter().map(BlockAssembler::transform_uncle).collect(),
-            transactions: entries
-                .iter()
-                .map(|entry| BlockAssembler::transform_tx(entry, false, None))
-                .collect(),
+            transactions: template_txs,
             proposals: proposals.iter().cloned().map(Into::into).collect(),
             cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
             work_id: work_id.into(),
@@ -433,19 +434,12 @@ impl TxPoolService {
                 related_dep_out_points,
             );
             let inserted = match status {
-                TxStatus::Fresh => tx_pool.add_pending(entry)?,
-                TxStatus::Gap => tx_pool.add_gap(entry)?,
-                TxStatus::Proposed => tx_pool.add_proposed(entry)?,
+                TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
+                TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
+                TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
             };
             if inserted {
-                let notify_tx_entry = PoolTransactionEntry {
-                    transaction: rtx.transaction,
-                    cycles: cache_entry.cycles,
-                    size: tx_size,
-                    fee,
-                };
-                self.notify_controller
-                    .notify_new_transaction(notify_tx_entry);
+                tx_pool.callbacks.call_pending(entry);
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
@@ -539,7 +533,12 @@ impl TxPoolService {
         let mut tx_pool = self.tx_pool.write().await;
         let config = tx_pool.config;
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        *tx_pool = TxPool::new(config, new_snapshot, last_txs_updated_at);
+        *tx_pool = TxPool::new(
+            config,
+            new_snapshot,
+            last_txs_updated_at,
+            Arc::clone(&tx_pool.callbacks),
+        );
     }
 }
 
@@ -550,7 +549,7 @@ type PreResolvedTxs = (
     Vec<(usize, Capacity, TxStatus)>,
 );
 
-type ResolveResult = Result<(ResolvedTransaction, usize, Capacity, TxStatus), Error>;
+type ResolveResult = Result<(ResolvedTransaction, usize, Capacity, TxStatus), Reject>;
 
 fn check_transaction_hash_collision(
     tx_pool: &TxPool,
@@ -573,7 +572,10 @@ fn resolve_tx<'a>(
 ) -> ResolveResult {
     let tx_size = tx.data().serialized_size_in_block();
     if tx_pool.reach_size_limit(tx_size) {
-        return Err(Reject::Full("size".to_owned(), tx_pool.config.max_mem_size as u64).into());
+        return Err(Reject::Full(
+            "size".to_owned(),
+            tx_pool.config.max_mem_size as u64,
+        ));
     }
 
     let short_id = tx.proposal_short_id();
@@ -581,6 +583,7 @@ fn resolve_tx<'a>(
         resolve_tx_from_proposed(tx_pool, snapshot, txs_provider, tx).and_then(|rtx| {
             let fee = tx_pool.calculate_transaction_fee(snapshot, &rtx);
             fee.map(|fee| (rtx, tx_size, fee, TxStatus::Proposed))
+                .map_err(|e| Reject::Malformed(format!("{}", e)))
         })
     } else {
         resolve_tx_from_pending_and_proposed(tx_pool, snapshot, txs_provider, tx).and_then(|rtx| {
@@ -591,6 +594,7 @@ fn resolve_tx<'a>(
             };
             let fee = tx_pool.calculate_transaction_fee(snapshot, &rtx);
             fee.map(|fee| (rtx, tx_size, fee, status))
+                .map_err(|e| Reject::Malformed(format!("{}", e)))
         })
     }
 }
@@ -600,10 +604,10 @@ fn resolve_tx_from_proposed<'a>(
     snapshot: &Snapshot,
     txs_provider: &'a TransactionsProvider<'a>,
     tx: TransactionView,
-) -> Result<ResolvedTransaction, Error> {
+) -> Result<ResolvedTransaction, Reject> {
     let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, snapshot);
     let provider = OverlayCellProvider::new(txs_provider, &cell_provider);
-    resolve_transaction(tx, &mut HashSet::new(), &provider, snapshot)
+    resolve_transaction(tx, &mut HashSet::new(), &provider, snapshot).map_err(Reject::Resolve)
 }
 
 fn resolve_tx_from_pending_and_proposed<'a>(
@@ -611,13 +615,13 @@ fn resolve_tx_from_pending_and_proposed<'a>(
     snapshot: &Snapshot,
     txs_provider: &'a TransactionsProvider<'a>,
     tx: TransactionView,
-) -> Result<ResolvedTransaction, Error> {
+) -> Result<ResolvedTransaction, Reject> {
     let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, snapshot);
     let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
     let pending_and_proposed_provider =
         OverlayCellProvider::new(&tx_pool.pending, &gap_and_proposed_provider);
     let provider = OverlayCellProvider::new(txs_provider, &pending_and_proposed_provider);
-    resolve_transaction(tx, &mut HashSet::new(), &provider, snapshot)
+    resolve_transaction(tx, &mut HashSet::new(), &provider, snapshot).map_err(Reject::Resolve)
 }
 
 fn verify_rtxs(
@@ -722,8 +726,7 @@ fn _update_tx_pool_for_reorg(
             let entry = tx_pool.gap.get(&key.id).expect("exists");
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         }
@@ -739,15 +742,13 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(&key.id) {
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         } else if snapshot.proposals().contains_gap(&key.id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.size,
-                entry.transaction.to_owned(),
+                entry.clone(),
             ));
             removed.push(key.id.clone());
         }
@@ -756,36 +757,24 @@ fn _update_tx_pool_for_reorg(
         tx_pool.pending.remove_entry(&id);
     });
 
-    // try move conflict to proposed
-    // If detached is not empty, check cached conflict tx again
-    if !detached.is_empty() {
-        let mut removed_conflict = Vec::with_capacity(tx_pool.conflict.len());
-        for (key, entry) in tx_pool.conflict.iter() {
-            if snapshot.proposals().contains_proposed(key) {
-                removed_conflict.push(key.clone());
-                entries.push((entry.cache_entry, entry.size, entry.transaction.clone()));
-            } else if snapshot.proposals().contains_gap(key) {
-                removed_conflict.push(key.clone());
-                gaps.push((entry.cache_entry, entry.size, entry.transaction.clone()));
-            }
-        }
-        for removed_key in removed_conflict {
-            tx_pool.conflict.pop(&removed_key);
-        }
-    }
-
-    for (cycles, size, tx) in entries {
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.proposed_tx_and_descendants(cycles, size, tx) {
+    for (cycles, entry) in entries {
+        let tx_hash = entry.transaction.hash();
+        if let Err(e) =
+            tx_pool.proposed_tx_and_descendants(cycles, entry.size, entry.transaction.clone())
+        {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+            tx_pool.callbacks.call_reject(entry, e.clone());
+        } else {
+            tx_pool.callbacks.call_proposed(entry);
         }
     }
 
-    for (cycles, size, tx) in gaps {
-        debug!("tx proposed, add to gap {}", tx.hash());
-        let tx_hash = tx.hash();
-        if let Err(e) = tx_pool.gap_tx(cycles, size, tx) {
+    for (cycles, entry) in gaps {
+        debug!("tx proposed, add to gap {}", entry.transaction.hash());
+        let tx_hash = entry.transaction.hash();
+        if let Err(e) = tx_pool.gap_tx(cycles, entry.size, entry.transaction.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+            tx_pool.callbacks.call_reject(entry, e.clone());
         }
     }
 

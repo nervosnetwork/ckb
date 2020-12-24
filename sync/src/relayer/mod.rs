@@ -24,7 +24,6 @@ use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
-use ckb_fee_estimator::FeeRate;
 use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{
@@ -32,7 +31,7 @@ use ckb_network::{
 };
 use ckb_types::core::BlockView;
 use ckb_types::{
-    core::{self, Cycle},
+    core::{self, Cycle, FeeRate},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };

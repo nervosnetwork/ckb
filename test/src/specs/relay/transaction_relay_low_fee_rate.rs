@@ -4,8 +4,7 @@ use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
-use ckb_fee_estimator::FeeRate;
-use ckb_types::core::TransactionBuilder;
+use ckb_types::core::{FeeRate, TransactionBuilder};
 
 pub struct TransactionRelayLowFeeRate;
 

@@ -402,7 +402,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
 /// TODO(doc): @quake
 pub trait HeaderChecker {
     /// Check if header in main chain
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error>;
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError>;
 }
 
 /// Gather all cell dep out points and resolved dep group out points
@@ -444,10 +444,10 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     }
 }
 
-fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>>(
+fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, OutPointError>>(
     out_point: &OutPoint,
     mut cell_resolver: F,
-) -> Result<Option<(CellMeta, Vec<CellMeta>)>, Error> {
+) -> Result<Option<(CellMeta, Vec<CellMeta>)>, OutPointError> {
     let dep_group_cell = match cell_resolver(out_point, true)? {
         Some(cell_meta) => cell_meta,
         None => return Ok(None),
@@ -474,7 +474,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-) -> Result<ResolvedTransaction, Error> {
+) -> Result<ResolvedTransaction, OutPointError> {
     let (
         mut unknown_out_points,
         mut resolved_inputs,
@@ -489,14 +489,14 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     let mut current_inputs = HashSet::new();
 
     let mut resolve_cell =
-        |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, Error> {
+        |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, OutPointError> {
             if seen_inputs.contains(out_point) {
-                return Err(OutPointError::Dead(out_point.clone()).into());
+                return Err(OutPointError::Dead(out_point.clone()));
             }
 
             let cell_status = cell_provider.cell(out_point, with_data);
             match cell_status {
-                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
+                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
                 CellStatus::Unknown => {
                     unknown_out_points.push(out_point.clone());
                     Ok(None)
@@ -509,7 +509,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                return Err(OutPointError::Dead(out_point).into());
+                return Err(OutPointError::Dead(out_point));
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(cell_meta);
@@ -529,7 +529,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     }
 
     if !unknown_out_points.is_empty() {
-        Err(OutPointError::Unknown(unknown_out_points).into())
+        Err(OutPointError::Unknown(unknown_out_points))
     } else {
         seen_inputs.extend(current_inputs);
         Ok(ResolvedTransaction {
@@ -542,13 +542,13 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
 }
 
 fn resolve_transaction_deps_with_system_cell_cache<
-    F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>,
+    F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, OutPointError>,
 >(
     transaction: &TransactionView,
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
-) -> Result<(), Error> {
+) -> Result<(), OutPointError> {
     if let Some(system_cell) = SYSTEM_CELL.get() {
         for cell_dep in transaction.cell_deps_iter() {
             if let Some(resolved_dep) = system_cell.get(&cell_dep) {
@@ -582,12 +582,12 @@ fn resolve_transaction_deps_with_system_cell_cache<
     Ok(())
 }
 
-fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error>>(
+fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, OutPointError>>(
     cell_dep: &CellDep,
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
-) -> Result<(), Error> {
+) -> Result<(), OutPointError> {
     if cell_dep.dep_type() == DepType::DepGroup.into() {
         if let Some((dep_group, cell_deps)) =
             resolve_dep_group(&cell_dep.out_point(), cell_resolver)?
@@ -605,10 +605,10 @@ fn build_cell_meta_from_out_point<CP: CellProvider>(
     cell_provider: &CP,
     out_point: &OutPoint,
     with_data: bool,
-) -> Result<Option<CellMeta>, Error> {
+) -> Result<Option<CellMeta>, OutPointError> {
     let cell_status = cell_provider.cell(out_point, with_data);
     match cell_status {
-        CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
+        CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
         CellStatus::Unknown => Ok(None),
         CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
     }
@@ -661,9 +661,10 @@ pub fn setup_system_cell_cache<CP: CellProvider>(genesis: &BlockView, cell_provi
             .expect("resolve secp_data_dep_cell");
     cell_deps.insert(secp_data_dep, ResolvedDep::Cell(secp_data_dep_cell));
 
-    let resolve_cell = |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, Error> {
-        build_cell_meta_from_out_point(cell_provider, out_point, with_data)
-    };
+    let resolve_cell =
+        |out_point: &OutPoint, with_data: bool| -> Result<Option<CellMeta>, OutPointError> {
+            build_cell_meta_from_out_point(cell_provider, out_point, with_data)
+        };
 
     let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell)
         .expect("resolve secp_group_dep_cell")
@@ -710,13 +711,13 @@ mod tests {
     }
 
     impl HeaderChecker for BlockHeadersChecker {
-        fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
+        fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
             if !self.detached_indices.contains(block_hash)
                 && self.attached_indices.contains(block_hash)
             {
                 Ok(())
             } else {
-                Err(OutPointError::InvalidHeader(block_hash.clone()).into())
+                Err(OutPointError::InvalidHeader(block_hash.clone()))
             }
         }
     }
