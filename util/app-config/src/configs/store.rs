@@ -15,6 +15,13 @@ pub struct Config {
     pub block_uncles_cache_size: usize,
     /// TODO(doc): @doitian
     pub cellbase_cache_size: usize,
+    /// whether enable freezer
+    #[serde(default = "default_freezer_enable")]
+    pub freezer_enable: bool,
+}
+
+fn default_freezer_enable() -> bool {
+    false
 }
 
 impl Default for Config {
@@ -26,6 +33,7 @@ impl Default for Config {
             block_tx_hashes_cache_size: 30,
             block_uncles_cache_size: 30,
             cellbase_cache_size: 30,
+            freezer_enable: false,
         }
     }
 }
