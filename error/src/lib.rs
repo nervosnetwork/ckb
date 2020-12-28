@@ -12,7 +12,7 @@ pub use internal::{InternalError, InternalErrorKind, OtherError, SilentError};
 use prelude::*;
 
 /// A wrapper around a dynamic error type.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AnyError(Arc<anyhow::Error>);
 
 /// TODO(doc): @keroro520
@@ -58,6 +58,12 @@ impl Deref for AnyError {
 }
 
 impl fmt::Display for AnyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Debug for AnyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt(f)
     }
