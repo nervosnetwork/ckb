@@ -182,12 +182,6 @@ impl From<core::Capacity> for JsonUint<u64> {
     }
 }
 
-impl From<core::EpochNumberWithFraction> for JsonUint<u64> {
-    fn from(value: core::EpochNumberWithFraction) -> Self {
-        JsonUint(value.full_value())
-    }
-}
-
 impl From<JsonUint<u64>> for core::Capacity {
     fn from(value: JsonUint<u64>) -> Self {
         core::Capacity::shannons(value.value())

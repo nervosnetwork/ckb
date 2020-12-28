@@ -941,7 +941,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 consensus.proposer_reward_ratio.numer().into(),
                 consensus.proposer_reward_ratio.denom().into(),
             ),
-            cellbase_maturity: consensus.cellbase_maturity.into(),
+            cellbase_maturity: consensus.cellbase_maturity.full_value().into(),
             median_time_block_count: (consensus.median_time_block_count as u64).into(),
             max_block_cycles: consensus.max_block_cycles.into(),
             max_block_bytes: consensus.max_block_bytes.into(),

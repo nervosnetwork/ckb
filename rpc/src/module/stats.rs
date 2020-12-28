@@ -126,7 +126,7 @@ impl StatsRpc for StatsRpcImpl {
         Ok(ChainInfo {
             chain,
             median_time: median_time.into(),
-            epoch: epoch.into(),
+            epoch: epoch.full_value().into(),
             difficulty,
             is_initial_block_download,
             alerts,

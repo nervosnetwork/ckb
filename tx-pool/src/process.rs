@@ -233,7 +233,10 @@ impl TxPoolService {
             compact_target: current_epoch.compact_target().into(),
             current_time: current_time.into(),
             number: candidate_number.into(),
-            epoch: current_epoch.number_with_fraction(candidate_number).into(),
+            epoch: current_epoch
+                .number_with_fraction(candidate_number)
+                .full_value()
+                .into(),
             parent_hash: tip_hash.unpack(),
             cycles_limit: cycles_limit.into(),
             bytes_limit: bytes_limit.into(),
