@@ -1,4 +1,4 @@
-use crate::{AlertMessage, EpochNumber, Timestamp};
+use crate::{AlertMessage, EpochNumberWithFraction, Timestamp};
 use ckb_types::U256;
 use serde::{Deserialize, Serialize};
 
@@ -14,8 +14,8 @@ pub struct ChainInfo {
     pub chain: String,
     /// The median time of the last 37 blocks.
     pub median_time: Timestamp,
-    /// Current epoch number.
-    pub epoch: EpochNumber,
+    /// The epoch information of tip block in the chain.
+    pub epoch: EpochNumberWithFraction,
     /// Current difficulty.
     ///
     /// Decoded from the epoch `compact_target`.
