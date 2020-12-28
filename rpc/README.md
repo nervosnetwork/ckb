@@ -4318,7 +4318,7 @@ Chain information.
 
 *   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks.
 
-*   `epoch`: [`EpochNumber`](#type-epochnumber) - Current epoch number.
+*   `epoch`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The epoch information of tip block in the chain.
 
 *   `difficulty`: [`U256`](#type-u256) - Current difficulty.
 
