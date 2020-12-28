@@ -56,6 +56,7 @@ fn main() {
     let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
     let fail_fast = !matches.is_present("no-fail-fast");
     let quiet = matches.is_present("quiet");
+    let report = !matches.is_present("no-report");
 
     if matches.is_present("list-specs") {
         list_specs();
@@ -180,8 +181,10 @@ fn main() {
         );
     }
 
-    print_results(test_results);
-    println!("Total elapsed time: {:?}", start_time.elapsed());
+    if report {
+        print_results(test_results);
+        println!("Total elapsed time: {:?}", start_time.elapsed());
+    }
 
     rerun_specs.extend(specs.lock().iter().map(|t| t.name().to_string()));
 
@@ -256,6 +259,11 @@ fn clap_app() -> App<'static, 'static> {
             Arg::with_name("no-fail-fast")
                 .long("no-fail-fast")
                 .help("Run all tests regardless of failure"),
+        )
+        .arg(
+            Arg::with_name("no-report")
+                .long("no-report")
+                .help("Do not show integration test report"),
         )
 }
 
