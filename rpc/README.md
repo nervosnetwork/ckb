@@ -141,6 +141,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
     * [Type `PeerState`](#type-peerstate)
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
+    * [Type `PoolTransactionReject`](#type-pooltransactionreject)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
     * [Type `RationalU256`](#type-rationalu256)
@@ -3500,9 +3501,11 @@ Subscribers will get notified when a pending transaction is rejected by tx-pool.
 
 The type of the `params.result` in the push message is an array contain:
 
-*   [`PoolTransactionEntry`](#type-pooltransactionentry).
+The type of the `params.result` in the push message is a two-elements array, where
 
-*   [`PoolTransactionReject`](#type-pooltransactionreject).
+*   the first item type is [`PoolTransactionEntry`](#type-pooltransactionentry), and
+
+*   the second item type is [`PoolTransactionReject`](#type-pooltransactionreject).
 
 ##### Examples
 
@@ -4899,6 +4902,26 @@ The transaction entry in the pool.
 *   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
 
 *   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
+
+
+### Type `PoolTransactionReject`
+
+TX reject message
+
+`PoolTransactionReject` is a JSON object with following fields.
+
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "Resolve" | "Verification"` - Reject type.
+*   `description`: `string` - Detailed description about why the transaction is rejected.
+
+Different reject types:
+
+*   `LowFeeRate`: Transaction fee lower than config
+*   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
+*   `Full`: Transaction pool exceeded maximum size or cycles limit,
+*   `Duplicated`: Transaction already exist in transaction_pool
+*   `Malformed`: Malformed transaction
+*   `Resolve`: Resolve failed
+*   `Verification`: Verification failed
 
 
 ### Type `ProposalShortId`
