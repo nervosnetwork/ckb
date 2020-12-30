@@ -494,7 +494,8 @@ impl NetworkState {
         }
     }
 
-    /// Network message processing controller, default is true, if false, discard any received messages
+    /// Network message processing controller, default is true, if false, discard any received
+    /// messages
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
@@ -939,8 +940,8 @@ impl<T: ExitHandler> NetworkService<T> {
         // and the administrator permissions of group permissions must be turned on.
         // This operation is very burdensome for windows users, so it is turned off by default
         //
-        // The integration test fails after MacOS is turned on, the behavior is different from linux.
-        // Decision to turn off it
+        // The integration test fails after MacOS is turned on, the behavior is different from
+        // linux. Decision to turn off it
         let p2p_service = service_builder.build(event_handler);
 
         // == Build background service tasks

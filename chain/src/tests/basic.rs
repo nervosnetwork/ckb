@@ -811,9 +811,9 @@ fn test_next_epoch_ext() {
         // upper bound trigger
         assert_eq!(epoch.length(), 800, "epoch length {}", epoch.length());
 
-        // orphan_rate_estimation = 1 / ( (1 + o_i ) * L_ideal * C_i,m / (o_i * L_i * C_i+1,m) − 1) = 133 / 9587
-        // Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) * C_i+1,m
-        // 50 * 14400 * 9587 / ((133 + 9587) * 800)
+        // orphan_rate_estimation = 1 / ( (1 + o_i ) * L_ideal * C_i,m / (o_i * L_i * C_i+1,m) − 1)
+        // = 133 / 9587 Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) *
+        // C_i+1,m 50 * 14400 * 9587 / ((133 + 9587) * 800)
         assert_eq!(
             epoch.compact_target(),
             difficulty_to_compact(U256::from(887u64)), // 887

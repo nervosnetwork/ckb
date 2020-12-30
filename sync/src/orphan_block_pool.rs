@@ -61,7 +61,8 @@ impl OrphanBlockPool {
     }
 
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
-        // acquire the `blocks` read lock first, guarantee ordering of acquisition is same as `remove_blocks_by_parent`, avoids deadlocking
+        // acquire the `blocks` read lock first, guarantee ordering of acquisition is same as
+        // `remove_blocks_by_parent`, avoids deadlocking
         let guard = self.blocks.read();
         self.parents.read().get(hash).and_then(|parent_hash| {
             guard

@@ -1,9 +1,9 @@
 //! verify module
 //!
 //! The message of this protocol must be verified by multi-signature before notifying the user.
-//! The implementation of any client must be consistent with ckb to prevent useless information from being broadcast on the entire network.
-//! The set of public keys is currently in the possession of the Nervos foundation
-//!
+//! The implementation of any client must be consistent with ckb to prevent useless information from
+//! being broadcast on the entire network. The set of public keys is currently in the possession of
+//! the Nervos foundation
 use ckb_app_config::NetworkAlertConfig;
 use ckb_error::AnyError;
 use ckb_logger::{debug, trace};

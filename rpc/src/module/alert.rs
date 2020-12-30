@@ -13,8 +13,8 @@ use std::sync::Arc;
 ///
 /// An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
 ///
-/// The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
-/// and belong to early CKB developers.
+/// The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the
+/// source code and belong to early CKB developers.
 #[rpc(server)]
 pub trait AlertRpc {
     /// Sends an alert.
@@ -23,9 +23,13 @@ pub trait AlertRpc {
     ///
     /// ## Errors
     ///
-    /// * [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
-    /// * [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
-    /// * `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
+    /// * [`AlertFailedToVerifySignatures
+    ///   (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures
+    ///   in the request are invalid.
+    /// * [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) -
+    ///   Alert is saved locally but has failed to broadcast to the P2P network.
+    /// * `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the
+    ///   future.
     ///
     /// ## Examples
     ///

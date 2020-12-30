@@ -56,7 +56,8 @@ pub struct HeaderView {
 ///
 /// # Notice
 ///
-/// This struct is not implement the trait [`Default`], use [`BlockView::as_uncle()`] to construct it.
+/// This struct is not implement the trait [`Default`], use [`BlockView::as_uncle()`] to construct
+/// it.
 ///
 /// [`Default`]: https://doc.rust-lang.org/std/default/trait.Default.html
 /// [`UncleBlock`]: ../packed/struct.UncleBlock.html
@@ -807,7 +808,8 @@ impl packed::Block {
         Self::block_into_view_internal(self, tx_hashes, tx_witness_hashes)
     }
 
-    /// Calculates transaction associated hashes, resets all hashes and merkle roots in the header, then converts them into [`BlockView`].
+    /// Calculates transaction associated hashes, resets all hashes and merkle roots in the header,
+    /// then converts them into [`BlockView`].
     ///
     /// [`BlockView`]: ../core/struct.BlockView.html
     pub fn into_view(self) -> BlockView {

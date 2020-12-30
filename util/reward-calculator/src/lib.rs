@@ -38,7 +38,8 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         RewardCalculator { consensus, store }
     }
 
-    /// Calculates the current block number based on `parent,` locates the current block's target block, returns the target block miner's lock, and total block reward.
+    /// Calculates the current block number based on `parent,` locates the current block's target
+    /// block, returns the target block miner's lock, and total block reward.
     pub fn block_reward_to_finalize(
         &self,
         parent: &HeaderView,
@@ -154,7 +155,6 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     ///       \   \   \________/___/___/
     ///        \   \__________/___/
     ///         \____________/
-    ///
 
     fn proposal_reward(&self, parent: &HeaderView, target: &HeaderView) -> Result<Capacity, Error> {
         let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());

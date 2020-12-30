@@ -365,8 +365,8 @@ pub struct Transaction {
     pub version: Version,
     /// An array of cell deps.
     ///
-    /// CKB locates lock script and type script code via cell deps. The script also can uses syscalls
-    /// to read the cells here.
+    /// CKB locates lock script and type script code via cell deps. The script also can uses
+    /// syscalls to read the cells here.
     ///
     /// Unlike inputs, the live cells can be used as cell deps in multiple transactions.
     pub cell_deps: Vec<CellDep>,
@@ -626,16 +626,20 @@ pub struct Header {
     ///
     /// It is a hash on two Merkle Tree roots:
     ///
-    /// * The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
-    /// * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
+    /// * The root of a CKB Merkle Tree, which items are the transaction hashes of all the
+    ///   transactions in the block.
+    /// * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all
+    ///   the transactions in the block.
     pub transactions_root: H256,
     /// The hash on `proposals` in the block body.
     ///
-    /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
+    /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated
+    /// together.
     pub proposals_hash: H256,
     /// The hash on `uncles` in the block body.
     ///
-    /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes
+    /// concatenated together.
     pub uncles_hash: H256,
     /// DAO fields.
     ///
@@ -755,7 +759,8 @@ impl From<Header> for packed::Header {
 /// covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
 /// a block can commit transactions proposed in an uncle.
 ///
-/// A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+/// A block B1 is considered to be the uncle of another block B2 if all the following conditions are
+/// met:
 ///
 /// 1. They are in the same epoch, sharing the same difficulty;
 /// 2. B2 block number is larger than B1;
@@ -776,7 +781,8 @@ pub struct UncleBlock {
 /// covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
 /// a block can commit transactions proposed in an uncle.
 ///
-/// A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+/// A block B1 is considered to be the uncle of another block B2 if all the following conditions are
+/// met:
 ///
 /// 1. They are in the same epoch, sharing the same difficulty;
 /// 2. B2 block number is larger than B1;
@@ -1002,14 +1008,15 @@ pub struct BlockReward {
     pub primary: Capacity,
     /// The secondary base block reward allocated to miners.
     pub secondary: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is committed in the block.
+    /// The transaction fees that are rewarded to miners because the transaction is committed in
+    /// the block.
     ///
     /// **Attention**, this is not the total transaction fee in the block.
     ///
     /// Miners get 60% of the transaction fee for each transaction committed in the block.
     pub tx_fee: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is proposed in the block or
-    /// its uncles.
+    /// The transaction fees that are rewarded to miners because the transaction is proposed in the
+    /// block or its uncles.
     ///
     /// Miners get 40% of the transaction fee for each transaction proposed in the block and
     /// committed later in its active commit window.
@@ -1074,12 +1081,13 @@ pub struct MinerReward {
     pub primary: Capacity,
     /// The secondary base block reward allocated to miners.
     pub secondary: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is committed in the block.
+    /// The transaction fees that are rewarded to miners because the transaction is committed in
+    /// the block.
     ///
     /// Miners get 60% of the transaction fee for each transaction committed in the block.
     pub committed: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is proposed in the block or
-    /// its uncles.
+    /// The transaction fees that are rewarded to miners because the transaction is proposed in the
+    /// block or its uncles.
     ///
     /// Miners get 40% of the transaction fee for each transaction proposed in the block and
     /// committed later in its active commit window.
@@ -1173,8 +1181,8 @@ pub struct MerkleProof {
 /// and farthest on-chain distance between a transaction's proposal
 /// and commitment.
 ///
-/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
-/// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are
+/// met: 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
 /// ```text

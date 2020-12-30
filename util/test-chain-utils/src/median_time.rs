@@ -58,7 +58,8 @@ impl MockMedianTime {
         Byte32::from_slice(vec.as_slice()).unwrap()
     }
 
-    /// Return transaction info corresponding to the block number, block epoch and transaction index.
+    /// Return transaction info corresponding to the block number, block epoch and transaction
+    /// index.
     #[doc(hidden)]
     pub fn get_transaction_info(
         block_number: BlockNumber,

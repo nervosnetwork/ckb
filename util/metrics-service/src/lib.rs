@@ -24,7 +24,8 @@ pub enum Guard {
 
 /// Initializes the metrics service and lets it run in the background.
 ///
-/// Returns [Guard](enum.Guard.html) if succeeded, or an `String` to describes the reason for the failure.
+/// Returns [Guard](enum.Guard.html) if succeeded, or an `String` to describes the reason for the
+/// failure.
 pub fn init(config: Config, handle: Handle) -> Result<Guard, String> {
     if config.exporter.is_empty() {
         return Ok(Guard::Off);

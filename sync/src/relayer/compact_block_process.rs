@@ -296,7 +296,8 @@ impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
 
 impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {
     fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
-        // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
+        // Note: don't query store because we already did that in `fn_get_pending_header ->
+        // get_header_view`.
         (self.fn_get_pending_header)(hash.to_owned())
     }
 }

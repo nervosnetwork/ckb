@@ -1,4 +1,5 @@
-//! This crate provides several util functions to operate the dao field and NervosDAO related errors.
+//! This crate provides several util functions to operate the dao field and NervosDAO related
+//! errors.
 
 mod error;
 

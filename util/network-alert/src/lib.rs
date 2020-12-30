@@ -6,7 +6,6 @@
 //! the client will show the alert message, the other behaviors of CKB node will not change.
 //!
 //! Network Alert will be removed soon once the CKB network is considered mature.
-//!
 pub mod alert_relayer;
 pub mod notifier;
 #[cfg(test)]

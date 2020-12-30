@@ -60,7 +60,8 @@ macro_rules! impl_calc_special_hash_for_entity {
 impl packed::CellOutput {
     /// Calculates the hash for cell data.
     ///
-    /// Returns the empty hash if no data, otherwise, calculates the hash of the data and returns it.
+    /// Returns the empty hash if no data, otherwise, calculates the hash of the data and returns
+    /// it.
     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
         if data.is_empty() {
             packed::Byte32::zero()
@@ -125,8 +126,8 @@ impl_calc_special_hash_for_entity!(RawTransaction, calc_tx_hash);
 impl<'r> packed::TransactionReader<'r> {
     /// Calls [`RawTransactionReader.calc_tx_hash()`] for [`self.raw()`].
     ///
-    /// [`RawTransactionReader.calc_tx_hash()`]: struct.RawTransactionReader.html#method.calc_tx_hash
-    /// [`self.raw()`]: #method.raw
+    /// [`RawTransactionReader.calc_tx_hash()`]:
+    /// struct.RawTransactionReader.html#method.calc_tx_hash [`self.raw()`]: #method.raw
     pub fn calc_tx_hash(&self) -> packed::Byte32 {
         self.raw().calc_tx_hash()
     }
@@ -181,8 +182,9 @@ impl<'r> packed::UncleBlockReader<'r> {
 
     /// Calls [`ProposalShortIdVecReader.calc_proposals_hash()`] for [`self.proposals()`].
     ///
-    /// [`ProposalShortIdVecReader.calc_proposals_hash()`]: struct.ProposalShortIdVecReader.html#method.calc_proposals_hash
-    /// [`self.proposals()`]: #method.proposals
+    /// [`ProposalShortIdVecReader.calc_proposals_hash()`]:
+    /// struct.ProposalShortIdVecReader.html#method.calc_proposals_hash [`self.proposals()`]:
+    /// #method.proposals
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.proposals().calc_proposals_hash()
     }
@@ -222,16 +224,18 @@ impl<'r> packed::BlockReader<'r> {
 
     /// Calls [`ProposalShortIdVecReader.calc_proposals_hash()`] for [`self.proposals()`].
     ///
-    /// [`ProposalShortIdVecReader.calc_proposals_hash()`]: struct.ProposalShortIdVecReader.html#method.calc_proposals_hash
-    /// [`self.proposals()`]: #method.proposals
+    /// [`ProposalShortIdVecReader.calc_proposals_hash()`]:
+    /// struct.ProposalShortIdVecReader.html#method.calc_proposals_hash [`self.proposals()`]:
+    /// #method.proposals
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.proposals().calc_proposals_hash()
     }
 
     /// Calls [`UncleBlockVecReader.calc_uncles_hash()`] for [`self.uncles()`].
     ///
-    /// [`UncleBlockVecReader.calc_uncles_hash()`]: struct.UncleBlockVecReader.html#method.calc_uncles_hash
-    /// [`self.uncles()`]: #method.uncles
+    /// [`UncleBlockVecReader.calc_uncles_hash()`]:
+    /// struct.UncleBlockVecReader.html#method.calc_uncles_hash [`self.uncles()`]:
+    /// #method.uncles
     pub fn calc_uncles_hash(&self) -> packed::Byte32 {
         self.uncles().calc_uncles_hash()
     }

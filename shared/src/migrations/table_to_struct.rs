@@ -60,8 +60,8 @@ impl Migration for ChangeMoleculeTableToStruct {
         pb.set_message("migrating: epoch");
         pb.inc(1);
         let epoch_ext_migration = |key: &[u8], value: &[u8]| -> Result<()> {
-            // COLUMN_EPOCH stores epoch_number => last_block_hash_in_previous_epoch and last_block_hash_in_previous_epoch => epoch_ext
-            // only migrates epoch_ext
+            // COLUMN_EPOCH stores epoch_number => last_block_hash_in_previous_epoch and
+            // last_block_hash_in_previous_epoch => epoch_ext only migrates epoch_ext
             if key.len() == 32 {
                 // (1 total size field + 8 fields) * 4 byte per field
                 txn.put(COLUMN_EPOCH, key, &value[36..])?;

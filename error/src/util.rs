@@ -56,7 +56,8 @@ macro_rules! impl_error_conversion_with_kind {
     };
 }
 
-/// A macro to implement conversion from source type to target type based on an implicit middle adaptor.
+/// A macro to implement conversion from source type to target type based on an implicit middle
+/// adaptor.
 ///
 /// ## Examples
 ///

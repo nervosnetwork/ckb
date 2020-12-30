@@ -54,8 +54,8 @@ lazy_static! {
 //   uint64_t hash_len = HASH_SIZE;
 //   unsigned char data_hash[HASH_SIZE];
 
-//   ret = ckb_load_cell_by_field(data_hash, &hash_len, 0, 0, CKB_SOURCE_INPUT, CKB_CELL_FIELD_DATA_HASH);
-//   if (ret != CKB_SUCCESS) {
+//   ret = ckb_load_cell_by_field(data_hash, &hash_len, 0, 0, CKB_SOURCE_INPUT,
+// CKB_CELL_FIELD_DATA_HASH);   if (ret != CKB_SUCCESS) {
 //     return ret;
 //   }
 
@@ -210,7 +210,8 @@ pub fn ckb_testnet_consensus() -> Consensus {
     spec.build_consensus().unwrap()
 }
 
-/// Return code hash of genesis type_id script which built with output index of SECP256K1/blake160 script.
+/// Return code hash of genesis type_id script which built with output index of SECP256K1/blake160
+/// script.
 #[doc(hidden)]
 pub fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
@@ -218,8 +219,8 @@ pub fn type_lock_script_code_hash() -> H256 {
         .unpack()
 }
 
-/// Return cell output and data in genesis block's cellbase transaction with index of SECP256K1/blake160 script,
-/// the genesis block depends on the consensus parameter.
+/// Return cell output and data in genesis block's cellbase transaction with index of
+/// SECP256K1/blake160 script, the genesis block depends on the consensus parameter.
 #[doc(hidden)]
 pub fn secp256k1_blake160_sighash_cell(consensus: Consensus) -> (CellOutput, Bytes) {
     let genesis_block = consensus.genesis_block();

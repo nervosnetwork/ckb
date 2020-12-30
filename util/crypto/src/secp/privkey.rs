@@ -15,7 +15,8 @@ pub struct Privkey {
 }
 
 impl Privkey {
-    /// Constructs a signature for message using the Privkey and RFC6979 nonce Requires a signing-capable context.
+    /// Constructs a signature for message using the Privkey and RFC6979 nonce Requires a
+    /// signing-capable context.
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();

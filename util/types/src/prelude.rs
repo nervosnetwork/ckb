@@ -1,6 +1,7 @@
 //! This module includes several traits.
 //!
-//! Few traits are re-exported from other crates, few are used as aliases and others are syntactic sugar.
+//! Few traits are re-exported from other crates, few are used as aliases and others are syntactic
+//! sugar.
 
 pub use molecule::{
     hex_string,
@@ -11,7 +12,8 @@ pub use molecule::{
 ///
 /// We can also customize the panic message or do something else in this alias.
 pub trait ShouldBeOk<T> {
-    /// Unwraps an `Option` or a `Result` with confidence and we assume that it's impossible to fail.
+    /// Unwraps an `Option` or a `Result` with confidence and we assume that it's impossible to
+    /// fail.
     fn should_be_ok(self) -> T;
 }
 
@@ -29,9 +31,11 @@ impl<T> ShouldBeOk<T> for molecule::error::VerificationResult<T> {
     }
 }
 
-/// An alias of `from_slice(..)` to mark where we are really have confidence to do unwrap on the result of `from_slice(..)`.
+/// An alias of `from_slice(..)` to mark where we are really have confidence to do unwrap on the
+/// result of `from_slice(..)`.
 pub trait FromSliceShouldBeOk<'r>: Reader<'r> {
-    /// Unwraps the result of `from_slice(..)` with confidence and we assume that it's impossible to fail.
+    /// Unwraps the result of `from_slice(..)` with confidence and we assume that it's impossible to
+    /// fail.
     fn from_slice_should_be_ok(slice: &'r [u8]) -> Self;
 }
 

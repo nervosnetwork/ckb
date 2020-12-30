@@ -62,13 +62,11 @@ const SHRINK_THREHOLD: usize = 300;
 // non-protected and non-whitelist.
 // Algorithm: if a peer's best known block has less work than our tip,
 // set a timeout CHAIN_SYNC_TIMEOUT seconds in the future:
-//   - If at timeout their best known block now has more work than our tip
-//     when the timeout was set, then either reset the timeout or clear it
-//     (after comparing against our current tip's work)
-//   - If at timeout their best known block still has less work than our
-//     tip did when the timeout was set, then send a getheaders message,
-//     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
-//     If their best known block is still behind when that new timeout is
+//   - If at timeout their best known block now has more work than our tip when the timeout was set,
+//     then either reset the timeout or clear it (after comparing against our current tip's work)
+//   - If at timeout their best known block still has less work than our tip did when the timeout
+//     was set, then send a getheaders message, and set a shorter timeout, HEADERS_RESPONSE_TIME
+//     seconds in future. If their best known block is still behind when that new timeout is
 //     reached, disconnect.
 
 #[derive(Clone, Debug, Default)]
@@ -155,7 +153,8 @@ impl HeadersSyncController {
                 None
             } else {
                 // ignore timeout because the tip already almost reach the real time;
-                // we can sync to the estimated tip in 1 inspect window by the slowest speed that we can accept.
+                // we can sync to the estimated tip in 1 inspect window by the slowest speed that we
+                // can accept.
                 Some(false)
             }
         } else if expected_before_finished < inspect_window {
@@ -166,7 +165,8 @@ impl HeadersSyncController {
             let spent_since_last_updated = now.saturating_sub(self.last_updated_ts);
 
             if spent_since_last_updated < inspect_window {
-                // ignore timeout because the time spent since last updated is not enough as a sample
+                // ignore timeout because the time spent since last updated is not enough as a
+                // sample
                 Some(false)
             } else {
                 let synced_since_last_updated = now_tip_ts.saturating_sub(self.last_updated_tip_ts);
@@ -185,7 +185,8 @@ impl HeadersSyncController {
                         trace!("headers-sync: the instantaneous speed is acceptable");
                         Some(false)
                     } else {
-                        // tolerate more bias for instantaneous speed, we will check the global average speed
+                        // tolerate more bias for instantaneous speed, we will check the global
+                        // average speed
                         let spent_since_started = now.saturating_sub(self.started_ts);
                         let synced_since_started = now_tip_ts.saturating_sub(self.started_tip_ts);
 
@@ -433,7 +434,8 @@ enum TimeQuantile {
 ///
 /// The dividing line is, 1/3 position, 4/5 position, 1/10 position.
 ///
-/// There is 14/30 normal area, 1/10 penalty area, 1/10 double penalty area, 1/3 accelerated reward area.
+/// There is 14/30 normal area, 1/10 penalty area, 1/10 double penalty area, 1/3 accelerated reward
+/// area.
 ///
 /// Most of the nodes that fall in the normal and accelerated reward area will be retained,
 /// while most of the nodes that fall in the normal and penalty zones will be slowly eliminated
@@ -730,8 +732,8 @@ impl InflightBlocks {
             // In the normal state, trace will always empty
             //
             // When the inflight request reaches the checkpoint(inflight > tip + 512),
-            // it means that there is an anomaly in the sync less than tip + 1, i.e. some nodes are stuck,
-            // at which point it will be recorded as the timestamp at that time.
+            // it means that there is an anomaly in the sync less than tip + 1, i.e. some nodes are
+            // stuck, at which point it will be recorded as the timestamp at that time.
             //
             // If the time exceeds 1s, delete the task and halve the number of
             // executable tasks for the corresponding node
@@ -785,8 +787,8 @@ impl InflightBlocks {
 
         if self.restart_number >= block.number {
             // All new requests smaller than restart_number mean that they are cleaned up and
-            // cannot be immediately marked as cleaned up again, so give it a normal response time of 1.5s.
-            // (timeout check is 1s, plus 0.5s given in advance)
+            // cannot be immediately marked as cleaned up again, so give it a normal response time
+            // of 1.5s. (timeout check is 1s, plus 0.5s given in advance)
             self.trace_number
                 .insert(block.clone(), unix_time_as_millis() + 500);
         }
@@ -1294,8 +1296,9 @@ impl SyncShared {
             return ret;
         }
 
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan
+        // pool. The returned blocks of `remove_blocks_by_parent` are in topology order by
+        // parents
         self.try_search_orphan_pool(chain, &block.as_ref().hash());
         ret
     }

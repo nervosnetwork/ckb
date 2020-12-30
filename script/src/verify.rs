@@ -467,11 +467,11 @@ mod tests {
         output
     }
 
-    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate functions
-    // I try to keep unit test code unmodified as much as possible, and may add it back in future PR.
-    // fn open_cell_verify() -> File {
-    //     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
-    // }
+    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate
+    // functions I try to keep unit test code unmodified as much as possible, and may add it
+    // back in future PR. fn open_cell_verify() -> File {
+    //     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).
+    // unwrap() }
 
     fn open_cell_always_success() -> File {
         File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/always_success"))

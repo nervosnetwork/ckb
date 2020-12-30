@@ -744,7 +744,8 @@ impl IndexerStoreTransaction {
     }
 
     fn commit(self) {
-        // only log the error, indexer store commit failure should not causing the thread to panic entirely.
+        // only log the error, indexer store commit failure should not causing the thread to panic
+        // entirely.
         if let Err(err) = self.txn.commit() {
             error!("indexer db failed to commit txn, error: {:?}", err)
         }

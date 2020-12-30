@@ -277,10 +277,13 @@ pub struct SyncState {
     pub orphan_blocks_count: Uint64,
     /// Count of downloading blocks.
     pub inflight_blocks_count: Uint64,
-    /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+    /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit
+    /// ms
     pub fast_time: Uint64,
-    /// The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+    /// The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point,
+    /// unit ms
     pub normal_time: Uint64,
-    /// The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+    /// The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit
+    /// ms
     pub low_time: Uint64,
 }

@@ -55,7 +55,8 @@ pub trait CKBProtocolContext: Send {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     /// Filter broadcast message through quick queue
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
+    /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the
+    /// task.
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
     /// Send message
     fn send_message(

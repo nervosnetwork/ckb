@@ -225,7 +225,8 @@ impl TxPoolService {
         let cycles_limit = consensus.max_block_cycles();
         let uncles_count_limit = consensus.max_uncles_num() as u32;
 
-        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
+        // Should recalculate current time after create cellbase (create cellbase may spend a lot of
+        // time)
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
 
         Ok(BlockTemplate {

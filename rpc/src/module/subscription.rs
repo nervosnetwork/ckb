@@ -55,9 +55,9 @@ impl PubSubMetadata for SubscriptionSession {
 /// > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
 /// < {"jsonrpc":"2.0","result":0,"id":2}
 /// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
-///"subscription":0}}
+/// "subscription":0}}
 /// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
-///"subscription":0}}
+/// "subscription":0}}
 /// < ...
 /// > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
 /// < {"jsonrpc":"2.0","result":true,"id":2}
@@ -86,12 +86,13 @@ pub trait SubscriptionRpc {
     ///
     /// ## Params
     ///
-    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction |
+    ///   proposed_transaction | rejected_transaction)
     ///
     /// ## Returns
     ///
-    /// This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
-    /// topics to the current RPC connection. The subscript ID is also attached as
+    /// This RPC returns the subscription ID as the result. CKB node will push messages in the
+    /// subscribed topics to the current RPC connection. The subscript ID is also attached as
     /// `params.subscription` in the push messages.
     ///
     /// Example push message:
@@ -111,29 +112,33 @@ pub trait SubscriptionRpc {
     ///
     /// ### `new_tip_header`
     ///
-    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
-    /// block header to subscribers.
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish
+    /// the block header to subscribers.
     ///
-    /// The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
+    /// The type of the `params.result` in the push message is
+    /// [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
     ///
     /// ### `new_tip_block`
     ///
-    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
-    /// whole block to subscribers.
+    /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish
+    /// the whole block to subscribers.
     ///
-    /// The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
+    /// The type of the `params.result` in the push message is
+    /// [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
     ///
     /// ### `new_transaction`
     ///
     /// Subscribers will get notified when a new transaction is submitted to the pool.
     ///
-    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    /// The type of the `params.result` in the push message is
+    /// [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
     /// ### `proposed_transaction`
     ///
     /// Subscribers will get notified when an in-pool transaction is proposed by chain.
     ///
-    /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+    /// The type of the `params.result` in the push message is
+    /// [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
     /// ### `rejected_transaction`
     ///
@@ -143,8 +148,10 @@ pub trait SubscriptionRpc {
     ///
     /// The type of the `params.result` in the push message is a two-elements array, where
     ///
-    /// -   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
-    /// -   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
+    /// - the first item type is
+    ///   [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
+    /// - the second item type is
+    ///   [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
     ///
     /// ## Examples
     ///

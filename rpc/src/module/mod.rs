@@ -13,7 +13,8 @@
 //! The section *Required methods* lists all the RPC methods in the module. See module
 //! [PoolRpc](trait.PoolRpc.html#required-methods).
 //!
-//! Use the RPC [`send_transaction`](trait.PoolRpc.html#tymethod.send_transaction) in the module `PoolRpc` as an example.
+//! Use the RPC [`send_transaction`](trait.PoolRpc.html#tymethod.send_transaction) in the module
+//! `PoolRpc` as an example.
 //!
 //! ```text
 //! fn send_transaction(
@@ -35,9 +36,13 @@
 //! ```
 //!
 //! * `send_transaction` - The JSONRPC method name.
-//! * `tx: Transaction` - The first param in the request params list which name is `tx` and type is `Transaction`. The type links to the JSON object definition of a CKB transaction.
-//! * `outputs_validator: Option<OutputsValidator>` - The second param. The `Option` shows that this argument is optional. The document for `OutputsValidator` shows that `outputs_validator` is an enum type which possible values include "default" and "passthrough".
-//! * `-> Result<H256>` - The type inside the `Result` after `->` is the response type. In this example, it is `H256` which is a 32-bytes binary encoded as a hex string.
+//! * `tx: Transaction` - The first param in the request params list which name is `tx` and type is
+//!   `Transaction`. The type links to the JSON object definition of a CKB transaction.
+//! * `outputs_validator: Option<OutputsValidator>` - The second param. The `Option` shows that this
+//!   argument is optional. The document for `OutputsValidator` shows that `outputs_validator` is an
+//!   enum type which possible values include "default" and "passthrough".
+//! * `-> Result<H256>` - The type inside the `Result` after `->` is the response type. In this
+//!   example, it is `H256` which is a 32-bytes binary encoded as a hex string.
 //!
 //! The RPC errors are documented in [`RPCError`](../enum.RPCError.html).
 //!
@@ -50,9 +55,11 @@
 //! solutions.
 //!
 //! The CKB dev team will disable any deprecated RPC methods starting from the next minor version
-//! release. Users can enable the deprecated methods via the config file option `rpc.enable_deprecated_rpc`.
+//! release. Users can enable the deprecated methods via the config file option
+//! `rpc.enable_deprecated_rpc`.
 //!
-//! Once a deprecated method is disabled, the CKB dev team will remove it in a future minor version release.
+//! Once a deprecated method is disabled, the CKB dev team will remove it in a future minor version
+//! release.
 //!
 //! For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0.36.0 and
 //! removed in 0.37.0. The minor versions are released monthly, so there's at least a two-month
@@ -106,8 +113,8 @@
 //! }
 //! ```
 //!
-//! The enum values are represented as JSON strings in the lowercase, underscore-concatenated form. So, in
-//! JSON, `Status` can be one of "pending", "proposed" or "committed".
+//! The enum values are represented as JSON strings in the lowercase, underscore-concatenated form.
+//! So, in JSON, `Status` can be one of "pending", "proposed" or "committed".
 #![allow(deprecated)]
 
 mod alert;

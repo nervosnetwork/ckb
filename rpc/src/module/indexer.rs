@@ -8,7 +8,8 @@ use jsonrpc_derive::rpc;
 
 /// RPC Module Indexer which index cells by lock script hash.
 ///
-/// The index is disabled by default, which **must** be enabled by calling [`index_lock_hash`](#tymethod.index_lock_hash) first.
+/// The index is disabled by default, which **must** be enabled by calling
+/// [`index_lock_hash`](#tymethod.index_lock_hash) first.
 #[deprecated(
     since = "0.36.0",
     note = "Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution."
@@ -25,7 +26,8 @@ pub trait IndexerRpc {
     /// * `lock_hash` - Cell lock script hash
     /// * `page` - Page number, starting from 0
     /// * `per` - Page size, max value is 50
-    /// * `reverse_order` - Returns the live cells collection in reverse order. (**Optional**, default is false)
+    /// * `reverse_order` - Returns the live cells collection in reverse order. (**Optional**,
+    ///   default is false)
     ///
     /// ## Examples
     ///
@@ -318,14 +320,16 @@ pub trait IndexerRpc {
     /// Returns the transactions collection by the hash of lock script.
     ///
     /// This RPC requires [creating the index](#tymethod.index_lock_hash) on `lock_hash` first.
-    /// It returns all matched transactions only if the index is created starting from the genesis block.
+    /// It returns all matched transactions only if the index is created starting from the genesis
+    /// block.
     ///
     /// ## Params
     ///
     /// * `lock_hash` - Cell lock script hash
     /// * `page` - Page number, starting from 0
     /// * `per` - Page size, max value is 50
-    /// * `reverse_order` - Return the transactions collection in reverse order. (**Optional**, default is false)
+    /// * `reverse_order` - Return the transactions collection in reverse order. (**Optional**,
+    ///   default is false)
     ///
     /// ## Examples
     ///

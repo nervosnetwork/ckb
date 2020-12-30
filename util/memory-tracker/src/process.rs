@@ -30,7 +30,8 @@ macro_rules! mib_read {
     };
 }
 
-/// Track the memory usage of the CKB process, Jemalloc and RocksDB through [ckb-metrics](../../ckb_metrics/index.html).
+/// Track the memory usage of the CKB process, Jemalloc and RocksDB through
+/// [ckb-metrics](../../ckb_metrics/index.html).
 pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send>(
     interval: u64,
     tracker_opt: Option<sync::Arc<Tracker>>,

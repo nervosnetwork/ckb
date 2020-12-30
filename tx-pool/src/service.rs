@@ -97,7 +97,8 @@ pub(crate) enum Message {
 
 /// Controller to the tx-pool service.
 ///
-/// The Controller is internally reference-counted and can be freely cloned. A Controller can be obtained when tx-pool service construct.
+/// The Controller is internally reference-counted and can be freely cloned. A Controller can be
+/// obtained when tx-pool service construct.
 #[derive(Clone)]
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
@@ -444,7 +445,8 @@ impl TxPoolServiceBuilder {
         )
     }
 
-    /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
+    /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a
+    /// TxPoolController.
     pub fn start(self, handle: &Handle) -> TxPoolController {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();

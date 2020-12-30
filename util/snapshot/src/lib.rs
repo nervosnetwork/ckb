@@ -85,8 +85,9 @@ impl Snapshot {
     }
 
     /// Refreshing on block commit is necessary operation, even tip remains unchanged.
-    /// when node relayed compact block,if some uncles were not available from receiver's local sources,
-    /// in GetBlockTransactions/BlockTransactions roundtrip, node will need access block data of uncles.
+    /// when node relayed compact block,if some uncles were not available from receiver's local
+    /// sources, in GetBlockTransactions/BlockTransactions roundtrip, node will need access
+    /// block data of uncles.
     pub fn refresh(&self, store: StoreSnapshot) -> Snapshot {
         Snapshot {
             store,

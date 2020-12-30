@@ -19,7 +19,8 @@ impl packed::Script {
 impl packed::CellOutput {
     /// Calculates the occupied capacity of [`CellOutput`].
     ///
-    /// Includes [`output_data`] (provided), [`capacity`] (8), [`lock`] (calculated) and [`type`] (calculated).
+    /// Includes [`output_data`] (provided), [`capacity`] (8), [`lock`] (calculated) and [`type`]
+    /// (calculated).
     ///
     /// [`CellOutput`]: https://github.com/nervosnetwork/ckb/blob/v0.36.0/util/types/schemas/blockchain.mol#L46-L50
     /// [`output_data`]: https://github.com/nervosnetwork/ckb/blob/v0.36.0/util/types/schemas/blockchain.mol#L63

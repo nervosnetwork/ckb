@@ -21,7 +21,8 @@ pub use crate::synchronizer::Synchronizer;
 pub use crate::types::SyncShared;
 use std::time::Duration;
 
-/// Default max get header response length, if it is greater than this value, the message will be ignored
+/// Default max get header response length, if it is greater than this value, the message will be
+/// ignored
 pub const MAX_HEADERS_LEN: usize = 2_000;
 /// The default init download block interval is 24 hours
 /// If the time of the local highest block is within this range, exit the ibd state
@@ -32,7 +33,8 @@ pub const MAX_TIP_AGE: u64 = 24 * 60 * 60 * 1000;
 pub const INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
 /// Maximum number of download blocks that can be requested at one time
 pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 128;
-/// The point at which the scheduler adjusts the number of tasks, by default one adjustment per 512 blocks.
+/// The point at which the scheduler adjusts the number of tasks, by default one adjustment per 512
+/// blocks.
 pub const CHECK_POINT_WINDOW: u64 = (MAX_BLOCKS_IN_TRANSIT_PER_PEER * 4) as u64;
 
 // Time recording window size, ibd period scheduler dynamically adjusts frequency

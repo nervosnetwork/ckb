@@ -74,7 +74,8 @@ pub enum OutputsValidator {
     ///
     /// The default validator only allows outputs (a.k.a., cells) that
     ///
-    /// * use either the secp256k1 or the secp256k1 multisig bundled in the genesis block via type script hash as the lock script,
+    /// * use either the secp256k1 or the secp256k1 multisig bundled in the genesis block via type
+    ///   script hash as the lock script,
     /// * and the type script is either empty or DAO.
     Default,
     /// "passthrough": bypass the validator, thus allow any kind of transaction outputs.

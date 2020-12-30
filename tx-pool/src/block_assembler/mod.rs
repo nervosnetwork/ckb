@@ -191,8 +191,8 @@ impl BlockAssembler {
         Ok(tx)
     }
 
-    // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
-    // (1) they are in the same epoch, sharing the same difficulty;
+    // A block B1 is considered to be the uncle of another block B2 if all of the following
+    // conditions are met: (1) they are in the same epoch, sharing the same difficulty;
     // (2) height(B2) > height(B1);
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.

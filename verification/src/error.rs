@@ -18,7 +18,8 @@ pub enum TransactionErrorSource {
 /// The error types to transactions.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
-    /// There is an erroneous output that its occupied capacity is greater than its capacity (`output.occupied_capacity() > output.capacity()`).
+    /// There is an erroneous output that its occupied capacity is greater than its capacity
+    /// (`output.occupied_capacity() > output.capacity()`).
     #[error("InsufficientCellCapacity({inner}[{index}]): expected occupied capacity ({occupied_capacity:#x}) <= capacity ({capacity:#x})")]
     InsufficientCellCapacity {
         /// The transaction field that causes error.
@@ -32,7 +33,8 @@ pub enum TransactionError {
         capacity: Capacity,
     },
 
-    /// The total capacity of outputs is less than the total capacity of inputs (`SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs]`).
+    /// The total capacity of outputs is less than the total capacity of inputs (`SUM([o.capacity
+    /// for o in outputs]) > SUM([i.capacity for i in inputs]`).
     #[error("OutputsSumOverflow: expected outputs capacity ({outputs_sum:#x}) <= inputs capacity ({inputs_sum:#x})")]
     OutputsSumOverflow {
         /// The total capacity of inputs.
@@ -41,7 +43,8 @@ pub enum TransactionError {
         outputs_sum: Capacity,
     },
 
-    /// Either inputs or outputs of the transaction are empty (`inputs.is_empty() || outputs.is_empty()`).
+    /// Either inputs or outputs of the transaction are empty (`inputs.is_empty() ||
+    /// outputs.is_empty()`).
     #[error("Empty({inner})")]
     Empty {
         /// The transaction field that causes the error.
@@ -67,7 +70,8 @@ pub enum TransactionError {
         hash: Byte32,
     },
 
-    /// The length of outputs is not equal to the length of outputs-data (`outputs.len() != outputs_data.len()`).
+    /// The length of outputs is not equal to the length of outputs-data (`outputs.len() !=
+    /// outputs_data.len()`).
     #[error("OutputsDataLengthMismatch: expected outputs data length ({outputs_data_len}) = outputs length ({outputs_len})")]
     OutputsDataLengthMismatch {
         /// The length of outputs.
@@ -100,7 +104,8 @@ pub enum TransactionError {
     #[error("CellbaseImmaturity({inner}[{index}])")]
     CellbaseImmaturity {
         /// The transaction field that causes the error.
-        /// It should be `TransactionErrorSource::Inputs` or `TransactionErrorSource::CellDeps`. It does not allow using an immature cell as input out-point and dependency out-point.
+        /// It should be `TransactionErrorSource::Inputs` or `TransactionErrorSource::CellDeps`. It
+        /// does not allow using an immature cell as input out-point and dependency out-point.
         inner: TransactionErrorSource,
         /// The index of immature input out-point or dependency out-point.
         index: usize,
@@ -127,7 +132,8 @@ pub enum TransactionError {
 
 /// A list specifying categories of ckb header error.
 ///
-/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+/// This list is intended to grow over time and it is not recommended to exhaustively match against
+/// it.
 ///
 /// It is used with the [`HeaderError`].
 ///
@@ -168,7 +174,8 @@ def_error_base_on_kind!(
 
 /// A list specifying categories of ckb block error.
 ///
-/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+/// This list is intended to grow over time and it is not recommended to exhaustively match against
+/// it.
 ///
 /// It is used with the [`BlockError`].
 ///
@@ -181,10 +188,12 @@ pub enum BlockErrorKind {
     /// There are duplicate committed transactions.
     CommitTransactionDuplicate,
 
-    /// The calculated Merkle tree hash of proposed transactions does not match the one in the header.
+    /// The calculated Merkle tree hash of proposed transactions does not match the one in the
+    /// header.
     ProposalTransactionsHash,
 
-    /// The calculated Merkle tree hash of committed transactions does not match the one in the header.
+    /// The calculated Merkle tree hash of committed transactions does not match the one in the
+    /// header.
     TransactionsRoot,
 
     /// The calculated dao field does not match with the one in the header.
@@ -267,7 +276,8 @@ pub enum CommitError {
 /// [cellbase transaction]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#exceptions
 #[derive(Error, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CellbaseError {
-    /// The cellbase input is unexpected. The structure reference of correct cellbase input: [`new_cellbase_input`].
+    /// The cellbase input is unexpected. The structure reference of correct cellbase input:
+    /// [`new_cellbase_input`].
     ///
     /// [`new_cellbase_input`]: https://github.com/nervosnetwork/ckb/blob/ee0ccecd87013821a2e68120ba3510393c0373e7/util/types/src/extension/shortcuts.rs#L107-L109
     InvalidInput,
@@ -275,9 +285,11 @@ pub enum CellbaseError {
     InvalidRewardAmount,
     /// The cellbase output lock does not match with the target lock.
     ///
-    /// As for 0 ~ PROPOSAL_WINDOW.farthest blocks, cellbase outputs should be empty; otherwise, lock of first cellbase output should match with the target block.
+    /// As for 0 ~ PROPOSAL_WINDOW.farthest blocks, cellbase outputs should be empty; otherwise,
+    /// lock of first cellbase output should match with the target block.
     ///
-    /// Assumes the current block number is `i`, then its target block is that: (1) on that same chain with current block; (2) number is `i - PROPOSAL_WINDOW.farthest - 1`.
+    /// Assumes the current block number is `i`, then its target block is that: (1) on that same
+    /// chain with current block; (2) number is `i - PROPOSAL_WINDOW.farthest - 1`.
     InvalidRewardTarget,
     /// The cellbase witness is not in [`CellbaseWitness`] format.
     ///
@@ -477,7 +489,8 @@ impl HeaderError {
     /// if the header's timestamp is more than ALLOWED_FUTURE_BLOCKTIME ahead of our current time.
     /// In that case, the header may become valid in the future,
     /// and we don't want to disconnect a peer merely for serving us one too-far-ahead block header,
-    /// to prevent an attacker from splitting the network by mining a block right at the ALLOWED_FUTURE_BLOCKTIME boundary.
+    /// to prevent an attacker from splitting the network by mining a block right at the
+    /// ALLOWED_FUTURE_BLOCKTIME boundary.
     ///
     /// [`TimestampError::is_too_new`]
     #[doc(hidden)]

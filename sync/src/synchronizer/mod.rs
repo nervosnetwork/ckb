@@ -210,7 +210,8 @@ pub struct Synchronizer {
 impl Synchronizer {
     /// Init sync protocol handle
     ///
-    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
+    /// This is a runtime sync protocol shared state, and any relay messages will be processed and
+    /// forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
@@ -362,14 +363,14 @@ impl Synchronizer {
     }
 
     /// Regularly check and eject some nodes that do not respond in time
-    //   - If at timeout their best known block now has more work than our tip
-    //     when the timeout was set, then either reset the timeout or clear it
-    //     (after comparing against our current tip's work)
-    //   - If at timeout their best known block still has less work than our
-    //     tip did when the timeout was set, then send a getheaders message,
-    //     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
-    //     If their best known block is still behind when that new timeout is
-    //     reached, disconnect.
+    // 
+    //   - If at timeout their best known block now has more work than our tip when the timeout was
+    //     set, then either reset the timeout or clear it (after comparing against our current tip's
+    //     work)
+    //   - If at timeout their best known block still has less work than our tip did when the
+    //     timeout was set, then send a getheaders message, and set a shorter timeout,
+    //     HEADERS_RESPONSE_TIME seconds in future. If their best known block is still behind when
+    //     that new timeout is reached, disconnect.
     pub fn eviction(&self, nc: &dyn CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let active_chain = self.shared.active_chain();
@@ -413,10 +414,11 @@ impl Synchronizer {
                         && best_known_header.map(HeaderView::total_difficulty)
                             >= state.chain_sync.total_difficulty.as_ref())
                 {
-                    // Our best block known by this peer is behind our tip, and we're either noticing
-                    // that for the first time, OR this peer was able to catch up to some earlier point
-                    // where we checked against our tip.
-                    // Either way, set a new timeout based on current tip.
+                    // Our best block known by this peer is behind our tip, and we're either
+                    // noticing that for the first time, OR this peer was able
+                    // to catch up to some earlier point where we checked
+                    // against our tip. Either way, set a new timeout based on
+                    // current tip.
                     state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
                     state.chain_sync.work_header = Some(tip_header);
                     state.chain_sync.total_difficulty = Some(local_total_difficulty);

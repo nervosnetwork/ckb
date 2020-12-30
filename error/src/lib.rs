@@ -17,7 +17,8 @@ pub struct AnyError(Arc<anyhow::Error>);
 
 /// A list specifying categories of ckb error.
 ///
-/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+/// This list is intended to grow over time and it is not recommended to exhaustively match against
+/// it.
 ///
 /// It is used with [`Error`].
 ///

@@ -26,20 +26,20 @@ fn difficulty_to_target(difficulty: &U256) -> U256 {
     }
 }
 /**
-* the original nBits implementation inherits properties from a signed data class,
-* allowing the target threshold to be negative if the high bit of the significand is set.
-* This is useless—the header hash is treated as an unsigned number,
-* so it can never be equal to or lower than a negative target threshold.
-*
-*
-* The "compact" format is a representation of a whole
-* number N using an unsigned 32bit number similar to a
-* floating point format.
-* The most significant 8 bits are the unsigned exponent of base 256.
-* This exponent can be thought of as "number of bytes of N".
-* The lower 24 bits are the mantissa.
-* N = mantissa * 256^(exponent-3)
-*/
+ * the original nBits implementation inherits properties from a signed data class,
+ * allowing the target threshold to be negative if the high bit of the significand is set.
+ * This is useless—the header hash is treated as an unsigned number,
+ * so it can never be equal to or lower than a negative target threshold.
+ *
+ *
+ * The "compact" format is a representation of a whole
+ * number N using an unsigned 32bit number similar to a
+ * floating point format.
+ * The most significant 8 bits are the unsigned exponent of base 256.
+ * This exponent can be thought of as "number of bytes of N".
+ * The lower 24 bits are the mantissa.
+ * N = mantissa * 256^(exponent-3)
+ */
 fn get_low64(target: &U256) -> u64 {
     target.0[0]
 }

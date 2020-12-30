@@ -55,7 +55,8 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let cellbase = &block.transactions()[0];
         let dep_group_tx = &block.transactions()[1];
 
-        // Zip name with the transaction outputs. System cells start from 1 in the genesis cellbase outputs.
+        // Zip name with the transaction outputs. System cells start from 1 in the genesis cellbase
+        // outputs.
         let cells_hashes = spec
             .genesis
             .system_cells

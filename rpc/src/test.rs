@@ -632,8 +632,8 @@ impl RpcTestSuite {
 ///
 /// Q. How to add tests?
 ///
-/// Test cases are collected from code comments. Please put request and response JSON in their own code
-/// blocks and set the fenced code block type to "json".
+/// Test cases are collected from code comments. Please put request and response JSON in their own
+/// code blocks and set the fenced code block type to "json".
 ///
 /// The first example must use id 42. And extra examples for the same method must use different
 /// ids.
@@ -667,6 +667,7 @@ where
     *response = example.response.clone()
 }
 
+// 
 // * Use replace_rpc_response to skip the response matching assertions.
 // * Fix timestamp related fields.
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {

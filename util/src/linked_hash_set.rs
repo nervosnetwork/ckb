@@ -159,7 +159,8 @@ where
         }
     }
 
-    /// Visits the values representing the difference, i.e., the values that are in `self` but not in `other`.
+    /// Visits the values representing the difference, i.e., the values that are in `self` but not
+    /// in `other`.
     pub fn difference<'a>(&'a self, other: &'a LinkedHashSet<T, S>) -> Difference<'a, T, S> {
         Difference {
             iter: self.iter(),

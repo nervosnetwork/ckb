@@ -26,12 +26,12 @@ pub trait MinerRpc {
     ///
     /// ## Params
     ///
-    /// * `bytes_limit` - the max serialization size in bytes of the block.
-    ///     (**Optional:** the default is the consensus limit.)
-    /// * `proposals_limit` - the max count of proposals.
-    ///     (**Optional:** the default is the consensus limit.)
-    /// * `max_version` - the max block version.
-    ///     (**Optional:** the default is one configured in the current client version.)
+    /// * `bytes_limit` - the max serialization size in bytes of the block. (**Optional:** the
+    ///   default is the consensus limit.)
+    /// * `proposals_limit` - the max count of proposals. (**Optional:** the default is the
+    ///   consensus limit.)
+    /// * `max_version` - the max block version. (**Optional:** the default is one configured in the
+    ///   current client version.)
     ///
     /// ## Examples
     ///
@@ -140,8 +140,10 @@ pub trait MinerRpc {
     ///
     /// ## Params
     ///
-    /// * `work_id` - The same work ID returned from [`get_block_template`](#tymethod.get_block_template).
-    /// * `block` - The assembled block from the block template and which PoW puzzle has been resolved.
+    /// * `work_id` - The same work ID returned from
+    ///   [`get_block_template`](#tymethod.get_block_template).
+    /// * `block` - The assembled block from the block template and which PoW puzzle has been
+    ///   resolved.
     ///
     /// ## Examples
     ///

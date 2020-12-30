@@ -98,7 +98,9 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
-    /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
+    /// Calculates the new dao field after packaging these transactions. It returns the dao field in
+    /// [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed
+    /// content.
     ///
     /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
     /// [`extract_dao_data`]: ../ckb_dao_utils/fn.extract_dao_data.html
@@ -167,7 +169,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
     }
 
-    /// Returns the maximum capacity that the deposited `out_point` acts [withdrawing phase 1] at `withdrawing_header_hash.`
+    /// Returns the maximum capacity that the deposited `out_point` acts [withdrawing phase 1] at
+    /// `withdrawing_header_hash.`
     ///
     /// [withdrawing phase 1]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#withdraw-phase-1
     pub fn maximum_withdraw(
@@ -289,7 +292,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .get(i)
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
-                                // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
+                                // dao contract stores header deps index as u64 in the input_type
+                                // field of WitnessArgs
                                 let witness = WitnessArgs::from_slice(&Unpack::<Bytes>::unpack(
                                     &witness_data,
                                 ))

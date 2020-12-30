@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 
 /// The alert identifier that is used to filter duplicated alerts.
 ///
-/// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
+/// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See
+/// examples of [Uint32](type.Uint32.html#examples).
 pub type AlertId = Uint32;
 /// Alerts are sorted by priority. Greater integers mean higher priorities.
 ///
-/// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
+/// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See
+/// examples of [Uint32](type.Uint32.html#examples).
 pub type AlertPriority = Uint32;
 
 /// An alert is a message about critical problems to be broadcast to all nodes via the p2p network.

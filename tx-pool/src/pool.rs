@@ -114,7 +114,8 @@ impl TxPool {
         }
     }
 
-    /// Tx-pool owned snapshot, it may not consistent with chain cause tx-pool update snapshot asynchronously
+    /// Tx-pool owned snapshot, it may not consistent with chain cause tx-pool update snapshot
+    /// asynchronously
     pub fn snapshot(&self) -> &Snapshot {
         &self.snapshot
     }
@@ -504,7 +505,8 @@ impl TxPool {
 
                             OutPointError::Unknown(out_points) => {
                                 let snapshot = self.snapshot();
-                                // if resolved input is unknown, but we known tx, it's dead or invalid
+                                // if resolved input is unknown, but we known tx, it's dead or
+                                // invalid
                                 if !out_points
                                     .iter()
                                     .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))

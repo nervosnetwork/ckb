@@ -1,6 +1,7 @@
 /// CKB evicts inactive peers in `sync` protocol; but due to P2P connection design,
-/// a malicious peer may choose not to open `sync` protocol, to sneak from the eviction mechanism;
-/// this service periodically check peers opened sub-protocols, to make sure no malicious connection.
+/// a malicious peer may choose not to open `sync` protocol, to sneak from the eviction
+/// mechanism; this service periodically check peers opened sub-protocols, to make sure no
+/// malicious connection.
 ///
 /// Currently, 2 sub-protocols types are valid:
 ///

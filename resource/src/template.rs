@@ -25,8 +25,8 @@ use std::io;
 /// The block starts with the line ending with ` # {{` (the leading space is required) and ends
 /// with a line `# }}`.
 ///
-/// Between the start and end markers, every line is a branch starting with `# SPEC => CONTENT`, where
-/// `SPEC` is the branch spec name, and `CONTENT` is the text to be replaced for the spec.
+/// Between the start and end markers, every line is a branch starting with `# SPEC => CONTENT`,
+/// where `SPEC` is the branch spec name, and `CONTENT` is the text to be replaced for the spec.
 /// A special spec name `_` acts as a wildcard which matches any spec name.
 ///
 /// The spec name is required to render the template, see [`Template::new`]. The block including

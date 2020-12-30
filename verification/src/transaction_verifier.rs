@@ -537,7 +537,8 @@ const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
 /// Metric represent value
 pub enum SinceMetric {
-    /// The metric_flag is 00, `value` can be explained as a block number or a relative block number.
+    /// The metric_flag is 00, `value` can be explained as a block number or a relative block
+    /// number.
     BlockNumber(u64),
     /// The metric_flag is 01, value can be explained as an absolute epoch or relative epoch.
     EpochNumberWithFraction(EpochNumberWithFraction),

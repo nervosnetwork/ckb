@@ -14,11 +14,13 @@ pub enum OutPointError {
     #[error("Unknown({0:?})")]
     Unknown(Vec<OutPoint>),
 
-    /// There is an input out-point or dependency out-point which references a newer cell in the same block.
+    /// There is an input out-point or dependency out-point which references a newer cell in the
+    /// same block.
     #[error("OutOfOrder({0:?})")]
     OutOfOrder(OutPoint),
 
-    /// There is a dependency out-point, which is [`DepGroup`], but its output-data is invalid format. The expected output-data format for [`DepGroup`] is [`OutPointVec`].
+    /// There is a dependency out-point, which is [`DepGroup`], but its output-data is invalid
+    /// format. The expected output-data format for [`DepGroup`] is [`OutPointVec`].
     ///
     /// [`DepGroup`]: ../enum.DepType.html#variant.DepGroup
     /// [`OutPointVec`]: ../../packed/struct.OutPointVec.html

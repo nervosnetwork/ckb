@@ -6,8 +6,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound;
 
 /// A view captures point-time proposal set, representing on-chain proposed transaction pool,
-/// stored in the memory so that there is no need to fetch on hard disk, create by ProposalTable finalize method
-/// w_close and w_far define the closest and farthest on-chain distance between a transaction’s proposal and commitment.
+/// stored in the memory so that there is no need to fetch on hard disk, create by ProposalTable
+/// finalize method w_close and w_far define the closest and farthest on-chain distance between a
+/// transaction’s proposal and commitment.
 #[derive(Default, Clone, Debug)]
 pub struct ProposalView {
     pub(crate) gap: HashSet<ProposalShortId>,
@@ -64,7 +65,8 @@ impl ProposalTable {
         self.table.insert(number, ids).is_none()
     }
 
-    /// Removes a proposal set from the table,　returning the set at the number if the number was previously in the table
+    /// Removes a proposal set from the table,　returning the set at the number if the number was
+    /// previously in the table
     ///
     /// # Examples
     ///
@@ -102,12 +104,11 @@ impl ProposalTable {
 
         ckb_logger::trace!("[proposal_finalize] table {:?}", self.table);
 
-        // - if candidate_number <= self.proposal_window.closest()
-        //      new_ids = []
-        //      gap = [1..candidate_number]
-        // - else
-        //      new_ids = [candidate_number- farthest..= candidate_number- closest]
-        //      gap = [candidate_number- closest + 1..candidate_number]
+        // 
+        // - if candidate_number <= self.proposal_window.closest() new_ids = [] gap =
+        //   [1..candidate_number]
+        // - else new_ids = [candidate_number- farthest..= candidate_number- closest] gap =
+        //   [candidate_number- closest + 1..candidate_number]
         // - end
         let (new_ids, gap) = if candidate_number <= self.proposal_window.closest() {
             (

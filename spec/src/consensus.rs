@@ -1,5 +1,4 @@
 //! Consensus defines various tweakable parameters of a given instance of the CKB system.
-//!
 
 #![allow(clippy::inconsistent_digit_grouping)]
 
@@ -96,8 +95,8 @@ pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 /// and farthest on-chain distance between a transaction's proposal
 /// and commitment.
 ///
-/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
-/// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are
+/// met: 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
 ///   ```text
@@ -110,7 +109,6 @@ pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 ///                               \
 ///                             commit
 ///  ```
-///
 impl ProposalWindow {
     /// The w_close parameter
     pub fn closest(&self) -> BlockNumber {
@@ -128,7 +126,8 @@ impl ProposalWindow {
     }
 }
 
-/// The Consensus factory, which can be used in order to configure the properties of a new Consensus.
+/// The Consensus factory, which can be used in order to configure the properties of a new
+/// Consensus.
 pub struct ConsensusBuilder {
     inner: Consensus,
 }
@@ -233,7 +232,8 @@ pub fn build_genesis_dao_data(
 }
 
 impl ConsensusBuilder {
-    /// Generates the base configuration for build a Consensus, from which configuration methods can be chained.
+    /// Generates the base configuration for build a Consensus, from which configuration methods can
+    /// be chained.
     pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
         let orphan_rate_target = RationalU256::new_raw(
             U256::from(DEFAULT_ORPHAN_RATE_TARGET.0),
@@ -430,8 +430,9 @@ impl ConsensusBuilder {
     /// Sets permanent_difficulty_in_dummy for the new Consensus.
     ///
     /// [dynamic-difficulty-adjustment-mechanism](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
-    /// may be a disturbance in dev chain, set permanent_difficulty_in_dummy to true will disable dynamic difficulty adjustment mechanism. keep difficulty unchanged.
-    /// Work only under dummy Pow
+    /// may be a disturbance in dev chain, set permanent_difficulty_in_dummy to true will disable
+    /// dynamic difficulty adjustment mechanism. keep difficulty unchanged. Work only under
+    /// dummy Pow
     #[must_use]
     pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
         self.inner.permanent_difficulty_in_dummy = permanent;

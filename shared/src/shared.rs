@@ -223,7 +223,8 @@ impl Shared {
         }
     }
 
-    /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
+    /// Spawn freeze background thread that periodically checks and moves ancient data from the kv
+    /// database into the freezer.
     pub fn spawn_freeze(&self) -> FreezerClose {
         let (signal_sender, signal_receiver) =
             ckb_channel::bounded::<()>(service::SIGNAL_CHANNEL_SIZE);

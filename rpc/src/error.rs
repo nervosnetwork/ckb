@@ -26,8 +26,8 @@ use std::fmt::{Debug, Display};
 /// * -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
 /// codes.
 ///
-/// Unless otherwise noted, all the errors return optional detailed information as `string` in the error
-/// object `data` field.
+/// Unless otherwise noted, all the errors return optional detailed information as `string` in the
+/// error object `data` field.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RPCError {
     /// (-1): CKB internal errors are considered to never happen or only happen when the system
@@ -65,8 +65,8 @@ pub enum RPCError {
     DatabaseError = -200,
     /// (-201): The chain index is inconsistent.
     ///
-    /// An example of an inconsistent index is that the chain index says a block hash is in the chain
-    /// but the block cannot be read from the database.
+    /// An example of an inconsistent index is that the chain index says a block hash is in the
+    /// chain but the block cannot be read from the database.
     ///
     /// This is a fatal error usually due to a serious bug. Please back up the data directory and
     /// re-sync the chain from scratch.
@@ -76,19 +76,21 @@ pub enum RPCError {
     /// This is a fatal error usually caused by the underlying database used by CKB. Please back up
     /// the data directory and re-sync the chain from scratch.
     DatabaseIsCorrupt = -202,
-    /// (-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or
-    /// dependencies.
+    /// (-301): Failed to resolve the referenced cells and headers used in the transaction, as
+    /// inputs or dependencies.
     TransactionFailedToResolve = -301,
     /// (-302): Failed to verify the transaction.
     TransactionFailedToVerify = -302,
     /// (-1000): Some signatures in the submit alert are invalid.
     AlertFailedToVerifySignatures = -1000,
-    /// (-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
+    /// (-1102): The transaction is rejected by the outputs validator specified by the RPC
+    /// parameter.
     PoolRejectedTransactionByOutputsValidator = -1102,
-    /// (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue
-    /// link in the error message for details.
+    /// (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the
+    /// issue link in the error message for details.
     PoolRejectedTransactionByIllTransactionChecker = -1103,
-    /// (-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
+    /// (-1104): The transaction fee rate must be greater than or equal to the config option
+    /// `tx_pool.min_fee_rate`
     ///
     /// The fee rate is calculated as:
     ///
@@ -96,7 +98,8 @@ pub enum RPCError {
     /// fee / (1000 * tx_serialization_size_in_block_in_bytes)
     /// ```
     PoolRejectedTransactionByMinFeeRate = -1104,
-    /// (-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
+    /// (-1105): The in-pool ancestors count must be less than or equal to the config option
+    /// `tx_pool.max_ancestors_count`
     ///
     /// Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
     PoolRejectedTransactionByMaxAncestorsCountLimit = -1105,

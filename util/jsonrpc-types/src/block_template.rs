@@ -21,9 +21,11 @@ pub struct BlockTemplate {
     pub compact_target: Uint32,
     /// The timestamp for the new block.
     ///
-    /// CKB node guarantees that this timestamp is larger than the median of the previous 37 blocks.
+    /// CKB node guarantees that this timestamp is larger than the median of the previous 37
+    /// blocks.
     ///
-    /// Miners can increase it to the current time. It is not recommended to decrease it, since it may violate the median block timestamp consensus rule.
+    /// Miners can increase it to the current time. It is not recommended to decrease it, since it
+    /// may violate the median block timestamp consensus rule.
     pub current_time: Timestamp,
     /// The block number for the new block.
     ///
@@ -39,16 +41,16 @@ pub struct BlockTemplate {
     pub parent_hash: H256,
     /// The cycles limit.
     ///
-    /// Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block
-    /// submission.
+    /// Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the
+    /// block submission.
     ///
     /// It is guaranteed that the block does not exceed the limit if miners do not add new
     /// transactions to the block.
     pub cycles_limit: Cycle,
     /// The block serialized size limit.
     ///
-    /// Miners must keep the block size below this limit, otherwise, the CKB node will reject the block
-    /// submission.
+    /// Miners must keep the block size below this limit, otherwise, the CKB node will reject the
+    /// block submission.
     ///
     /// It is guaranteed that the block does not exceed the limit if miners do not add new
     /// transaction commitments.
@@ -204,7 +206,8 @@ pub struct TransactionTemplate {
     ///
     /// This is a hint to help miners selecting transactions.
     ///
-    /// This transaction can only be committed if its dependencies are also committed in the new block.
+    /// This transaction can only be committed if its dependencies are also committed in the new
+    /// block.
     ///
     /// This field is a list of indices into the array `transactions` in the block template.
     ///

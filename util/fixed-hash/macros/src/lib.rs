@@ -3,7 +3,8 @@
 //! If we use an array to construct const fixed-sized hashes, it's difficult to read.
 //!
 //! If we use [`FromStr::from_str`] to construct fixed-sized hashes, the result is not a constant.
-//! So, it will reduce runtime performance. And it could cause a runtime error if the input is malformed.
+//! So, it will reduce runtime performance. And it could cause a runtime error if the input is
+//! malformed.
 //!
 //! With proc-macros, we can construct human-readable const fixed-sized hashes.
 //! And it will be checked in compile time, it could never cause any runtime error.

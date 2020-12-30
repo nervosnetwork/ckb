@@ -29,7 +29,8 @@ const CONTROL_CHANNEL_BUFFER_SIZE: usize = 2;
 /// Ping protocol handler.
 ///
 /// The interval means that we send ping to peers.
-/// The timeout means that consider peer is timeout if during a timeout we still have not received pong from a peer
+/// The timeout means that consider peer is timeout if during a timeout we still have not received
+/// pong from a peer
 pub struct PingHandler {
     interval: Duration,
     timeout: Duration,

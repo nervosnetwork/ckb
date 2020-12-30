@@ -72,7 +72,8 @@ impl ShortIdsVerifier {
         }
 
         // Check intersection of prefilled transactions and short ids.
-        // Cellbase is skipped since it's always prefilled and has the chances of collision with other txs
+        // Cellbase is skipped since it's always prefilled and has the chances of collision with
+        // other txs
         let is_intersect = prefilled_transactions
             .into_iter()
             .skip(1)

@@ -348,7 +348,8 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         }),
                         data_bytes: data.len() as u64,
                         mem_cell_data: Some(data),
-                        mem_cell_data_hash: Some(data_hash), // make sure load_cell_data_hash works within block
+                        mem_cell_data_hash: Some(data_hash), /* make sure load_cell_data_hash
+                                                              * works within block */
                     })
                 })
             })

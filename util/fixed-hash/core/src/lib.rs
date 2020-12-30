@@ -4,7 +4,8 @@
 //!
 //! **This is an internal crate used by crate [`ckb_fixed_hash`], do not use this crate directly.**
 //!
-//! All structs and the module [`error`](error/index.html) in this crate are re-exported in crate [`ckb_fixed_hash`].
+//! All structs and the module [`error`](error/index.html) in this crate are re-exported in crate
+//! [`ckb_fixed_hash`].
 //!
 //! And you can found examples in crate [`ckb_fixed_hash`].
 //!

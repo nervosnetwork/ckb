@@ -30,8 +30,9 @@ pub struct CellTransaction {
     ///
     /// This is null if the cell is still live.
     ///
-    /// The cell is consumed as the `consumed_by.index`-th input in the transaction `consumed_by.tx_hash`, which
-    /// has been committed to at the height `consumed_by.block_number` in the chain.
+    /// The cell is consumed as the `consumed_by.index`-th input in the transaction
+    /// `consumed_by.tx_hash`, which has been committed to at the height
+    /// `consumed_by.block_number` in the chain.
     pub consumed_by: Option<TransactionPoint>,
 }
 
@@ -43,8 +44,8 @@ pub struct TransactionPoint {
     pub block_number: BlockNumber,
     /// In which transaction this cell is an output.
     pub tx_hash: H256,
-    /// The index of this cell in the transaction. Based on the context, this is either an input index
-    /// or an output index.
+    /// The index of this cell in the transaction. Based on the context, this is either an input
+    /// index or an output index.
     pub index: Uint64,
 }
 

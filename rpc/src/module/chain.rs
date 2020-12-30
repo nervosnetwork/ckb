@@ -183,8 +183,12 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
-    /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
+    /// * [`ChainIndexIsInconsistent
+    ///   (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is
+    ///   inconsistent. It says a block hash is in the main chain, but cannot read it from the
+    ///   database.
+    /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data
+    ///   read from database is dirty. Please report it as a bug.
     ///
     /// ## Examples
     ///
@@ -287,8 +291,8 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// The RPC returns a header or null. When the RPC returns a header, the block hash must equal to
-    /// the parameter `block_hash`.
+    /// The RPC returns a header or null. When the RPC returns a header, the block hash must equal
+    /// to the parameter `block_hash`.
     ///
     /// If the block is in the [canonical chain](#canonical-chain), the RPC must return the header
     /// information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
@@ -381,7 +385,10 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
+    /// * [`ChainIndexIsInconsistent
+    ///   (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is
+    ///   inconsistent. It says a block hash is in the main chain, but cannot read it from the
+    ///   database.
     ///
     /// ## Examples
     ///
@@ -634,7 +641,8 @@ pub trait ChainRpc {
         verbosity: Option<Uint32>,
     ) -> Result<ResponseFormat<HeaderView, Header>>;
 
-    /// Returns the information about [live cell](#live-cell)s collection by the hash of lock script.
+    /// Returns the information about [live cell](#live-cell)s collection by the hash of lock
+    /// script.
     ///
     /// This method will be removed. It always returns an error now.
     #[deprecated(
@@ -658,8 +666,8 @@ pub trait ChainRpc {
     ///
     /// This RPC tells whether a cell is live or not.
     ///
-    /// If the cell is live, the RPC will return details about the cell. Otherwise, the field `cell` is
-    /// null in the result.
+    /// If the cell is live, the RPC will return details about the cell. Otherwise, the field `cell`
+    /// is null in the result.
     ///
     /// If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the
     /// result.
@@ -667,7 +675,8 @@ pub trait ChainRpc {
     /// ## Params
     ///
     /// * `out_point` - Reference to the cell by transaction hash and output index.
-    /// * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
+    /// * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the
+    ///   client
     /// does not need the data, it should set this to `false` to save bandwidth.
     ///
     /// ## Examples
@@ -792,8 +801,9 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch number
-    /// returned by [`get_current_epoch`](#tymethod.get_current_epoch) and returns null otherwise.
+    /// The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch
+    /// number returned by [`get_current_epoch`](#tymethod.get_current_epoch) and returns null
+    /// otherwise.
     ///
     /// Because of [chain reorganization](#chain-reorganization), for the same `epoch_number`, this
     /// RPC may return null or different epochs in different invocations.
@@ -847,7 +857,8 @@ pub trait ChainRpc {
     /// ## Returns
     ///
     /// If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
-    /// its block number is N, return the block rewards analysis for block `N - 1 - ProposalWindow.farthest`.
+    /// its block number is N, return the block rewards analysis for block `N - 1 -
+    /// ProposalWindow.farthest`.
     ///
     /// ## Examples
     ///
@@ -955,7 +966,8 @@ pub trait ChainRpc {
     /// ## Params
     ///
     /// * `tx_hashes` - Transaction hashes, all transactions must be in the same block
-    /// * `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
+    /// * `block_hash` - An optional parameter, if specified, looks for transactions in the block
+    ///   with this hash
     ///
     /// ## Examples
     ///
@@ -995,11 +1007,13 @@ pub trait ChainRpc {
         block_hash: Option<H256>,
     ) -> Result<TransactionProof>;
 
-    /// Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
+    /// Verifies that a proof points to transactions in a block, returning the transaction hashes it
+    /// commits to.
     ///
     /// ## Parameters
     ///
-    /// * `transaction_proof` - proof generated by [`get_transaction_proof`](#tymethod.get_transaction_proof).
+    /// * `transaction_proof` - proof generated by
+    ///   [`get_transaction_proof`](#tymethod.get_transaction_proof).
     ///
     /// ## Examples
     ///
@@ -1046,13 +1060,14 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to
-    /// the parameter `block_hash`.
+    /// The RPC returns a fork block or null. When the RPC returns a block, the block hash must
+    /// equal to the parameter `block_hash`.
     ///
-    /// Please note that due to the technical nature of the peer to peer sync, the RPC may return null or a fork block
-    /// result on different nodes with same `block_hash` even they are fully synced to the [canonical chain](#canonical-chain).
-    /// And because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
-    /// RPC may sometimes return null and sometimes return the fork block.
+    /// Please note that due to the technical nature of the peer to peer sync, the RPC may return
+    /// null or a fork block result on different nodes with same `block_hash` even they are
+    /// fully synced to the [canonical chain](#canonical-chain). And because of [chain
+    /// reorganization](#chain-reorganization), for the same `block_hash`, the RPC may sometimes
+    /// return null and sometimes return the fork block.
     ///
     /// When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
     /// schema.

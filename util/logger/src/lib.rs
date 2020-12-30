@@ -144,7 +144,8 @@ macro_rules! error {
     }
 }
 
-/// Determines if a message logged at the specified level and with the default target will be logged.
+/// Determines if a message logged at the specified level and with the default target will be
+/// logged.
 ///
 /// The default target is the module path of the location of the log request.
 /// See also [`log_enabled_target!`] the version that supports checking arbitrary
@@ -152,7 +153,8 @@ macro_rules! error {
 ///
 /// [`log_enabled_target!`]: macro.log_enabled_target.html
 ///
-/// This can be used to avoid expensive computation of log message arguments if the message would be ignored anyway.
+/// This can be used to avoid expensive computation of log message arguments if the message would be
+/// ignored anyway.
 ///
 /// ## Examples
 ///
@@ -303,9 +305,11 @@ macro_rules! error_target {
     }
 }
 
-/// Determines if a message logged at the specified level and with the specified target will be logged.
+/// Determines if a message logged at the specified level and with the specified target will be
+/// logged.
 ///
-/// This can be used to avoid expensive computation of log message arguments if the message would be ignored anyway.
+/// This can be used to avoid expensive computation of log message arguments if the message would be
+/// ignored anyway.
 ///
 /// See also [`log_enabled!`] the version that checks with the default target.
 ///
