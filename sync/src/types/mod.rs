@@ -216,6 +216,7 @@ pub struct PeerState {
     pub sync_started: bool,
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
+    sync_connected: bool,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
@@ -237,6 +238,7 @@ impl PeerState {
             sync_started: false,
             headers_sync_controller: None,
             peer_flags,
+            sync_connected: false,
             disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
@@ -249,7 +251,8 @@ impl PeerState {
 
     pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
         // only sync with protect/whitelist peer in IBD
-        ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
+        self.sync_connected
+            && ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
             && !self.sync_started
             && self
                 .chain_sync
@@ -864,8 +867,13 @@ impl Peers {
             .entry(peer)
             .and_modify(|state| {
                 state.peer_flags = peer_flags;
+                state.sync_connected = true;
             })
-            .or_insert_with(|| PeerState::new(peer_flags));
+            .or_insert_with(|| {
+                let mut state = PeerState::new(peer_flags);
+                state.sync_connected = true;
+                state
+            });
     }
 
     pub fn relay_connected(&self, peer: PeerIndex) {
