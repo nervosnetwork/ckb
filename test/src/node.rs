@@ -375,6 +375,27 @@ impl Node {
         );
     }
 
+    pub fn wait_for_tx_pool(&self) {
+        let rpc_client = self.rpc_client();
+        let mut chain_tip = rpc_client.get_tip_header();
+        let mut tx_pool_tip = rpc_client.tx_pool_info();
+        let instant = Instant::now();
+        while instant.elapsed() < Duration::from_secs(10) {
+            if chain_tip.hash == tx_pool_tip.tip_hash {
+                return;
+            }
+            chain_tip = rpc_client.get_tip_header();
+            tx_pool_tip = rpc_client.tx_pool_info();
+        }
+        panic!(
+            "timeout to wait for tx pool,\n\tchain   tip: {:?}, {:#x},\n\ttx-pool tip: {}, {:#x}",
+            chain_tip.inner.number.value(),
+            chain_tip.hash,
+            tx_pool_tip.tip_number.value(),
+            tx_pool_tip.tip_hash,
+        );
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
