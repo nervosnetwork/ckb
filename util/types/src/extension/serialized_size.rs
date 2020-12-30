@@ -25,8 +25,8 @@ macro_rules! impl_serialized_size_for_entity {
 impl<'r> packed::TransactionReader<'r> {
     /// Calculates the serialized size of a [`Transaction`] in [`Block`].
     ///
-    /// Put each [`Transaction`] into [`Block`] will occupy extra spaces to store [an offset in
-    /// header], its size is [`molecule::NUMBER_SIZE`].
+    /// Put each [`Transaction`] into [`Block`] will occupy extra spaces to store
+    /// [an offset in header], its size is [`molecule::NUMBER_SIZE`].
     ///
     /// [`Transaction`]: https://github.com/nervosnetwork/ckb/blob/v0.36.0/util/types/schemas/blockchain.mol#L66-L69
     /// [`Block`]: https://github.com/nervosnetwork/ckb/blob/v0.36.0/util/types/schemas/blockchain.mol#L94-L99

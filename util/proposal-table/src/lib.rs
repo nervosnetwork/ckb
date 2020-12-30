@@ -104,12 +104,15 @@ impl ProposalTable {
 
         ckb_logger::trace!("[proposal_finalize] table {:?}", self.table);
 
-        // 
-        // - if candidate_number <= self.proposal_window.closest() new_ids = [] gap =
-        //   [1..candidate_number]
-        // - else new_ids = [candidate_number- farthest..= candidate_number- closest] gap =
-        //   [candidate_number- closest + 1..candidate_number]
+        // ```
+        // - if candidate_number <= self.proposal_window.closest()
+        //       new_ids = []
+        //       gap = [1..candidate_number]
+        // - else
+        //       new_ids = [candidate_number- farthest..= candidate_number- closest]
+        //       gap = [candidate_number- closest + 1..candidate_number]
         // - end
+        // ```
         let (new_ids, gap) = if candidate_number <= self.proposal_window.closest() {
             (
                 HashSet::new(),

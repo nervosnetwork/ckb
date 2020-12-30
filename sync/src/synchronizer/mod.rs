@@ -363,7 +363,7 @@ impl Synchronizer {
     }
 
     /// Regularly check and eject some nodes that do not respond in time
-    // 
+    //
     //   - If at timeout their best known block now has more work than our tip when the timeout was
     //     set, then either reset the timeout or clear it (after comparing against our current tip's
     //     work)

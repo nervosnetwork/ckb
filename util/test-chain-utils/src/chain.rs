@@ -45,6 +45,7 @@ lazy_static! {
     };
 }
 
+// ```ignore
 // #include "ckb_syscalls.h"
 
 // #define HASH_SIZE 32
@@ -54,13 +55,14 @@ lazy_static! {
 //   uint64_t hash_len = HASH_SIZE;
 //   unsigned char data_hash[HASH_SIZE];
 
-//   ret = ckb_load_cell_by_field(data_hash, &hash_len, 0, 0, CKB_SOURCE_INPUT,
-// CKB_CELL_FIELD_DATA_HASH);   if (ret != CKB_SUCCESS) {
+//   ret = ckb_load_cell_by_field(data_hash, &hash_len, 0, 0, CKB_SOURCE_INPUT, CKB_CELL_FIELD_DATA_HASH);
+//   if (ret != CKB_SUCCESS) {
 //     return ret;
 //   }
 
 //   return 0;
 // }
+// ```
 lazy_static! {
     static ref LOAD_INPUT_DATA_HASH: (CellOutput, Bytes, Script) = {
         let mut file =

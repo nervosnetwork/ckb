@@ -40,8 +40,7 @@ const SEP: char = ';';
 
 // Typical txt record:
 // ==================
-//   47.103.65.40;49582;QmbU82jmDbu8AsUfa6bDKPHxTpwnPfcRQrzNPacKcSyM1Y;1574942409;
-// K1vAkHZZ8to5VmjD4eyv65ENLbNa9Tda4Aytd8DE9iipFQanRpcZtSPyRiiGHThRGJPVRD18KAsGb8kV2s2WBK39R
+// 47.103.65.40;49582;QmbU82jmDbu8AsUfa6bDKPHxTpwnPfcRQrzNPacKcSyM1Y;1574942409;K1vAkHZZ8to5VmjD4eyv65ENLbNa9Tda4Aytd8DE9iipFQanRpcZtSPyRiiGHThRGJPVRD18KAsGb8kV2s2WBK39R
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SeedRecord {
     ip: IpAddr,

@@ -86,24 +86,21 @@ pub mod default_params {
 
     /// The default initial_primary_epoch_reward
     ///
-    /// Apply to [`initial_primary_epoch_reward`](../consensus/struct.Consensus.html#structfield.
-    /// initial_primary_epoch_reward)
+    /// Apply to [`initial_primary_epoch_reward`](../consensus/struct.Consensus.html#structfield.initial_primary_epoch_reward)
     pub fn initial_primary_epoch_reward() -> Capacity {
         INITIAL_PRIMARY_EPOCH_REWARD
     }
 
     /// The default secondary_epoch_reward
     ///
-    /// Apply to [`secondary_epoch_reward`](../consensus/struct.Consensus.html#structfield.
-    /// secondary_epoch_reward)
+    /// Apply to [`secondary_epoch_reward`](../consensus/struct.Consensus.html#structfield.secondary_epoch_reward)
     pub fn secondary_epoch_reward() -> Capacity {
         DEFAULT_SECONDARY_EPOCH_REWARD
     }
 
     /// The default max_block_cycles
     ///
-    /// Apply to [`max_block_cycles`](../consensus/struct.Consensus.html#structfield.
-    /// max_block_cycles)
+    /// Apply to [`max_block_cycles`](../consensus/struct.Consensus.html#structfield.max_block_cycles)
     pub fn max_block_cycles() -> Cycle {
         MAX_BLOCK_CYCLES
     }
@@ -117,56 +114,49 @@ pub mod default_params {
 
     /// The default cellbase_maturity
     ///
-    /// Apply to [`cellbase_maturity`](../consensus/struct.Consensus.html#structfield.
-    /// cellbase_maturity)
+    /// Apply to [`cellbase_maturity`](../consensus/struct.Consensus.html#structfield.cellbase_maturity)
     pub fn cellbase_maturity() -> u64 {
         CELLBASE_MATURITY.full_value()
     }
 
     /// The default primary_epoch_reward_halving_interval
     ///
-    /// Apply to [`primary_epoch_reward_halving_interval`](../consensus/struct.Consensus.html#
-    /// structfield.primary_epoch_reward_halving_interval)
+    /// Apply to [`primary_epoch_reward_halving_interval`](../consensus/struct.Consensus.html#structfield.primary_epoch_reward_halving_interval)
     pub fn primary_epoch_reward_halving_interval() -> EpochNumber {
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL
     }
 
     /// The default epoch_duration
     ///
-    /// Apply to [`epoch_duration_target`](../consensus/struct.Consensus.html#structfield.
-    /// epoch_duration_target)
+    /// Apply to [`epoch_duration_target`](../consensus/struct.Consensus.html#structfield.epoch_duration_target)
     pub fn epoch_duration_target() -> u64 {
         DEFAULT_EPOCH_DURATION_TARGET
     }
 
     /// The default genesis_epoch_length
     ///
-    /// Apply to [`genesis_epoch_length`](../consensus/struct.Consensus.html#structfield.
-    /// genesis_epoch_length)
+    /// Apply to [`genesis_epoch_length`](../consensus/struct.Consensus.html#structfield.genesis_epoch_length)
     pub fn genesis_epoch_length() -> u64 {
         GENESIS_EPOCH_LENGTH
     }
 
     /// The default max_block_proposals_limit
     ///
-    /// Apply to [`max_block_proposals_limit`](../consensus/struct.Consensus.html#structfield.
-    /// max_block_proposals_limit)
+    /// Apply to [`max_block_proposals_limit`](../consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
     pub fn max_block_proposals_limit() -> u64 {
         MAX_BLOCK_PROPOSALS_LIMIT
     }
 
     /// The default permanent_difficulty_in_dummy
     ///
-    /// Apply to [`permanent_difficulty_in_dummy`](../consensus/struct.Consensus.html#structfield.
-    /// permanent_difficulty_in_dummy)
+    /// Apply to [`permanent_difficulty_in_dummy`](../consensus/struct.Consensus.html#structfield.permanent_difficulty_in_dummy)
     pub fn permanent_difficulty_in_dummy() -> bool {
         false
     }
 
     /// The default orphan_rate_target
     ///
-    /// Apply to [`orphan_rate_target`](../consensus/struct.Consensus.html#structfield.
-    /// orphan_rate_target)
+    /// Apply to [`orphan_rate_target`](../consensus/struct.Consensus.html#structfield.orphan_rate_target)
     pub fn orphan_rate_target() -> (u32, u32) {
         DEFAULT_ORPHAN_RATE_TARGET
     }
@@ -177,14 +167,12 @@ pub mod default_params {
 pub struct Params {
     /// The initial_primary_epoch_reward
     ///
-    /// See [`initial_primary_epoch_reward`](consensus/struct.Consensus.html#structfield.
-    /// initial_primary_epoch_reward)
+    /// See [`initial_primary_epoch_reward`](consensus/struct.Consensus.html#structfield.initial_primary_epoch_reward)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_primary_epoch_reward: Option<Capacity>,
     /// The secondary_epoch_reward
     ///
-    /// See [`secondary_epoch_reward`](consensus/struct.Consensus.html#structfield.
-    /// secondary_epoch_reward)
+    /// See [`secondary_epoch_reward`](consensus/struct.Consensus.html#structfield.secondary_epoch_reward)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secondary_epoch_reward: Option<Capacity>,
     /// The max_block_cycles
@@ -204,32 +192,27 @@ pub struct Params {
     pub cellbase_maturity: Option<u64>,
     /// The primary_epoch_reward_halving_interval
     ///
-    /// See [`primary_epoch_reward_halving_interval`](consensus/struct.Consensus.html#structfield.
-    /// primary_epoch_reward_halving_interval)
+    /// See [`primary_epoch_reward_halving_interval`](consensus/struct.Consensus.html#structfield.primary_epoch_reward_halving_interval)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub primary_epoch_reward_halving_interval: Option<EpochNumber>,
     /// The epoch_duration_target
     ///
-    /// See [`epoch_duration_target`](consensus/struct.Consensus.html#structfield.
-    /// epoch_duration_target)
+    /// See [`epoch_duration_target`](consensus/struct.Consensus.html#structfield.epoch_duration_target)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub epoch_duration_target: Option<u64>,
     /// The genesis_epoch_length
     ///
-    /// See [`genesis_epoch_length`](consensus/struct.Consensus.html#structfield.
-    /// genesis_epoch_length)
+    /// See [`genesis_epoch_length`](consensus/struct.Consensus.html#structfield.genesis_epoch_length)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub genesis_epoch_length: Option<BlockNumber>,
     /// The permanent_difficulty_in_dummy
     ///
-    /// See [`permanent_difficulty_in_dummy`](consensus/struct.Consensus.html#structfield.
-    /// permanent_difficulty_in_dummy)
+    /// See [`permanent_difficulty_in_dummy`](consensus/struct.Consensus.html#structfield.permanent_difficulty_in_dummy)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permanent_difficulty_in_dummy: Option<bool>,
     /// The max_block_proposals_limit
     ///
-    /// See [`max_block_proposals_limit`](consensus/struct.Consensus.html#structfield.
-    /// max_block_proposals_limit)
+    /// See [`max_block_proposals_limit`](consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_block_proposals_limit: Option<u64>,
     /// The orphan_rate_target

@@ -667,7 +667,7 @@ where
     *response = example.response.clone()
 }
 
-// 
+//
 // * Use replace_rpc_response to skip the response matching assertions.
 // * Fix timestamp related fields.
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {

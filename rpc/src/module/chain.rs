@@ -183,12 +183,8 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent
-    ///   (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is
-    ///   inconsistent. It says a block hash is in the main chain, but cannot read it from the
-    ///   database.
-    /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data
-    ///   read from database is dirty. Please report it as a bug.
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
+    /// * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
     ///
     /// ## Examples
     ///
@@ -385,10 +381,7 @@ pub trait ChainRpc {
     ///
     /// ## Errors
     ///
-    /// * [`ChainIndexIsInconsistent
-    ///   (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is
-    ///   inconsistent. It says a block hash is in the main chain, but cannot read it from the
-    ///   database.
+    /// * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
     ///
     /// ## Examples
     ///
