@@ -12,7 +12,8 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @chuijiaolianying
+/// A temporary RocksDB for mocking chain storage.
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct MockStore(pub Arc<ChainDB>);
 
@@ -24,9 +25,9 @@ impl Default for MockStore {
 }
 
 impl MockStore {
-    /// TODO(doc): @chuijiaolianying
+    /// Create a new `MockStore` with insert parent block into the temporary database for reference.
+    #[doc(hidden)]
     pub fn new(parent: &HeaderView, chain_store: &ChainDB) -> Self {
-        // Insert parent block into current mock store for referencing
         let block = chain_store.get_block(&parent.hash()).unwrap();
         let epoch_ext = chain_store
             .get_block_epoch_index(&parent.hash())
@@ -37,12 +38,14 @@ impl MockStore {
         store
     }
 
-    /// TODO(doc): @chuijiaolianying
+    /// Return the mock chainDB.
+    #[doc(hidden)]
     pub fn store(&self) -> &ChainDB {
         &self.0
     }
 
-    /// TODO(doc): @chuijiaolianying
+    /// Insert a block into mock chainDB.
+    #[doc(hidden)]
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
         let db_txn = self.0.begin_transaction();
         let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
@@ -57,7 +60,8 @@ impl MockStore {
         db_txn.commit().unwrap();
     }
 
-    /// TODO(doc): @chuijiaolianying
+    /// Remove a block from mock chainDB.
+    #[doc(hidden)]
     pub fn remove_block(&self, block: &BlockView) {
         let db_txn = self.0.begin_transaction();
         db_txn.delete_block(&block).unwrap();

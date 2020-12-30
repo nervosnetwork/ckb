@@ -1,4 +1,5 @@
-//! TODO(doc): @keroro520
+//! This crate provides implementation to calculate dao field.
+
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
@@ -17,18 +18,16 @@ use ckb_types::{
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
-/// TODO(doc): @keroro520
+/// Dao field calculator
+/// `DaoCalculator` is a facade to calculate the dao field.
 pub struct DaoCalculator<'a, CS, DL> {
-    /// TODO(doc): @keroro520
-    pub consensus: &'a Consensus,
-    /// TODO(doc): @keroro520
-    pub store: &'a CS,
-    /// TODO(doc): @keroro520
-    pub data_loader: DL,
+    consensus: &'a Consensus,
+    store: &'a CS,
+    data_loader: DL,
 }
 
 impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
-    /// TODO(doc): @keroro520
+    /// Creates a new `DaoCalculator`.
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         let data_loader = DataLoaderWrapper::new(store);
         DaoCalculator {
@@ -38,7 +37,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         }
     }
 
-    /// TODO(doc): @keroro520
+    /// Returns the primary block reward for `target` block.
     pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let target_epoch = self
             .store
@@ -49,7 +48,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         target_epoch.block_reward(target.number())
     }
 
-    /// TODO(doc): @keroro520
+    /// Returns the secondary block reward for `target` block.
     pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         if target.number() == 0 {
             return Ok(Capacity::zero());
@@ -75,11 +74,13 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(Capacity::shannons(reward))
     }
 
-    /// TODO(doc): @keroro520
-    // Used for testing only.
-    //
-    // Notice unlike primary_block_reward and secondary_epoch_reward above,
-    // this starts calculating from parent, not target header.
+    /// Returns the sum of primary block reward and secondary block reward for `target` block.
+    ///
+    /// Notice unlike primary_block_reward and secondary_epoch_reward above,
+    /// this starts calculating from parent, not target header.
+    ///
+    /// NOTE: Used for testing only!
+    #[doc(hidden)]
     pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, Error> {
         let target_number = self
             .consensus
@@ -97,7 +98,10 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
-    /// TODO(doc): @keroro520
+    /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
+    ///
+    /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
+    /// [`extract_dao_data`]: ../ckb_dao_utils/fn.extract_dao_data.html
     pub fn dao_field(
         &self,
         rtxs: &[ResolvedTransaction],
@@ -163,7 +167,9 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
     }
 
-    /// TODO(doc): @keroro520
+    /// Returns the maximum capacity that the deposited `out_point` acts [withdrawing phase 1] at `withdrawing_header_hash.`
+    ///
+    /// [withdrawing phase 1]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#withdraw-phase-1
     pub fn maximum_withdraw(
         &self,
         out_point: &OutPoint,
@@ -189,7 +195,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         )
     }
 
-    /// TODO(doc): @keroro520
+    /// Returns the total transactions fee of `rtx`.
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         let maximum_withdraw = self.transaction_maximum_withdraw(rtx)?;
         rtx.transaction

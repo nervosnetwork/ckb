@@ -201,7 +201,7 @@ fn test_prepare_uncles() {
         .unwrap()
         .unwrap();
     // block number 3, epoch 0
-    while (Into::<u64>::into(block_template.number)) != 3 {
+    while (Into::<u64>::into(block_template.number)) != 3 || block_template.uncles.is_empty() {
         block_template = tx_pool
             .get_block_template(None, None, None)
             .unwrap()

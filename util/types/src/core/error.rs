@@ -1,36 +1,35 @@
-//! TODO(doc): @keroro520
+//! The error types to unexpected out-points.
 
 use crate::generated::packed::{Byte32, OutPoint};
 use ckb_error::{prelude::*, Error, ErrorKind};
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the out-point rules are not respected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum OutPointError {
-    /// The specified cell is already dead
+    /// The target cell was already dead.
     #[error("Dead({0:?})")]
     Dead(OutPoint),
 
-    /// The specified cells is unknown in the chain
+    /// There are cells which is unknown to the canonical chain.
     #[error("Unknown({0:?})")]
     Unknown(Vec<OutPoint>),
 
-    /// Input or dep cell reference to a newer cell in the same block
-    // TODO: Maybe replace with `UnknownInputCell`?
+    /// There is an input out-point or dependency out-point which references a newer cell in the same block.
     #[error("OutOfOrder({0:?})")]
     OutOfOrder(OutPoint),
 
-    /// The output is referenced as a dep-group output, but the data
-    /// is invalid format
+    /// There is a dependency out-point, which is [`DepGroup`], but its output-data is invalid format. The expected output-data format for [`DepGroup`] is [`OutPointVec`].
+    ///
+    /// [`DepGroup`]: ../enum.DepType.html#variant.DepGroup
+    /// [`OutPointVec`]: ../../packed/struct.OutPointVec.html
     #[error("InvalidDepGroup({0:?})")]
     InvalidDepGroup(OutPoint),
 
-    // TODO: This error should be move into HeaderError or TransactionError
-    /// TODO(doc): @keroro520
+    /// There is a dependency header that is unknown to the canonical chain.
     #[error("InvalidHeader({0})")]
     InvalidHeader(Byte32),
 
-    // TODO: This error should be move into HeaderError or TransactionError
-    /// TODO(doc): @keroro520
+    /// There is a dependency header that is immature yet.
     #[error("ImmatureHeader({0})")]
     ImmatureHeader(Byte32),
 }

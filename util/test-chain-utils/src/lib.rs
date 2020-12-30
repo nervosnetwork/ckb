@@ -1,4 +1,4 @@
-//! TODO(doc): @chuijiaolianying
+//! Provide several functions used for testing.
 mod chain;
 mod median_time;
 mod mock_store;

@@ -15,20 +15,27 @@ pub struct SilentError;
 #[error("{0}")]
 pub struct OtherError(String);
 
-/// TODO(doc): @keroro520
+/// A list specifying categories of ckb internal error.
+///
+/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+///
+/// It is used with the [`InternalError`].
+///
+/// [`InternalError`]: ../ckb_error/struct.InternalError.html
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Display)]
 pub enum InternalErrorKind {
-    /// An arithmetic overflow occurs during capacity calculation,
-    /// e.g. `Capacity::safe_add`
+    /// An arithmetic overflow occurs during capacity calculation, e.g. `Capacity::safe_add`
     CapacityOverflow,
 
     /// Persistent data had corrupted
     DataCorrupted,
 
-    /// Database exception
+    /// Error occurs during database operations
     Database,
 
-    /// Block Assembler error
+    /// It indicates that the underlying error is [`BlockAssemblerError`]
+    ///
+    /// [`BlockAssemblerError`]: ../ckb_tx_pool/error/enum.BlockAssemblerError.html
     BlockAssembler,
 
     /// VM internal error
@@ -44,7 +51,7 @@ pub enum InternalErrorKind {
     Other,
 }
 
-def_error_base_on_kind!(InternalError, InternalErrorKind);
+def_error_base_on_kind!(InternalError, InternalErrorKind, "Internal error.");
 
 impl_error_conversion_with_kind!(InternalError, crate::ErrorKind::Internal, crate::Error);
 

@@ -13,22 +13,32 @@ use ckb_types::{
 use std::cmp;
 use std::collections::HashSet;
 
-/// TODO(doc): @keroro520
+/// Block Reward Calculator.
+/// A Block reward calculator is used to calculate the total block reward for the target block.
+///
+/// For block(i) miner, CKB issues its total block reward by enforcing the
+/// block(i + PROPOSAL_WINDOW.farthest + 1)'s cellbase:
+///   - cellbase output capacity is block(i)'s total block reward
+///   - cellbase output lock is block(i)'s miner provided lock in block(i) 's cellbase output-data
+/// Conventionally, We say that block(i) is block(i + PROPOSAL_WINDOW.farthest + 1)'s target block.
+///
+/// Target block's total reward consists of four parts:
+///  - primary block reward
+///  - secondary block reward
+///  - proposals reward
+///  - transactions fees
 pub struct RewardCalculator<'a, CS> {
-    /// TODO(doc): @keroro520
-    pub consensus: &'a Consensus,
-    /// TODO(doc): @keroro520
-    pub store: &'a CS,
+    consensus: &'a Consensus,
+    store: &'a CS,
 }
 
 impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
-    /// TODO(doc): @keroro520
+    /// Creates a new `RewardCalculator`.
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         RewardCalculator { consensus, store }
     }
 
-    /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
-    /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
+    /// Calculates the current block number based on `parent,` locates the current block's target block, returns the target block miner's lock, and total block reward.
     pub fn block_reward_to_finalize(
         &self,
         parent: &HeaderView,
@@ -46,7 +56,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         self.block_reward_internal(&target, parent)
     }
 
-    /// TODO(doc): @keroro520
+    /// Returns the `target` block miner's lock and total block reward.
     pub fn block_reward_for_target(
         &self,
         target: &HeaderView,
@@ -111,9 +121,9 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok((target_lock, block_reward))
     }
 
-    /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
-    /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, Error> {
+    // Miner get (tx_fee - 40% of tx fee) for tx commitment.
+    // Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
+    fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let consensus = self.consensus;
         let target_ext = self
             .store
@@ -146,11 +156,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     ///         \____________/
     ///
 
-    pub fn proposal_reward(
-        &self,
-        parent: &HeaderView,
-        target: &HeaderView,
-    ) -> Result<Capacity, Error> {
+    fn proposal_reward(&self, parent: &HeaderView, target: &HeaderView) -> Result<Capacity, Error> {
         let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();

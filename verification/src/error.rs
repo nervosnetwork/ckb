@@ -15,350 +15,399 @@ pub enum TransactionErrorSource {
     Witnesses,
 }
 
-/// TODO(doc): @keroro520
+/// The error types to transactions.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
-    /// output.occupied_capacity() > output.capacity()
+    /// There is an erroneous output that its occupied capacity is greater than its capacity (`output.occupied_capacity() > output.capacity()`).
     #[error("InsufficientCellCapacity({inner}[{index}]): expected occupied capacity ({occupied_capacity:#x}) <= capacity ({capacity:#x})")]
     InsufficientCellCapacity {
-        /// TODO(doc): @keroro520
+        /// The transaction field that causes error.
+        /// It should always be `TransactionErrorSource::Outputs.`
         inner: TransactionErrorSource,
-        /// TODO(doc): @keroro520
+        /// The index of that erroneous output.
         index: usize,
-        /// TODO(doc): @keroro520
+        /// The occupied capacity of that erroneous output.
         occupied_capacity: Capacity,
-        /// TODO(doc): @keroro520
+        /// The capacity of that erroneous output.
         capacity: Capacity,
     },
 
-    /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
+    /// The total capacity of outputs is less than the total capacity of inputs (`SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs]`).
     #[error("OutputsSumOverflow: expected outputs capacity ({outputs_sum:#x}) <= inputs capacity ({inputs_sum:#x})")]
     OutputsSumOverflow {
-        /// TODO(doc): @keroro520
+        /// The total capacity of inputs.
         inputs_sum: Capacity,
-        /// TODO(doc): @keroro520
+        /// The total capacity of outputs.
         outputs_sum: Capacity,
     },
 
-    /// inputs.is_empty() || outputs.is_empty()
+    /// Either inputs or outputs of the transaction are empty (`inputs.is_empty() || outputs.is_empty()`).
     #[error("Empty({inner})")]
     Empty {
-        /// TODO(doc): @keroro520
+        /// The transaction field that causes the error.
+        /// It should be `TransactionErrorSource::Inputs` or `TransactionErrorSource::Outputs`.
         inner: TransactionErrorSource,
     },
 
-    /// Duplicated dep-out-points within the same transaction
+    /// There are duplicated [`CellDep`]s within the same transaction.
+    ///
+    /// [`CellDep`]: ../ckb_types/packed/struct.CellDep.html
     #[error("DuplicateCellDeps({out_point})")]
     DuplicateCellDeps {
-        /// TODO(doc): @keroro520
+        /// The out-point of that duplicated [`CellDep`].
+        ///
+        /// [`CellDep`]: ../ckb_types/packed/struct.CellDep.html
         out_point: OutPoint,
     },
 
-    /// Duplicated headers deps without within the same transaction
+    /// There are duplicated `HeaderDep` within the same transaction.
     #[error("DuplicateHeaderDeps({hash})")]
     DuplicateHeaderDeps {
-        /// TODO(doc): @keroro520
+        /// The block hash of that duplicated `HeaderDep.`
         hash: Byte32,
     },
 
-    /// outputs.len() != outputs_data.len()
+    /// The length of outputs is not equal to the length of outputs-data (`outputs.len() != outputs_data.len()`).
     #[error("OutputsDataLengthMismatch: expected outputs data length ({outputs_data_len}) = outputs length ({outputs_len})")]
     OutputsDataLengthMismatch {
-        /// TODO(doc): @keroro520
+        /// The length of outputs.
         outputs_len: usize,
-        /// TODO(doc): @keroro520
+        /// The length of outputs-data.
         outputs_data_len: usize,
     },
 
-    /// The format of `transaction.since` is invalid
+    /// Error dues to the the fact that the since rule is not respected.
+    ///
+    /// See also [0017-tx-valid-since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
     #[error("InvalidSince(Inputs[{index}]): the field since is invalid")]
     InvalidSince {
-        /// TODO(doc): @keroro520
+        /// The index of input with invalid since field
         index: usize,
     },
 
-    /// The transaction is not mature which is required by `transaction.since`
+    /// The transaction is not mature yet, according to the `since` rule.
+    ///
+    /// See also [0017-tx-valid-since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
     #[error(
         "Immature(Inputs[{index}]): the transaction is immature because of the since requirement"
     )]
     Immature {
-        /// TODO(doc): @keroro520
+        /// The index of input with immature `since` field.
         index: usize,
     },
 
-    /// The transaction is not mature which is required by cellbase maturity rule
+    /// The transaction is not mature yet, according to the cellbase maturity rule.
     #[error("CellbaseImmaturity({inner}[{index}])")]
     CellbaseImmaturity {
-        /// TODO(doc): @keroro520
+        /// The transaction field that causes the error.
+        /// It should be `TransactionErrorSource::Inputs` or `TransactionErrorSource::CellDeps`. It does not allow using an immature cell as input out-point and dependency out-point.
         inner: TransactionErrorSource,
-        /// TODO(doc): @keroro520
+        /// The index of immature input out-point or dependency out-point.
         index: usize,
     },
 
-    /// The transaction version is mismatched with the system can hold
+    /// The transaction version does not match with the system expected.
     #[error("MismatchedVersion: expected {}, got {}", expected, actual)]
     MismatchedVersion {
-        /// TODO(doc): @keroro520
+        /// The expected transaction version.
         expected: Version,
-        /// TODO(doc): @keroro520
+        /// The actual transaction version.
         actual: Version,
     },
 
-    /// The transaction size is too large
+    /// The transaction size exceeds limit.
     #[error("ExceededMaximumBlockBytes: expected transaction serialized size ({actual}) < block size limit ({limit})")]
     ExceededMaximumBlockBytes {
-        /// TODO(doc): @keroro520
+        /// The limited transaction size.
         limit: u64,
-        /// TODO(doc): @keroro520
+        /// The actual transaction size.
         actual: u64,
     },
 }
 
-/// TODO(doc): @keroro520
+/// A list specifying categories of ckb header error.
+///
+/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+///
+/// It is used with the [`HeaderError`].
+///
+/// [`HeaderError`]: ../ckb_verification/struct.HeaderError.html
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Display)]
 pub enum HeaderErrorKind {
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`InvalidParentError`].
+    ///
+    /// [`InvalidParentError`]: ../ckb_verification/struct.InvalidParentError.html
     InvalidParent,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`PowError`].
+    ///
+    /// [`PowError`]: ../ckb_verification/enum.PowError.html
     Pow,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`TimestampError`].
+    ///
+    /// [`TimestampError`]: ../ckb_verification/enum.TimestampError.html
     Timestamp,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`NumberError`].
+    ///
+    /// [`NumberError`]: ../ckb_verification/struct.NumberError.html
     Number,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`EpochError`].
+    ///
+    /// [`EpochError`]: ../ckb_verification/enum.EpochError.html
     Epoch,
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`BlockVersionError`].
+    ///
+    /// [`BlockVersionError`]: ../ckb_verification/struct.BlockVersionError.html
     Version,
 }
 
-def_error_base_on_kind!(HeaderError, HeaderErrorKind);
+def_error_base_on_kind!(
+    HeaderError,
+    HeaderErrorKind,
+    "Errors due the fact that the header rule is not respected."
+);
 
-/// TODO(doc): @keroro520
+/// A list specifying categories of ckb block error.
+///
+/// This list is intended to grow over time and it is not recommended to exhaustively match against it.
+///
+/// It is used with the [`BlockError`].
+///
+/// [`BlockError`]: ../ckb_verification/struct.BlockError.html
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Display)]
 pub enum BlockErrorKind {
-    /// TODO(doc): @keroro520
+    /// There are duplicated proposal transactions.
     ProposalTransactionDuplicate,
 
     /// There are duplicate committed transactions.
     CommitTransactionDuplicate,
 
-    /// The merkle tree hash of proposed transactions does not match the one in header.
+    /// The calculated Merkle tree hash of proposed transactions does not match the one in the header.
     ProposalTransactionsHash,
 
-    /// The merkle tree hash of committed transactions does not match the one in header.
+    /// The calculated Merkle tree hash of committed transactions does not match the one in the header.
     TransactionsRoot,
 
-    /// Invalid data in DAO header field is invalid
+    /// The calculated dao field does not match with the one in the header.
     InvalidDAO,
 
-    /// Committed transactions verification error. It contains error for the first transaction that
-    /// fails the verification. The errors are stored as a tuple, where the first item is the
-    /// transaction index in the block and the second item is the transaction verification error.
+    /// It indicates that the underlying error is [`BlockTransactionsError`].
+    ///
+    /// [`BlockTransactionsError`]: ../ckb_verification/struct.BlockTransactionsError.html
     BlockTransactions,
 
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`UnknownParentError`].
+    ///
+    /// [`UnknownParentError`]: ../ckb_verification/struct.UnknownParentError.html
     UnknownParent,
 
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`UnclesError`].
+    ///
+    /// [`UnclesError`]: ../ckb_verification/enum.UnclesError.html
     Uncles,
 
-    /// TODO(doc): @keroro520
+    /// It indicates that the underlying error is [`CellbaseError`].
+    ///
+    /// [`CellbaseError`]: ../ckb_verification/enum.CellbaseError.html
     Cellbase,
 
-    /// This error is returned when the committed transactions does not meet the 2-phases
-    /// propose-then-commit consensus rule.
+    /// It indicates that the underlying error is [`CommitError`].
+    ///
+    /// [`CommitError`]: ../ckb_verification/struct.CommitError.html
     Commit,
 
-    /// TODO(doc): @keroro520
+    /// The number of block proposals exceeds limit.
     ExceededMaximumProposalsLimit,
 
-    /// TODO(doc): @keroro520
+    /// Total cycles of the block transactions exceed limit.
     ExceededMaximumCycles,
 
-    /// TODO(doc): @keroro520
+    /// Total bytes of block exceeds limit.
     ExceededMaximumBlockBytes,
 }
 
-def_error_base_on_kind!(BlockError, BlockErrorKind);
+def_error_base_on_kind!(
+    BlockError,
+    BlockErrorKind,
+    "Errors due the fact that the block rule is not respected."
+);
 
-/// TODO(doc): @keroro520
+/// Errors occur during block transactions verification.
 #[derive(Error, Debug)]
 #[error("BlockTransactionsError(index: {index}, error: {error})")]
 pub struct BlockTransactionsError {
-    /// TODO(doc): @keroro520
+    /// The index of the first erroneous transaction.
     pub index: u32,
-    /// TODO(doc): @keroro520
+    /// The underlying error to that erroneous transaction.
     pub error: Error,
 }
 
-/// TODO(doc): @keroro520
+/// Cannot access the parent block to the cannonical chain.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("UnknownParentError(parent_hash: {parent_hash})")]
 pub struct UnknownParentError {
-    /// TODO(doc): @keroro520
+    /// The hash of parent block.
     pub parent_hash: Byte32,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the 2pc rule is not respected.
+///
+/// See also [Two-Step Transaction Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#two-step-transaction-confirmation)
 #[derive(Error, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CommitError {
-    /// TODO(doc): @keroro520
+    /// There are blocks required at 2pc verification but not found.
     AncestorNotFound,
-    /// TODO(doc): @keroro520
+    /// There are block transactions that have not been proposed in the proposal window.
     Invalid,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the cellbase rule is not respected.
+///
+/// See more about cellbase transaction: [cellbase transaction]
+///
+/// [cellbase transaction]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#exceptions
 #[derive(Error, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CellbaseError {
-    /// TODO(doc): @keroro520
+    /// The cellbase input is unexpected. The structure reference of correct cellbase input: [`new_cellbase_input`].
+    ///
+    /// [`new_cellbase_input`]: https://github.com/nervosnetwork/ckb/blob/ee0ccecd87013821a2e68120ba3510393c0373e7/util/types/src/extension/shortcuts.rs#L107-L109
     InvalidInput,
-    /// TODO(doc): @keroro520
+    /// The cellbase output capacity is not equal to the total block reward.
     InvalidRewardAmount,
-    /// TODO(doc): @keroro520
+    /// The cellbase output lock does not match with the target lock.
+    ///
+    /// As for 0 ~ PROPOSAL_WINDOW.farthest blocks, cellbase outputs should be empty; otherwise, lock of first cellbase output should match with the target block.
+    ///
+    /// Assumes the current block number is `i`, then its target block is that: (1) on that same chain with current block; (2) number is `i - PROPOSAL_WINDOW.farthest - 1`.
     InvalidRewardTarget,
-    /// TODO(doc): @keroro520
+    /// The cellbase witness is not in [`CellbaseWitness`] format.
+    ///
+    /// [`CellbaseWitness`]: ../ckb_types/packed/struct.CellbaseWitness.html
     InvalidWitness,
-    /// TODO(doc): @keroro520
+    /// The cellbase type script is not none.
     InvalidTypeScript,
-    /// TODO(doc): @keroro520
+    /// The length of cellbase outputs and outputs-data should be equal and less than `1`.
     InvalidOutputQuantity,
-    /// TODO(doc): @keroro520
+    /// There are multiple cellbase transactions inside the same block.
     InvalidQuantity,
-    /// TODO(doc): @keroro520
+    /// The first block transaction is not a valid cellbase transaction.
+    ///
+    /// See also [`is_cellbase`].
+    ///
+    /// [`is_cellbase`]: https://github.com/nervosnetwork/ckb/blob/ee0ccecd87013821a2e68120ba3510393c0373e7/util/types/src/core/views.rs#L387-L389
     InvalidPosition,
-    /// TODO(doc): @keroro520
+    /// The cellbase output-data is not empty.
     InvalidOutputData,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the uncle rule is not respected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum UnclesError {
-    /// TODO(doc): @keroro520
+    /// The number of block uncles exceeds limit.
     #[error("OverCount(max: {max}, actual: {actual})")]
     OverCount {
-        /// TODO(doc): @keroro520
+        /// The limited number of block uncles.
         max: u32,
-        /// TODO(doc): @keroro520
+        /// The actual number of block uncles.
         actual: u32,
     },
 
-    /// TODO(doc): @keroro520
-    #[error("InvalidDepth(min: {min}, max: {max}, actual: {actual})")]
-    InvalidDepth {
-        /// TODO(doc): @keroro520
-        max: u64,
-        /// TODO(doc): @keroro520
-        min: u64,
-        /// TODO(doc): @keroro520
-        actual: u64,
-    },
-
-    /// TODO(doc): @keroro520
+    /// The calculated uncle-hash does not match with the one in the header.
     #[error("InvalidHash(expected: {expected}, actual: {actual})")]
     InvalidHash {
-        /// TODO(doc): @keroro520
+        /// The calculated uncle-hash
         expected: Byte32,
-        /// TODO(doc): @keroro520
+        /// The actual uncle-hash
         actual: Byte32,
     },
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle whose number is greater than or equal to current block number.
     #[error("InvalidNumber")]
     InvalidNumber,
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle who belongs to a different epoch from the current block.
     #[error("InvalidTarget")]
     InvalidTarget,
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle who belongs to a different epoch from the current block.
     #[error("InvalidDifficultyEpoch")]
     InvalidDifficultyEpoch,
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle whose proposals-hash does not match with the calculated result.
     #[error("ProposalsHash")]
     ProposalsHash,
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle whose proposals have duplicated items.
     #[error("ProposalDuplicate")]
     ProposalDuplicate,
 
-    /// TODO(doc): @keroro520
+    /// There are duplicated uncles in the current block.
     #[error("Duplicate({0})")]
     Duplicate(Byte32),
 
-    /// TODO(doc): @keroro520
+    /// There is an uncle that has already been included before.
     #[error("DoubleInclusion({0})")]
     DoubleInclusion(Byte32),
 
-    /// TODO(doc): @keroro520
+    /// The depth of uncle descendant exceeds limit.
     #[error("DescendantLimit")]
     DescendantLimit,
 
-    /// TODO(doc): @keroro520
+    /// The number of uncle proposals exceeds limit.
     #[error("ExceededMaximumProposalsLimit")]
     ExceededMaximumProposalsLimit,
 }
 
-/// TODO(doc): @keroro520
+/// The block version is unexpected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("BlockVersionError(expected: {expected}, actual: {actual})")]
 pub struct BlockVersionError {
-    /// TODO(doc): @keroro520
+    /// The expected block version.
     pub expected: Version,
-    /// TODO(doc): @keroro520
+    /// The actual block version.
     pub actual: Version,
 }
 
-/// TODO(doc): @keroro520
+/// The block's parent is marked as invalid.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("InvalidParentError(parent_hash: {parent_hash})")]
 pub struct InvalidParentError {
-    /// TODO(doc): @keroro520
+    /// The parent block hash.
     pub parent_hash: Byte32,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the pow rule is not respected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
-    /// TODO(doc): @keroro520
-    #[error("Boundary(expected: {expected}, actual: {actual})")]
-    Boundary {
-        /// TODO(doc): @keroro520
-        expected: Byte32,
-        /// TODO(doc): @keroro520
-        actual: Byte32,
-    },
-
-    /// TODO(doc): @keroro520
+    /// Error occurs during PoW verification.
     #[error("InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log")]
     InvalidNonce,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the block timestamp rule is not respected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
-    /// TODO(doc): @keroro520
+    /// The block timestamp is older than the allowed oldest timestamp.
     #[error("BlockTimeTooOld(min: {min}, actual: {actual})")]
     BlockTimeTooOld {
-        /// TODO(doc): @keroro520
+        /// The allowed oldest block timestamp.
         min: u64,
-        /// TODO(doc): @keroro520
+        /// The actual block timestamp.
         actual: u64,
     },
 
-    /// TODO(doc): @keroro520
+    /// The block timestamp is newer than the allowed newest timestamp.
     #[error("BlockTimeTooNew(max: {max}, actual: {actual})")]
     BlockTimeTooNew {
-        /// TODO(doc): @keroro520
+        /// The allowed newest block timestamp.
         max: u64,
-        /// TODO(doc): @keroro520
+        /// The actual block timestamp.
         actual: u64,
     },
 }
 
 impl TimestampError {
-    /// TODO(doc): @keroro520
+    /// Return `true` if this error is `TimestampError::BlockTimeTooNew`.
+    #[doc(hidden)]
     pub fn is_too_new(&self) -> bool {
         match self {
             Self::BlockTimeTooOld { .. } => false,
@@ -367,40 +416,41 @@ impl TimestampError {
     }
 }
 
-/// TODO(doc): @keroro520
+/// The block number is not equal to parent number + `1`.
+/// Specially genesis block number is `0`.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("NumberError(expected: {expected}, actual: {actual})")]
 pub struct NumberError {
-    /// TODO(doc): @keroro520
+    /// The expected block number.
     pub expected: u64,
-    /// TODO(doc): @keroro520
+    /// The actual block number.
     pub actual: u64,
 }
 
-/// TODO(doc): @keroro520
+/// Errors due to the fact that the block epoch is not expected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
-    /// TODO(doc): @keroro520
+    /// The compact-target of block epoch is unexpected.
     #[error("TargetMismatch(expected: {expected:x}, actual: {actual:x})")]
     TargetMismatch {
-        /// TODO(doc): @keroro520
+        /// The expected compact-target of block epoch.
         expected: u32,
-        /// TODO(doc): @keroro520
+        /// The actual compact-target of block epoch.
         actual: u32,
     },
 
-    /// TODO(doc): @keroro520
+    /// The number of block epoch is unexpected.
     #[error("NumberMismatch(expected: {expected}, actual: {actual})")]
     NumberMismatch {
-        /// TODO(doc): @keroro520
+        /// The expected number of block epoch.
         expected: u64,
-        /// TODO(doc): @keroro520
+        /// The actual number of block epoch.
         actual: u64,
     },
 }
 
 impl TransactionError {
-    /// TODO(doc): @keroro520
+    /// Returns whether this transaction error indicates that the transaction is malformed.
     pub fn is_malformed_tx(&self) -> bool {
         match self {
             TransactionError::OutputsSumOverflow { .. }
@@ -420,13 +470,17 @@ impl TransactionError {
 }
 
 impl HeaderError {
-    /// TODO(doc): @keroro520
-    // Note: if the header is invalid, that may also be grounds for disconnecting the peer,
-    // However, there is a circumstance where that does not hold:
-    // if the header's timestamp is more than ALLOWED_FUTURE_BLOCKTIME ahead of our current time.
-    // In that case, the header may become valid in the future,
-    // and we don't want to disconnect a peer merely for serving us one too-far-ahead block header,
-    // to prevent an attacker from splitting the network by mining a block right at the ALLOWED_FUTURE_BLOCKTIME boundary.
+    /// Downcast `HeaderError` to `TimestampError` then check [`TimestampError::is_too_new`].
+    ///
+    /// Note: if the header is invalid, that may also be grounds for disconnecting the peer,
+    /// However, there is a circumstance where that does not hold:
+    /// if the header's timestamp is more than ALLOWED_FUTURE_BLOCKTIME ahead of our current time.
+    /// In that case, the header may become valid in the future,
+    /// and we don't want to disconnect a peer merely for serving us one too-far-ahead block header,
+    /// to prevent an attacker from splitting the network by mining a block right at the ALLOWED_FUTURE_BLOCKTIME boundary.
+    ///
+    /// [`TimestampError::is_too_new`]
+    #[doc(hidden)]
     pub fn is_too_new(&self) -> bool {
         self.downcast_ref::<TimestampError>()
             .map(|e| e.is_too_new())
