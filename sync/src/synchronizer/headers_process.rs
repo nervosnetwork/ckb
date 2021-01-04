@@ -160,9 +160,8 @@ impl<'a> HeadersProcess<'a> {
             .collect::<Vec<_>>();
 
         if headers.len() > MAX_HEADERS_LEN {
-            shared.state().misbehavior(self.peer, 20);
-            warn!("HeadersProcess is_oversize");
-            return Status::ok();
+            warn!("HeadersProcess is oversize");
+            return StatusCode::HeadersIsInvalid.with_context("oversize");
         }
 
         if headers.is_empty() {
@@ -179,22 +178,31 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if !self.is_continuous(&headers) {
-            shared.state().misbehavior(self.peer, 20);
-            debug!("HeadersProcess is not continuous");
-            return Status::ok();
+            warn!("HeadersProcess is not continuous");
+            return StatusCode::HeadersIsInvalid.with_context("not continuous");
         }
 
         let result = self.accept_first(&headers[0]);
-        if !result.is_valid() {
-            if result.misbehavior > 0 {
-                shared.state().misbehavior(self.peer, result.misbehavior);
+        match result.state {
+            ValidationState::Invalid => {
+                debug!(
+                    "HeadersProcess accept_first result is invalid, error = {:?}, first header = {:?}",
+                    result.error, headers[0]
+                );
+                return StatusCode::HeadersIsInvalid
+                    .with_context(format!("accept first header {:?}", headers[0]));
             }
-            debug!(
-                "HeadersProcess accept_first is_valid {:?} headers = {:?}",
-                result, headers[0]
-            );
-            return Status::ok();
-        }
+            ValidationState::TemporaryInvalid => {
+                debug!(
+                    "HeadersProcess accept_first result is temporary invalid, first header = {:?}",
+                    headers[0]
+                );
+                return Status::ok();
+            }
+            ValidationState::Valid => {
+                // Valid, do nothing
+            }
+        };
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
@@ -208,14 +216,26 @@ impl<'a> HeadersProcess<'a> {
                     self.active_chain.clone(),
                 );
                 let result = acceptor.accept();
-
-                if !result.is_valid() {
-                    if result.misbehavior > 0 {
-                        shared.state().misbehavior(self.peer, result.misbehavior);
+                match result.state {
+                    ValidationState::Invalid => {
+                        debug!(
+                            "HeadersProcess accept result is invalid, error = {:?}, header = {:?}",
+                            result.error, headers,
+                        );
+                        return StatusCode::HeadersIsInvalid
+                            .with_context(format!("accept header {:?}", header));
                     }
-                    debug!("HeadersProcess accept is invalid {:?}", result);
-                    return Status::ok();
-                }
+                    ValidationState::TemporaryInvalid => {
+                        debug!(
+                            "HeadersProcess accept result is temporary invalid, header = {:?}",
+                            header
+                        );
+                        return Status::ok();
+                    }
+                    ValidationState::Valid => {
+                        // Valid, do nothing
+                    }
+                };
             }
         }
 
@@ -288,7 +308,7 @@ where
             &self.header.data().raw().parent_hash(),
             BlockStatus::BLOCK_INVALID,
         ) {
-            state.dos(Some(ValidationError::InvalidParent), 100);
+            state.invalid(Some(ValidationError::InvalidParent));
             return Err(());
         }
         Ok(())
@@ -307,11 +327,11 @@ where
                     state.temporary_invalid(Some(ValidationError::Verify(error)));
                     false
                 } else {
-                    state.dos(Some(ValidationError::Verify(error)), 100);
+                    state.invalid(Some(ValidationError::Verify(error)));
                     true
                 }
             } else {
-                state.dos(Some(ValidationError::Verify(error)), 100);
+                state.invalid(Some(ValidationError::Verify(error)));
                 true
             }
         })
@@ -407,27 +427,17 @@ pub enum ValidationError {
 #[derive(Debug, Default)]
 pub struct ValidationResult {
     pub error: Option<ValidationError>,
-    pub misbehavior: u32,
     pub state: ValidationState,
 }
 
 impl ValidationResult {
     pub fn invalid(&mut self, error: Option<ValidationError>) {
-        self.dos(error, 0);
-    }
-
-    pub fn dos(&mut self, error: Option<ValidationError>, misbehavior: u32) {
         self.error = error;
-        self.misbehavior += misbehavior;
         self.state = ValidationState::Invalid;
     }
 
     pub fn temporary_invalid(&mut self, error: Option<ValidationError>) {
         self.error = error;
         self.state = ValidationState::TemporaryInvalid;
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.state == ValidationState::Valid
     }
 }

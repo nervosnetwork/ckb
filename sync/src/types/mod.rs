@@ -1221,7 +1221,6 @@ impl SyncShared {
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
-            misbehavior: RwLock::new(HashMap::default()),
             known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: Mutex::new(HashMap::default()),
             pending_compact_blocks: Mutex::new(HashMap::default()),
@@ -1483,7 +1482,6 @@ pub struct SyncState {
 
     /* Status relevant to peers */
     peers: Peers,
-    misbehavior: RwLock<HashMap<PeerIndex, u32>>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
@@ -1528,16 +1526,6 @@ impl SyncState {
 
     pub fn peers(&self) -> &Peers {
         &self.peers
-    }
-
-    pub fn misbehavior(&self, pi: PeerIndex, score: u32) {
-        if score != 0 {
-            self.misbehavior
-                .write()
-                .entry(pi)
-                .and_modify(|s| *s += score)
-                .or_insert_with(|| score);
-        }
     }
 
     pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
