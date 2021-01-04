@@ -8,12 +8,15 @@ use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_error::Error;
 use ckb_types::{core::BlockView, packed::CellInput};
 
-/// TODO(doc): @zhangsoledad
+/// The genesis verification
+///
+/// BlockVerifier is not applicable to genesis, genesis have particular rules,
+/// it not limited by block size. it's previous hash is zero hash and it has no uncles.
 #[derive(Clone)]
 pub struct GenesisVerifier {}
 
 impl GenesisVerifier {
-    /// TODO(doc): @zhangsoledad
+    /// Create new GenesisVerifier
     pub fn new() -> Self {
         GenesisVerifier {}
     }

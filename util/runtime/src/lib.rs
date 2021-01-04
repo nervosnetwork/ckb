@@ -1,46 +1,83 @@
 //! Utilities for tokio runtime.
-use std::{future::Future, sync, thread};
 
-pub use tokio::runtime::{Builder, Handle};
+use ckb_logger::debug;
+use ckb_spawn::Spawn;
+use ckb_stop_handler::{SignalSender, StopHandler};
+use core::future::Future;
+use std::thread;
+use tokio::runtime::Builder;
+use tokio::runtime::Handle as TokioHandle;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
-/// Creates a new tokio runtime.
-pub fn new_runtime<F, R>(
-    name_prefix: &str,
-    runtime_builder_opt: Option<Builder>,
-    block: F,
-) -> (Handle, thread::JoinHandle<()>)
-where
-    F: FnOnce(Handle) -> R + Send + 'static,
-    R: Future,
-{
-    let barrier = sync::Arc::new(sync::Barrier::new(2));
-    let barrier_clone = sync::Arc::clone(&barrier);
+// Handle is a newtype wrap and unwrap tokio::Handle, it is workaround with Rust Orphan Rules.
+// We need `Handle` impl ckb spawn trait decouple tokio dependence
 
-    let service_name = format!("{}Service", name_prefix);
-    let runtime_name = format!("{}Runtime", name_prefix);
+/// Handle to the runtime.
+#[derive(Debug, Clone)]
+pub struct Handle {
+    pub(crate) inner: TokioHandle,
+}
 
-    let mut runtime = runtime_builder_opt
-        .unwrap_or_else(|| {
-            let mut builder = Builder::new();
-            builder.threaded_scheduler();
-            builder
-        })
-        .thread_name(&runtime_name)
+impl Handle {
+    /// Enter the runtime context. This allows you to construct types that must
+    /// have an executor available on creation such as [`Delay`] or [`TcpStream`].
+    /// It will also allow you to call methods such as [`tokio::spawn`].
+    pub fn enter<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.inner.enter(f)
+    }
+
+    /// Spawns a future onto the runtime.
+    ///
+    /// This spawns the given future onto the runtime's executor
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.inner.spawn(future)
+    }
+
+    /// Run a future to completion on the Tokio runtime from a synchronous context.
+    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        self.inner.block_on(future)
+    }
+}
+
+/// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle
+pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
+    let mut runtime = Builder::new()
+        .enable_all()
+        .threaded_scheduler()
+        .thread_name("ckb-global-runtime")
         .build()
-        .unwrap_or_else(|_| panic!("tokio runtime {} initialized", runtime_name));
+        .expect("ckb runtime initialized");
 
     let handle = runtime.handle().clone();
-    let executor = handle.clone();
 
-    let handler = thread::Builder::new()
-        .name(service_name)
+    let (tx, rx) = oneshot::channel();
+    let thread = thread::Builder::new()
+        .name("ckb-global-runtime-tb".to_string())
         .spawn(move || {
-            let future = block(handle);
-            barrier_clone.wait();
-            runtime.block_on(future);
+            let ret = runtime.block_on(rx);
+            debug!("global runtime finish {:?}", ret);
         })
-        .unwrap_or_else(|_| panic!("tokio runtime {} started", runtime_name));
+        .expect("tokio runtime started");
 
-    barrier.wait();
-    (executor, handler)
+    (
+        Handle { inner: handle },
+        StopHandler::new(SignalSender::Tokio(tx), Some(thread)),
+    )
+}
+
+impl Spawn for Handle {
+    fn spawn_task<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.spawn(future);
+    }
 }

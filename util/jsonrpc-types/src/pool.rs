@@ -1,6 +1,9 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
+use ckb_types::core::tx_pool::{TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds};
+use ckb_types::prelude::Unpack;
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Transaction pool information.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -72,6 +75,96 @@ impl OutputsValidator {
         let v = serde_json::to_value(self).expect("OutputsValidator to JSON should never fail");
         v.as_str().unwrap_or_default().to_string()
     }
+}
+
+/// Array of transaction ids
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TxPoolIds {
+    /// Pending transaction ids
+    pub pending: Vec<H256>,
+    /// Proposed transaction ids
+    pub proposed: Vec<H256>,
+}
+
+impl From<CoreTxPoolIds> for TxPoolIds {
+    fn from(ids: CoreTxPoolIds) -> Self {
+        let CoreTxPoolIds { pending, proposed } = ids;
+        TxPoolIds {
+            pending: pending.iter().map(Unpack::unpack).collect(),
+            proposed: proposed.iter().map(Unpack::unpack).collect(),
+        }
+    }
+}
+
+/// Transaction verbose info
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TxVerbosity {
+    /// Consumed cycles.
+    pub cycles: Uint64,
+    /// The transaction serialized size in block.
+    pub size: Uint64,
+    /// The transaction fee.
+    pub fee: Capacity,
+    /// Size of in-tx-pool ancestor transactions
+    pub ancestors_size: Uint64,
+    /// Cycles of in-tx-pool ancestor transactions
+    pub ancestors_cycles: Uint64,
+    /// Number of in-tx-pool ancestor transactions
+    pub ancestors_count: Uint64,
+}
+
+impl From<TxEntryInfo> for TxVerbosity {
+    fn from(info: TxEntryInfo) -> Self {
+        TxVerbosity {
+            cycles: info.cycles.into(),
+            size: info.size.into(),
+            fee: info.fee.into(),
+            ancestors_size: info.ancestors_size.into(),
+            ancestors_cycles: info.ancestors_cycles.into(),
+            ancestors_count: info.ancestors_count.into(),
+        }
+    }
+}
+
+/// Tx-pool verbose object
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct TxPoolVerbosity {
+    /// Pending tx verbose info
+    pub pending: HashMap<H256, TxVerbosity>,
+    /// Proposed tx verbose info
+    pub proposed: HashMap<H256, TxVerbosity>,
+}
+
+impl From<TxPoolEntryInfo> for TxPoolVerbosity {
+    fn from(info: TxPoolEntryInfo) -> Self {
+        let TxPoolEntryInfo { pending, proposed } = info;
+
+        TxPoolVerbosity {
+            pending: pending
+                .into_iter()
+                .map(|(hash, entry)| (hash.unpack(), entry.into()))
+                .collect(),
+            proposed: proposed
+                .into_iter()
+                .map(|(hash, entry)| (hash.unpack(), entry.into()))
+                .collect(),
+        }
+    }
+}
+
+/// All transactions in tx-pool.
+///
+/// `RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolVerbosity`][].
+///
+/// [`TxPoolIds`]: struct.TxPoolIds.html
+/// [`TxPoolVerbosity`]: struct.TxPoolVerbosity.html
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+pub enum RawTxPool {
+    /// verbose = false
+    Ids(TxPoolIds),
+    /// verbose = true
+    Verbose(TxPoolVerbosity),
 }
 
 #[cfg(test)]

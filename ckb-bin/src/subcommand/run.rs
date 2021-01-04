@@ -1,5 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -19,17 +20,17 @@ use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
-pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
+pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
-        .consensus(args.consensus)
+    let (shared, table) = SharedBuilder::new(&args.config.db, async_handle)
+        .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
-        .notify_config(args.config.notify)
+        .notify_config(args.config.notify.clone())
         .store_config(args.config.store)
         .block_assembler_config(block_assembler_config)
         .build()
@@ -40,6 +41,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
+
+    check_spec(&shared, &args)?;
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
@@ -56,6 +59,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Some(shared.store().db().inner()),
     );
 
+    // Check whether the data already exists in the database before starting
+    if let Some(ref target) = args.config.network.sync.assume_valid_target {
+        if shared.snapshot().block_exists(&target.pack()) {
+            args.config.network.sync.assume_valid_target.take();
+        }
+    }
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
@@ -67,12 +77,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let sync_shared = Arc::new(SyncShared::with_tmpdir(
         shared.clone(),
-        args.config
-            .network
-            .sync
-            .as_ref()
-            .cloned()
-            .unwrap_or_default(),
+        args.config.network.sync.clone(),
         args.config.tmp_dir.as_ref(),
     ));
     let network_state = Arc::new(
@@ -130,7 +135,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         version.to_string(),
         exit_handler.clone(),
     )
-    .start(Some("NetworkService"))
+    .start(shared.async_handle())
     .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)
@@ -178,6 +183,35 @@ fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
             eprintln!("genesis error: {}", err);
             ExitCode::Config
         })
+}
+
+fn check_spec(shared: &Shared, args: &RunArgs) -> Result<(), ExitCode> {
+    let store = shared.store();
+    if let Some(spec_hash) = store.get_chain_spec_hash() {
+        if args.chain_spec_hash != spec_hash && !args.skip_chain_spec_check {
+            eprintln!(
+                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument --skip-spec-check if you are sure that the two different chains are compatible.",
+                args.chain_spec_hash, spec_hash
+            );
+            return Err(ExitCode::Config);
+        }
+    } else {
+        store
+            .put_chain_spec_hash(&args.chain_spec_hash)
+            .map_err(|err| {
+                eprintln!(
+                    "Touch chain_spec_hash {} error: {}",
+                    args.chain_spec_hash, err
+                );
+                ExitCode::IO
+            })?;
+        info_target!(
+            crate::LOG_TARGET_MAIN,
+            "Touch chain spec hash: {}",
+            args.chain_spec_hash
+        );
+    }
+    Ok(())
 }
 
 fn sanitize_block_assembler_config(

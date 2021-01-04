@@ -7,7 +7,7 @@ use secp256k1::key;
 use secp256k1::Message as SecpMessage;
 use std::{fmt, ops};
 
-/// TODO(doc): @zhangsoledad
+/// A Secp256k1 512-bit public key, used for verification of signatures
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct Pubkey {
     inner: H512,
@@ -35,7 +35,9 @@ impl Pubkey {
         Ok(())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Serialize the key as a byte-encoded pair of values.
+    /// In compressed form the y-coordinate is represented by only a single bit,
+    /// as x determines it up to one bit.
     pub fn serialize(&self) -> Vec<u8> {
         // non-compressed key prefix 4
         let prefix_key: [u8; 65] = {
@@ -47,7 +49,7 @@ impl Pubkey {
         Vec::from(&pubkey.serialize()[..])
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new Pubkey from a slice
     pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
         Ok(key::PublicKey::from_slice(data)?.into())
     }

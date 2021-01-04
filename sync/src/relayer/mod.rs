@@ -38,7 +38,6 @@ use ckb_types::{
 };
 use ckb_util::Mutex;
 use faketime::unix_time_as_millis;
-use ratelimit_meter::KeyedRateLimiter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -52,6 +51,12 @@ pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
 pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
 
+type RateLimiter<T> = governor::RateLimiter<
+    T,
+    governor::state::keyed::DefaultKeyedStateStore<T>,
+    governor::clock::DefaultClock,
+>;
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionResult {
     Block(BlockView),
@@ -60,18 +65,23 @@ pub enum ReconstructionResult {
     Error(Status),
 }
 
-/// TODO(doc): @driftluo
+/// Relayer protocol handle
 #[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
-    rate_limiter: Arc<Mutex<KeyedRateLimiter<(PeerIndex, u32)>>>,
+    rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
 }
 
 impl Relayer {
-    /// TODO(doc): @driftluo
+    /// Init relay protocol handle
+    ///
+    /// This is a runtime relay protocol shared state, and any relay messages will be processed and forwarded by it
+    ///
+    /// min_fee_rate: Default transaction fee unit, can be modified by configuration file
+    /// max_tx_verify_cycles: Maximum transaction consumption allowed by default, can be modified by configuration file
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncShared>,
@@ -80,9 +90,8 @@ impl Relayer {
     ) -> Self {
         // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
-        let rate_limiter = Arc::new(Mutex::new(KeyedRateLimiter::per_second(
-            std::num::NonZeroU32::new(30).unwrap(),
-        )));
+        let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
+        let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
         Relayer {
             chain,
             shared,
@@ -92,7 +101,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get shared state
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -113,7 +122,7 @@ impl Relayer {
             && self
                 .rate_limiter
                 .lock()
-                .check((peer, message.item_id()))
+                .check_key(&(peer, message.item_id()))
                 .is_err()
         {
             return StatusCode::TooManyRequests.with_context(message.item_name());
@@ -200,7 +209,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Request the transaction corresponding to the proposal id from the specified node
     pub fn request_proposal_txs(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -251,7 +260,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Accept a new block from network
     pub fn accept_block(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -301,7 +310,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Reorganize the full block according to the compact block/txs/uncles
     // nodes should attempt to reconstruct the full block by taking the prefilledtxn transactions
     // from the original CompactBlock message and placing them in the marked positions,
     // then for each short transaction ID from the original compact_block message, in order,
@@ -532,8 +541,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
-    // Ask for relay transaction by hash from all peers
+    /// Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         let state = self.shared().state();
         for (peer, peer_state) in state.peers().state.write().iter_mut() {
@@ -575,8 +583,7 @@ impl Relayer {
         }
     }
 
-    /// TODO(doc): @driftluo
-    // Send bulk of tx hashes to selected peers
+    /// Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         let connected_peers = nc.connected_peers();
         if connected_peers.is_empty() {
@@ -672,12 +679,15 @@ impl CKBProtocolHandler for Relayer {
             msg.item_name(),
             peer_index
         );
-        let sentry_hub = sentry::Hub::current();
-        let _scope_guard = sentry_hub.push_scope();
-        sentry_hub.configure_scope(|scope| {
-            scope.set_tag("p2p.protocol", "relayer");
-            scope.set_tag("p2p.message", msg.item_name());
-        });
+        #[cfg(feature = "with_sentry")]
+        {
+            let sentry_hub = sentry::Hub::current();
+            let _scope_guard = sentry_hub.push_scope();
+            sentry_hub.configure_scope(|scope| {
+                scope.set_tag("p2p.protocol", "relayer");
+                scope.set_tag("p2p.message", msg.item_name());
+            });
+        }
 
         let start_time = Instant::now();
         self.process(nc, peer_index, msg.as_reader());
@@ -710,8 +720,8 @@ impl CKBProtocolHandler for Relayer {
             "RelayProtocol.disconnected peer={}",
             peer_index
         );
-        // remove all rate limiter keys that have been expireable for 1 minutes:
-        self.rate_limiter.lock().cleanup(Duration::from_secs(60));
+        // Retains all keys in the rate limiter that were used recently enough.
+        self.rate_limiter.lock().retain_recent();
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

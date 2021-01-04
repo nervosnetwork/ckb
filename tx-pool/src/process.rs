@@ -1,14 +1,14 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
-use crate::error::{BlockAssemblerError, Reject};
+use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, info};
+use ckb_logger::{debug, error, info};
 use ckb_notify::PoolTransactionEntry;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -29,7 +29,6 @@ use ckb_verification::{
     cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier,
 };
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -38,11 +37,11 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
-/// TODO(doc): @zhangsoledad
+/// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
-    /// TODO(doc): @zhangsoledad
+    /// Pending pool
     Pending,
-    /// TODO(doc): @zhangsoledad
+    /// Proposed pool
     Proposed,
 }
 
@@ -96,7 +95,7 @@ impl TxPoolService {
         &self,
         snapshot: &Snapshot,
         config: &BlockAssemblerConfig,
-    ) -> Result<TransactionView, FailureError> {
+    ) -> Result<TransactionView, AnyError> {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
@@ -139,7 +138,7 @@ impl TxPoolService {
         max_block_cycles: Cycle,
         cellbase: &TransactionView,
         uncles: &[UncleBlockView],
-    ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), FailureError> {
+    ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), AnyError> {
         let guard = self.tx_pool.read().await;
         let uncle_proposals = uncles
             .iter()
@@ -185,29 +184,40 @@ impl TxPoolService {
         uncles: Vec<UncleBlockView>,
         bytes_limit: u64,
         version: Version,
-    ) -> Result<BlockTemplate, FailureError> {
+    ) -> Result<BlockTemplate, AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
-        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| &entry.transaction));
         let mut seen_inputs = HashSet::new();
-        let transactions_provider = TransactionsProvider::new(txs.clone());
+
+        let dummy_cellbase_entry = TxEntry::new(cellbase.clone(), 0, Capacity::zero(), 0, vec![]);
+        let entries_iter = iter::once(&dummy_cellbase_entry).chain(entries.iter());
+
+        let transactions_provider =
+            TransactionsProvider::new(entries_iter.clone().map(|entry| &entry.transaction));
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
 
-        let rtxs = txs
-            .try_fold(vec![], |mut rtxs, tx| {
-                resolve_transaction(
-                    tx.clone(),
-                    &mut seen_inputs,
-                    &overlay_cell_provider,
-                    snapshot,
-                )
-                .map(|rtx| {
-                    rtxs.push(rtx);
-                    rtxs
-                })
-            })
-            .map_err(|_| BlockAssemblerError::InvalidInput)?;
+        let mut template_txs = Vec::with_capacity(entries.len());
+
+        let rtxs: Vec<_> = entries_iter.enumerate().filter_map(|(index, entry)| {
+            resolve_transaction(
+                entry.transaction.clone(),
+                &mut seen_inputs,
+                &overlay_cell_provider,
+                snapshot,
+            ).map_err(|err| {
+                error!(
+                    "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
+                    tip_header.number(), tip_hash, err
+                );
+                err
+            }).map(|rtx| {
+                if index != 0 {
+                    template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
+                }
+                rtx
+            }).ok()
+        }).collect();
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
@@ -230,10 +240,7 @@ impl TxPoolService {
             bytes_limit: bytes_limit.into(),
             uncles_count_limit: u64::from(uncles_count_limit).into(),
             uncles: uncles.iter().map(BlockAssembler::transform_uncle).collect(),
-            transactions: entries
-                .iter()
-                .map(|entry| BlockAssembler::transform_tx(entry, false, None))
-                .collect(),
+            transactions: template_txs,
             proposals: proposals.iter().cloned().map(Into::into).collect(),
             cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
             work_id: work_id.into(),
@@ -266,10 +273,10 @@ impl TxPoolService {
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<BlockTemplate, FailureError> {
+    ) -> Result<BlockTemplate, AnyError> {
         if self.block_assembler.is_none() && block_assembler_config.is_none() {
             Err(InternalErrorKind::Config
-                .reason("BlockAssembler disabled")
+                .other("BlockAssembler disabled")
                 .into())
         } else {
             let block_assembler = block_assembler_config
@@ -411,7 +418,12 @@ impl TxPoolService {
             let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
             // reject txs which fee lower than min fee rate
             if fee < min_fee {
-                return Err(Reject::LowFeeRate(min_fee.as_u64(), fee.as_u64()).into());
+                return Err(Reject::LowFeeRate(
+                    tx_pool.config.min_fee_rate,
+                    min_fee.as_u64(),
+                    fee.as_u64(),
+                )
+                .into());
             }
 
             let related_dep_out_points = rtx.related_dep_out_points();
@@ -645,7 +657,7 @@ fn verify_rtxs(
                     consensus,
                     snapshot,
                 )
-                .verify(max_tx_verify_cycles)
+                .verify(max_tx_verify_cycles, false)
                 .map(|cycles| (tx, cycles))
             }
         })

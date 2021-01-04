@@ -97,7 +97,13 @@ pub const ARG_PROFILE: &str = "profile";
 /// TODO(doc): @doitian
 pub const ARG_SANITY_CHECK: &str = "sanity-check";
 /// TODO(doc): @doitian
-pub const ARG_FULL_VERFICATION: &str = "full-verfication";
+pub const ARG_FULL_VERIFICATION: &str = "full-verification";
+/// Present `skip-spec-check` arg to `run` skip spec check on setup
+pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
+/// assume valid target cli arg name
+pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
+/// Migrate check flag arg
+pub const ARG_MIGRATE_CHECK: &str = "check";
 
 /// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
@@ -139,10 +145,32 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN).about("Runs ckb node").arg(
-        Arg::with_name(ARG_BA_ADVANCED)
-            .long(ARG_BA_ADVANCED)
-            .help("Allows any block assembler code hash and args"),
+    SubCommand::with_name(CMD_RUN)
+        .about("Runs ckb node")
+        .arg(
+            Arg::with_name(ARG_BA_ADVANCED)
+                .long(ARG_BA_ADVANCED)
+                .help("Allows any block assembler code hash and args"),
+        )
+        .arg(
+            Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
+                .long(ARG_SKIP_CHAIN_SPEC_CHECK)
+                .help("Skips checking the chain spec with the hash stored in the database"),
+        ).arg(
+        Arg::with_name(ARG_ASSUME_VALID_TARGET)
+            .long(ARG_ASSUME_VALID_TARGET)
+            .takes_value(true)
+            .validator(is_hex)
+            .help("This parameter specifies the hash of a block. \
+            When the height does not reach this block's height, the execution of the script will be disabled, \
+            that is, skip verifying the script content. \
+            \
+            It should be noted that when this option is enabled, the header is first synchronized to \
+            the highest currently found. During this period, if the assume valid target is found, \
+            the download of the block starts; \
+            If the timestamp of the best known header is already within 24 hours of the current time
+            and the assume valid target is not found, the target will automatically become invalid,
+            and the download of the block will be started with verify")
     )
 }
 
@@ -257,7 +285,7 @@ fn replay() -> App<'static, 'static> {
             Arg::with_name(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).help("Enable sanity check")
         )
         .arg(
-            Arg::with_name(ARG_FULL_VERFICATION).long(ARG_FULL_VERFICATION).help("Enable sanity check")
+            Arg::with_name(ARG_FULL_VERIFICATION).long(ARG_FULL_VERIFICATION).help("Enable sanity check")
         )
         .group(
             ArgGroup::with_name("mode")
@@ -295,7 +323,17 @@ fn import() -> App<'static, 'static> {
 }
 
 fn migrate() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MIGRATE).about("Runs ckb migration")
+    SubCommand::with_name(CMD_MIGRATE)
+        .about("Runs ckb migration")
+        .arg(
+            Arg::with_name(ARG_MIGRATE_CHECK)
+                .long(ARG_MIGRATE_CHECK)
+                .help(
+                    "Perform database version check without migrating, \
+                    if migration is in need ExitCode(0) is returned，\
+                    otherwise ExitCode(64) is returned",
+                ),
+        )
 }
 
 fn list_hashes() -> App<'static, 'static> {

@@ -1,6 +1,7 @@
 //! TODO(doc): @quake
 use crate::db::cf_handle;
-use crate::{internal_error, Col, Result};
+use crate::{internal_error, Result};
+use ckb_db_schema::Col;
 use libc::{self, c_char, size_t};
 use rocksdb::ops::{GetPinnedCF, Iterate, IterateCF, Read};
 use rocksdb::{

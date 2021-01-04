@@ -98,7 +98,7 @@ impl CellProvider for ProposedPool {
                     .out_point(out_point.to_owned())
                     .build();
                 if !with_data {
-                    cell_meta.mem_cell_data = None;
+                    cell_meta.mem_cell_data_hash = None;
                 }
                 CellStatus::live_cell(cell_meta)
             }
@@ -124,6 +124,10 @@ impl ProposedPool {
 
     pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.inner.get(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ProposalShortId, &TxEntry)> {
+        self.inner.iter()
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {

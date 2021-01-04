@@ -1,14 +1,11 @@
 use crate::cache::StoreCache;
-use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
+use ckb_chain_spec::consensus::Consensus;
+use ckb_db::iter::{DBIter, Direction, IteratorMode};
+use ckb_db_schema::{
+    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
     COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
-};
-use ckb_chain_spec::consensus::Consensus;
-use ckb_db::{
-    iter::{DBIter, Direction, IteratorMode},
-    Col,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -448,6 +445,7 @@ fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryRea
         }),
         data_bytes: reader.data_size().unpack(),
         mem_cell_data: None,
+        mem_cell_data_hash: None,
     }
 }
 
@@ -459,7 +457,10 @@ where
         match self.0.get_cell(out_point) {
             Some(mut cell_meta) => {
                 if with_data {
-                    cell_meta.mem_cell_data = self.0.get_cell_data(out_point);
+                    if let Some((data, data_hash)) = self.0.get_cell_data(out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
                 }
                 CellStatus::live_cell(cell_meta)
             }

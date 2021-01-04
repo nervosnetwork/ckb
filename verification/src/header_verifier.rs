@@ -11,15 +11,17 @@ use ckb_types::core::{HeaderView, Version};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 
-/// TODO(doc): @zhangsoledad
+/// Context abstract trait for HeaderVerifier
 pub trait HeaderResolver {
-    /// TODO(doc): @zhangsoledad
+    /// Header self for check
     fn header(&self) -> &HeaderView;
-    /// resolves parent header
+    /// Provide previous header
     fn parent(&self) -> Option<&HeaderView>;
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context-dependent verification checks for block header
+///
+/// By "context", only mean the previous block headers here.
 pub struct HeaderVerifier<'a, T, M> {
     block_median_time_context: &'a M,
     consensus: &'a Consensus,
@@ -27,7 +29,7 @@ pub struct HeaderVerifier<'a, T, M> {
 }
 
 impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
-    /// TODO(doc): @zhangsoledad
+    /// Crate new HeaderVerifier
     pub fn new(block_median_time_context: &'a M, consensus: &'a Consensus) -> Self {
         HeaderVerifier {
             consensus,

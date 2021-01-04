@@ -1,9 +1,11 @@
-//! TODO(doc): @zhangsoledad
+//! Consensus defines various tweakable parameters of a given instance of the CKB system.
+//!
+
 #![allow(clippy::inconsistent_digit_grouping)]
 
 use crate::{
-    calculate_block_reward, ChainSpec, OUTPUT_INDEX_DAO,
-    OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+    calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
+    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
@@ -19,7 +21,6 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
     prelude::*,
-    u256,
     utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
     H160, H256, U256,
 };
@@ -48,7 +49,7 @@ const TAU: u64 = 2;
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
 // o_ideal = 1/40 = 2.5%
-const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("40"));
+pub(crate) const DEFAULT_ORPHAN_RATE_TARGET: (u32, u32) = (1, 40);
 
 const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
@@ -66,31 +67,30 @@ const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL
 pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
     4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
-/// TODO(doc): @zhangsoledad
+/// The default maximum allowed size in bytes for a block
 pub const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
-/// TODO(doc): @zhangsoledad
-// 1.5 * TWO_IN_TWO_OUT_COUNT
+
+/// The default maximum allowed amount of proposals for a block
+///
+/// Default value from 1.5 * TWO_IN_TWO_OUT_COUNT
 pub const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 1_500;
-const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
+const PROPOSER_REWARD_RATIO: Ratio = Ratio::new(4, 10);
 
 // Satoshi's pubkey hash in Bitcoin genesis.
 pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
 // Ratio of satoshi cell occupied of capacity,
 // only affects genesis cellbase's satoshi lock cells.
-pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
+pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
-/// TODO(doc): @zhangsoledad
+/// The struct represent CKB two-step-transaction-confirmation params
+///
+/// [two-step-transaction-confirmation params](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#two-step-transaction-confirmation)
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
 /// "TYPE_ID" in hex
 pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
-
-/// TODO(doc): @zhangsoledad
-// 500_000 total difficulty
-const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
-// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// Two protocol parameters w_close and w_far define the closest
 /// and farthest on-chain distance between a transaction's proposal
@@ -100,6 +100,7 @@ const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 /// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
+///   ```text
 ///   ProposalWindow (2, 10)
 ///       propose
 ///          \
@@ -108,26 +109,26 @@ const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 ///                  \_______________________/
 ///                               \
 ///                             commit
+///  ```
 ///
-
 impl ProposalWindow {
-    /// TODO(doc): @zhangsoledad
+    /// The w_close parameter
     pub fn closest(&self) -> BlockNumber {
         self.0
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The w_far parameter
     pub fn farthest(&self) -> BlockNumber {
         self.1
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The proposal window length
     pub fn length(&self) -> BlockNumber {
         self.1 - self.0 + 1
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// The Consensus factory, which can be used in order to configure the properties of a new Consensus.
 pub struct ConsensusBuilder {
     inner: Consensus,
 }
@@ -157,6 +158,7 @@ impl Default for ConsensusBuilder {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let primary_issuance =
             calculate_block_reward(INITIAL_PRIMARY_EPOCH_REWARD, GENESIS_EPOCH_LENGTH);
@@ -183,17 +185,19 @@ impl Default for ConsensusBuilder {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Build the epoch information of genesis block
 pub fn build_genesis_epoch_ext(
     epoch_reward: Capacity,
     compact_target: u32,
     genesis_epoch_length: BlockNumber,
     epoch_duration_target: u64,
+    genesis_orphan_rate: (u32, u32),
 ) -> EpochExt {
     let block_reward = Capacity::shannons(epoch_reward.as_u64() / genesis_epoch_length);
     let remainder_reward = Capacity::shannons(epoch_reward.as_u64() % genesis_epoch_length);
 
-    let genesis_orphan_count = genesis_epoch_length / 40;
+    let genesis_orphan_count =
+        genesis_epoch_length * genesis_orphan_rate.0 as u64 / genesis_orphan_rate.1 as u64;
     let genesis_hash_rate = compact_to_difficulty(compact_target)
         * (genesis_epoch_length + genesis_orphan_count)
         / epoch_duration_target;
@@ -210,7 +214,7 @@ pub fn build_genesis_epoch_ext(
         .build()
 }
 
-/// TODO(doc): @zhangsoledad
+/// Build the dao data of genesis block
 pub fn build_genesis_dao_data(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
@@ -229,8 +233,12 @@ pub fn build_genesis_dao_data(
 }
 
 impl ConsensusBuilder {
-    /// TODO(doc): @zhangsoledad
+    /// Generates the base configuration for build a Consensus, from which configuration methods can be chained.
     pub fn new(genesis_block: BlockView, genesis_epoch_ext: EpochExt) -> Self {
+        let orphan_rate_target = RationalU256::new_raw(
+            U256::from(DEFAULT_ORPHAN_RATE_TARGET.0),
+            U256::from(DEFAULT_ORPHAN_RATE_TARGET.1),
+        );
         ConsensusBuilder {
             inner: Consensus {
                 genesis_hash: genesis_block.header().hash(),
@@ -238,7 +246,7 @@ impl ConsensusBuilder {
                 id: "main".to_owned(),
                 max_uncles_num: MAX_UNCLE_NUM,
                 initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
-                orphan_rate_target: ORPHAN_RATE_TARGET,
+                orphan_rate_target,
                 epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
                 secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
                 tx_proposal_window: TX_PROPOSAL_WINDOW,
@@ -261,7 +269,6 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
-                min_chain_work: u256!("0x0"),
             },
         }
     }
@@ -276,7 +283,7 @@ impl ConsensusBuilder {
             .map(|type_script| type_script.calc_script_hash())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Build a new Consensus by taking ownership of the `Builder`, and returns a [`Consensus`].
     pub fn build(mut self) -> Consensus {
         debug_assert!(
             self.inner.genesis_block.difficulty() > U256::zero(),
@@ -314,17 +321,6 @@ impl ConsensusBuilder {
             "genesis block must contain the witness for cellbase"
         );
 
-        let mainnet_genesis =
-            ChainSpec::load_from(&Resource::bundled("specs/mainnet.toml".to_string()))
-                .expect("load mainnet spec fail")
-                .build_genesis()
-                .expect("build mainnet genesis fail");
-        self.inner.min_chain_work = if self.inner.genesis_block.hash() == mainnet_genesis.hash() {
-            MIN_CHAIN_WORK_500K
-        } else {
-            u256!("0x0")
-        };
-
         self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
         self.inner.secp256k1_blake160_sighash_all_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
@@ -337,99 +333,112 @@ impl ConsensusBuilder {
         self.inner
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Names the network.
     pub fn id(mut self, id: String) -> Self {
         self.inner.id = id;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets genesis_block for the new Consensus.
     pub fn genesis_block(mut self, genesis_block: BlockView) -> Self {
         self.inner.genesis_block = genesis_block;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets initial_primary_epoch_reward for the new Consensus.
     #[must_use]
     pub fn initial_primary_epoch_reward(mut self, initial_primary_epoch_reward: Capacity) -> Self {
         self.inner.initial_primary_epoch_reward = initial_primary_epoch_reward;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets orphan_rate_target for the new Consensus.
+    pub fn orphan_rate_target(mut self, orphan_rate_target: (u32, u32)) -> Self {
+        self.inner.orphan_rate_target = RationalU256::new_raw(
+            U256::from(orphan_rate_target.0),
+            U256::from(orphan_rate_target.1),
+        );
+        self
+    }
+
+    /// Sets secondary_epoch_reward for the new Consensus.
     #[must_use]
     pub fn secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
         self.inner.secondary_epoch_reward = secondary_epoch_reward;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets max_block_cycles for the new Consensus.
     #[must_use]
     pub fn max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
         self.inner.max_block_cycles = max_block_cycles;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets max_block_bytes for the new Consensus.
     #[must_use]
     pub fn max_block_bytes(mut self, max_block_bytes: u64) -> Self {
         self.inner.max_block_bytes = max_block_bytes;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets cellbase_maturity for the new Consensus.
     #[must_use]
     pub fn cellbase_maturity(mut self, cellbase_maturity: EpochNumberWithFraction) -> Self {
         self.inner.cellbase_maturity = cellbase_maturity;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets tx_proposal_window for the new Consensus.
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.inner.tx_proposal_window = proposal_window;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets pow for the new Consensus.
     pub fn pow(mut self, pow: Pow) -> Self {
         self.inner.pow = pow;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets satoshi_pubkey_hash for the new Consensus.
     pub fn satoshi_pubkey_hash(mut self, pubkey_hash: H160) -> Self {
         self.inner.satoshi_pubkey_hash = pubkey_hash;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets satoshi_cell_occupied_ratio for the new Consensus.
     pub fn satoshi_cell_occupied_ratio(mut self, ratio: Ratio) -> Self {
         self.inner.satoshi_cell_occupied_ratio = ratio;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets primary_epoch_reward_halving_interval for the new Consensus.
     #[must_use]
     pub fn primary_epoch_reward_halving_interval(mut self, halving_interval: u64) -> Self {
         self.inner.primary_epoch_reward_halving_interval = halving_interval;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets expected epoch_duration_target for the new Consensus.
     #[must_use]
     pub fn epoch_duration_target(mut self, target: u64) -> Self {
         self.inner.epoch_duration_target = target;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets permanent_difficulty_in_dummy for the new Consensus.
+    ///
+    /// [dynamic-difficulty-adjustment-mechanism](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
+    /// may be a disturbance in dev chain, set permanent_difficulty_in_dummy to true will disable dynamic difficulty adjustment mechanism. keep difficulty unchanged.
+    /// Work only under dummy Pow
     #[must_use]
     pub fn permanent_difficulty_in_dummy(mut self, permanent: bool) -> Self {
         self.inner.permanent_difficulty_in_dummy = permanent;
         self
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Sets max_block_proposals_limit for the new Consensus.
     #[must_use]
     pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
         self.inner.max_block_proposals_limit = max_block_proposals_limit;
@@ -437,82 +446,78 @@ impl ConsensusBuilder {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Struct Consensus defines various parameters that influence chain consensus
 #[derive(Clone, Debug)]
 pub struct Consensus {
-    /// TODO(doc): @zhangsoledad
+    /// Names the network.
     pub id: String,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block
     pub genesis_block: BlockView,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block hash
     pub genesis_hash: Byte32,
-    /// TODO(doc): @zhangsoledad
+    /// The dao type hash
+    ///
+    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#nervos-dao)
     pub dao_type_hash: Option<Byte32>,
-    /// TODO(doc): @zhangsoledad
+    /// The secp256k1_blake160_sighash_all_type_hash
+    ///
+    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1blake160)
     pub secp256k1_blake160_sighash_all_type_hash: Option<Byte32>,
-    /// TODO(doc): @zhangsoledad
+    /// The secp256k1_blake160_multisig_all_type_hash
+    ///
+    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1multisig)
     pub secp256k1_blake160_multisig_all_type_hash: Option<Byte32>,
-    /// TODO(doc): @zhangsoledad
+    /// The initial primary_epoch_reward
+    ///
+    /// [token-issuance](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
     pub initial_primary_epoch_reward: Capacity,
-    /// TODO(doc): @zhangsoledad
+    /// The secondary primary_epoch_reward
+    ///
+    /// [token-issuance](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
     pub secondary_epoch_reward: Capacity,
-    /// TODO(doc): @zhangsoledad
+    /// The maximum amount of uncles allowed for a block
     pub max_uncles_num: usize,
-    /// TODO(doc): @zhangsoledad
+    /// The expected orphan_rate
     pub orphan_rate_target: RationalU256,
-    /// TODO(doc): @zhangsoledad
+    /// The expected epoch_duration
     pub epoch_duration_target: u64,
-    /// TODO(doc): @zhangsoledad
+    /// The two-step-transaction-confirmation proposal window
     pub tx_proposal_window: ProposalWindow,
-    /// TODO(doc): @zhangsoledad
+    /// The two-step-transaction-confirmation proposer reward ratio
     pub proposer_reward_ratio: Ratio,
-    /// TODO(doc): @zhangsoledad
+    /// The pow parameters
     pub pow: Pow,
-    /// TODO(doc): @zhangsoledad
-    // For each input, if the referenced output transaction is cellbase,
-    // it must have at least `cellbase_maturity` confirmations;
-    // else reject this transaction.
+    /// The Cellbase maturity
+    /// For each input, if the referenced output transaction is cellbase,
+    /// it must have at least `cellbase_maturity` confirmations;
+    /// else reject this transaction.
     pub cellbase_maturity: EpochNumberWithFraction,
-    /// TODO(doc): @zhangsoledad
-    // This parameter indicates the count of past blocks used in the median time calculation
+    /// This parameter indicates the count of past blocks used in the median time calculation
     pub median_time_block_count: usize,
-    /// TODO(doc): @zhangsoledad
-    // Maximum cycles that all the scripts in all the commit transactions can take
+    /// Maximum cycles that all the scripts in all the commit transactions can take
     pub max_block_cycles: Cycle,
-    /// TODO(doc): @zhangsoledad
-    // Maximum number of bytes to use for the entire block
+    /// Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
-    /// TODO(doc): @zhangsoledad
-    // block version number supported
+    /// The block version number supported
     pub block_version: Version,
-    /// TODO(doc): @zhangsoledad
-    // tx version number supported
+    /// The tx version number supported
     pub tx_version: Version,
-    /// TODO(doc): @zhangsoledad
-    // "TYPE_ID" in hex
+    /// The "TYPE_ID" in hex
     pub type_id_code_hash: H256,
-    /// TODO(doc): @zhangsoledad
-    // Limit to the number of proposals per block
+    /// The Limit to the number of proposals per block
     pub max_block_proposals_limit: u64,
-    /// TODO(doc): @zhangsoledad
+    /// The genesis epoch information
     pub genesis_epoch_ext: EpochExt,
-    /// TODO(doc): @zhangsoledad
-    // Satoshi's pubkey hash in Bitcoin genesis.
+    /// Satoshi's pubkey hash in Bitcoin genesis.
     pub satoshi_pubkey_hash: H160,
-    /// TODO(doc): @zhangsoledad
-    // Ratio of satoshi cell occupied of capacity,
-    // only affects genesis cellbase's satoshi lock cells.
+    /// Ratio of satoshi cell occupied of capacity,
+    /// only affects genesis cellbase's satoshi lock cells.
     pub satoshi_cell_occupied_ratio: Ratio,
-    /// TODO(doc): @zhangsoledad
-    // Primary reward is cut in half every halving_interval epoch
-    // which will occur approximately every 4 years.
+    /// Primary reward is cut in half every halving_interval epoch
+    /// which will occur approximately every 4 years.
     pub primary_epoch_reward_halving_interval: EpochNumber,
-    /// TODO(doc): @zhangsoledad
-    // Keep difficulty be permanent if the pow is dummy
+    /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
-    /// TODO(doc): @zhangsoledad
-    // Proof of minimum work during synchronization
-    pub min_chain_work: U256,
 }
 
 // genesis difficulty should not be zero
@@ -524,22 +529,22 @@ impl Default for Consensus {
 
 #[allow(clippy::op_ref)]
 impl Consensus {
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block
     pub fn genesis_block(&self) -> &BlockView {
         &self.genesis_block
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The two-step-transaction-confirmation proposer reward ratio
     pub fn proposer_reward_ratio(&self) -> Ratio {
         self.proposer_reward_ratio
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The two-step-transaction-confirmation block reward delay length
     pub fn finalization_delay_length(&self) -> BlockNumber {
         self.tx_proposal_window.farthest() + 1
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Get block reward finalize number from specified block number
     pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
         if block_number != 0 {
             Some(block_number.saturating_sub(self.finalization_delay_length()))
@@ -549,137 +554,150 @@ impl Consensus {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The genesis block hash
     pub fn genesis_hash(&self) -> Byte32 {
         self.genesis_hash.clone()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The dao type hash
+    ///
+    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#nervos-dao)
     pub fn dao_type_hash(&self) -> Option<Byte32> {
         self.dao_type_hash.clone()
     }
-    /// TODO(doc): @zhangsoledad
+
+    /// The secp256k1_blake160_sighash_all_type_hash
+    ///
+    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1blake160)
     pub fn secp256k1_blake160_sighash_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_sighash_all_type_hash.clone()
     }
-    /// TODO(doc): @zhangsoledad
+
+    /// The secp256k1_blake160_multisig_all_type_hash
+    ///
+    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1multisig)
     pub fn secp256k1_blake160_multisig_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_multisig_all_type_hash.clone()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The maximum amount of uncles allowed for a block
     pub fn max_uncles_num(&self) -> usize {
         self.max_uncles_num
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The minimum difficulty (genesis_block difficulty)
     pub fn min_difficulty(&self) -> U256 {
         self.genesis_block.difficulty()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The minimum difficulty (genesis_block difficulty)
     pub fn initial_primary_epoch_reward(&self) -> Capacity {
         self.initial_primary_epoch_reward
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The initial primary_epoch_reward
+    ///
+    /// [token-issuance](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
     pub fn primary_epoch_reward(&self, epoch_number: u64) -> Capacity {
         let halvings = epoch_number / self.primary_epoch_reward_halving_interval();
         Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halvings)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Primary reward is cut in half every halving_interval epoch
+    /// which will occur approximately every 4 years.
     pub fn primary_epoch_reward_halving_interval(&self) -> EpochNumber {
         self.primary_epoch_reward_halving_interval
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The expected epoch_duration
     pub fn epoch_duration_target(&self) -> u64 {
         self.epoch_duration_target
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The genesis epoch information
     pub fn genesis_epoch_ext(&self) -> &EpochExt {
         &self.genesis_epoch_ext
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The maximum epoch length
     pub fn max_epoch_length(&self) -> BlockNumber {
         MAX_EPOCH_LENGTH
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The minimum epoch length
     pub fn min_epoch_length(&self) -> BlockNumber {
         MIN_EPOCH_LENGTH
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The secondary primary_epoch_reward
+    ///
+    /// [token-issuance](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
     pub fn secondary_epoch_reward(&self) -> Capacity {
         self.secondary_epoch_reward
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The expected orphan_rate
     pub fn orphan_rate_target(&self) -> &RationalU256 {
         &self.orphan_rate_target
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The pow_engine
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The permanent_difficulty mode
     pub fn permanent_difficulty(&self) -> bool {
         self.pow.is_dummy() && self.permanent_difficulty_in_dummy
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The cellbase_maturity
     pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// This parameter indicates the count of past blocks used in the median time calculation
     pub fn median_time_block_count(&self) -> usize {
         self.median_time_block_count
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Maximum cycles that all the scripts in all the commit transactions can take
     pub fn max_block_cycles(&self) -> Cycle {
         self.max_block_cycles
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Maximum number of bytes to use for the entire block
     pub fn max_block_bytes(&self) -> u64 {
         self.max_block_bytes
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The Limit to the number of proposals per block
     pub fn max_block_proposals_limit(&self) -> u64 {
         self.max_block_proposals_limit
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The current block version
     pub fn block_version(&self) -> Version {
         self.block_version
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The current transaction version
     pub fn tx_version(&self) -> Version {
         self.tx_version
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The "TYPE_ID" in hex
     pub fn type_id_code_hash(&self) -> &H256 {
         &self.type_id_code_hash
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The two-step-transaction-confirmation proposal window
     pub fn tx_proposal_window(&self) -> ProposalWindow {
         self.tx_proposal_window
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn bounding_hash_rate(
+    // Apply the dampening filter on hash_rate estimation calculate
+    fn bounding_hash_rate(
         &self,
         last_epoch_hash_rate: U256,
         last_epoch_previous_hash_rate: U256,
@@ -700,8 +718,8 @@ impl Consensus {
         last_epoch_hash_rate
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn bounding_epoch_length(
+    // Apply the dampening filter on epoch_length calculate
+    fn bounding_epoch_length(
         &self,
         length: BlockNumber,
         last_epoch_length: BlockNumber,
@@ -717,7 +735,8 @@ impl Consensus {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The [dynamic-difficulty-adjustment-mechanism](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
+    /// implementation
     pub fn next_epoch_ext<A, B>(
         &self,
         last_epoch: &EpochExt,
@@ -861,13 +880,13 @@ impl Consensus {
         Some(epoch_ext)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The network identify name, used for network identify protocol
     pub fn identify_name(&self) -> String {
         let genesis_hash = format!("{:x}", Unpack::<H256>::unpack(&self.genesis_hash));
         format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// The secp256k1_blake160_sighash_all code hash
     pub fn get_secp_type_script_hash(&self) -> Byte32 {
         let secp_cell_data =
             Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
@@ -897,6 +916,47 @@ impl Consensus {
     }
 }
 
+impl From<Consensus> for ckb_jsonrpc_types::Consensus {
+    fn from(consensus: Consensus) -> Self {
+        Self {
+            id: consensus.id,
+            genesis_hash: consensus.genesis_hash.unpack(),
+            dao_type_hash: consensus.dao_type_hash.map(|h| h.unpack()),
+            secp256k1_blake160_sighash_all_type_hash: consensus
+                .secp256k1_blake160_sighash_all_type_hash
+                .map(|h| h.unpack()),
+            secp256k1_blake160_multisig_all_type_hash: consensus
+                .secp256k1_blake160_multisig_all_type_hash
+                .map(|h| h.unpack()),
+            initial_primary_epoch_reward: consensus.initial_primary_epoch_reward.into(),
+            secondary_epoch_reward: consensus.secondary_epoch_reward.into(),
+            max_uncles_num: (consensus.max_uncles_num as u64).into(),
+            orphan_rate_target: consensus.orphan_rate_target,
+            epoch_duration_target: consensus.epoch_duration_target.into(),
+            tx_proposal_window: ckb_jsonrpc_types::ProposalWindow {
+                closest: consensus.tx_proposal_window.0.into(),
+                farthest: consensus.tx_proposal_window.1.into(),
+            },
+            proposer_reward_ratio: RationalU256::new_raw(
+                consensus.proposer_reward_ratio.numer().into(),
+                consensus.proposer_reward_ratio.denom().into(),
+            ),
+            cellbase_maturity: consensus.cellbase_maturity.into(),
+            median_time_block_count: (consensus.median_time_block_count as u64).into(),
+            max_block_cycles: consensus.max_block_cycles.into(),
+            max_block_bytes: consensus.max_block_bytes.into(),
+            block_version: consensus.block_version.into(),
+            tx_version: consensus.tx_version.into(),
+            type_id_code_hash: consensus.type_id_code_hash,
+            max_block_proposals_limit: consensus.max_block_proposals_limit.into(),
+            primary_epoch_reward_halving_interval: consensus
+                .primary_epoch_reward_halving_interval
+                .into(),
+            permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
+        }
+    }
+}
+
 // most simple and efficient way for now
 fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
@@ -918,6 +978,7 @@ pub mod test {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis, epoch_ext)
@@ -936,6 +997,7 @@ pub mod test {
             DIFF_TWO,
             GENESIS_EPOCH_LENGTH,
             DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_ORPHAN_RATE_TARGET,
         );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis.clone(), epoch_ext)

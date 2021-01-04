@@ -32,7 +32,7 @@ pub fn test_empty() {
     assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::Empty {
-            source: TransactionErrorSource::Inputs,
+            inner: TransactionErrorSource::Inputs,
         }
     );
 }
@@ -105,7 +105,7 @@ pub fn test_capacity_outofbound() {
     assert_error_eq!(
         verifier.verify().unwrap_err(),
         TransactionError::InsufficientCellCapacity {
-            source: TransactionErrorSource::Outputs,
+            inner: TransactionErrorSource::Outputs,
             index: 0,
             capacity: capacity_bytes!(50),
             occupied_capacity: capacity_bytes!(92),
@@ -165,7 +165,7 @@ pub fn test_inputs_cellbase_maturity() {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
                 TransactionError::CellbaseImmaturity {
-                    source: TransactionErrorSource::Inputs,
+                    inner: TransactionErrorSource::Inputs,
                     index: 0
                 },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
@@ -271,7 +271,7 @@ pub fn test_deps_cellbase_maturity() {
             assert_error_eq!(
                 verifier.verify().unwrap_err(),
                 TransactionError::CellbaseImmaturity {
-                    source: TransactionErrorSource::CellDeps,
+                    inner: TransactionErrorSource::CellDeps,
                     index: 0
                 },
                 "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",

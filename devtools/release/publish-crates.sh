@@ -11,7 +11,7 @@ retry_cargo_publish() {
   rm -f Cargo.toml.bak
   sed -i.bak -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' Cargo.toml
 
-  local RETRIES=5
+  local RETRIES=3
   local INTERVAL=2
   local EXITSTATUS=127
   while [ $RETRIES != 0 ]; do
@@ -45,33 +45,18 @@ retry_cargo_publish() {
 }
 
 cp -f Cargo.lock Cargo.lock.bak
-
-PUBLISH_FROM="${CKB_PUBLISH_FROM:-}"
-SKIP=false
-if [ -n "$PUBLISH_FROM" ]; then
-  SKIP=true
-fi
-
 for crate_dir in $CRATES; do
   case "$crate_dir" in
-    benches | util/test-chain-utils )
+    benches | util/test-chain-utils | util/instrument | util/metrics-service | ckb-bin)
       # ignore
       ;;
     *)
-      if [ "$crate_dir" = "$PUBLISH_FROM" ]; then
-        SKIP=false
-      fi
-      if [ "$SKIP" = true ]; then
-        echo "=> skip $crate_dir"
-      else
-        echo "=> publish $crate_dir"
-        pushd "$crate_dir"
-        retry_cargo_publish "$@"
-        popd
-        rm -rf target/package/*
-      fi
+      echo "=> publish $crate_dir"
+      pushd "$crate_dir"
+      retry_cargo_publish "$@"
+      popd
+      rm -rf target/package/*
       ;;
   esac
 done
-retry_cargo_publish "$@"
 mv -f Cargo.lock.bak Cargo.lock

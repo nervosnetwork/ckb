@@ -1,6 +1,7 @@
 //! TODO(doc): @quake
 use crate::db::cf_handle;
-use crate::{internal_error, Col, Result};
+use crate::{internal_error, Result};
+use ckb_db_schema::Col;
 use rocksdb::{OptimisticTransactionDB, WriteBatch};
 use std::sync::Arc;
 

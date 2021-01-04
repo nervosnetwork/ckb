@@ -1,6 +1,7 @@
 use crate::Work;
 use ckb_app_config::MinerClientConfig;
 use ckb_channel::Sender;
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
@@ -8,7 +9,6 @@ use ckb_jsonrpc_types::{
 use ckb_logger::{debug, error, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{packed::Block, H256};
-use failure::Error;
 use futures::sync::{mpsc, oneshot};
 use hyper::error::Error as HyperError;
 use hyper::header::{HeaderValue, CONTENT_TYPE};
@@ -73,7 +73,7 @@ impl Rpc {
 
         Rpc {
             sender,
-            stop: StopHandler::new(SignalSender::Future(stop), thread),
+            stop: StopHandler::new(SignalSender::Future(stop), Some(thread)),
         }
     }
 
@@ -210,7 +210,7 @@ impl Client {
         self.rpc.request(method, params).and_then(parse_response)
     }
 
-    fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), Error> {
+    fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), AnyError> {
         let work: Work = block_template.into();
         self.new_work_tx.send(work)?;
         Ok(())

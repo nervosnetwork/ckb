@@ -1,23 +1,24 @@
-//! TODO(doc): @zhangsoledad
+//! TX verification cache
+
 use ckb_types::{
     core::{Capacity, Cycle},
     packed::Byte32,
 };
 
-/// TODO(doc): @zhangsoledad
+/// TX verification lru cache
 pub type TxVerifyCache = lru::LruCache<Byte32, CacheEntry>;
 
-/// TODO(doc): @zhangsoledad
+/// TX verification lru entry
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CacheEntry {
-    /// TODO(doc): @zhangsoledad
+    /// Cached tx cycles
     pub cycles: Cycle,
-    /// TODO(doc): @zhangsoledad
+    /// Cached tx fee
     pub fee: Capacity,
 }
 
 impl CacheEntry {
-    /// TODO(doc): @zhangsoledad
+    /// Constructs a CacheEntry
     pub fn new(cycles: Cycle, fee: Capacity) -> Self {
         CacheEntry { cycles, fee }
     }

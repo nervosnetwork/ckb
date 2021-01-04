@@ -1,3 +1,5 @@
+use crate::node::waiting_for_sync;
+use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use log::info;
@@ -13,7 +15,7 @@ impl Spec for IndexerBasic {
         let node1 = &nodes[1];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node0");
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node0);
 
         let tip_block = node0.get_tip_block();
         let lock_hash = tip_block.transactions()[0]
@@ -57,16 +59,16 @@ impl Spec for IndexerBasic {
         info!("Generate 3 more blocks on node0 to commit 6 txs");
         let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(6, tx_pool_info.pending.value() as u64);
-        node0.generate_blocks(1);
+        mine(node0, 1);
 
         let tx_pool_info = node0.get_tip_tx_pool_info();
         // in gap
         assert_eq!(6, tx_pool_info.pending.value() as u64);
-        node0.generate_blocks(1);
+        mine(node0, 1);
 
         let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(6, tx_pool_info.proposed.value() as u64);
-        node0.generate_blocks(1);
+        mine(node0, 1);
 
         info!(
             "Live cells size should be 4 (1 + 3), cell transactions size should be 10 (1 + 6 + 3)"
@@ -91,9 +93,9 @@ impl Spec for IndexerBasic {
         assert_eq!(tip_number, cell_transactions[0].created_by.block_number);
 
         info!("Generate 5 blocks on node1 and connect node0 to switch fork");
-        node1.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 6) as usize);
+        mine(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
+        waiting_for_sync(nodes);
         info!("Live cells size should be 5, cell transactions size should be 5");
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);

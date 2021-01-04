@@ -1,43 +1,42 @@
 //! TODO(doc): @keroro520
 
 use crate::generated::packed::{Byte32, OutPoint};
-use ckb_error::{Error, ErrorKind};
-use failure::Fail;
+use ckb_error::{prelude::*, Error, ErrorKind};
 
 /// TODO(doc): @keroro520
-#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum OutPointError {
     /// The specified cell is already dead
-    #[fail(display = "Dead({:?})", _0)]
+    #[error("Dead({0:?})")]
     Dead(OutPoint),
 
     /// The specified cells is unknown in the chain
-    #[fail(display = "Unknown({:?})", _0)]
+    #[error("Unknown({0:?})")]
     Unknown(Vec<OutPoint>),
 
     /// Input or dep cell reference to a newer cell in the same block
     // TODO: Maybe replace with `UnknownInputCell`?
-    #[fail(display = "OutOfOrder({:?})", _0)]
+    #[error("OutOfOrder({0:?})")]
     OutOfOrder(OutPoint),
 
     /// The output is referenced as a dep-group output, but the data
     /// is invalid format
-    #[fail(display = "InvalidDepGroup({:?})", _0)]
+    #[error("InvalidDepGroup({0:?})")]
     InvalidDepGroup(OutPoint),
 
     // TODO: This error should be move into HeaderError or TransactionError
     /// TODO(doc): @keroro520
-    #[fail(display = "InvalidHeader({})", _0)]
+    #[error("InvalidHeader({0})")]
     InvalidHeader(Byte32),
 
     // TODO: This error should be move into HeaderError or TransactionError
     /// TODO(doc): @keroro520
-    #[fail(display = "ImmatureHeader({})", _0)]
+    #[error("ImmatureHeader({0})")]
     ImmatureHeader(Byte32),
 }
 
 impl From<OutPointError> for Error {
     fn from(error: OutPointError) -> Self {
-        error.context(ErrorKind::OutPoint).into()
+        ErrorKind::OutPoint.because(error)
     }
 }

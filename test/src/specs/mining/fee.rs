@@ -1,10 +1,15 @@
 use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
+use crate::util::cell::{as_input, gen_spendable};
 use crate::util::check::is_transaction_committed;
-use crate::utils::generate_utxo_set;
+use crate::util::mining::mine;
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
+use ckb_types::core::TransactionBuilder;
+use ckb_types::packed::CellOutput;
 use ckb_types::prelude::*;
+use rand::{thread_rng, Rng};
 
 pub struct FeeOfTransaction;
 
@@ -21,14 +26,15 @@ impl Spec for FeeOfTransaction {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
+        let cells = gen_spendable(node, 1);
+        let transaction = always_success_transaction(node, &cells[0]);
+        node.submit_transaction(&transaction);
+
+        let txs = vec![transaction];
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
-
-        let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
-        node.submit_transaction(&txs[0]);
-
         let number_to_propose = node.get_tip_block_number() + 1;
         let number_to_commit = number_to_propose + closest;
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -55,16 +61,36 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
     //      `block[i + 1 + FINALIZATION_DELAY_LENGTH]`
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        let mut rng = thread_rng();
         let node = &nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
-        let txs = generate_utxo_set(node, max_block_proposals_limit as usize)
-            .bang_random_fee(vec![node.always_success_cell_dep()]);
+        let cells = gen_spendable(node, max_block_proposals_limit as usize);
+        let txs: Vec<_> = cells
+            .into_iter()
+            .map(|cell| {
+                let minimal_capacity = cell.occupied_capacity().unwrap().as_u64();
+                let maximal_capacity = cell.capacity().as_u64();
+                let random_capacity = rng.gen_range(minimal_capacity, maximal_capacity + 1);
+                let output = CellOutput::new_builder()
+                    .capacity(random_capacity.pack())
+                    .lock(cell.cell_output.lock())
+                    .type_(cell.cell_output.type_())
+                    .build();
+                TransactionBuilder::default()
+                    .input(as_input(&cell))
+                    .output(output)
+                    .output_data(Default::default())
+                    .cell_dep(node.always_success_cell_dep())
+                    .build()
+            })
+            .collect();
+
         txs.iter().for_each(|tx| {
             node.submit_transaction(tx);
         });
 
         let number_to_propose = node.get_tip_block_number() + 1;
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -88,12 +114,31 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
     //      contains `MAX_BLOCK_PROPOSALS_LIMIT` transactions
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        let mut rng = thread_rng();
         let node = &nodes[0];
         let max_block_proposals_limit = node.consensus().max_block_proposals_limit();
 
         let multiple = 3;
-        let txs = generate_utxo_set(node, (multiple * max_block_proposals_limit) as usize)
-            .bang_random_fee(vec![node.always_success_cell_dep()]);
+        let cells = gen_spendable(node, multiple * max_block_proposals_limit as usize);
+        let txs: Vec<_> = cells
+            .into_iter()
+            .map(|cell| {
+                let minimal_capacity = cell.occupied_capacity().unwrap().as_u64();
+                let maximal_capacity = cell.capacity().as_u64();
+                let random_capacity = rng.gen_range(minimal_capacity, maximal_capacity + 1);
+                let output = CellOutput::new_builder()
+                    .capacity(random_capacity.pack())
+                    .lock(cell.cell_output.lock())
+                    .type_(cell.cell_output.type_())
+                    .build();
+                TransactionBuilder::default()
+                    .input(as_input(&cell))
+                    .output(output)
+                    .output_data(Default::default())
+                    .cell_dep(node.always_success_cell_dep())
+                    .build()
+            })
+            .collect();
         txs.iter().for_each(|tx| {
             node.submit_transaction(tx);
         });
@@ -108,7 +153,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
                 max_block_proposals_limit,
             );
         });
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);
@@ -130,10 +175,11 @@ impl Spec for ProposeButNotCommit {
         let target_node = &nodes[0];
         let feed_node = &nodes[1];
 
-        let txs = generate_utxo_set(feed_node, 1)
-            .bang_random_fee(vec![feed_node.always_success_cell_dep()]);
+        let cells = gen_spendable(feed_node, 1);
+        let transaction = always_success_transaction(feed_node, &cells[0]);
+        let txs = vec![transaction];
         feed_node.submit_transaction(&txs[0]);
-        feed_node.generate_block();
+        mine(&feed_node, 1);
 
         let feed_blocks: Vec<_> = (1..feed_node.get_tip_block_number())
             .map(|number| feed_node.get_block_by_number(number))
@@ -142,7 +188,7 @@ impl Spec for ProposeButNotCommit {
         feed_blocks.iter().for_each(|block| {
             target_node.submit_block(&block);
         });
-        target_node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(target_node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(!is_transaction_committed(target_node, &txs[0]));
     }
@@ -155,7 +201,9 @@ impl Spec for ProposeDuplicated {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        let txs = generate_utxo_set(node, 1).bang_random_fee(vec![node.always_success_cell_dep()]);
+        let cells = gen_spendable(node, 1);
+        let tx = always_success_transaction(node, &cells[0]);
+        let txs = vec![tx];
         let tx = &txs[0];
 
         let uncle1 = {
@@ -164,7 +212,7 @@ impl Spec for ProposeDuplicated {
                 .proposal(tx.proposal_short_id())
                 .build()
                 .as_uncle();
-            node.generate_block();
+            mine(&node, 1);
             uncle
         };
         let uncle2 = {
@@ -174,7 +222,7 @@ impl Spec for ProposeDuplicated {
                 .nonce(99999.pack())
                 .build()
                 .as_uncle();
-            node.generate_block();
+            mine(&node, 1);
             uncle
         };
 
@@ -183,10 +231,10 @@ impl Spec for ProposeDuplicated {
             .uncle(uncle1)
             .uncle(uncle2)
             .build();
-        node.submit_transaction(tx);
+        node.submit_transaction(&tx);
         node.submit_block(&block);
 
-        node.generate_blocks(2 * FINALIZATION_DELAY_LENGTH as usize);
+        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         assert_chain_rewards(node);

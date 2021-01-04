@@ -1,4 +1,5 @@
 use ckb_channel::select;
+use ckb_jsonrpc_types::Topic;
 use ckb_logger::error;
 use ckb_notify::NotifyController;
 use jsonrpc_core::{futures::Future, Metadata, Result};
@@ -7,7 +8,6 @@ use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
     PubSubMetadata, Session, SubscriptionId,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -38,14 +38,6 @@ impl PubSubMetadata for SubscriptionSession {
     fn session(&self) -> Option<Arc<Session>> {
         Some(Arc::clone(&self.session))
     }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum Topic {
-    NewTipHeader,
-    NewTipBlock,
-    NewTransaction,
 }
 
 /// RPC Module Subscription that CKB node will push new messages to subscribers.

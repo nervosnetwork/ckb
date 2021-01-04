@@ -8,8 +8,9 @@ use crate::{
     TIME_TRACE_SIZE,
 };
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::ChainController;
+use ckb_chain::{chain::ChainController, switch::Switch};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
 use ckb_metrics::{metrics, Timer};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
@@ -19,14 +20,13 @@ use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    H256, U256,
 };
 use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::cmp;
@@ -1173,7 +1173,7 @@ type PendingCompactBlockMap = HashMap<
     ),
 >;
 
-/// TODO(doc): @driftluo
+/// Sync state shared between sync and relayer protocol
 #[derive(Clone)]
 pub struct SyncShared {
     shared: Shared,
@@ -1181,12 +1181,12 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
-    /// TODO(doc): @driftluo
+    /// only use on test
     pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
     }
 
-    /// TODO(doc): @driftluo
+    /// Generate a global sync state through configuration
     pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1224,6 +1224,8 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_hashes: Mutex::new(HashMap::default()),
+            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            min_chain_work: sync_config.min_chain_work,
         };
 
         SyncShared {
@@ -1232,12 +1234,12 @@ impl SyncShared {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Shared chain db/config
     pub fn shared(&self) -> &Shared {
         &self.shared
     }
 
-    /// TODO(doc): @driftluo
+    /// Get snapshot with current chain
     pub fn active_chain(&self) -> ActiveChain {
         ActiveChain {
             shared: self.clone(),
@@ -1246,27 +1248,27 @@ impl SyncShared {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get chain store
     pub fn store(&self) -> &ChainDB {
         self.shared.store()
     }
 
-    /// TODO(doc): @driftluo
+    /// Get sync state
     pub fn state(&self) -> &SyncState {
         &self.state
     }
 
-    /// TODO(doc): @driftluo
+    /// Get consensus config
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
 
-    /// TODO(doc): @driftluo
+    /// Insert new block to chain store
     pub fn insert_new_block(
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<bool, AnyError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         if !self.is_parent_stored(&block) {
             debug!(
@@ -1291,7 +1293,7 @@ impl SyncShared {
         ret
     }
 
-    /// TODO(doc): @driftluo
+    /// Try search orphan pool with current tip header hash
     pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
         let descendants = self.state.remove_orphan_by_parent(parent_hash);
         debug!(
@@ -1327,8 +1329,23 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, FailureError> {
-        let ret = chain.process_block(Arc::clone(&block));
+    ) -> Result<bool, AnyError> {
+        let ret = {
+            let mut assume_valid_target = self.state.assume_valid_target();
+            if let Some(ref target) = *assume_valid_target {
+                // if the target has been reached, delete it
+                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                    assume_valid_target.take();
+                    Switch::NONE
+                } else {
+                    Switch::DISABLE_SCRIPT
+                };
+
+                chain.internal_process_block(Arc::clone(&block), switch)
+            } else {
+                chain.process_block(Arc::clone(&block))
+            }
+        };
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
             self.state
@@ -1347,7 +1364,7 @@ impl SyncShared {
         Ok(ret?)
     }
 
-    /// TODO(doc): @driftluo
+    /// Sync a new valid header, try insert to sync state
     // Update the header_map
     // Update the block_status_map
     // Update the shared_best_header if need
@@ -1389,7 +1406,7 @@ impl SyncShared {
         self.state.may_set_shared_best_header(header_view);
     }
 
-    /// TODO(doc): @driftluo
+    /// Get header view with hash
     pub fn get_header_view(
         &self,
         hash: &Byte32,
@@ -1416,7 +1433,7 @@ impl SyncShared {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get header with hash
     pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
         self.state
             .header_map
@@ -1425,14 +1442,14 @@ impl SyncShared {
             .or_else(|| self.store().get_block_header(hash))
     }
 
-    /// TODO(doc): @driftluo
+    /// Check whether block's parent has been inserted to chain store
     pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
         self.store()
             .get_block_header(&block.data().header().raw().parent_hash())
             .is_some()
     }
 
-    /// TODO(doc): @driftluo
+    /// Get epoch ext by block hash
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
         self.store().get_block_epoch(&hash)
     }
@@ -1475,9 +1492,25 @@ pub struct SyncState {
 
     /* cached for sending bulk */
     tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
+    assume_valid_target: Mutex<Option<H256>>,
+    min_chain_work: U256,
 }
 
 impl SyncState {
+    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
+        self.assume_valid_target.lock()
+    }
+
+    pub fn min_chain_work(&self) -> &U256 {
+        &self.min_chain_work
+    }
+
+    pub fn min_chain_work_ready(&self) -> bool {
+        self.shared_best_header
+            .read()
+            .is_better_than(&self.min_chain_work)
+    }
+
     pub fn n_sync_started(&self) -> &AtomicUsize {
         &self.n_sync_started
     }
@@ -1539,6 +1572,10 @@ impl SyncState {
 
     pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderView> {
         self.shared_best_header.read()
+    }
+
+    pub fn header_map(&self) -> &HeaderMap {
+        &self.header_map
     }
 
     pub fn may_set_shared_best_header(&self, header: HeaderView) {

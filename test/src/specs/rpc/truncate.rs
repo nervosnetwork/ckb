@@ -1,3 +1,6 @@
+use crate::util::cell::gen_spendable;
+use crate::util::mining::mine;
+use crate::util::transaction::always_success_transactions;
 use crate::{Node, Spec};
 
 pub struct RpcTruncate;
@@ -6,19 +9,17 @@ impl Spec for RpcTruncate {
     // After truncating, the chain will be rollback to the target block, and tx-pool be cleared.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks(12);
+
+        let cells = gen_spendable(node, 2);
+        let transactions = always_success_transactions(node, &cells);
+        let tx1 = &transactions[0];
+        let tx2 = &transactions[1];
+
         let to_truncate = node.get_block_by_number(node.get_tip_block_number()).hash();
-        let tx1 = {
-            let tx1 = node.new_transaction_spend_tip_cellbase();
-            node.submit_transaction(&tx1);
-            tx1
-        };
-        node.generate_blocks(3);
-        let _tx2 = {
-            let tx2 = node.new_transaction_spend_tip_cellbase();
-            node.submit_transaction(&tx2);
-            tx2
-        };
+
+        node.submit_transaction(&tx1);
+        mine(node, 3);
+        node.submit_transaction(&tx2);
 
         // tx1 is already committed on chain, tx2 is still in tx-pool.
 
@@ -66,9 +67,9 @@ impl Spec for RpcTruncate {
         assert_eq!(tx_pool_info.total_tx_size.value(), 0, "tx-pool was cleared");
 
         // The chain can generate new blocks
-        node.generate_blocks(3);
+        mine(node, 3);
         node.submit_transaction(&tx1);
-        node.generate_blocks(3);
+        mine(node, 3);
         let cell1 = node
             .rpc_client()
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);

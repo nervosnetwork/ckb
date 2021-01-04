@@ -1,6 +1,6 @@
 [package]
 name = "ckb-store"
-version = "0.38.1"
+version = "0.39.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,11 +9,12 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.38.1" }
-ckb-db = { path = "../db", version = "= 0.38.1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.38.1" }
+ckb-types = { path = "../util/types", version = "= 0.39.0" }
+ckb-db = { path = "../db", version = "= 0.39.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.39.0" }
 lru = "0.6.0"
-ckb-traits = { path = "../traits", version = "= 0.38.1" }
-ckb-util = { path = "../util", version = "= 0.38.1" }
-ckb-error = { path = "../error", version = "= 0.38.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.38.1" }
+ckb-traits = { path = "../traits", version = "= 0.39.0" }
+ckb-util = { path = "../util", version = "= 0.39.0" }
+ckb-error = { path = "../error", version = "= 0.39.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.39.0" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.39.0" }

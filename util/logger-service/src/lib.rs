@@ -46,6 +46,7 @@ pub struct Logger {
     sender: ckb_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
     filter: sync::Arc<RwLock<Filter>>,
+    #[cfg(feature = "with_sentry")]
     emit_sentry_breadcrumbs: bool,
     extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
 }
@@ -302,6 +303,7 @@ impl Logger {
             sender,
             handle: Mutex::new(Some(tb)),
             filter,
+            #[cfg(feature = "with_sentry")]
             emit_sentry_breadcrumbs: config.emit_sentry_breadcrumbs.unwrap_or_default(),
             extra_loggers,
         }
@@ -416,6 +418,7 @@ impl Log for Logger {
             })
             .collect::<Vec<_>>();
         if is_match || !extras.is_empty() {
+            #[cfg(feature = "with_sentry")]
             if self.emit_sentry_breadcrumbs {
                 use sentry::{add_breadcrumb, integrations::log::breadcrumb_from_record};
                 add_breadcrumb(|| breadcrumb_from_record(record));

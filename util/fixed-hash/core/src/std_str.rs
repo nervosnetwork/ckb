@@ -94,7 +94,7 @@ macro_rules! impl_from_trimmed_str {
             #[doc = $use_stmt]
             #[doc = $bytes_size_stmt]
             ///
-            /// let mut inner = [0u8; bytes_size];
+            /// let mut inner = [0u8; BYTES_SIZE];
             ///
             /// {
             ///     let actual = Hash(inner.clone());
@@ -105,7 +105,7 @@ macro_rules! impl_from_trimmed_str {
             /// }
             ///
             /// {
-            ///     inner[bytes_size - 1] = 1;
+            ///     inner[BYTES_SIZE - 1] = 1;
             ///     let actual = Hash(inner);
             ///     let expected = Hash::from_trimmed_str("1").unwrap();
             ///     assert_eq!(actual, expected);
@@ -166,7 +166,7 @@ macro_rules! impl_from_trimmed_str {
             $name,
             $bytes_size,
             concat!("use ckb_fixed_hash_core::", stringify!($name), " as Hash;"),
-            concat!("const bytes_size: usize = ", stringify!($bytes_size), ";")
+            concat!("const BYTES_SIZE: usize = ", stringify!($bytes_size), ";")
         );
     }
 }

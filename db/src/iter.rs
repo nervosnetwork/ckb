@@ -1,9 +1,10 @@
 //! TODO(doc): @quake
 use crate::db::cf_handle;
 use crate::{
-    internal_error, Col, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
+    internal_error, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
     RocksDBTransactionSnapshot,
 };
+use ckb_db_schema::Col;
 use rocksdb::{ops::IterateCF, ReadOptions};
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
 

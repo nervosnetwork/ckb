@@ -1,13 +1,12 @@
 use crate::global::binary;
 use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
-use crate::{DEFAULT_TX_PROPOSAL_WINDOW, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
+use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_types::{
-    bytes::Bytes,
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
         ScriptHashType, TransactionView,
@@ -15,14 +14,14 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
+use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Child, Command, Stdio};
 use std::thread::sleep;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 struct ProcessGuard(pub Child);
 
@@ -266,23 +265,6 @@ impl Node {
         }
     }
 
-    // TODO it will be removed out later, in another PR
-    pub fn waiting_for_sync(&self, peer: &Self, target: BlockNumber) {
-        let (mut self_tip_number, mut peer_tip_number) = (0, 0);
-        // 60 seconds is a reasonable timeout to sync, even for poor CI server
-        let synced = wait_until(60, || {
-            self_tip_number = self.get_tip_block_number();
-            peer_tip_number = peer.get_tip_block_number();
-            self_tip_number == peer_tip_number && target == self_tip_number
-        });
-        if !synced {
-            panic!(
-                "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
-                self_tip_number, peer_tip_number
-            );
-        }
-    }
-
     pub fn submit_block(&self, block: &BlockView) -> Byte32 {
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
@@ -293,19 +275,6 @@ impl Node {
         self.rpc_client()
             .process_block_without_verify(block.data().into(), broadcast)
             .unwrap()
-    }
-
-    pub fn generate_blocks(&self, blocks_num: usize) -> Vec<Byte32> {
-        (0..blocks_num).map(|_| self.generate_block()).collect()
-    }
-
-    pub fn generate_blocks_until_contains_valid_cellbase(&self) -> Vec<Byte32> {
-        self.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize)
-    }
-
-    // generate a new block and submit it through rpc.
-    pub fn generate_block(&self) -> Byte32 {
-        self.rpc_client().generate_block()
     }
 
     // Convenient way to construct an uncle block
@@ -459,28 +428,6 @@ impl Node {
             .build()
     }
 
-    pub fn new_transaction_with_fee_and_size(
-        &self,
-        parent_tx: &TransactionView,
-        fee: Capacity,
-        tx_size: usize,
-    ) -> TransactionView {
-        let input_capacity: Capacity = parent_tx
-            .outputs()
-            .get(0)
-            .expect("parent output")
-            .capacity()
-            .unpack();
-        let capacity = input_capacity.safe_sub(fee).unwrap();
-        let tx = self.new_transaction_with_since_capacity(parent_tx.hash(), 0, capacity);
-        let original_tx_size = tx.data().serialized_size_in_block();
-        tx.as_advanced_builder()
-            .set_outputs_data(vec![
-                Bytes::from(vec![0u8; tx_size - original_tx_size]).pack()
-            ])
-            .build()
-    }
-
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
         let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), pending_size);
@@ -608,23 +555,15 @@ pub fn disconnect_all(nodes: &[Node]) {
 }
 
 // TODO it will be removed out later, in another PR
-// generate a same block on all nodes, exit IBD mode and return the tip block
-pub fn exit_ibd_mode(nodes: &[Node]) -> BlockView {
-    let block = nodes[0].new_block(None, None, None);
-    nodes.iter().for_each(|node| {
-        node.submit_block(&block);
-    });
-    block
-}
-
-// TODO it will be removed out later, in another PR
-pub fn waiting_for_sync(nodes: &[Node]) {
-    let mut tip_headers: HashSet<HeaderView> = HashSet::with_capacity(nodes.len());
+pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
+    let mut tip_headers: HashSet<ckb_jsonrpc_types::HeaderView> =
+        HashSet::with_capacity(nodes.len());
     // 60 seconds is a reasonable timeout to sync, even for poor CI server
     let synced = wait_until(60, || {
         tip_headers = nodes
+            .as_ref()
             .iter()
-            .map(|node| node.rpc_client().get_tip_header().into())
+            .map(|node| node.borrow().rpc_client().get_tip_header())
             .collect();
         tip_headers.len() == 1
     });

@@ -1,10 +1,12 @@
-//! TODO(doc): @zhangsoledad
+//! Rocksdb snapshot wrapper
+
 use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, IteratorMode},
-    Col, DBPinnableSlice,
+    DBPinnableSlice,
 };
+use ckb_db_schema::Col;
 use ckb_error::Error;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
@@ -21,32 +23,31 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @zhangsoledad
+/// An Atomic wrapper for Snapshot
 pub struct SnapshotMgr {
     inner: ArcSwap<Snapshot>,
 }
 
 impl SnapshotMgr {
-    /// TODO(doc): @zhangsoledad
+    /// Create new SnapshotMgr
     pub fn new(snapshot: Arc<Snapshot>) -> Self {
         SnapshotMgr {
             inner: ArcSwap::new(snapshot),
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Provides a temporary borrow of snapshot
     pub fn load(&self) -> Guard<Arc<Snapshot>> {
         self.inner.load()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Replaces the snapshot inside this instance.
     pub fn store(&self, snapshot: Arc<Snapshot>) {
         self.inner.store(snapshot);
     }
 }
 
-/// TODO(doc): @zhangsoledad
-// A snapshot captures a point-in-time view of the DB at the time it's created
+/// A snapshot captures a point-in-time view of the DB at the time it's created
 //
 //                   yes —— new snapshot
 //                   /                    \
@@ -63,8 +64,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// TODO(doc): @zhangsoledad
-    // New snapshot created after tip change
+    /// New snapshot created after tip change
     pub fn new(
         tip_header: HeaderView,
         total_difficulty: U256,
@@ -83,10 +83,9 @@ impl Snapshot {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
-    // Refreshing on block commit is necessary operation, even tip remains unchanged.
-    // when node relayed compact block,if some uncles were not available from receiver's local sources,
-    // in GetBlockTransactions/BlockTransactions roundtrip, node will need access block data of uncles.
+    /// Refreshing on block commit is necessary operation, even tip remains unchanged.
+    /// when node relayed compact block,if some uncles were not available from receiver's local sources,
+    /// in GetBlockTransactions/BlockTransactions roundtrip, node will need access block data of uncles.
     pub fn refresh(&self, store: StoreSnapshot) -> Snapshot {
         Snapshot {
             store,
@@ -98,47 +97,47 @@ impl Snapshot {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return reference of tip header
     pub fn tip_header(&self) -> &HeaderView {
         &self.tip_header
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return tip header number
     pub fn tip_number(&self) -> BlockNumber {
         self.tip_header.number()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return tip header hash
     pub fn tip_hash(&self) -> Byte32 {
         self.tip_header.hash()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return current epoch information
     pub fn epoch_ext(&self) -> &EpochExt {
         &self.epoch_ext
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return reference of `Consensus`
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Makes a clone of the `Arc<Consensus>`
     pub fn cloned_consensus(&self) -> Arc<Consensus> {
         Arc::clone(&self.consensus)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return reference of proposals view
     pub fn proposals(&self) -> &ProposalView {
         &self.proposals
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Return current best chain total_difficulty
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Shortcuts for calculate block reward, invoke RewardCalculator
     pub fn finalize_block_reward(
         &self,
         parent: &HeaderView,

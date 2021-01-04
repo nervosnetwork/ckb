@@ -61,6 +61,8 @@ pub enum StatusCode {
     CompactBlockRequiresFreshTransactions = 107,
     /// CompactBlock short-ids collision
     CompactBlockMeetsShortIdsCollision = 108,
+    /// In-flight blocks limit exceeded
+    BlocksInFlightReachLimit = 109,
 
     ///////////////////////////////////
     //      Malformed Errors 4xx     //
@@ -106,18 +108,16 @@ pub enum StatusCode {
     TxPool = 501,
     /// Errors returned from the network layer
     Network = 502,
-    /// In-flight blocks limit exceeded
-    BlocksInFlightReachLimit = 503,
 }
 
 impl StatusCode {
-    /// TODO(doc): @driftluo
+    /// Code with context
     pub fn with_context<S: ToString>(self, context: S) -> Status {
         Status::new(self, Some(context))
     }
 }
 
-/// TODO(doc): @driftluo
+/// Process message status
 #[derive(Clone, Debug, Eq)]
 pub struct Status {
     code: StatusCode,
@@ -125,7 +125,7 @@ pub struct Status {
 }
 
 impl Status {
-    /// TODO(doc): @driftluo
+    /// New with code
     pub fn new<S: ToString>(code: StatusCode, context: Option<S>) -> Self {
         Self {
             code,
@@ -133,22 +133,22 @@ impl Status {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Ok status
     pub fn ok() -> Self {
         Self::new::<&str>(StatusCode::OK, None)
     }
 
-    /// TODO(doc): @driftluo
+    /// Ignored status
     pub fn ignored() -> Self {
         Self::new::<&str>(StatusCode::Ignored, None)
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether ok
     pub fn is_ok(&self) -> bool {
         self.code == StatusCode::OK
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether should ban session
     pub fn should_ban(&self) -> Option<Duration> {
         if !(400..500).contains(&(self.code as u16)) {
             return None;
@@ -159,12 +159,12 @@ impl Status {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether should output a warning log
     pub fn should_warn(&self) -> bool {
         self.code as u16 >= 500
     }
 
-    /// TODO(doc): @driftluo
+    /// Status code
     pub fn code(&self) -> StatusCode {
         self.code
     }

@@ -125,7 +125,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
                  # code_hash = \"{}\"\n\
-                 # args = \"ckb cli blake160 <compressed-pubkey>\"\n\
+                 # args = \"ckb-cli util blake2b --prefix-160 <compressed-pubkey>\"\n\
                  # hash_type = \"{}\"\n\
                  # message = \"A 0x-prefixed hex string\"",
                 default_code_hash_option.unwrap_or_default(),

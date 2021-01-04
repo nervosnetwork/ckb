@@ -6,6 +6,9 @@
 //! * personalization: ckb-default-hash
 //!
 //! [blake2b]: https://blake2.net/blake2.pdf
+#[cfg(target_arch = "wasm32")]
+pub use blake2b_ref::{Blake2b, Blake2bBuilder};
+#[cfg(not(target_arch = "wasm32"))]
 pub use blake2b_rs::{Blake2b, Blake2bBuilder};
 
 #[doc(hidden)]

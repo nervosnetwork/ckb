@@ -2,6 +2,7 @@ use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
 use crate::util::check::is_transaction_committed;
+use crate::util::mining::mine;
 use crate::utils::generate_utxo_set;
 use crate::{Node, Spec};
 use ckb_chain_spec::IssuedCell;
@@ -45,9 +46,9 @@ impl Spec for DAOWithSatoshiCellOccupied {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         let satoshi_cell = issue_satoshi_cell();
         spec.genesis.issued_cells.push(satoshi_cell);
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
 
@@ -66,7 +67,7 @@ impl Default for SpendSatoshiCell {
 impl SpendSatoshiCell {
     pub fn new() -> Self {
         let (privkey, pubkey) = Generator::random_keypair();
-        let satoshi_cell_occupied_ratio = Ratio(6, 10);
+        let satoshi_cell_occupied_ratio = Ratio::new(6, 10);
 
         SpendSatoshiCell {
             privkey,
@@ -118,11 +119,11 @@ impl Spec for SpendSatoshiCell {
             .witness(witness.pack())
             .build();
 
-        node0.generate_blocks(1);
+        mine(node0, 1);
         node0
             .rpc_client()
             .send_transaction(transaction.data().into());
-        node0.generate_blocks(3);
+        mine(node0, 3);
         // cellbase occupied capacity minus satoshi cell
         let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
         assert!(is_transaction_committed(node0, &transaction));
@@ -141,9 +142,9 @@ impl Spec for SpendSatoshiCell {
         let satoshi_cell_occupied_ratio = self.satoshi_cell_occupied_ratio;
         spec.genesis.issued_cells.push(issue_satoshi_cell());
         spec.genesis.satoshi_gift.satoshi_cell_occupied_ratio = satoshi_cell_occupied_ratio;
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
 

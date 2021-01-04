@@ -1,5 +1,5 @@
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-
+use crate::util::mining::mine_until_out_bootstrap_period;
+use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{
     packed::{CellInput, OutPoint},
@@ -14,7 +14,7 @@ impl Spec for SendArrowTxs {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node0);
         // build arrow txs
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];
         while txs.len() < MAX_ANCESTORS_COUNT + 1 {

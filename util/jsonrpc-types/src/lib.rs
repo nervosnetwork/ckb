@@ -13,6 +13,7 @@ mod net;
 mod pool;
 mod primitive;
 mod proposal_short_id;
+mod subscription;
 mod sync;
 mod uints;
 
@@ -22,9 +23,9 @@ pub use self::block_template::{
 };
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockReward, BlockView, CellDep, CellInput,
-    CellOutput, DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, Script,
-    ScriptHashType, Status, Transaction, TransactionProof, TransactionView, TransactionWithStatus,
-    TxStatus, UncleBlock, UncleBlockView,
+    CellOutput, Consensus, DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward,
+    OutPoint, ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof,
+    TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellOutputWithOutPoint, CellWithStatus};
@@ -39,8 +40,12 @@ pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,
 };
-pub use self::pool::{OutputsValidator, PoolTransactionEntry, TxPoolInfo};
+pub use self::pool::{
+    OutputsValidator, PoolTransactionEntry, RawTxPool, TxPoolIds, TxPoolInfo, TxPoolVerbosity,
+    TxVerbosity,
+};
 pub use self::proposal_short_id::ProposalShortId;
+pub use self::subscription::Topic;
 pub use self::sync::PeerState;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};

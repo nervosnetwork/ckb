@@ -6,19 +6,6 @@ use crate::error::{
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, ErrorKind,
 };
-use failure::{Context, Fail};
-
-impl From<HeaderErrorKind> for HeaderError {
-    fn from(kind: HeaderErrorKind) -> Self {
-        Context::new(kind).into()
-    }
-}
-
-impl From<BlockErrorKind> for BlockError {
-    fn from(kind: BlockErrorKind) -> Self {
-        Context::new(kind).into()
-    }
-}
 
 impl_error_conversion_with_kind!(TransactionError, ErrorKind::Transaction, Error);
 impl_error_conversion_with_kind!(HeaderError, ErrorKind::Header, Error);

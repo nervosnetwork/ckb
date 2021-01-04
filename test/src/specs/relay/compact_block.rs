@@ -1,9 +1,12 @@
-use crate::node::exit_ibd_mode;
+use crate::node::waiting_for_sync;
+use crate::util::cell::gen_spendable;
+use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, wait_until,
 };
-use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec};
 use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_test_chain_utils::MockStore;
@@ -26,7 +29,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node = &nodes[0];
         let mut net = Net::new(
             self.name(),
@@ -35,7 +38,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         );
         net.connect(node);
 
-        node.generate_block();
+        mine(&node, 1);
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
@@ -72,7 +75,7 @@ impl Spec for CompactBlockEmpty {
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -97,24 +100,23 @@ impl Spec for CompactBlockPrefilled {
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
-        // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Relay a block contains `new_tx` as committed
         let new_block = node
@@ -142,7 +144,7 @@ impl Spec for CompactBlockMissingFreshTxs {
     // these missing txs
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -150,15 +152,15 @@ impl Spec for CompactBlockMissingFreshTxs {
         );
         net.connect(node);
 
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Relay a block contains `new_tx` as committed, but not include in prefilled
         let new_block = node
@@ -200,24 +202,24 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     //    successful to reconstruct the target block and grow up.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
         net.connect(node);
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
         // Build the target transaction
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(3);
+        mine(node, 3);
 
         // Generate the target block which contains the target transaction as a committed transaction
         let new_block = node
@@ -245,7 +247,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let node0 = &nodes[0];
         let mut net = Net::new(
             self.name(),
@@ -255,9 +257,9 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node0);
         let node1 = &nodes[1];
         net.connect(node1);
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
 
-        let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash());
+        let cells = gen_spendable(node0, 1);
+        let new_tx = always_success_transaction(node0, &cells[0]);
         node0.submit_block(
             &node0
                 .new_block_builder(None, None, None)
@@ -265,12 +267,12 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
                 .build(),
         );
         // Proposal a tx, and grow up into proposal window
-        node0.generate_blocks(6);
+        mine(node0, 6);
 
         // Make node0 and node1 reach the same height
-        node1.generate_block();
+        mine(&node1, 1);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, node0.get_tip_block().header().number());
+        waiting_for_sync(&[node0, node1]);
 
         // Construct a new block contains one transaction
         let block = node0
@@ -298,7 +300,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
         node1.submit_block(&block);
-        node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
+        waiting_for_sync(&[node0, node1]);
     }
 }
 
@@ -311,18 +313,18 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // orphan_block_pool now
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
 
-        node.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
         // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction_spend_tip_cellbase();
+        let cells = gen_spendable(node, 1);
+        let new_tx = always_success_transaction(node, &cells[0]);
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        node.generate_blocks(6);
+        mine(node, 6);
 
         let consensus = node.consensus();
         let mock_store = MockStore::default();
@@ -468,7 +470,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
@@ -478,7 +480,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
 
         assert_eq!(node0.get_tip_block(), node1.get_tip_block());
         let old_tip = node1.get_tip_block_number();
-        node1.generate_blocks(10);
+        mine(node1, 10);
         let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
             .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
             .collect();

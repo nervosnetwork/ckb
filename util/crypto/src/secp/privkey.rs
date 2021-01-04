@@ -7,7 +7,7 @@ use secp256k1::Message as SecpMessage;
 use std::str::FromStr;
 use std::{ptr, sync::atomic};
 
-/// TODO(doc): @zhangsoledad
+/// Wrapped private 256-bit key used as x in an ECDSA signature
 #[derive(Clone, Eq, PartialEq)]
 pub struct Privkey {
     /// ECDSA key.
@@ -15,7 +15,7 @@ pub struct Privkey {
 }
 
 impl Privkey {
-    /// sign recoverable
+    /// Constructs a signature for message using the Privkey and RFC6979 nonce Requires a signing-capable context.
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
@@ -26,7 +26,7 @@ impl Privkey {
         Ok(Signature::from_compact(rec_id, data))
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new Pubkey from a Privkey.
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
         let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
@@ -34,7 +34,11 @@ impl Privkey {
         Ok(Pubkey::from(pubkey))
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new Privkey from a slice
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the key slice length is not equal 32 .
     pub fn from_slice(key: &[u8]) -> Self {
         assert_eq!(32, key.len(), "should provide 32-byte length slice");
 

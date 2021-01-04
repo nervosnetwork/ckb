@@ -11,15 +11,21 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 
-/// TODO(doc): @zhangsoledad
-//TODO: cellbase, witness
+/// Block verifier that are independent of context.
+///
+/// Contains:
+/// - [`CellbaseVerifier`](./struct.CellbaseVerifier.html)
+/// - [`BlockBytesVerifier`](./struct.BlockBytesVerifier.html)
+/// - [`BlockProposalsLimitVerifier`](./struct.BlockProposalsLimitVerifier.html)
+/// - [`DuplicateVerifier`](./struct.DuplicateVerifier.html)
+/// - [`MerkleRootVerifier`](./struct.MerkleRootVerifier.html)
 #[derive(Clone)]
 pub struct BlockVerifier<'a> {
     consensus: &'a Consensus,
 }
 
 impl<'a> BlockVerifier<'a> {
-    /// TODO(doc): @zhangsoledad
+    /// Constructs a BlockVerifier
     pub fn new(consensus: &'a Consensus) -> Self {
         BlockVerifier { consensus }
     }
@@ -39,10 +45,18 @@ impl<'a> Verifier for BlockVerifier<'a> {
     }
 }
 
+/// Cellbase verifier
+///
+/// First transaction must be cellbase, the rest must not be.
+/// Cellbase outputs/outputs_data len must le 1
+/// Cellbase output data must be empty
+/// Cellbase output type_ must be empty
+/// Cellbase has only one dummy input. The since must be set to the block number.
 #[derive(Clone)]
 pub struct CellbaseVerifier {}
 
 impl CellbaseVerifier {
+    /// Constructs a CellbaseVerifier
     pub fn new() -> Self {
         CellbaseVerifier {}
     }
@@ -116,6 +130,9 @@ impl CellbaseVerifier {
     }
 }
 
+/// DuplicateVerifier
+///
+/// Invalidating duplicate transaction or proposal
 #[derive(Clone)]
 pub struct DuplicateVerifier {}
 
@@ -143,6 +160,9 @@ impl DuplicateVerifier {
     }
 }
 
+/// MerkleRootVerifier
+///
+/// Check the merkle root
 #[derive(Clone, Default)]
 pub struct MerkleRootVerifier {}
 
@@ -164,14 +184,16 @@ impl MerkleRootVerifier {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context wrapper for Context-dependent HeaderVerifier.
+///
+/// By "context", only mean the previous block headers here.
 pub struct HeaderResolverWrapper<'a> {
     header: &'a HeaderView,
     parent: Option<HeaderView>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    /// TODO(doc): @zhangsoledad
+    /// Constructs a wrapper from store interface
     pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
     where
         CS: ChainStore<'a>,
@@ -180,7 +202,7 @@ impl<'a> HeaderResolverWrapper<'a> {
         HeaderResolverWrapper { parent, header }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Constructs a wrapper from specified previous header
     pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
         HeaderResolverWrapper { parent, header }
     }
@@ -196,6 +218,9 @@ impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
     }
 }
 
+/// BlockProposalsLimitVerifier.
+///
+/// Check block proposal limit.
 #[derive(Clone)]
 pub struct BlockProposalsLimitVerifier {
     block_proposals_limit: u64,
@@ -218,6 +243,9 @@ impl BlockProposalsLimitVerifier {
     }
 }
 
+/// BlockBytesVerifier.
+///
+/// Check block size limit.
 #[derive(Clone)]
 pub struct BlockBytesVerifier {
     block_bytes_limit: u64,
@@ -242,18 +270,21 @@ impl BlockBytesVerifier {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context-independent verification checks for block transactions
+///
+/// Basic checks that don't depend on any context
+/// See [`NonContextualTransactionVerifier`](./struct.NonContextualBlockTxsVerifier.html)
 pub struct NonContextualBlockTxsVerifier<'a> {
     consensus: &'a Consensus,
 }
 
 impl<'a> NonContextualBlockTxsVerifier<'a> {
-    /// TODO(doc): @zhangsoledad
+    /// Creates a new NonContextualBlockTxsVerifier
     pub fn new(consensus: &'a Consensus) -> Self {
         NonContextualBlockTxsVerifier { consensus }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform context-independent verification checks for block transactions
     pub fn verify(&self, block: &BlockView) -> Result<Vec<()>, Error> {
         block
             .transactions()

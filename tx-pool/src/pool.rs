@@ -15,6 +15,7 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
         error::OutPointError,
+        tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -30,7 +31,7 @@ use std::sync::{
     Arc,
 };
 
-/// TODO(doc): @zhangsoledad
+/// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
     /// The short id that has not been proposed
@@ -51,8 +52,8 @@ pub struct TxPool {
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
-    /// TODO(doc): @zhangsoledad
-    pub snapshot: Arc<Snapshot>,
+    /// storage snapshot reference
+    pub(crate) snapshot: Arc<Snapshot>,
 }
 
 /// Transaction pool information.
@@ -88,7 +89,7 @@ pub struct TxPoolInfo {
 }
 
 impl TxPool {
-    /// TODO(doc): @zhangsoledad
+    /// Create new TxPool
     pub fn new(
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
@@ -112,17 +113,17 @@ impl TxPool {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Tx-pool owned snapshot, it may not consistent with chain cause tx-pool update snapshot asynchronously
     pub fn snapshot(&self) -> &Snapshot {
         &self.snapshot
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Makes a clone of the Arc<Snapshot>
     pub fn cloned_snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Tx-pool information
     pub fn info(&self) -> TxPoolInfo {
         let tip_header = self.snapshot.tip_header();
         TxPoolInfo {
@@ -137,24 +138,24 @@ impl TxPool {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Whether Tx-pool reach size limit
     pub fn reach_size_limit(&self, tx_size: usize) -> bool {
         (self.total_tx_size + tx_size) > self.config.max_mem_size
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Whether Tx-pool reach cycles limit
     pub fn reach_cycles_limit(&self, cycles: Cycle) -> bool {
         (self.total_tx_cycles + cycles) > self.config.max_cycles
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Update size and cycles statics for add tx
     pub fn update_statics_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
         self.total_tx_size += tx_size;
         self.total_tx_cycles += cycles;
     }
 
-    /// TODO(doc): @zhangsoledad
-    // cycles overflow is possible, currently obtaining cycles is not accurate
+    /// Update size and cycles statics for remove tx
+    /// cycles overflow is possible, currently obtaining cycles is not accurate
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
             error!(
@@ -174,8 +175,8 @@ impl TxPool {
         self.total_tx_cycles = total_tx_cycles;
     }
 
-    /// TODO(doc): @zhangsoledad
-    // If did have this value present, false is returned.
+    /// Add tx to pending pool
+    /// If did have this value present, false is returned.
     pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         if self
             .gap
@@ -187,14 +188,13 @@ impl TxPool {
         self.pending.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    /// TODO(doc): @zhangsoledad
-    // add_gap inserts proposed but still uncommittable transaction.
+    /// Add tx which proposed but still uncommittable to gap pool
     pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_gap {}", entry.transaction.hash());
         self.gap.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction.hash());
         self.touch_last_txs_updated_at();
@@ -218,12 +218,12 @@ impl TxPool {
             .store(unix_time_as_millis(), Ordering::SeqCst);
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Get last txs in tx-pool update timestamp
     pub fn get_last_txs_updated_at(&self) -> u64 {
         self.last_txs_updated_at.load(Ordering::SeqCst)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id)
             || self.conflict.contains(id)
@@ -231,16 +231,7 @@ impl TxPool {
             || self.orphan.contains_key(id)
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn contains_tx(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id)
-            || self.gap.contains_key(id)
-            || self.proposed.contains_key(id)
-            || self.orphan.contains_key(id)
-            || self.conflict.contains(id)
-    }
-
-    /// TODO(doc): @zhangsoledad
+    /// Returns tx with cycles corresponding to the id.
     pub fn get_tx_with_cycles(
         &self,
         id: &ProposalShortId,
@@ -275,7 +266,7 @@ impl TxPool {
             })
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns tx corresponding to the id.
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.pending
             .get_tx(id)
@@ -286,7 +277,7 @@ impl TxPool {
             .cloned()
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns tx exclude conflict corresponding to the id.
     pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.pending
             .get_tx(id)
@@ -296,13 +287,14 @@ impl TxPool {
             .cloned()
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn proposed(&self) -> &ProposedPool {
+    pub(crate) fn proposed(&self) -> &ProposedPool {
         &self.proposed
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn get_tx_from_proposed_and_others(&self, id: &ProposalShortId) -> Option<TransactionView> {
+    pub(crate) fn get_tx_from_proposed_and_others(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<TransactionView> {
         self.proposed
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
@@ -327,8 +319,7 @@ impl TxPool {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
+    pub(crate) fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
             for entry in self.gap.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry) {
@@ -347,8 +338,7 @@ impl TxPool {
         self.snapshot().proposals().contains_proposed(short_id)
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn resolve_tx_from_pending_and_proposed(
+    pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
     ) -> Result<ResolvedTransaction, Error> {
@@ -366,8 +356,7 @@ impl TxPool {
         )
     }
 
-    /// TODO(doc): @zhangsoledad
-    pub fn resolve_tx_from_proposed(
+    pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
     ) -> Result<ResolvedTransaction, Error> {
@@ -716,7 +705,7 @@ impl TxPool {
         ret
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Get to-be-proposal transactions that may be included in the next block.
     pub fn get_proposals(
         &self,
         limit: usize,
@@ -731,7 +720,7 @@ impl TxPool {
         proposals
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns tx from tx-pool or storage corresponding to the id.
     pub fn get_tx_from_pool_or_store(
         &self,
         proposal_id: &ProposalShortId,
@@ -742,5 +731,43 @@ impl TxPool {
                     .peek(proposal_id)
                     .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
             })
+    }
+
+    pub(crate) fn get_ids(&self) -> TxPoolIds {
+        let pending = self
+            .pending
+            .iter()
+            .map(|(_, entry)| entry.transaction.hash())
+            .chain(self.gap.iter().map(|(_, entry)| entry.transaction.hash()))
+            .collect();
+
+        let proposed = self
+            .proposed
+            .iter()
+            .map(|(_, entry)| entry.transaction.hash())
+            .collect();
+
+        TxPoolIds { pending, proposed }
+    }
+
+    pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
+        let pending = self
+            .pending
+            .iter()
+            .map(|(_, entry)| (entry.transaction.hash(), entry.to_info()))
+            .chain(
+                self.gap
+                    .iter()
+                    .map(|(_, entry)| (entry.transaction.hash(), entry.to_info())),
+            )
+            .collect();
+
+        let proposed = self
+            .proposed
+            .iter()
+            .map(|(_, entry)| (entry.transaction.hash(), entry.to_info()))
+            .collect();
+
+        TxPoolEntryInfo { pending, proposed }
     }
 }

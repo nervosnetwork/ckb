@@ -28,28 +28,30 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 
-/// TODO(doc): @zhangsoledad
+/// Context for context-dependent block verification
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
 }
 
-/// TODO(doc): @zhangsoledad
+/// The trait abstract for particular verification
 pub trait Switch {
-    /// TODO(doc): @zhangsoledad
+    /// Disable epoch verification
     fn disable_epoch(&self) -> bool;
-    /// TODO(doc): @zhangsoledad
+    /// Disable uncles-related verification
     fn disable_uncles(&self) -> bool;
-    /// TODO(doc): @zhangsoledad
+    /// Disable two-phase-commit verification
     fn disable_two_phase_commit(&self) -> bool;
-    /// TODO(doc): @zhangsoledad
+    /// Disable DAO-header verification
     fn disable_daoheader(&self) -> bool;
-    /// TODO(doc): @zhangsoledad
+    /// Disable reward verification
     fn disable_reward(&self) -> bool;
+    /// Whether execute script?
+    fn disable_script(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
-    /// TODO(doc): @zhangsoledad
+    /// Create new VerifyContext from `Store` and `Consensus`
     pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
         VerifyContext { store, consensus }
     }
@@ -386,6 +388,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         &self,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         handle: &Handle,
+        skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let keys: Vec<Byte32> = self
             .resolved
@@ -429,7 +432,10 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.context.consensus,
                         self.context.store,
                     )
-                    .verify(self.context.consensus.max_block_cycles())
+                    .verify(
+                        self.context.consensus.max_block_cycles(),
+                        skip_script_verify,
+                    )
                     .map_err(|error| {
                         BlockTransactionsError {
                             index: index as u32,
@@ -478,6 +484,9 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
         .unwrap_or(parent_ext))
 }
 
+/// EpochVerifier
+///
+/// Check for block epoch
 pub struct EpochVerifier<'a> {
     epoch: &'a EpochExt,
     block: &'a BlockView,
@@ -512,18 +521,26 @@ impl<'a> EpochVerifier<'a> {
     }
 }
 
-/// TODO(doc): @zhangsoledad
+/// Context-dependent verification checks for block
+///
+/// Contains:
+/// - [`EpochVerifier`](./struct.EpochVerifier.html)
+/// - [`UnclesVerifier`](./struct.UnclesVerifier.html)
+/// - [`TwoPhaseCommitVerifier`](./struct.TwoPhaseCommitVerifier.html)
+/// - [`DaoHeaderVerifier`](./struct.DaoHeaderVerifier.html)
+/// - [`RewardVerifier`](./struct.RewardVerifier.html)
+/// - [`BlockTxsVerifier`](./struct.BlockTxsVerifier.html)
 pub struct ContextualBlockVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
 
 impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
-    /// TODO(doc): @zhangsoledad
+    /// Create new ContextualBlockVerifier
     pub fn new(context: &'a VerifyContext<'a, CS>) -> Self {
         ContextualBlockVerifier { context }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Perform context-dependent verification checks for block
     pub fn verify<SW: Switch>(
         &'a self,
         resolved: &'a [ResolvedTransaction],
@@ -575,6 +592,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             parent_hash,
             resolved,
         )
-        .verify(txs_verify_cache, handle)
+        .verify(txs_verify_cache, handle, switch.disable_script())
     }
 }

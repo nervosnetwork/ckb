@@ -84,7 +84,10 @@ def write_method_signature(file, method_name, vars):
             file.write('    * `{}`: {}\n'.format(var.name, var.ty))
     else:
         file.write('* `{}()`\n'.format(method_name))
-    file.write('* result: {}\n'.format(vars[-1].ty))
+    if method_name == 'subscribe':
+        file.write('* result: `string`\n')
+    else:
+        file.write('* result: {}\n'.format(vars[-1].ty))
 
 
 class MarkdownParser():
@@ -244,6 +247,8 @@ class RPCVar():
                 self.require_children(1)
             elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
                 self.require_children(1)
+            elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+                self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                 self.require_children(2)
             elif self.ty.startswith('../') and '/struct.' in self.ty:
@@ -272,6 +277,8 @@ class RPCVar():
                         self.ty = '{} `|` `null`'.format(self.children[0].ty)
                     elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
                         self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
+                    elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+                        self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(self.children[0].ty, self.children[1].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                         molecule_name = self.children[1].ty.split(
                             '`](')[0][2:]
@@ -290,6 +297,10 @@ class RPCVar():
                 parts = self.name.split(': ')
                 self.name = parts[0]
                 self.ty = '[`U256`](#type-u256)'
+            if self.name.endswith(': RationalU256'):
+                parts = self.name.split(': ')
+                self.name = parts[0]
+                self.ty = '[`RationalU256`](#type-rationalu256)'
 
     def completed(self):
         return self.ty is not None and (len(self.children) == 0 or self.children[-1].completed())
@@ -563,7 +574,7 @@ class RPCType(HTMLParser):
         self.path = path
         self.module_doc = None
 
-        if '/enum.' in path:
+        if '/enum.' in path and self.name != 'RawTxPool':
             self.schema = EnumSchema(self.name)
         elif '/struct.' in path:
             self.schema = StructSchema(self.name)
@@ -629,8 +640,20 @@ class RPCDoc(object):
             DummyRPCType(
                 "SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
             DummyRPCType(
-                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.")
-        ]
+                "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
+            DummyRPCType(
+                "RationalU256", """The ratio which numerator and denominator are both 256-bit unsigned integers.
+
+#### Example
+
+```
+{
+    "denom": "0x28",
+    "numer": "0x1"
+}
+```
+""")
+            ]
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
@@ -653,6 +676,10 @@ class RPCDoc(object):
 
         # PoolTransactionEntry is not used in RPC but in the Subscription events.
         self.collect_type('ckb_jsonrpc_types/struct.PoolTransactionEntry.html')
+        # Referenced by RawTxPool
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolIds.html')
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolVerbosity.html')
+        self.collect_type('ckb_jsonrpc_types/struct.TxVerbosity.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
@@ -666,7 +693,7 @@ class RPCDoc(object):
 
         if 'ckb_types/packed' in path:
             return
-        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html']:
+        if path.split('/')[-1] in ['type.Result.html', 'struct.Subscriber.html', 'enum.SubscriptionId.html', 'enum.Topic.html']:
             return
 
         with open(path) as file:
@@ -677,7 +704,7 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        if name != 'U256':
+        if name not in ['U256', 'RationalU256']:
             parser = RPCType(name, path)
             parser.feed(content)
 

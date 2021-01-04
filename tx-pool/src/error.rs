@@ -1,69 +1,68 @@
-//! TODO(doc): @zhangsoledad
-use ckb_error::{Error, ErrorKind};
+//! The error type for Tx-pool operations
+
+use ckb_error::{
+    impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, prelude::*, Error,
+    ErrorKind, InternalError, InternalErrorKind, OtherError,
+};
+use ckb_fee_estimator::FeeRate;
 use ckb_types::packed::Byte32;
-use failure::Fail;
-use tokio::sync::mpsc::error::TrySendError as TokioTrySendError;
+use tokio::sync::{mpsc::error::TrySendError, oneshot::error::RecvError};
 
-/// TODO(doc): @zhangsoledad
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
+/// TX reject message
+#[derive(Error, Debug, PartialEq, Clone, Eq)]
 pub enum Reject {
-    /// The fee rate of transaction is lower than min fee rate
-    #[fail(
-        display = "Transaction fee rate must >= {} shannons/KB, got: {}",
-        _0, _1
-    )]
-    LowFeeRate(u64, u64),
+    /// Transaction fee lower than config
+    #[error("The min fee rate is {0} shannons/KB, so the transaction fee should be {1} shannons at least, but only got {2}")]
+    LowFeeRate(FeeRate, u64, u64),
 
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "Transaction exceeded maximum ancestors count limit, try send it later")]
+    /// Transaction exceeded maximum ancestors count limit
+    #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
     ExceededMaximumAncestorsCount,
 
-    /// TODO(doc): @zhangsoledad
-    #[fail(
-        display = "Transaction pool exceeded maximum {} limit({}), try send it later",
-        _0, _1
-    )]
+    /// Transaction pool exceeded maximum size or cycles limit,
+    #[error("Transaction pool exceeded maximum {0} limit({1}), try send it later")]
     Full(String, u64),
 
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "Transaction({}) already exist in transaction_pool", _0)]
+    /// Transaction already exist in transaction_pool
+    #[error("Transaction({0}) already exist in transaction_pool")]
     Duplicated(Byte32),
 
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "Malformed {} transaction", _0)]
+    /// Malformed transaction
+    #[error("Malformed {0} transaction")]
     Malformed(String),
 }
 
-impl From<Reject> for Error {
-    fn from(error: Reject) -> Self {
-        error.context(ErrorKind::SubmitTransaction).into()
-    }
-}
+impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 
-/// TODO(doc): @zhangsoledad
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
+/// The error type for block assemble related
+#[derive(Error, Debug, PartialEq, Clone, Eq)]
 pub enum BlockAssemblerError {
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "InvalidInput")]
+    /// Input is invalid
+    #[error("InvalidInput")]
     InvalidInput,
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "InvalidParams {}", _0)]
+    /// Parameters is invalid
+    #[error("InvalidParams {0}")]
     InvalidParams(String),
-    /// TODO(doc): @zhangsoledad
-    #[fail(display = "Disabled")]
+    /// BlockAssembler is disabled
+    #[error("Disabled")]
     Disabled,
 }
 
-/// TODO(doc): @zhangsoledad
-#[derive(Fail, Debug)]
-#[fail(display = "TrySendError {}.", _0)]
-pub struct TrySendError(String);
+impl_error_conversion_with_kind!(
+    BlockAssemblerError,
+    InternalErrorKind::BlockAssembler,
+    InternalError
+);
+impl_error_conversion_with_adaptor!(BlockAssemblerError, InternalError, Error);
 
-/// TODO(doc): @zhangsoledad
-pub fn handle_try_send_error<T>(error: TokioTrySendError<T>) -> (T, TrySendError) {
-    let e = TrySendError(format!("{}", error));
+pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError) {
+    let e = OtherError::new(format!("TrySendError {}", error));
     let m = match error {
-        TokioTrySendError::Full(t) | TokioTrySendError::Closed(t) => t,
+        TrySendError::Full(t) | TrySendError::Closed(t) => t,
     };
     (m, e)
+}
+
+pub(crate) fn handle_recv_error(error: RecvError) -> OtherError {
+    OtherError::new(format!("RecvError {}", error))
 }

@@ -1,7 +1,7 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{Capacity, Cycle, TransactionView},
+    core::{tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
@@ -87,12 +87,12 @@ impl TxEntry {
         }
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns a sorted_key
     pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
         AncestorsScoreSortKey::from(self)
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Update ancestor state for add an entry
     pub fn add_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_add(1);
         self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
@@ -103,7 +103,7 @@ impl TxEntry {
                 .saturating_add(entry.fee.as_u64()),
         );
     }
-    /// TODO(doc): @zhangsoledad
+    /// Update ancestor state for remove an entry
     pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(1);
         self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
@@ -115,7 +115,7 @@ impl TxEntry {
         );
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Update ancestors to add it as a descendant transaction.
     pub fn add_ancestors_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_add(entry.ancestors_count);
         self.ancestors_size = self.ancestors_size.saturating_add(entry.ancestors_size);
@@ -126,7 +126,7 @@ impl TxEntry {
                 .saturating_add(entry.ancestors_fee.as_u64()),
         );
     }
-    /// TODO(doc): @zhangsoledad
+    /// Update ancestors to remove it.
     pub fn sub_ancestors_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(entry.ancestors_count);
         self.ancestors_size = self.ancestors_size.saturating_sub(entry.ancestors_size);
@@ -136,6 +136,18 @@ impl TxEntry {
                 .as_u64()
                 .saturating_sub(entry.ancestors_fee.as_u64()),
         );
+    }
+
+    /// Converts entry to a `TxEntryInfo`.
+    pub fn to_info(&self) -> TxEntryInfo {
+        TxEntryInfo {
+            cycles: self.cycles,
+            size: self.size as u64,
+            fee: self.fee,
+            ancestors_size: self.ancestors_size as u64,
+            ancestors_cycles: self.ancestors_cycles as u64,
+            ancestors_count: self.ancestors_count as u64,
+        }
     }
 }
 

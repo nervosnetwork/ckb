@@ -26,9 +26,9 @@ use std::{
 };
 use tokio_util::codec::length_delimited;
 
-/// TODO(doc): @driftluo
+/// Alias session id
 pub type PeerIndex = SessionId;
-/// TODO(doc): @driftluo
+/// Boxed future task
 pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
@@ -37,66 +37,64 @@ use crate::{
     Behaviour, Error, NetworkState, Peer, ProtocolVersion,
 };
 
-/// TODO(doc): @driftluo
+/// Abstract protocol context
 pub trait CKBProtocolContext: Send {
-    /// TODO(doc): @driftluo
+    /// Set notify to tentacle
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Remove notify
     fn remove_notify(&self, token: u64) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Send message through quick queue
     fn quick_send_message(
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
         data: Bytes,
     ) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Send message through quick queue
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Filter broadcast message through quick queue
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    // spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
-    /// TODO(doc): @driftluo
+    /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Send message
     fn send_message(
         &self,
         proto_id: ProtocolId,
         peer_index: PeerIndex,
         data: Bytes,
     ) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Send message
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
-    // TODO allow broadcast to target ProtocolId
+    /// Filter broadcast message
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    /// TODO(doc): @driftluo
+    /// Disconnect session
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     // Interact with NetworkState
-    /// TODO(doc): @driftluo
+    /// Get peer info
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
-    /// TODO(doc): @driftluo
+    /// Modify peer info
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
-    /// TODO(doc): @driftluo
+    /// Get all session id
     fn connected_peers(&self) -> Vec<PeerIndex>;
-    /// TODO(doc): @driftluo
+    /// Report peer behavior
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
-    /// TODO(doc): @driftluo
+    /// Ban peer
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
-    /// TODO(doc): @driftluo
+    /// Can send message again?
     fn send_paused(&self) -> bool;
-    /// TODO(doc): @driftluo
+    /// current protocol id
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
-    /// TODO(doc): @driftluo
+    /// Raw tentacle controller
     fn p2p_control(&self) -> Option<&ServiceControl> {
         None
     }
 }
 
-/// TODO(doc): @driftluo
+/// Abstract protocol handle base on tentacle service handle
 pub trait CKBProtocolHandler: Sync + Send {
-    /// TODO(doc): @driftluo
+    /// Init action on service run
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
     /// Called when opening protocol
     fn connected(
@@ -124,7 +122,7 @@ pub trait CKBProtocolHandler: Sync + Send {
     }
 }
 
-/// TODO(doc): @driftluo
+/// Help to build protocol meta
 pub struct CKBProtocol {
     id: ProtocolId,
     // for example: b"/ckb/"
@@ -138,7 +136,7 @@ pub struct CKBProtocol {
 }
 
 impl CKBProtocol {
-    /// TODO(doc): @driftluo
+    /// New with support protocol
     // a helper constructor to build `CKBProtocol` with `SupportProtocols` enum
     pub fn new_with_support_protocol(
         support_protocol: support_protocols::SupportProtocols,
@@ -156,7 +154,7 @@ impl CKBProtocol {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// New with all config
     pub fn new(
         protocol_name: String,
         id: ProtocolId,
@@ -183,22 +181,22 @@ impl CKBProtocol {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Protocol id
     pub fn id(&self) -> ProtocolId {
         self.id
     }
 
-    /// TODO(doc): @driftluo
+    /// Protocol name
     pub fn protocol_name(&self) -> String {
         self.protocol_name.clone()
     }
 
-    /// TODO(doc): @driftluo
+    /// Whether support this version
     pub fn match_version(&self, version: ProtocolVersion) -> bool {
         self.supported_versions.contains(&version)
     }
 
-    /// TODO(doc): @driftluo
+    /// Build to tentacle protocol meta
     pub fn build(self) -> ProtocolMeta {
         let protocol_name = self.protocol_name();
         let max_frame_length = self.max_frame_length;

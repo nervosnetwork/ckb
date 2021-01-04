@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ckb_app_config::NetworkConfig;
+use ckb_app_config::{NetworkConfig, SyncConfig};
 use futures::StreamExt;
 use p2p::{
     builder::ServiceBuilder,
@@ -116,7 +116,7 @@ fn net_service_start(name: String) -> Node {
         upnp: false,
         bootnode_mode: true,
         max_send_buffer: None,
-        sync: None,
+        sync: SyncConfig::default(),
     };
 
     let network_state =

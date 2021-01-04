@@ -1,4 +1,6 @@
 use crate::generic::GetProposalTxIds;
+use crate::util::cell::gen_spendable;
+use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_types::prelude::*;
 
@@ -13,10 +15,8 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        node.generate_blocks_until_contains_valid_cellbase();
-
-        let tx = node.new_transaction_spend_tip_cellbase();
-
+        let cells = gen_spendable(node, 1);
+        let tx = always_success_transaction(node, &cells[0]);
         let uncle = {
             let block = node.new_block(None, None, None);
             let uncle = block

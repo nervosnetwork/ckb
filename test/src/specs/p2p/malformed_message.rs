@@ -1,4 +1,4 @@
-use crate::node::exit_ibd_mode;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};
@@ -15,7 +15,7 @@ impl Spec for MalformedMessage {
         info!("Run malformed message");
         info!("Connect node0");
         let node0 = &nodes[0];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
 
@@ -54,7 +54,7 @@ impl Spec for MalformedMessageWithWhitelist {
     fn run(&self, nodes: &mut Vec<Node>) {
         info!("Run malformed message with whitelist");
         let node1 = nodes.pop().unwrap();
-        exit_ibd_mode(nodes);
+        out_ibd_mode(nodes);
         let mut node0 = nodes.pop().unwrap();
         let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node0);

@@ -1,28 +1,10 @@
-use crate::node::{connect_all, exit_ibd_mode};
+use crate::node::waiting_for_sync;
+use crate::util::mining::{mine, out_ibd_mode};
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Node, Spec};
 use ckb_types::prelude::*;
 use log::info;
 use std::time::Duration;
-
-pub struct BlockRelayBasic;
-
-impl Spec for BlockRelayBasic {
-    crate::setup!(num_nodes: 3);
-
-    fn run(&self, nodes: &mut Vec<Node>) {
-        exit_ibd_mode(nodes);
-        connect_all(nodes);
-
-        let hash = nodes[0].generate_block();
-        let synced = wait_until(10, || {
-            nodes
-                .iter()
-                .all(|node| node.rpc_client().get_block(hash.clone()).is_some())
-        });
-        assert!(synced, "Block should be relayed from node0 to others");
-    }
-}
 
 pub struct RelayTooNewBlock;
 
@@ -34,7 +16,7 @@ impl Spec for RelayTooNewBlock {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
-        exit_ibd_mode(nodes);
+        out_ibd_mode(&nodes);
 
         node1.connect(node0);
         let future = Duration::from_secs(6_000).as_millis() as u64;
@@ -45,12 +27,12 @@ impl Spec for RelayTooNewBlock {
 
         let _too_new_hash = node0.process_block_without_verify(&too_new_block, true);
         // sync node0 node2
-        node2.generate_blocks(2);
+        mine(node2, 2);
         node2.connect(node0);
-        node2.waiting_for_sync(node0, node2.get_tip_block_number());
+        waiting_for_sync(&[node0, node2]);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        node0.generate_block();
+        mine(&node0, 1);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();

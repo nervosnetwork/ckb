@@ -11,7 +11,7 @@ use ckb_app_config::IndexerConfig;
 use ckb_app_config::RpcConfig;
 use ckb_chain::chain::ChainController;
 use ckb_fee_estimator::FeeRate;
-use ckb_indexer::DefaultIndexerStore;
+use ckb_indexer::{DefaultIndexerStore, Dummy};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
@@ -180,16 +180,19 @@ impl<'a> ServiceBuilder<'a> {
 
     /// TODO(doc): @doitian
     pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
-        let store = DefaultIndexerStore::new(indexer_config, shared);
-        let rpc_methods = IndexerRpcImpl {
-            store: store.clone(),
-        }
-        .to_delegate();
         if self.config.indexer_enable() {
+            let store = DefaultIndexerStore::new(indexer_config, shared);
+            let rpc_methods = IndexerRpcImpl {
+                store: store.clone(),
+            }
+            .to_delegate();
             store.start(Some("IndexerStore"));
             self.add_methods(rpc_methods);
         } else {
-            self.update_disabled_methods("Indexer", rpc_methods);
+            self.update_disabled_methods(
+                "Indexer",
+                IndexerRpcImpl { store: Dummy }.to_delegate::<()>(),
+            );
         }
         self
     }
@@ -208,8 +211,13 @@ impl<'a> ServiceBuilder<'a> {
     {
         rpc_methods.into_iter().for_each(|(name, _method)| {
             let error = Err(RPCError::rpc_module_is_disabled(module));
-            self.io_handler
-                .add_method(&name, move |_param| error.clone())
+            self.io_handler.add_method(
+                name.split("deprecated.")
+                    .collect::<Vec<&str>>()
+                    .last()
+                    .unwrap(),
+                move |_param| error.clone(),
+            )
         });
     }
 

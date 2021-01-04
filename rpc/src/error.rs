@@ -1,4 +1,4 @@
-use ckb_error::{Error as CKBError, ErrorKind, InternalError, InternalErrorKind};
+use ckb_error::{AnyError, Error as CKBError, ErrorKind, InternalError, InternalErrorKind};
 use ckb_tx_pool::error::Reject;
 use jsonrpc_core::{Error, ErrorCode, Value};
 use std::fmt::{Debug, Display};
@@ -154,7 +154,7 @@ impl RPCError {
     /// TODO(doc): @doitian
     pub fn from_submit_transaction_reject(reject: &Reject) -> Error {
         let code = match reject {
-            Reject::LowFeeRate(_, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
+            Reject::LowFeeRate(_, _, _) => RPCError::PoolRejectedTransactionByMinFeeRate,
             Reject::ExceededMaximumAncestorsCount => {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
@@ -177,16 +177,13 @@ impl RPCError {
     /// TODO(doc): @doitian
     pub fn from_ckb_error(err: CKBError) -> Error {
         match err.kind() {
-            ErrorKind::Dao => {
-                Self::custom_with_error(RPCError::DaoError, err.unwrap_cause_or_self())
-            }
+            ErrorKind::Dao => Self::custom_with_error(RPCError::DaoError, err.root_cause()),
             ErrorKind::OutPoint => {
                 Self::custom_with_error(RPCError::TransactionFailedToResolve, err)
             }
-            ErrorKind::Transaction => Self::custom_with_error(
-                RPCError::TransactionFailedToVerify,
-                err.unwrap_cause_or_self(),
-            ),
+            ErrorKind::Transaction => {
+                Self::custom_with_error(RPCError::TransactionFailedToVerify, err.root_cause())
+            }
             ErrorKind::Internal => {
                 let internal_err = match err.downcast_ref::<InternalError>() {
                     Some(err) => err,
@@ -208,10 +205,10 @@ impl RPCError {
     }
 
     /// TODO(doc): @doitian
-    pub fn from_failure_error(err: failure::Error) -> Error {
-        match err.downcast::<CKBError>() {
-            Ok(ckb_error) => Self::from_ckb_error(ckb_error),
-            Err(err) => Self::ckb_internal_error(err),
+    pub fn from_any_error(err: AnyError) -> Error {
+        match err.downcast_ref::<CKBError>() {
+            Some(ckb_error) => Self::from_ckb_error(ckb_error.clone()),
+            None => Self::ckb_internal_error(err.clone()),
         }
     }
 
@@ -247,6 +244,7 @@ impl RPCError {
 mod tests {
     use super::*;
     use ckb_dao_utils::DaoError;
+    use ckb_fee_estimator::FeeRate;
     use ckb_types::{core::error::OutPointError, packed::Byte32};
 
     #[test]
@@ -260,9 +258,10 @@ mod tests {
 
     #[test]
     fn test_submit_transaction_error() {
-        let err: CKBError = Reject::LowFeeRate(100, 50).into();
+        let min_fee_rate = FeeRate::from_u64(500);
+        let err: CKBError = Reject::LowFeeRate(min_fee_rate, 100, 50).into();
         assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: Transaction fee rate must >= 100 shannons/KB, got: 50",
+            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KB, so the transaction fee should be 100 shannons at least, but only got 50",
             RPCError::from_submit_transaction_reject(RPCError::downcast_submit_transaction_reject(&err).unwrap()).message
         );
 

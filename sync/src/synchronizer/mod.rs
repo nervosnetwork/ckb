@@ -15,24 +15,28 @@ use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
 use crate::{
     Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
+use ckb_error::AnyError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
 use ckb_network::{
     bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
     SupportProtocols,
 };
-use ckb_types::core::BlockNumber;
-use ckb_types::{core, packed, prelude::*};
-use failure::Error as FailureError;
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed::{self, Byte32},
+    prelude::*,
+};
 use faketime::unix_time_as_millis;
-use std::collections::HashSet;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    sync::{atomic::Ordering, Arc},
+    time::{Duration, Instant},
+};
 
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
 pub const IBD_BLOCK_FETCH_TOKEN: u64 = 1;
@@ -44,15 +48,22 @@ const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
+#[derive(Copy, Clone)]
+enum CanStart {
+    Ready,
+    MinWorkNotReach,
+    AssumeValidNotFound,
+}
+
 enum FetchCMD {
-    Fetch(Vec<PeerIndex>),
+    Fetch((Vec<PeerIndex>, IBDState)),
 }
 
 struct BlockFetchCMD {
     sync: Synchronizer,
     p2p_control: ServiceControl,
     recv: channel::Receiver<FetchCMD>,
-    can_start: bool,
+    can_start: CanStart,
     number: BlockNumber,
 }
 
@@ -60,48 +71,112 @@ impl BlockFetchCMD {
     fn run(&mut self) {
         while let Ok(cmd) = self.recv.recv() {
             match cmd {
-                FetchCMD::Fetch(peers) => {
-                    if self.can_start() {
+                FetchCMD::Fetch((peers, state)) => match self.can_start() {
+                    CanStart::Ready => {
                         for peer in peers {
-                            if let Some(fetch) =
-                                BlockFetcher::new(&self.sync, peer, IBDState::In).fetch()
+                            if let Some(fetch) = BlockFetcher::new(&self.sync, peer, state).fetch()
                             {
                                 for item in fetch {
                                     BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                                 }
                             }
                         }
-                    } else {
+                    }
+                    CanStart::MinWorkNotReach => {
                         let best_known = self.sync.shared.state().shared_best_header_ref();
                         let number = best_known.number();
                         if number != self.number && (number - self.number) % 10000 == 0 {
                             self.number = number;
                             info!(
-                                "best known header number: {}, total difficulty: {:#x}, \
+                                    "best known header number: {}, total difficulty: {:#x}, \
                                  require min header number on 500_000, min total difficulty: {:#x}, \
                                  then start to download block",
+                                    number,
+                                    best_known.total_difficulty(),
+                                    self.sync.shared.state().min_chain_work()
+                                );
+                        }
+                    }
+                    CanStart::AssumeValidNotFound => {
+                        let state = self.sync.shared.state();
+                        let best_known = state.shared_best_header_ref();
+                        let number = best_known.number();
+                        let assume_valid_target: Byte32 = state
+                            .assume_valid_target()
+                            .as_ref()
+                            .map(Pack::pack)
+                            .expect("assume valid target must exist");
+
+                        if number != self.number && (number - self.number) % 10000 == 0 {
+                            self.number = number;
+                            info!(
+                                "best known header number: {}, hash: {:#?}, \
+                                 can't find assume valid target temporarily, hash: {:#?} \
+                                 please wait",
                                 number,
-                                best_known.total_difficulty(),
-                                self.sync.shared.consensus().min_chain_work
+                                best_known.hash(),
+                                assume_valid_target
                             );
                         }
                     }
-                }
+                },
             }
         }
     }
 
-    fn can_start(&mut self) -> bool {
-        if self.can_start {
-            true
-        } else {
-            self.can_start = self
-                .sync
-                .shared
-                .state()
-                .shared_best_header_ref()
-                .is_better_than(&self.sync.shared.consensus().min_chain_work);
-            self.can_start
+    fn can_start(&mut self) -> CanStart {
+        if let CanStart::Ready = self.can_start {
+            return self.can_start;
+        }
+
+        let state = self.sync.shared.state();
+
+        let min_work_reach = |flag: &mut CanStart| {
+            if state.min_chain_work_ready() {
+                *flag = CanStart::AssumeValidNotFound;
+            }
+        };
+
+        let assume_valid_target_find = |flag: &mut CanStart| {
+            let mut assume_valid_target = state.assume_valid_target();
+            if let Some(ref target) = *assume_valid_target {
+                match state.header_map().get(&target.pack()) {
+                    Some(header) => {
+                        *flag = CanStart::Ready;
+                        // Blocks that are no longer in the scope of ibd must be forced to verify
+                        if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
+                            assume_valid_target.take();
+                        }
+                    }
+                    None => {
+                        // Best known already not in the scope of ibd, it means target is invalid
+                        if unix_time_as_millis()
+                            .saturating_sub(state.shared_best_header_ref().timestamp())
+                            < MAX_TIP_AGE
+                        {
+                            *flag = CanStart::Ready;
+                            assume_valid_target.take();
+                        }
+                    }
+                }
+            } else {
+                *flag = CanStart::Ready;
+            }
+        };
+
+        match self.can_start {
+            CanStart::Ready => self.can_start,
+            CanStart::MinWorkNotReach => {
+                min_work_reach(&mut self.can_start);
+                if let CanStart::AssumeValidNotFound = self.can_start {
+                    assume_valid_target_find(&mut self.can_start);
+                }
+                self.can_start
+            }
+            CanStart::AssumeValidNotFound => {
+                assume_valid_target_find(&mut self.can_start);
+                self.can_start
+            }
         }
     }
 
@@ -123,17 +198,19 @@ impl BlockFetchCMD {
     }
 }
 
-/// TODO(doc): @driftluo
+/// Sync protocol handle
 #[derive(Clone)]
 pub struct Synchronizer {
     chain: ChainController,
-    /// TODO(doc): @driftluo
+    /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
 impl Synchronizer {
-    /// TODO(doc): @driftluo
+    /// Init sync protocol handle
+    ///
+    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
@@ -142,7 +219,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get shared state
     pub fn shared(&self) -> &Arc<SyncShared> {
         &self.shared
     }
@@ -202,7 +279,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get peers info
     pub fn peers(&self) -> &Peers {
         self.shared().state().peers()
     }
@@ -224,9 +301,9 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, FailureError> {
+    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, AnyError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
@@ -246,7 +323,7 @@ impl Synchronizer {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get blocks to fetch
     pub fn get_blocks_to_fetch(
         &self,
         peer: PeerIndex,
@@ -284,7 +361,7 @@ impl Synchronizer {
         );
     }
 
-    /// TODO(doc): @driftluo
+    /// Regularly check and eject some nodes that do not respond in time
     //   - If at timeout their best known block now has more work than our tip
     //     when the timeout was set, then either reset the timeout or clear it
     //     (after comparing against our current tip's work)
@@ -512,7 +589,7 @@ impl Synchronizer {
                 Some(ref sender) => {
                     if !sender.is_full() {
                         let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                        let _ignore = sender.try_send(FetchCMD::Fetch(peers));
+                        let _ignore = sender.try_send(FetchCMD::Fetch((peers, ibd)));
                     }
                 }
                 None => {
@@ -520,7 +597,7 @@ impl Synchronizer {
                     let sync = self.clone();
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                    sender.send(FetchCMD::Fetch(peers)).unwrap();
+                    sender.send(FetchCMD::Fetch((peers, ibd))).unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
@@ -532,11 +609,11 @@ impl Synchronizer {
                                 p2p_control,
                                 recv,
                                 number,
-                                can_start: false,
+                                can_start: CanStart::MinWorkNotReach,
                             }
                             .run();
                         })
-                        .expect("donwload thread can't start");
+                        .expect("download thread can't start");
                 }
             },
             _ => {
@@ -605,12 +682,15 @@ impl CKBProtocolHandler for Synchronizer {
         };
 
         debug!("received msg {} from {}", msg.item_name(), peer_index);
-        let sentry_hub = sentry::Hub::current();
-        let _scope_guard = sentry_hub.push_scope();
-        sentry_hub.configure_scope(|scope| {
-            scope.set_tag("p2p.protocol", "synchronizer");
-            scope.set_tag("p2p.message", msg.item_name());
-        });
+        #[cfg(feature = "with_sentry")]
+        {
+            let sentry_hub = sentry::Hub::current();
+            let _scope_guard = sentry_hub.push_scope();
+            sentry_hub.configure_scope(|scope| {
+                scope.set_tag("p2p.protocol", "synchronizer");
+                scope.set_tag("p2p.message", msg.item_name());
+            });
+        }
 
         let start_time = Instant::now();
         self.process(nc.as_ref(), peer_index, msg.as_reader());

@@ -9,6 +9,9 @@ use ckb_network::{
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
+
+use ckb_async_runtime::new_global_runtime;
+use ckb_stop_handler::StopHandler;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +25,7 @@ pub struct Net {
     controller: NetworkController,
     register_rx: Receiver<(String, PeerIndex, Receiver<NetMessage>)>,
     receivers: HashMap<String, (PeerIndex, Receiver<NetMessage>)>,
+    _async_runtime_stop: StopHandler<()>,
 }
 
 impl Net {
@@ -59,6 +63,7 @@ impl Net {
                 )
             })
             .collect();
+        let (async_handle, async_runtime_stop) = new_global_runtime();
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
@@ -67,7 +72,7 @@ impl Net {
             "0.1.0".to_string(),
             DefaultExitHandler::default(),
         )
-        .start(Some("NetworkService"))
+        .start(&async_handle)
         .unwrap();
         Self {
             p2p_port,
@@ -76,6 +81,7 @@ impl Net {
             controller,
             register_rx,
             receivers: Default::default(),
+            _async_runtime_stop: async_runtime_stop,
         }
     }
 
@@ -156,7 +162,7 @@ impl Net {
             .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
         let net_message = receiver.recv_timeout(timeout)?;
         log::info!(
-            "received from peer-{}, message_name: {}",
+            "Net received from peer-{}, message_name: {}",
             peer_index,
             message_name(&net_message.2)
         );
@@ -180,9 +186,9 @@ pub struct DummyProtocolHandler {
     // When a new peer connects, register to notice outside controller.
     register_tx: Sender<(String, PeerIndex, Receiver<NetMessage>)>,
 
-    // #{node_id => receiver}
-    // shared between multiple protocol handlers
-    senders: Arc<Mutex<HashMap<String, Sender<NetMessage>>>>,
+    // #{peer_id => receiver}
+    // It is shared between multiple protocol handlers.
+    senders: Arc<Mutex<HashMap<PeerIndex, Sender<NetMessage>>>>,
 }
 
 impl Clone for DummyProtocolHandler {
@@ -216,17 +222,14 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         let node_id = peer.peer_id.to_base58();
         let (sender, receiver) = unbounded();
         let mut senders = self.senders.lock();
-        if !senders.contains_key(&node_id) {
-            senders.insert(node_id.clone(), sender);
+        if !senders.contains_key(&peer_index) {
+            senders.insert(peer_index, sender);
         }
         let _ = self.register_tx.send((node_id, peer_index, receiver));
     }
 
-    fn disconnected(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
-        if let Some(peer) = nc.get_peer(peer_index) {
-            let node_id = peer.peer_id.to_base58();
-            self.senders.lock().remove(&node_id);
-        }
+    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+        self.senders.lock().remove(&peer_index);
     }
 
     fn received(
@@ -235,11 +238,8 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         peer_index: PeerIndex,
         data: Bytes,
     ) {
-        if let Some(peer) = nc.get_peer(peer_index) {
-            let node_id = peer.peer_id.to_base58();
-            if let Some(sender) = self.senders.lock().get(&node_id) {
-                let _ = sender.send((peer_index, nc.protocol_id(), data));
-            }
+        if let Some(sender) = self.senders.lock().get(&peer_index) {
+            let _ = sender.send((peer_index, nc.protocol_id(), data)).unwrap();
         }
     }
 }

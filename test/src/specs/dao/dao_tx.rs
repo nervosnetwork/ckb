@@ -1,6 +1,7 @@
 use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
+use crate::util::mining::mine;
 use crate::utils::{assert_send_transaction_fail, generate_utxo_set};
 use crate::{Node, Spec};
 
@@ -11,9 +12,9 @@ pub struct WithdrawDAO;
 
 impl Spec for WithdrawDAO {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -22,7 +23,7 @@ impl Spec for WithdrawDAO {
         let mut user = DAOUser::new(node, utxos);
 
         ensure_committed(node, &user.deposit());
-        node.generate_blocks(20); // Time makes interest
+        mine(node, 20); // Time makes interest
         ensure_committed(node, &user.prepare());
 
         let withdrawal = user.withdraw();
@@ -39,9 +40,9 @@ pub struct WithdrawDAOWithOverflowCapacity;
 
 impl Spec for WithdrawDAOWithOverflowCapacity {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.genesis_epoch_length = 2;
-        spec.params.epoch_duration_target = 2;
-        spec.params.permanent_difficulty_in_dummy = true;
+        spec.params.genesis_epoch_length = Some(2);
+        spec.params.epoch_duration_target = Some(2);
+        spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -50,7 +51,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
         let mut user = DAOUser::new(node, utxos);
 
         ensure_committed(node, &user.deposit());
-        node.generate_blocks(20); // Time makes interest
+        mine(node, 20); // Time makes interest
         ensure_committed(node, &user.prepare());
 
         let withdrawal = user.withdraw();

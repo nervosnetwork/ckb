@@ -8,10 +8,11 @@ use ckb_app_config::StoreConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
-    Col, DBPinnableSlice, RocksDB,
+    DBPinnableSlice, RocksDB,
 };
+use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY};
 use ckb_error::Error;
-use ckb_types::core::BlockExt;
+use ckb_types::{core::BlockExt, packed, prelude::*};
 use std::sync::Arc;
 
 /// TODO(doc): @quake
@@ -57,6 +58,19 @@ impl ChainDB {
     /// TODO(doc): @quake
     pub fn into_inner(self) -> RocksDB {
         self.db
+    }
+
+    /// Store the chain spec hash
+    pub fn put_chain_spec_hash(&self, hash: &packed::Byte32) -> Result<(), Error> {
+        self.db.put_default(CHAIN_SPEC_HASH_KEY, hash.as_slice())
+    }
+
+    /// Return the chain spec hash
+    pub fn get_chain_spec_hash(&self) -> Option<packed::Byte32> {
+        self.db
+            .get_pinned_default(CHAIN_SPEC_HASH_KEY)
+            .expect("db operation should be ok")
+            .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()[..]).to_entity())
     }
 
     /// TODO(doc): @quake
@@ -118,11 +132,10 @@ impl ChainDB {
 
 #[cfg(test)]
 mod tests {
-    use super::super::COLUMNS;
     use super::*;
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_db::RocksDB;
-    use ckb_types::{packed, prelude::*};
+    use ckb_db_schema::COLUMNS;
 
     fn setup_db(columns: u32) -> RocksDB {
         RocksDB::open_tmp(columns)

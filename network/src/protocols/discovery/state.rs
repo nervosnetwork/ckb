@@ -16,7 +16,12 @@ use super::{
 
 // FIXME: should be a more high level version number
 
-const VERSION: u32 = 0;
+// default
+#[allow(dead_code)]
+const FIRST_VERSION: u32 = 0;
+// enable reuse port
+#[allow(dead_code)]
+pub const REUSE_PORT_VERSION: u32 = 1;
 
 pub struct SessionState {
     // received pending messages
@@ -41,7 +46,10 @@ impl SessionState {
                 .next();
 
             let msg = encode(DiscoveryMessage::GetNodes {
-                version: VERSION,
+                #[cfg(target_os = "linux")]
+                version: REUSE_PORT_VERSION,
+                #[cfg(not(target_os = "linux"))]
+                version: FIRST_VERSION,
                 count: MAX_ADDR_TO_SEND as u32,
                 listen_port: port,
             });
@@ -117,6 +125,12 @@ impl RemoteAddress {
     pub(crate) fn to_inner(&self) -> &Multiaddr {
         match self {
             RemoteAddress::Init(ref addr) | RemoteAddress::Listen(ref addr) => addr,
+        }
+    }
+
+    pub(crate) fn change_to_listen(&mut self) {
+        if let RemoteAddress::Init(addr) = self {
+            *self = RemoteAddress::Listen(addr.clone());
         }
     }
 

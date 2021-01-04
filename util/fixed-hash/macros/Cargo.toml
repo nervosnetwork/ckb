@@ -1,6 +1,6 @@
 [package]
 name = "ckb-fixed-hash-macros"
-version = "0.38.1"
+version = "0.39.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -12,7 +12,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-ckb-fixed-hash-core = { path = "../core", version = "= 0.38.1" }
+ckb-fixed-hash-core = { path = "../core", version = "= 0.39.0" }
 quote = "1.0"
 syn = "1.0"
 proc-macro2 = "1.0"

@@ -1,6 +1,6 @@
+use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::utils::wait_until;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-
+use crate::{Node, Spec};
 use ckb_fee_estimator::FeeRate;
 use ckb_types::{core::TransactionView, packed, prelude::*};
 use log::info;
@@ -11,7 +11,7 @@ impl Spec for SendLowFeeRateTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        node0.generate_blocks((DEFAULT_TX_PROPOSAL_WINDOW.1 + 2) as usize);
+        mine_until_out_bootstrap_period(node0);
         let tx_hash_0 = node0.generate_transaction();
         let ret = wait_until(10, || {
             node0

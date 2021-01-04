@@ -1,4 +1,4 @@
-//! TODO(doc): @driftluo
+//! Global state struct and start function
 use crate::errors::{Error, P2PError};
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
@@ -14,20 +14,16 @@ use crate::protocols::{
     support_protocols::SupportProtocols,
 };
 use crate::services::{
-    dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
-    outbound_peer::OutboundPeerService, protocol_type_checker::ProtocolTypeCheckerService,
+    dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
+    protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{
-    Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
-};
+use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, PublicKey, ServiceControl};
 use ckb_app_config::NetworkConfig;
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
-use futures::{
-    channel::{mpsc::Sender, oneshot},
-    Future, StreamExt,
-};
+use futures::{channel::mpsc::Sender, Future, StreamExt};
 use ipnetwork::IpNetwork;
 use p2p::{
     builder::ServiceBuilder,
@@ -41,35 +37,29 @@ use p2p::{
     utils::extract_peer_id,
     SessionId,
 };
+#[cfg(feature = "with_sentry")]
+use sentry::{capture_message, with_scope, Level};
+use std::sync::mpsc;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc as std_mpsc, Arc,
+        Arc,
     },
     thread,
     time::{Duration, Instant},
     usize,
 };
-use tokio::runtime;
+use tokio::{self, sync::oneshot};
 
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 // After 5 minutes we consider this dial hang
 const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// TODO(doc): @driftluo
-#[derive(Debug, Clone)]
-pub struct SessionInfo {
-    /// TODO(doc): @driftluo
-    pub peer: Peer,
-    /// TODO(doc): @driftluo
-    pub protocol_version: Option<ProtocolVersion>,
-}
-
-/// TODO(doc): @driftluo
+/// The global shared state of the network module
 pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<PeerStore>,
@@ -78,7 +68,7 @@ pub struct NetworkState {
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
-    public_addrs: RwLock<HashMap<Multiaddr, u8>>,
+    public_addrs: RwLock<HashSet<Multiaddr>>,
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
@@ -86,21 +76,21 @@ pub struct NetworkState {
     pub(crate) config: NetworkConfig,
     pub(crate) active: AtomicBool,
     /// Node supported protocols
-    /// fields: PotocolId, Protocol Name, Supported Versions
+    /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
 }
 
 impl NetworkState {
-    /// TODO(doc): @driftluo
+    /// Init from config
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
-        let public_addrs: HashMap<Multiaddr, u8> = config
+        let public_addrs: HashSet<Multiaddr> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
-            .map(|addr| (addr.to_owned(), std::u8::MAX))
+            .cloned()
             .collect();
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
@@ -282,45 +272,47 @@ impl NetworkState {
         callback(&mut self.peer_store.lock())
     }
 
-    /// TODO(doc): @driftluo
+    /// Get peer id of local node
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
 
+    /// Use on test
+    #[allow(dead_code)]
     pub(crate) fn local_private_key(&self) -> &secio::SecioKeyPair {
         &self.local_private_key
     }
 
-    /// TODO(doc): @driftluo
+    /// Get local node's peer id in base58 format string
     pub fn node_id(&self) -> String {
-        self.local_private_key().peer_id().to_base58()
+        self.local_peer_id().to_base58()
     }
 
-    pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+    pub(crate) fn public_addrs(&self, count: usize) -> Vec<Multiaddr> {
         self.public_addrs
             .read()
             .iter()
             .take(count)
-            .map(|(addr, score)| (addr.to_owned(), *score))
+            .cloned()
             .collect()
-    }
-
-    pub(crate) fn vote_listened_addr(&self, addr: Multiaddr, votes: u8) {
-        let mut public_addrs = self.public_addrs.write();
-        let score = public_addrs.entry(addr).or_default();
-        *score = score.saturating_add(votes);
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         self.peer_registry.read().connection_status()
     }
 
-    /// TODO(doc): @driftluo
+    /// Get local node's listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         let listened_addrs = self.listened_addrs.read();
         self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
             .into_iter()
-            .filter(|(addr, _)| !listened_addrs.contains(addr))
+            .filter_map(|addr| {
+                if !listened_addrs.contains(&addr) {
+                    Some((addr, 1))
+                } else {
+                    None
+                }
+            })
             .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (self.to_external_url(&addr), score))
             .collect()
@@ -339,7 +331,7 @@ impl NetworkState {
         format!("{}/p2p/{}", addr, self.node_id())
     }
 
-    /// TODO(doc): @driftluo
+    /// use a filter to get protocol id list
     pub fn get_protocol_ids<F: Fn(ProtocolId) -> bool>(&self, filter: F) -> Vec<ProtocolId> {
         self.protocols
             .read()
@@ -358,7 +350,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains_key(&addr) {
+        if self.public_addrs.read().contains(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -382,7 +374,7 @@ impl NetworkState {
                 addr
             );
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
-                use sentry::{capture_message, with_scope, Level};
+                #[cfg(feature = "with_sentry")]
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "dialing-timeout"])),
                     || {
@@ -475,7 +467,11 @@ impl NetworkState {
     /// this method is intent to check observed addr by dial to self
     pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        for addr in pending_observed_addrs.drain() {
+        let public_addrs = self.public_addrs.read().clone();
+        for addr in pending_observed_addrs
+            .drain()
+            .chain(public_addrs.into_iter())
+        {
             trace!("try dial observed addr: {:?}", addr);
             if let Err(err) = self.dial_inner(
                 p2p_control,
@@ -489,44 +485,34 @@ impl NetworkState {
         }
     }
 
-    /// TODO(doc): @driftluo
-    pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
+    /// add observed address for identify protocol
+    pub(crate) fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        let mut public_addrs = self.public_addrs.write();
         for addr in iter {
-            if let Some(score) = public_addrs.get_mut(&addr) {
-                *score = score.saturating_add(1);
-                trace!(
-                    "increase score for exists observed addr: {:?} {}",
-                    addr,
-                    score
-                );
-            } else {
-                trace!("pending observed addr: {:?}", addr,);
-                pending_observed_addrs.insert(addr);
-            }
+            trace!("pending observed addr: {:?}", addr,);
+            pending_observed_addrs.insert(addr);
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Network message processing controller, default is true, if false, discard any received messages
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
 }
 
-/// TODO(doc): @driftluo
+/// Used to handle global events of tentacle, such as session open/close
 pub struct EventHandler<T> {
     pub(crate) network_state: Arc<NetworkState>,
     pub(crate) exit_handler: T,
 }
 
-/// TODO(doc): @driftluo
+/// Exit trait used to notify all other module to exit
 pub trait ExitHandler: Send + Unpin + 'static {
-    /// TODO(doc): @driftluo
+    /// notify other module to exit
     fn notify_exit(&self);
 }
 
-/// TODO(doc): @driftluo
+/// Default exit handle
 #[derive(Clone, Default)]
 pub struct DefaultExitHandler {
     lock: Arc<Mutex<()>>,
@@ -534,7 +520,7 @@ pub struct DefaultExitHandler {
 }
 
 impl DefaultExitHandler {
-    /// TODO(doc): @driftluo
+    /// Block on current thread util exit notify
     pub fn wait_for_exit(&self) {
         self.exit.wait(&mut self.lock.lock());
     }
@@ -590,19 +576,23 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             } => {
                 debug!("DialerError({}) {}", address, error);
 
+                let mut public_addrs = self.network_state.public_addrs.write();
+                let addr = address
+                    .iter()
+                    .filter(|proto| match proto {
+                        multiaddr::Protocol::P2P(_) => false,
+                        _ => true,
+                    })
+                    .collect();
+
                 if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
                     SecioError::ConnectSelf,
                 )) = error
                 {
                     debug!("dial observed address success: {:?}", address);
-                    let addr = address
-                        .iter()
-                        .filter(|proto| match proto {
-                            multiaddr::Protocol::P2P(_) => false,
-                            _ => true,
-                        })
-                        .collect();
-                    self.network_state.vote_listened_addr(addr, 1);
+                    public_addrs.insert(addr);
+                } else {
+                    public_addrs.remove(&addr);
                 }
                 let peer_id = extract_peer_id(address).expect("Secio must enabled");
                 self.network_state.dial_failed(peer_id);
@@ -654,7 +644,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             }
             ServiceError::ProtocolHandleError { proto_id, error } => {
                 debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
-                use sentry::{capture_message, with_scope, Level};
+                #[cfg(feature = "with_sentry")]
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
                     || {
@@ -781,7 +771,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     }
 }
 
-/// TODO(doc): @driftluo
+/// Ckb network service, use to start p2p network
 pub struct NetworkService<T> {
     p2p_service: Service<EventHandler<T>>,
     network_state: Arc<NetworkState>,
@@ -792,7 +782,7 @@ pub struct NetworkService<T> {
 }
 
 impl<T: ExitHandler> NetworkService<T> {
-    /// TODO(doc): @driftluo
+    /// init with all config
     pub fn new(
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
@@ -869,12 +859,89 @@ impl<T: ExitHandler> NetworkService<T> {
             network_state: Arc::clone(&network_state),
             exit_handler,
         };
-        let p2p_service = service_builder
+        service_builder = service_builder
             .key_pair(network_state.local_private_key.clone())
             .upnp(config.upnp)
             .forever(true)
-            .max_connection_number(1024)
-            .build(event_handler);
+            .max_connection_number(1024);
+
+        #[cfg(target_os = "linux")]
+        let p2p_service = {
+            let iter = config.listen_addresses.iter();
+
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            enum TransportType {
+                Ws,
+                Tcp,
+            }
+
+            fn find_type(addr: &Multiaddr) -> TransportType {
+                let mut iter = addr.iter();
+
+                iter.find_map(|proto| {
+                    if let multiaddr::Protocol::Ws = proto {
+                        Some(TransportType::Ws)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(TransportType::Tcp)
+            }
+
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            enum BindType {
+                None,
+                Ws,
+                Tcp,
+                Both,
+            }
+            impl BindType {
+                fn transform(&mut self, other: TransportType) {
+                    match (&self, other) {
+                        (BindType::None, TransportType::Ws) => *self = BindType::Ws,
+                        (BindType::None, TransportType::Tcp) => *self = BindType::Tcp,
+                        (BindType::Ws, TransportType::Tcp) => *self = BindType::Both,
+                        (BindType::Tcp, TransportType::Ws) => *self = BindType::Both,
+                        _ => (),
+                    }
+                }
+
+                fn is_ready(&self) -> bool {
+                    // should change to Both if ckb enable ws
+                    matches!(self, BindType::Tcp)
+                }
+            }
+
+            let mut init = BindType::None;
+            for addr in iter {
+                if init.is_ready() {
+                    break;
+                }
+                match find_type(addr) {
+                    // wait ckb enable ws support
+                    TransportType::Ws => (),
+                    TransportType::Tcp => {
+                        // only bind once
+                        if matches!(init, BindType::Tcp) {
+                            continue;
+                        }
+                        service_builder = service_builder.tcp_bind(addr.clone());
+                        init.transform(TransportType::Tcp)
+                    }
+                }
+            }
+
+            service_builder.build(event_handler)
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        // The default permissions of Windows are not enough to enable this function,
+        // and the administrator permissions of group permissions must be turned on.
+        // This operation is very burdensome for windows users, so it is turned off by default
+        //
+        // The integration test fails after MacOS is turned on, the behavior is different from linux.
+        // Decision to turn off it
+        let p2p_service = service_builder.build(event_handler);
 
         // == Build background service tasks
         let dump_peer_store_service = DumpPeerStoreService::new(Arc::clone(&network_state));
@@ -896,10 +963,13 @@ impl<T: ExitHandler> NetworkService<T> {
             bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
 
+        #[cfg(feature = "with_dns_seeding")]
         if config.dns_seeding_service_enabled() {
-            let dns_seeding_service =
-                DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
-            bg_services.push(Box::pin(dns_seeding_service) as Pin<Box<_>>);
+            let dns_seeding_service = crate::services::dns_seeding::DnsSeedingService::new(
+                Arc::clone(&network_state),
+                config.dns_seeds.clone(),
+            );
+            bg_services.push(Box::pin(dns_seeding_service.start()) as Pin<Box<_>>);
         };
 
         NetworkService {
@@ -911,8 +981,8 @@ impl<T: ExitHandler> NetworkService<T> {
         }
     }
 
-    /// TODO(doc): @driftluo
-    pub fn start<S: ToString>(self, thread_name: Option<S>) -> Result<NetworkController, Error> {
+    /// Start the network in the background and return a controller
+    pub fn start<S: Spawn>(self, handle: &S) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
         // dial whitelist_nodes
@@ -957,108 +1027,98 @@ impl<T: ExitHandler> NetworkService<T> {
         } = self;
         let p2p_control = p2p_service.control().to_owned();
 
-        // Mainly for test: give an empty thread_name
-        let mut thread_builder = thread::Builder::new();
-        if let Some(name) = thread_name {
-            thread_builder = thread_builder.name(name.to_string());
-        }
-        let (sender, receiver) = std_mpsc::channel();
-        let (start_sender, start_receiver) = std_mpsc::channel();
-        // Main network thread
-        let thread = {
+        // NOTE: for ensure background task finished
+        let (bg_signals, bg_receivers): (Vec<_>, Vec<_>) = bg_services
+            .into_iter()
+            .map(|bg_service| {
+                let (signal_sender, signal_receiver) = oneshot::channel::<()>();
+                (signal_sender, (bg_service, signal_receiver))
+            })
+            .unzip();
+
+        let (sender, mut receiver) = oneshot::channel();
+        let (start_sender, start_receiver) = mpsc::channel();
+        {
             let network_state = Arc::clone(&network_state);
             let p2p_control = p2p_control.clone();
-            thread_builder
-                .spawn(move || {
-                    let num_threads = max(num_cpus::get(), 4);
-                    let mut runtime = runtime::Builder::new()
-                        .core_threads(num_threads)
-                        .enable_all()
-                        .threaded_scheduler()
-                        .thread_name("NetworkRuntime")
-                        .build()
-                        .expect("Network tokio runtime init failed");
-
-                    let handle = {
-                        let network_state = Arc::clone(&network_state);
-                        runtime.spawn(async move {
-                            // listen local addresses
-                            for addr in &config.listen_addresses {
-                                match p2p_service.listen(addr.to_owned()).await {
-                                    Ok(listen_address) => {
-                                        info!(
-                                            "Listen on address: {}",
-                                            network_state.to_external_url(&listen_address)
-                                        );
-                                        network_state
-                                            .listened_addrs
-                                            .write()
-                                            .push(listen_address.clone());
-                                    }
-                                    Err(err) => {
-                                        warn!(
-                                            "listen on address {} failed, due to error: {}",
-                                            addr.clone(),
-                                            err
-                                        );
-                                        start_sender
-                                            .send(Err(Error::P2P(P2PError::Transport(err))))
-                                            .expect("channel abnormal shutdown");
-                                        return;
-                                    }
-                                };
-                            }
-                            start_sender.send(Ok(())).unwrap();
-                            loop {
-                                if p2p_service.next().await.is_none() {
-                                    break;
+            handle.spawn_task(async move {
+                for addr in &config.listen_addresses {
+                    match p2p_service.listen(addr.to_owned()).await {
+                        Ok(listen_address) => {
+                            info!(
+                                "Listen on address: {}",
+                                network_state.to_external_url(&listen_address)
+                            );
+                            network_state
+                                .listened_addrs
+                                .write()
+                                .push(listen_address.clone());
+                        }
+                        Err(err) => {
+                            warn!(
+                                "listen on address {} failed, due to error: {}",
+                                addr.clone(),
+                                err
+                            );
+                            start_sender
+                                .send(Err(Error::P2P(P2PError::Transport(err))))
+                                .expect("channel abnormal shutdown");
+                            return;
+                        }
+                    };
+                }
+                start_sender.send(Ok(())).unwrap();
+                loop {
+                    tokio::select! {
+                        Some(_) = p2p_service.next() => {},
+                        _ = &mut receiver => {
+                            for peer in network_state.peer_registry.read().peers().values() {
+                                info!("Disconnect peer {}", peer.connected_addr);
+                                if let Err(err) =
+                                    disconnect_with_message(&p2p_control, peer.session_id, "shutdown")
+                                {
+                                    debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
                                 }
                             }
-                        })
-                    };
+                            // Drop senders to stop all corresponding background task
+                            drop(bg_signals);
 
-                    // NOTE: for ensure background task finished
-                    let bg_signals = bg_services
-                        .into_iter()
-                        .map(|bg_service| {
-                            let (signal_sender, signal_receiver) = oneshot::channel::<()>();
-                            let task = futures::future::select(bg_service, signal_receiver);
-                            runtime.spawn(task);
-                            signal_sender
-                        })
-                        .collect::<Vec<_>>();
+                            break;
+                        },
+                        else => {
+                            for peer in network_state.peer_registry.read().peers().values() {
+                                info!("Disconnect peer {}", peer.connected_addr);
+                                if let Err(err) =
+                                    disconnect_with_message(&p2p_control, peer.session_id, "shutdown")
+                                {
+                                    debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
+                                }
+                            }
+                            // Drop senders to stop all corresponding background task
+                            drop(bg_signals);
 
-                    debug!("Waiting for the shutdown signal ...");
-
-                    // Recevied stop signal, doing cleanup
-                    let _ = receiver.recv();
-                    debug!("Recevied the shutdown signal.");
-                    for peer in network_state.peer_registry.read().peers().values() {
-                        info!("Disconnect peer {}", peer.connected_addr);
-                        if let Err(err) =
-                            disconnect_with_message(&p2p_control, peer.session_id, "shutdown")
-                        {
-                            debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
-                        }
+                            break;
+                        },
                     }
-                    // Drop senders to stop all corresponding background task
-                    drop(bg_signals);
-                    if let Err(err) = p2p_control.shutdown() {
-                        warn!("send shutdown message to p2p error: {:?}", err);
+                }
+            });
+        }
+        for (mut service, mut receiver) in bg_receivers {
+            handle.spawn_task(async move {
+                loop {
+                    tokio::select! {
+                        _ = &mut service => {},
+                        _ = &mut receiver => break
                     }
-
-                    debug!("Waiting tokio runtime to finish ...");
-                    runtime.block_on(handle).unwrap();
-                    debug!("Shutdown network service finished!");
-                })
-                .expect("Start NetworkService failed")
-        };
+                }
+            });
+        }
 
         if let Ok(Err(e)) = start_receiver.recv() {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Std(sender), thread);
+        let stop = StopHandler::new(SignalSender::Tokio(sender), None);
         Ok(NetworkController {
             version,
             network_state,
@@ -1069,7 +1129,7 @@ impl<T: ExitHandler> NetworkService<T> {
     }
 }
 
-/// TODO(doc): @driftluo
+/// Network controller
 #[derive(Clone)]
 pub struct NetworkController {
     version: String,
@@ -1080,28 +1140,28 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
-    /// TODO(doc): @driftluo
+    /// Node listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)
     }
 
-    /// TODO(doc): @driftluo
+    /// ckb version
     pub fn version(&self) -> &String {
         &self.version
     }
 
-    /// TODO(doc): @driftluo
+    /// Node peer id's base58 format string
     pub fn node_id(&self) -> String {
         self.network_state.node_id()
     }
 
-    /// TODO(doc): @driftluo
+    /// Dial remote node
     pub fn add_node(&self, peer_id: &PeerId, address: Multiaddr) {
         self.network_state
             .add_node(&self.p2p_control, peer_id, address)
     }
 
-    /// TODO(doc): @driftluo
+    /// Disconnect session with peer id
     pub fn remove_node(&self, peer_id: &PeerId) {
         if let Some(session_id) = self
             .network_state
@@ -1119,7 +1179,7 @@ impl NetworkController {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Get banned peer list
     pub fn get_banned_addrs(&self) -> Vec<BannedAddr> {
         self.network_state
             .peer_store
@@ -1128,12 +1188,12 @@ impl NetworkController {
             .get_banned_addrs()
     }
 
-    /// TODO(doc): @driftluo
+    /// Clear banned list
     pub fn clear_banned_addrs(&self) {
         self.network_state.peer_store.lock().clear_ban_list();
     }
 
-    /// TODO(doc): @driftluo
+    /// Get address info from peer store
     pub fn addr_info(&self, ip_port: &IpPort) -> Option<AddrInfo> {
         self.network_state
             .peer_store
@@ -1143,7 +1203,7 @@ impl NetworkController {
             .cloned()
     }
 
-    /// TODO(doc): @driftluo
+    /// Ban an ip
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
         self.network_state
             .peer_store
@@ -1151,7 +1211,7 @@ impl NetworkController {
             .ban_network(address, ban_until, ban_reason)
     }
 
-    /// TODO(doc): @driftluo
+    /// Unban an ip
     pub fn unban(&self, address: &IpNetwork) {
         self.network_state
             .peer_store
@@ -1160,7 +1220,7 @@ impl NetworkController {
             .unban_network(address);
     }
 
-    /// TODO(doc): @driftluo
+    /// Return all connected peers' information
     pub fn connected_peers(&self) -> Vec<(PeerIndex, Peer)> {
         self.network_state.with_peer_registry(|reg| {
             reg.peers()
@@ -1205,21 +1265,21 @@ impl NetworkController {
         }
     }
 
-    /// TODO(doc): @driftluo
+    /// Broadcast a message to all connected peers
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(false, target, proto_id, data)
     }
 
-    /// TODO(doc): @driftluo
+    /// Broadcast a message to all connected peers through quick queue
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
         let session_ids = self.network_state.peer_registry.read().connected_peers();
         let target = TargetSession::Multi(session_ids);
         self.try_broadcast(true, target, proto_id, data)
     }
 
-    /// TODO(doc): @driftluo
+    /// Send message to one connected peer
     pub fn send_message_to(
         &self,
         session_id: SessionId,
@@ -1230,22 +1290,22 @@ impl NetworkController {
         self.try_broadcast(false, target, proto_id, data)
     }
 
-    /// TODO(doc): @driftluo
+    /// network message processing controller, always true, if false, discard any received messages
     pub fn is_active(&self) -> bool {
         self.network_state.is_active()
     }
 
-    /// TODO(doc): @driftluo
+    /// Change active status, if set false discard any received messages
     pub fn set_active(&self, active: bool) {
         self.network_state.active.store(active, Ordering::Relaxed);
     }
 
-    /// TODO(doc): @driftluo
+    /// Return all connected peers' protocols info
     pub fn protocols(&self) -> Vec<(ProtocolId, String, Vec<String>)> {
         self.network_state.protocols.read().clone()
     }
 
-    /// TODO(doc): @driftluo
+    /// Try ping all connected peers
     pub fn ping_peers(&self) {
         let mut ping_controller = self.ping_controller.clone();
         let _ignore = ping_controller.try_send(());

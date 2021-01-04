@@ -1,12 +1,16 @@
 use crate::chain::{ChainController, ChainService};
+use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
 pub use ckb_test_chain_utils::MockStore;
-use ckb_test_chain_utils::{always_success_cell, load_input_data_hash_cell};
+use ckb_test_chain_utils::{
+    always_success_cell, load_input_data_hash_cell, load_input_one_byte_cell,
+};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -16,9 +20,10 @@ use ckb_types::{
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
         TransactionView,
     },
+    h256,
     packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::{difficulty_to_compact, DIFF_TWO},
-    U256,
+    H256, U256,
 };
 use std::collections::HashSet;
 
@@ -45,8 +50,23 @@ pub(crate) fn create_load_input_data_hash_cell_tx() -> TransactionView {
         .build()
 }
 
+pub(crate) fn create_load_input_one_byte_cell_tx() -> TransactionView {
+    let (ref load_input_one_byte_cell, ref load_input_one_byte_cell_data, ref script) =
+        load_input_one_byte_cell();
+    TransactionBuilder::default()
+        .witness(script.clone().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .output(load_input_one_byte_cell.clone())
+        .output_data(load_input_one_byte_cell_data.pack())
+        .build()
+}
+
 pub(crate) fn create_load_input_data_hash_cell_out_point() -> OutPoint {
     OutPoint::new(create_load_input_data_hash_cell_tx().hash(), 0)
+}
+
+pub(crate) fn create_load_input_one_byte_out_point() -> OutPoint {
+    OutPoint::new(create_load_input_one_byte_cell_tx().hash(), 0)
 }
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
@@ -89,7 +109,19 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .genesis_block(genesis_block)
             .build()
     });
-    let (shared, table) = builder.consensus(consensus).build().unwrap();
+
+    let config = BlockAssemblerConfig {
+        code_hash: h256!("0x0"),
+        args: Default::default(),
+        hash_type: ScriptHashType::Data,
+        message: Default::default(),
+    };
+
+    let (shared, table) = builder
+        .consensus(consensus)
+        .block_assembler_config(Some(config))
+        .build()
+        .unwrap();
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);

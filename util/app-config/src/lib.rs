@@ -4,6 +4,7 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+#[cfg(feature = "with_sentry")]
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
@@ -16,8 +17,13 @@ pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_types::{u256, H256, U256};
 use clap::{value_t, ArgMatches, ErrorKind};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
+
+// 500_000 total difficulty
+const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// TODO(doc): @doitian
 pub struct Setup {
@@ -26,6 +32,7 @@ pub struct Setup {
     /// TODO(doc): @doitian
     pub config: AppConfig,
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub is_sentry_enabled: bool,
 }
 
@@ -42,11 +49,13 @@ impl Setup {
 
         let root_dir = Self::root_dir_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        #[cfg(feature = "with_sentry")]
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),
             config,
+            #[cfg(feature = "with_sentry")]
             is_sentry_enabled,
         })
     }
@@ -54,20 +63,41 @@ impl Setup {
     /// TODO(doc): @doitian
     pub fn run<'m>(self, matches: &ArgMatches<'m>) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
-        let config = self.config.into_ckb()?;
+        let chain_spec_hash = self.chain_spec()?.hash;
+        let mut config = self.config.into_ckb()?;
+
+        let mainnet_genesis = ckb_chain_spec::ChainSpec::load_from(
+            &ckb_resource::Resource::bundled("specs/mainnet.toml".to_string()),
+        )
+        .expect("load mainnet spec fail")
+        .build_genesis()
+        .expect("build mainnet genesis fail");
+        config.network.sync.min_chain_work =
+            if consensus.genesis_block.hash() == mainnet_genesis.hash() {
+                MIN_CHAIN_WORK_500K
+            } else {
+                u256!("0x0")
+            };
+
+        config.network.sync.assume_valid_target = matches
+            .value_of(cli::ARG_ASSUME_VALID_TARGET)
+            .and_then(|s| H256::from_str(&s[2..]).ok());
 
         Ok(RunArgs {
             config,
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
+            skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
+            chain_spec_hash,
         })
     }
 
-    /// TODO(doc): @doitian
-    pub fn migrate<'m>(self, _matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
+    /// `migrate` subcommand has one `flags` arg, trigger this arg with "--check"
+    pub fn migrate<'m>(self, matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
         let config = self.config.into_ckb()?;
+        let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
 
-        Ok(MigrateArgs { config })
+        Ok(MigrateArgs { config, check })
     }
 
     /// TODO(doc): @doitian
@@ -105,14 +135,14 @@ impl Setup {
             None
         };
         let sanity_check = matches.is_present(cli::ARG_SANITY_CHECK);
-        let full_verfication = matches.is_present(cli::ARG_FULL_VERFICATION);
+        let full_verification = matches.is_present(cli::ARG_FULL_VERIFICATION);
         Ok(ReplayArgs {
             config,
             consensus,
             tmp_target,
             profile,
             sanity_check,
-            full_verfication,
+            full_verification,
         })
     }
 
@@ -273,6 +303,7 @@ impl Setup {
         Ok(config_dir)
     }
 
+    #[cfg(feature = "with_sentry")]
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec();
         if let Ok(spec) = &result {
@@ -287,7 +318,13 @@ impl Setup {
         result
     }
 
+    #[cfg(not(feature = "with_sentry"))]
+    fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
+        self.config.chain_spec()
+    }
+
     /// TODO(doc): @doitian
+    #[cfg(feature = "with_sentry")]
     pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         let result = consensus_from_spec(&self.chain_spec()?);
 
@@ -300,6 +337,11 @@ impl Setup {
         }
 
         result
+    }
+
+    #[cfg(not(feature = "with_sentry"))]
+    pub fn consensus(&self) -> Result<Consensus, ExitCode> {
+        consensus_from_spec(&self.chain_spec()?)
     }
 
     /// TODO(doc): @doitian
@@ -339,6 +381,7 @@ macro_rules! option_value_t {
     };
 }
 
+#[cfg(feature = "with_sentry")]
 fn is_daemon(subcommand_name: &str) -> bool {
     match subcommand_name {
         cli::CMD_RUN => true,
