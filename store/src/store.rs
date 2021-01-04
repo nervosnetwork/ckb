@@ -97,14 +97,31 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 
     /// Get unfrozen block from ky-store with given hash
-    fn get_unfrozen_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
-        let header = self.get_block_header(h)?;
-        let body = self.get_block_body(h);
+    fn get_unfrozen_block(&'a self, hash: &packed::Byte32) -> Option<BlockView> {
+        let header = self
+            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
+            .map(|slice| {
+                let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
+                Unpack::<HeaderView>::unpack(&reader)
+            })?;
+
+        let body = self.get_block_body(hash);
+
         let uncles = self
-            .get_block_uncles(h)
+            .get(COLUMN_BLOCK_UNCLE, hash.as_slice())
+            .map(|slice| {
+                let reader =
+                    packed::UncleBlockVecViewReader::from_slice_should_be_ok(&slice.as_ref());
+                Unpack::<UncleBlockVecView>::unpack(&reader)
+            })
             .expect("block uncles must be stored");
+
         let proposals = self
-            .get_block_proposal_txs_ids(h)
+            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
+            .map(|slice| {
+                packed::ProposalShortIdVecReader::from_slice_should_be_ok(&slice.as_ref())
+                    .to_entity()
+            })
             .expect("block proposal_ids must be stored");
         Some(BlockView::new_unchecked(header, uncles, body, proposals))
     }
