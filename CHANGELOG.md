@@ -2,7 +2,6 @@
 
 ### Features
 
-* #2297: Chain freezer (@zhangsoledad)
 * #2382: Permit load cell data from memory (@zhangsoledad)
 * #2343: Add RPC `get_raw_tx_pool` (@zhangsoledad)
 * #2347: Add RPC to get consensus parameters (@zhangsoledad)
