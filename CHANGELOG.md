@@ -1,3 +1,55 @@
+# [v0.39.0](https://github.com/nervosnetwork/ckb/compare/v0.38.1...v0.39.0) (2020-12-21)
+
+### Features
+
+* #2297: Chain freezer (@zhangsoledad)
+* #2382: Permit load cell data from memory (@zhangsoledad)
+* #2343: Add RPC `get_raw_tx_pool` (@zhangsoledad)
+* #2347: Add RPC to get consensus parameters (@zhangsoledad)
+* #2280: Add assume valid target config (@driftluo)
+
+    Added option to skip verification for faster synchronization of trusted node data to a specified height
+
+    **Please know exactly what you are doing before you use it!**
+
+* #2351: Add `with_sentry` feature (@quake)
+
+    Move sentry to optional dependency, reduce dependency libs on other target (wasm32, etc)
+
+* #2334: Migrate check (@zhangsoledad)
+
+    Add command `ckb migrate --check`. If migration is in need 0 will be return，otherwise 64.
+
+* #2379: Let the consensus params `orphan_rate_target` to be configurable (@yangby-cryptape)
+
+### Bug Fixes
+
+* #2394: Some crates invalidly assumes the memory layout of `std::net::SocketAddr` (@yangby-cryptape)
+* #2389: Upgrade CKB VM to fix memmap security warning (@xxuejie)
+* #2387: Skip RUSTSEC-2020-0077 temporarily (@yangby-cryptape)
+* #2392: Skip RUSTSEC-2020-0082 temporarily since not affected (@yangby-cryptape)
+* #2350: The description for the low fee rate error (@yangby-cryptape)
+
+    The first parameter is the minimum transaction fee, not the fee rate.
+
+* #2357: Conflict transaction stuck in tx-pool (@zhangsoledad)
+* #2390: Don't open db when disable indexer module, fix deprecated method response (@driftluo)
+
+### Improvements
+
+* #2386: Replace `failure` by `thiserror` and `anyhow` (@yangby-cryptape)
+
+    [RUSTSEC-2020-0036: `failure`: `failure` is officially deprecated/unmaintained](https://rustsec.org/advisories/RUSTSEC-2020-0036.html)
+
+* #2373: Single instance async runtime (@zhangsoledad)
+
+    This PR brings several refactorings. All async processes now use one single instance runtime. It makes ckb-network work as a usually library and decoupled from the runtime.
+
+* #2271: Add some mining utils (@keroro520)
+* #2277: Add some utils to generate spendable cells (@keroro520)
+* #2342 **doc:** Add some missing docs (@zhangsoledad)
+* #2369 **doc:** Network doc (@driftluo)
+
 # [v0.38.1](https://github.com/nervosnetwork/ckb/compare/v0.38.0...v0.38.1) (2020-12-02)
 
 ### Bug Fixes
