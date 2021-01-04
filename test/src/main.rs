@@ -36,10 +36,6 @@ struct TestResult {
 #[allow(clippy::cognitive_complexity)]
 fn main() {
     env::set_var("RUST_BACKTRACE", "full");
-    let _ = {
-        let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-        env_logger::builder().parse_filters(&filter).try_init()
-    };
 
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
@@ -55,8 +51,21 @@ fn main() {
     let worker_count = value_t!(matches, "concurrent", usize).unwrap_or_else(|err| err.exit());
     let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
     let fail_fast = !matches.is_present("no-fail-fast");
-    let quiet = matches.is_present("quiet");
     let report = !matches.is_present("no-report");
+    let verbose = matches.is_present("verbose");
+
+    let _ = {
+        let filter = if !verbose {
+            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string())
+        } else {
+            format!(
+                "{},{}=trace",
+                env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+                module_path!(),
+            )
+        };
+        env_logger::builder().parse_filters(&filter).try_init()
+    };
 
     if matches.is_present("list-specs") {
         list_specs();
@@ -126,7 +135,7 @@ fn main() {
                     worker_running -= 1;
                 }
                 spec_errors.push(Some(spec_error));
-                if !quiet {
+                if verbose {
                     info!("[{}] Error", spec_name);
                     tail_node_logs(&node_log_paths);
                 }
@@ -148,7 +157,7 @@ fn main() {
                     worker_running -= 1;
                 }
                 spec_errors.push(None);
-                if !quiet {
+                if verbose {
                     info!("[{}] Panic", spec_name);
                     print_panicked_logs(&node_log_paths);
                 }
@@ -251,9 +260,9 @@ fn clap_app() -> App<'static, 'static> {
                 .default_value("4"),
         )
         .arg(
-            Arg::with_name("quiet")
-                .long("quiet")
-                .help("Use less output"),
+            Arg::with_name("verbose")
+                .long("verbose")
+                .help("Show verbose log"),
         )
         .arg(
             Arg::with_name("no-fail-fast")
