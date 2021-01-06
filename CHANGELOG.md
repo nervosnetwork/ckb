@@ -1,3 +1,9 @@
+# [v0.39.1](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.39.1) (2021-01-07)
+
+### Improvements
+
+* Upgrade tentacle to 0.3.4 (@driftluo).
+
 # [v0.39.0](https://github.com/nervosnetwork/ckb/compare/v0.38.1...v0.39.0) (2020-12-21)
 
 ### Features
