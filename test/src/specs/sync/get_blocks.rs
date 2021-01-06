@@ -2,10 +2,8 @@ use crate::util::mining::mine;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
-use ckb_sync::BLOCK_DOWNLOAD_TIMEOUT;
-use ckb_types::core::HeaderView;
-use ckb_types::packed::{GetBlocks, SyncMessage};
-use ckb_types::prelude::*;
+use ckb_sync::{BLOCK_DOWNLOAD_TIMEOUT, INIT_BLOCKS_IN_TRANSIT_PER_PEER};
+use ckb_types::{core::HeaderView, packed, prelude::*};
 use log::info;
 use std::time::{Duration, Instant};
 
@@ -19,11 +17,12 @@ impl Spec for GetBlocksTimeout {
         let node2 = nodes.pop().unwrap();
 
         mine(&node1, 1);
-        mine(&node2, 20);
+        mine(&node2, INIT_BLOCKS_IN_TRANSIT_PER_PEER as u64 + 20);
 
         let headers: Vec<HeaderView> = (1..=node2.get_tip_block_number())
             .map(|i| node2.get_header_by_number(i))
             .collect();
+        let expected_hash = headers[INIT_BLOCKS_IN_TRANSIT_PER_PEER - 1].hash();
 
         let mut net = Net::new(self.name(), node1.consensus(), vec![SupportProtocols::Sync]);
         net.connect(&node1);
@@ -32,15 +31,31 @@ impl Spec for GetBlocksTimeout {
         info!("Receive GetBlocks from node1");
 
         let block_download_timeout_secs = BLOCK_DOWNLOAD_TIMEOUT / 1000;
-        let (first, received) =
-            wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2);
-        assert!(received, "Should received GetBlocks");
-        let (second, received) =
-            wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2);
-        assert!(!received, "Should not received GetBlocks");
-        let elapsed = second.duration_since(first).as_secs();
-        let error_margin = 2;
-        assert!(elapsed >= block_download_timeout_secs - error_margin);
+        let received = wait_get_blocks_point(
+            &net,
+            &node1,
+            block_download_timeout_secs * 2,
+            INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+        );
+        assert!(received.is_some(), "Should received GetBlocks");
+        let (count, last_hash) = received.unwrap();
+        assert!(
+            count == INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+            "Should received only {} GetBlocks",
+            INIT_BLOCKS_IN_TRANSIT_PER_PEER
+        );
+        assert!(
+            expected_hash == last_hash,
+            "The last hash of GetBlocks should be {:#x} but got {:#x}",
+            expected_hash,
+            last_hash,
+        );
+
+        let received = wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2, 1);
+        assert!(
+            received.is_none(),
+            "Should not received GetBlocks anymore, the timeout could be any number."
+        );
 
         let rpc_client = node1.rpc_client();
         let result = wait_until(10, || {
@@ -53,14 +68,29 @@ impl Spec for GetBlocksTimeout {
     }
 }
 
-fn wait_get_blocks_point(net: &Net, node: &Node, secs: u64) -> (Instant, bool) {
-    let flag = wait_until(secs, || {
+fn wait_get_blocks_point(
+    net: &Net,
+    node: &Node,
+    secs: u64,
+    expected_count: usize,
+) -> Option<(usize, packed::Byte32)> {
+    let mut count = 0;
+    let instant = Instant::now();
+    let mut last_hash = None;
+    while instant.elapsed() < Duration::from_secs(secs) {
         if let Ok((_, _, data)) = net.receive_timeout(node, Duration::from_secs(1)) {
-            if let Ok(message) = SyncMessage::from_slice(&data) {
-                return message.to_enum().item_name() == GetBlocks::NAME;
+            if let Ok(message) = packed::SyncMessage::from_slice(&data) {
+                if let packed::SyncMessageUnion::GetBlocks(inner) = message.to_enum() {
+                    count += inner.block_hashes().len();
+                    if let Some(hash) = inner.block_hashes().into_iter().last() {
+                        last_hash = Some(hash);
+                    }
+                    if count >= expected_count {
+                        break;
+                    }
+                }
             }
         }
-        false
-    });
-    (Instant::now(), flag)
+    }
+    last_hash.map(|hash| (count, hash))
 }
