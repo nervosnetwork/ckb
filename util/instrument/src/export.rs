@@ -13,12 +13,12 @@ use std::path::PathBuf;
 pub struct Export {
     /// export target path
     pub target: PathBuf,
-    /// TODO(doc): @doitian
+    /// CKB shared data.
     pub shared: Shared,
 }
 
 impl Export {
-    /// TODO(doc): @doitian
+    /// Creates the export job.
     pub fn new(shared: Shared, target: PathBuf) -> Self {
         Export { shared, target }
     }
@@ -28,7 +28,7 @@ impl Export {
         format!("{}.{}", self.shared.consensus().id, "json")
     }
 
-    /// TODO(doc): @doitian
+    /// Executes the export job.
     pub fn execute(self) -> Result<(), Box<dyn Error>> {
         fs::create_dir_all(&self.target)?;
         self.write_to_json()
@@ -53,7 +53,7 @@ impl Export {
         Ok(())
     }
 
-    /// TODO(doc): @doitian
+    /// Export the chain into JSON.
     #[cfg(feature = "progress_bar")]
     pub fn write_to_json(self) -> Result<(), Box<dyn Error>> {
         let f = fs::OpenOptions::new()

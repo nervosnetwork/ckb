@@ -1,4 +1,6 @@
-//! TODO(doc): @doitian
+//! CKB executable.
+//!
+//! This crate is created to reduce the link time to build CKB.
 mod helper;
 mod setup_guard;
 mod subcommand;
@@ -12,7 +14,15 @@ pub(crate) const LOG_TARGET_MAIN: &str = "main";
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
-/// TODO(doc): @doitian
+/// The executable main entry.
+///
+/// It returns `Ok` when the process exist normally, otherwise the `ExitCode` is converted to the
+/// process exit status code.
+///
+/// ## Parameters
+///
+/// * `version` - The version is passed in so the bin crate can collect the version without trigger
+/// re-linking.
 pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
