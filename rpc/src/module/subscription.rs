@@ -79,7 +79,7 @@ impl PubSubMetadata for SubscriptionSession {
 #[allow(clippy::needless_return)]
 #[rpc(server)]
 pub trait SubscriptionRpc {
-    /// TODO(doc): @doitian
+    /// Context to implement the subscription RPC.
     type Metadata;
 
     /// Subscribes to a topic.

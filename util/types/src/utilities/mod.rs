@@ -1,4 +1,4 @@
-//! TODO(doc): @doitian
+//! Types utilities.
 mod difficulty;
 mod merkle_tree;
 

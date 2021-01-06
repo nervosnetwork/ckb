@@ -17,33 +17,33 @@ use std::fmt;
 pub struct JsonBytes(Bytes);
 
 impl JsonBytes {
-    /// TODO(doc): @doitian
+    /// Creates the `JsonBytes` from `Bytes`.
     pub fn from_bytes(bytes: Bytes) -> Self {
         JsonBytes(bytes)
     }
 
-    /// TODO(doc): @doitian
+    /// Creates the `JsonBytes` from `Vec<u8>`.
     pub fn from_vec(vec: Vec<u8>) -> Self {
         JsonBytes(Bytes::from(vec))
     }
 
-    /// TODO(doc): @doitian
+    /// Converts into `Bytes`.
     pub fn into_bytes(self) -> Bytes {
         let JsonBytes(bytes) = self;
         bytes
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the number of bytes.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// TODO(doc): @doitian
+    /// Tells whether this is an empty bytes.
     pub fn is_empty(&self) -> bool {
         0 == self.len()
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the underlying slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }

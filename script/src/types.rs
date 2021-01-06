@@ -8,18 +8,20 @@ use std::fmt;
 /// script itself should check against all inputs/outputs in its group
 /// if needed.
 pub struct ScriptGroup {
-    /// TODO(doc): @doitian
+    /// The script.
+    ///
+    /// A script group is a group of input and output cells that share the same script.
     pub script: Script,
-    /// TODO(doc): @doitian
+    /// The script group type.
     pub group_type: ScriptGroupType,
-    /// TODO(doc): @doitian
+    /// Indices of input cells.
     pub input_indices: Vec<usize>,
-    /// TODO(doc): @doitian
+    /// Indices of output cells.
     pub output_indices: Vec<usize>,
 }
 
 impl ScriptGroup {
-    /// TODO(doc): @doitian
+    /// Creates a new script group struct.
     pub fn new(script: &Script, group_type: ScriptGroupType) -> Self {
         Self {
             group_type,
@@ -29,24 +31,27 @@ impl ScriptGroup {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a lock script group.
     pub fn from_lock_script(script: &Script) -> Self {
         Self::new(script, ScriptGroupType::Lock)
     }
 
-    /// TODO(doc): @doitian
+    /// Creates a type script group.
     pub fn from_type_script(script: &Script) -> Self {
         Self::new(script, ScriptGroupType::Type)
     }
 }
 
-/// TODO(doc): @doitian
+/// The script group type.
+///
+/// A cell can have a lock script and an optional type script. Even they reference the same script,
+/// lock script and type script will not be grouped together.
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptGroupType {
-    /// TODO(doc): @doitian
+    /// Lock script group.
     Lock,
-    /// TODO(doc): @doitian
+    /// Type script group.
     Type,
 }
 

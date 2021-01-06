@@ -16,7 +16,13 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
-    /// TODO(doc): @doitian
+    /// Creates an RPC server.
+    ///
+    /// ## Parameters
+    ///
+    /// * `config` - RPC config options.
+    /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
+    /// * `notify_controller` - Controler emitting notifications.
     pub fn new(
         config: RpcConfig,
         io_handler: IoHandler,
@@ -101,7 +107,7 @@ impl RpcServer {
         RpcServer { http, _tcp, _ws }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the HTTP RPC endpoint.
     pub fn http_address(&self) -> &SocketAddr {
         self.http.address()
     }

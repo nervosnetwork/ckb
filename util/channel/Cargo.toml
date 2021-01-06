@@ -4,7 +4,7 @@ version = "0.39.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-description = "TODO(doc): @doitian crate description"
+description = "Channel wrapper."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

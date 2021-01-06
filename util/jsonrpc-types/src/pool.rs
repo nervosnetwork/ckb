@@ -70,7 +70,7 @@ pub enum OutputsValidator {
 }
 
 impl OutputsValidator {
-    /// TODO(doc): @doitian
+    /// Gets the name of the validator when it is serialized into JSON string.
     pub fn json_display(&self) -> String {
         let v = serde_json::to_value(self).expect("OutputsValidator to JSON should never fail");
         v.as_str().unwrap_or_default().to_string()

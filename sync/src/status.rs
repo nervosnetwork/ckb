@@ -97,6 +97,8 @@ pub enum StatusCode {
     BlockUnclesAreUnmatchedWithPendingCompactBlock = 413,
     /// Cannot locate the common blocks based on the GetHeaders
     GetHeadersMissCommonAncestors = 414,
+    /// Headers verified failed
+    HeadersIsInvalid = 415,
 
     /// Generic rate limit error
     TooManyRequests = 429,

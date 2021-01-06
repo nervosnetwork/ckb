@@ -1,4 +1,4 @@
-//! TODO(doc): @doitian
+//! CKB Benchmarks main entry.
 mod benchmarks;
 
 use criterion::criterion_main;

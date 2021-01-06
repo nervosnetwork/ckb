@@ -59,7 +59,12 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
-    /// TODO(doc): @doitian
+    /// Creates a script verifier for the transaction.
+    ///
+    /// ## Params
+    ///
+    /// * `rtx` - transaction which cell out points have been resolved.
+    /// * `data_loader` - used to load cell data.
     pub fn new(
         rtx: &'a ResolvedTransaction,
         data_loader: &'a DL,
@@ -148,7 +153,15 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Sets a callback to handle the debug syscall.
+    ///
+    ///
+    /// Script can print a message using the [debug syscall](github.com/nervosnetwork/rfcs/blob/master/rfcs/0009-vm-syscalls/0009-vm-syscalls.md#debug).
+    ///
+    /// The callback receives two parameters:
+    ///
+    /// * `hash: &Byte32`: this is the script hash of currently running script group.
+    /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + 'static>(&mut self, func: F) {
         self.debug_printer = Box::new(func);
     }
@@ -272,7 +285,16 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Verifies the transaction by running scripts.
+    ///
+    /// ## Params
+    ///
+    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// when the consumed cycles exceed the limit.
+    ///
+    /// ## Returns
+    ///
+    /// It returns the total consumed cycles on success, Otherwise it returns the verification error.
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles: Cycle = 0;
 
@@ -334,7 +356,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Finds the script group from cell deps.
     pub fn find_script_group(
         &self,
         script_group_type: ScriptGroupType,
@@ -346,12 +368,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the cost model.
+    ///
+    /// Cost model is used to evaluate consumed cycles.
     pub fn cost_model(&self) -> Box<InstructionCycleFunc> {
         Box::new(instruction_cycles)
     }
 
-    /// TODO(doc): @doitian
+    /// Prepares syscalls.
     pub fn generate_syscalls(
         &'a self,
         script_group: &'a ScriptGroup,

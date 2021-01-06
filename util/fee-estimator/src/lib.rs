@@ -1,4 +1,4 @@
-//! TODO(doc): @doitian
+//! CKB builtin fee estimator.
 
 mod estimator;
 mod fee_rate;
