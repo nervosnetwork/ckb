@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// An atomic batch of write operations.
 ///
-/// Making an atomic commit of several writes.
+/// Making an atomic commit of several write operations.
 pub struct RocksDBWriteBatch {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: WriteBatch,

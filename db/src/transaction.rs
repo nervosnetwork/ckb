@@ -9,7 +9,7 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
-/// A optimistic transaction database.
+/// An optimistic transaction database.
 pub struct RocksDBTransaction {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: OptimisticTransaction,
