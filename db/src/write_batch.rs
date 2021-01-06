@@ -1,18 +1,20 @@
-//! TODO(doc): @quake
+//! RocksDB write batch wrapper
 use crate::db::cf_handle;
 use crate::{internal_error, Result};
 use ckb_db_schema::Col;
 use rocksdb::{OptimisticTransactionDB, WriteBatch};
 use std::sync::Arc;
 
-/// TODO(doc): @quake
+/// An atomic batch of write operations.
+///
+/// Making an atomic commit of several writes.
 pub struct RocksDBWriteBatch {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: WriteBatch,
 }
 
 impl RocksDBWriteBatch {
-    /// TODO(doc): @quake
+    /// Return the count of write batch.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -22,18 +24,18 @@ impl RocksDBWriteBatch {
         self.inner.size_in_bytes()
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the write batch contains no operations.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
-    /// TODO(doc): @quake
+    /// Write the bytes into the given column with associated key.
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Delete the data associated with the given key and given column.
     pub fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.delete_cf(cf, key).map_err(internal_error)
@@ -51,7 +53,7 @@ impl RocksDBWriteBatch {
             .map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Clear all updates buffered in this batch.
     pub fn clear(&mut self) -> Result<()> {
         self.inner.clear().map_err(internal_error)
     }
