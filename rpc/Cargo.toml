@@ -13,7 +13,6 @@ ckb-chain-spec = { path = "../spec", version = "= 0.40.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.40.0-pre" }
 ckb-network = { path = "../network", version = "= 0.40.0-pre" }
 ckb-notify = { path = "../notify", version = "= 0.40.0-pre" }
-ckb-indexer = { path = "../indexer", version = "= 0.40.0-pre" }
 ckb-shared = { path = "../shared", version = "= 0.40.0-pre" }
 ckb-store = { path = "../store", version = "= 0.40.0-pre" }
 ckb-sync = { path = "../sync", version = "= 0.40.0-pre" }

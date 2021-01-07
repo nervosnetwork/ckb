@@ -65,8 +65,8 @@ listen_address = "127.0.0.1:8114"
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Indexer", "Experiment", "Debug"]
-modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
+modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
 
 # By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.
 # tcp_listen_address = "127.0.0.1:18114"
@@ -93,12 +93,6 @@ block_proposals_cache_size = 30
 block_tx_hashes_cache_size = 30
 block_uncles_cache_size    = 30
 cellbase_cache_size        = 30
-
-# [indexer]
-# # The minimum time (in milliseconds) between indexing execution, default is 500
-# batch_interval = 500
-# # The maximum number of blocks in a single indexing execution batch, default is 200
-# batch_size = 200
 
 # [notifier]
 # # Execute command when the new tip block changes, first arg is block hash.

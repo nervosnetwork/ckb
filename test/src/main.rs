@@ -389,8 +389,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         )),
         Box::new(CheckTypical2In2OutTx::default()),
         Box::new(AlertPropagation::default()),
-        Box::new(IndexerBasic),
-        Box::new(GenesisIssuedCells),
         // TODO These cases will fail occasionally because of some unknown
         // asynchronous issues.
         Box::new(IBDProcess),
