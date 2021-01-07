@@ -75,7 +75,6 @@ members = [
     "tx-pool",
     "shared",
     "chain",
-    "indexer",
     "sync",
     "util/instrument",
     "rpc",

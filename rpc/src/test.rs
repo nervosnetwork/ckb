@@ -1,12 +1,11 @@
 use crate::{RpcServer, ServiceBuilder};
 use ckb_app_config::{
-    BlockAssemblerConfig, IndexerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
+    BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
@@ -192,7 +191,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .to_path_buf();
     let network_controller = {
         let mut network_config = NetworkConfig::default();
-        network_config.path = dir.clone();
+        network_config.path = dir;
         network_config.ping_interval_secs = 1;
         network_config.ping_timeout_secs = 1;
         network_config.connect_outbound_interval_secs = 1;
@@ -211,16 +210,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
-    let indexer_config = {
-        let mut indexer_config = IndexerConfig::default();
-        indexer_config.db.path = dir.join("indexer");
-        let indexer_store = DefaultIndexerStore::new(&indexer_config, shared.clone());
-        let (_, _, always_success_script) = always_success_cell();
-        indexer_store.insert_lock_hash(&always_success_script.calc_script_hash(), Some(0));
-        // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
-        (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
-        indexer_config
-    };
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
     let (alert_notifier, alert_verifier) = {
@@ -264,7 +253,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             RpcModule::Pool,
             RpcModule::Experiment,
             RpcModule::Stats,
-            RpcModule::Indexer,
             RpcModule::IntegrationTest,
             RpcModule::Alert,
             RpcModule::Subscription,
@@ -297,7 +285,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             network_controller.clone(),
             chain_controller.clone(),
         )
-        .enable_indexer(&indexer_config, shared.clone())
         .enable_debug()
         .enable_alert(alert_verifier, alert_notifier, network_controller);
     let io_handler = builder.build();
@@ -702,15 +689,6 @@ fn before_rpc_example(_suite: &RpcTestSuite, example: &mut RpcTestExample) -> bo
                 vec![json!(format!("{:#x}", EXAMPLE_TX_HASH))],
                 example.request.params,
                 "get_transaction(id=42) must query the example tx"
-            );
-        }
-        ("deindex_lock_hash", _) => {
-            let (_, _, always_success_script) = always_success_cell();
-            let alway_success_script_hash: H256 = always_success_script.calc_script_hash().unpack();
-            assert_ne!(
-                vec![json!(alway_success_script_hash)],
-                example.request.params,
-                "should not deindex the example index"
             );
         }
         _ => return true,

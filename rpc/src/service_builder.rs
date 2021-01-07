@@ -3,14 +3,12 @@ use crate::error::RPCError;
 use crate::module::SubscriptionSession;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
-    ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
-    MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ExperimentRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc,
+    NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
-use ckb_app_config::IndexerConfig;
 use ckb_app_config::RpcConfig;
 use ckb_chain::chain::ChainController;
-use ckb_indexer::{DefaultIndexerStore, Dummy};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
@@ -175,25 +173,6 @@ impl<'a> ServiceBuilder<'a> {
             self.add_methods(rpc_methods);
         } else {
             self.update_disabled_methods("Alert", rpc_methods);
-        }
-        self
-    }
-
-    /// Mounts methods from module Indexer if it is enabled in the config.
-    pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
-        if self.config.indexer_enable() {
-            let store = DefaultIndexerStore::new(indexer_config, shared);
-            let rpc_methods = IndexerRpcImpl {
-                store: store.clone(),
-            }
-            .to_delegate();
-            store.start(Some("IndexerStore"));
-            self.add_methods(rpc_methods);
-        } else {
-            self.update_disabled_methods(
-                "Indexer",
-                IndexerRpcImpl { store: Dummy }.to_delegate::<()>(),
-            );
         }
         self
     }

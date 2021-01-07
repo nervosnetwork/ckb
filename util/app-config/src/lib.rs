@@ -258,7 +258,6 @@ impl Setup {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
         let db_path = config.db.path;
-        let indexer_db_path = config.indexer.db.path;
         let network_config = config.network;
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();
@@ -268,7 +267,6 @@ impl Setup {
         let force = matches.is_present(cli::ARG_FORCE);
         let all = matches.is_present(cli::ARG_ALL);
         let database = matches.is_present(cli::ARG_DATABASE);
-        let indexer = matches.is_present(cli::ARG_INDEXER);
         let network = matches.is_present(cli::ARG_NETWORK);
         let network_peer_store = matches.is_present(cli::ARG_NETWORK_PEER_STORE);
         let network_secret_key = matches.is_present(cli::ARG_NETWORK_SECRET_KEY);
@@ -278,14 +276,12 @@ impl Setup {
             force,
             all,
             database,
-            indexer,
             network,
             network_peer_store,
             network_secret_key,
             logs,
             data_dir,
             db_path,
-            indexer_db_path,
             network_dir,
             network_peer_store_path,
             network_secret_key_path,
