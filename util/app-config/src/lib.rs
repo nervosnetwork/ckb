@@ -234,6 +234,9 @@ impl Setup {
         let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
         let import_spec = matches.value_of(cli::ARG_IMPORT_SPEC).map(str::to_string);
+        let genesis_message = matches
+            .value_of(cli::ARG_GENESIS_MESSAGE)
+            .map(str::to_string);
 
         Ok(InitArgs {
             interactive,
@@ -250,6 +253,7 @@ impl Setup {
             block_assembler_hash_type,
             block_assembler_message,
             import_spec,
+            genesis_message,
         })
     }
 

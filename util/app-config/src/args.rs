@@ -111,6 +111,8 @@ pub struct InitArgs {
     pub block_assembler_message: Option<String>,
     /// TODO(doc): @doitian
     pub import_spec: Option<String>,
+    /// Specify a string as the genesis message. Only works for dev chains.
+    pub genesis_message: Option<String>,
 }
 
 /// TODO(doc): @doitian

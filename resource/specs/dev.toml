@@ -9,7 +9,9 @@ uncles_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 nonce = "0x0"
 
 [genesis.genesis_cell]
-message = "ckb_dev"
+message = "ckb_dev" # {{
+# customize => message = "{genesis_message}"
+# }}
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"

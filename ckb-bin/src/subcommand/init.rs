@@ -24,6 +24,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         return Ok(());
     }
 
+    if args.chain != "dev" && args.genesis_message.is_some() {
+        eprintln!("--genesis-message only works for dev chains.");
+        return Err(ExitCode::Failure);
+    }
+
     let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
         eprintln!("Config files already exist, use --force to overwrite.");
@@ -184,7 +189,15 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         }
     } else if args.chain == "dev" {
         println!("create {}", SPEC_DEV_FILE_NAME);
-        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
+        let bundled = Resource::bundled(SPEC_DEV_FILE_NAME.to_string());
+        if let Some(msg) = args.genesis_message {
+            let context_spec =
+                TemplateContext::new("customize", vec![("genesis_message", msg.as_str())]);
+            bundled.export(&context_spec, &args.root_dir)?;
+        } else {
+            let context_spec = TemplateContext::new("default", vec![]);
+            bundled.export(&context_spec, &args.root_dir)?;
+        }
     }
 
     println!("create {}", CKB_CONFIG_FILE_NAME);

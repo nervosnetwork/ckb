@@ -48,6 +48,8 @@ pub const ARG_INTERACTIVE: &str = "interactive";
 pub const ARG_CHAIN: &str = "chain";
 /// TODO(doc): @doitian
 pub const ARG_IMPORT_SPEC: &str = "import-spec";
+/// The argument for the genesis message.
+pub const ARG_GENESIS_MESSAGE: &str = "genesis-message";
 /// TODO(doc): @doitian
 pub const ARG_P2P_PORT: &str = "p2p-port";
 /// TODO(doc): @doitian
@@ -452,6 +454,13 @@ fn init() -> App<'static, 'static> {
                 .long("spec")
                 .takes_value(true)
                 .hidden(true),
+        )
+        .arg(
+            Arg::with_name(ARG_GENESIS_MESSAGE)
+                .long(ARG_GENESIS_MESSAGE)
+                .value_name(ARG_GENESIS_MESSAGE)
+                .takes_value(true)
+                .help("Specify a string as the genesis message. Only works for dev chains."),
         )
 }
 
