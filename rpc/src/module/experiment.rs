@@ -94,7 +94,7 @@ pub trait ExperimentRpc {
         since = "0.36.0",
         note = "Please implement molecule and compute the transaction hash in clients."
     )]
-    #[rpc(name = "_compute_transaction_hash")]
+    #[rpc(name = "deprecated._compute_transaction_hash")]
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256>;
 
     /// Returns the script hash for the given script.
@@ -131,7 +131,7 @@ pub trait ExperimentRpc {
         since = "0.36.0",
         note = "Please implement molecule and compute the script hash in clients."
     )]
-    #[rpc(name = "_compute_script_hash")]
+    #[rpc(name = "deprecated._compute_script_hash")]
     fn compute_script_hash(&self, script: Script) -> Result<H256>;
 
     /// Dry run a transaction and return the execution cycles.
@@ -276,7 +276,7 @@ pub trait ExperimentRpc {
         since = "0.34.0",
         note = "This method is deprecated because of the performance issue. It always returns an error now."
     )]
-    #[rpc(name = "estimate_fee_rate")] // noexample
+    #[rpc(name = "deprecated.estimate_fee_rate")] // noexample
     fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> Result<EstimateResult>;
 }
 

@@ -866,7 +866,7 @@ pub trait ChainRpc {
         since = "0.36.0",
         note = "Please use the RPC method [`get_block_economic_state`](#tymethod.get_block_economic_state) instead"
     )]
-    #[rpc(name = "get_cellbase_output_capacity_details")]
+    #[rpc(name = "deprecated.get_cellbase_output_capacity_details")]
     fn get_cellbase_output_capacity_details(&self, block_hash: H256)
         -> Result<Option<BlockReward>>;
 
