@@ -40,7 +40,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
         * [Method `get_transaction`](#method-get_transaction)
         * [Method `get_block_hash`](#method-get_block_hash)
         * [Method `get_tip_header`](#method-get_tip_header)
-        * [Method `get_cells_by_lock_hash`](#method-get_cells_by_lock_hash)
         * [Method `get_live_cell`](#method-get_live_cell)
         * [Method `get_tip_block_number`](#method-get_tip_block_number)
         * [Method `get_current_epoch`](#method-get_current_epoch)
@@ -110,7 +109,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
     * [Type `CellInfo`](#type-cellinfo)
     * [Type `CellInput`](#type-cellinput)
     * [Type `CellOutput`](#type-celloutput)
-    * [Type `CellOutputWithOutPoint`](#type-celloutputwithoutpoint)
     * [Type `CellTransaction`](#type-celltransaction)
     * [Type `CellWithStatus`](#type-cellwithstatus)
     * [Type `CellbaseTemplate`](#type-cellbasetemplate)
@@ -831,22 +829,6 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
-
-#### Method `get_cells_by_lock_hash`
-* `get_cells_by_lock_hash(lock_hash, from, to)`
-    * `lock_hash`: [`H256`](#type-h256)
-    * `from`: [`BlockNumber`](#type-blocknumber)
-    * `to`: [`BlockNumber`](#type-blocknumber)
-* result: `Array<` [`CellOutputWithOutPoint`](#type-celloutputwithoutpoint) `>`
-
-👎 Deprecated since 0.36.0:
-(Disabled since 0.36.0) This method is deprecated for reasons of flexibility. Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate solution
-
-
-
-Returns the information about [live cell](#live-cell)s collection by the hash of lock script.
-
-This method will be removed. It always returns an error now.
 
 #### Method `get_live_cell`
 * `get_live_cell(out_point, with_data)`
@@ -4152,62 +4134,6 @@ The fields of an output cell except the cell data.
 *   `type_`: [`Script`](#type-script) `|` `null` - The optional type script.
 
     The JSON field name is "type".
-
-
-### Type `CellOutputWithOutPoint`
-
-This is used as return value of `get_cells_by_lock_hash` RPC.
-
-It contains both OutPoint data used for referencing a cell, as well as the cell's properties such as lock and capacity.
-
-#### Examples
-
-```
-# serde_json::from_str::<ckb_jsonrpc_types::CellOutputWithOutPoint>(r#"
-{
-  "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
-  "capacity": "0x2ca86f2642",
-  "cellbase": true,
-  "lock": {
-    "args": "0x",
-    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    "hash_type": "data"
-  },
-  "out_point": {
-    "index": "0x0",
-    "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
-  },
-  "output_data_len": "0x0",
-  "type": null
-}
-# "#).unwrap();
-```
-
-#### Fields
-
-`CellOutputWithOutPoint` is a JSON object with the following fields.
-
-*   `out_point`: [`OutPoint`](#type-outpoint) - Reference to a cell via transaction hash and output index.
-
-*   `block_hash`: [`H256`](#type-h256) - The block hash of the block which committed the transaction.
-
-*   `capacity`: [`Capacity`](#type-capacity) - The cell capacity.
-
-    The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
-
-*   `lock`: [`Script`](#type-script) - The lock script.
-
-*   `type_`: [`Script`](#type-script) `|` `null` - The optional type script.
-
-    The JSON field name is "type".
-
-*   `output_data_len`: [`Uint64`](#type-uint64) - The bytes count of the cell data.
-
-*   `cellbase`: `boolean` - Whether this is a cellbase transaction output.
-
-    The cellbase transaction is the first transaction in a block which issues rewards and fees to miners.
-
-    The cellbase transaction has a maturity period of 4 epochs. Its output cells can only be used as inputs after 4 epochs.
 
 
 ### Type `CellTransaction`

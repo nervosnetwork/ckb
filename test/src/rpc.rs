@@ -6,9 +6,9 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
-    BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
-    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, JsonBytes, LiveCell,
-    LocalNode, LockHashIndexState, OutPoint, PeerState, RemoteNode, Script, Timestamp, Transaction,
+    BlockView, Capacity, CellTransaction, CellWithStatus, ChainInfo, Cycle, DryRunResult,
+    EpochNumber, EpochView, EstimateResult, HeaderView, JsonBytes, LiveCell, LocalNode,
+    LockHashIndexState, OutPoint, PeerState, RemoteNode, Script, Timestamp, Transaction,
     TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
@@ -87,17 +87,6 @@ impl RpcClient {
         self.inner
             .get_tip_header()
             .expect("rpc call get_block_hash")
-    }
-
-    pub fn get_cells_by_lock_hash(
-        &self,
-        lock_hash: Byte32,
-        from: CoreBlockNumber,
-        to: CoreBlockNumber,
-    ) -> Vec<CellOutputWithOutPoint> {
-        self.inner
-            .get_cells_by_lock_hash(lock_hash.unpack(), from.into(), to.into())
-            .expect("rpc call get_cells_by_lock_hash")
     }
 
     pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {
@@ -334,12 +323,6 @@ jsonrpc!(pub struct Inner {
     pub fn get_transaction(&self, _hash: H256) -> Option<TransactionWithStatus>;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
-    pub fn get_cells_by_lock_hash(
-        &self,
-        _lock_hash: H256,
-        _from: BlockNumber,
-        _to: BlockNumber
-    ) -> Vec<CellOutputWithOutPoint>;
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;
     pub fn get_tip_block_number(&self) -> BlockNumber;
     pub fn get_current_epoch(&self) -> EpochView;

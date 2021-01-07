@@ -1,67 +1,10 @@
-use crate::{Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint64};
+use crate::{CellOutput, JsonBytes};
 use ckb_types::{
     core::cell::{CellMeta, CellStatus},
     prelude::Unpack,
     H256,
 };
 use serde::{Deserialize, Serialize};
-
-/// This is used as return value of `get_cells_by_lock_hash` RPC.
-///
-/// It contains both OutPoint data used for referencing a cell, as well as
-/// the cell's properties such as lock and capacity.
-///
-/// ## Examples
-///
-/// ```json
-/// # serde_json::from_str::<ckb_jsonrpc_types::CellOutputWithOutPoint>(r#"
-/// {
-///   "block_hash": "0xf293d02ce5e101b160912aaf15b1b87517b7a6d572c13af9ae4101c1143b22ad",
-///   "capacity": "0x2ca86f2642",
-///   "cellbase": true,
-///   "lock": {
-///     "args": "0x",
-///     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///     "hash_type": "data"
-///   },
-///   "out_point": {
-///     "index": "0x0",
-///     "tx_hash": "0xa510932a80fda15a774203404453c5f9c0e8582f11c40f8ce5396f2460f8ccbf"
-///   },
-///   "output_data_len": "0x0",
-///   "type": null
-/// }
-/// # "#).unwrap();
-/// ```
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CellOutputWithOutPoint {
-    /// Reference to a cell via transaction hash and output index.
-    pub out_point: OutPoint,
-    /// The block hash of the block which committed the transaction.
-    pub block_hash: H256,
-    /// The cell capacity.
-    ///
-    /// The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of
-    /// the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
-    pub capacity: Capacity,
-    /// The lock script.
-    pub lock: Script,
-    /// The optional type script.
-    ///
-    /// The JSON field name is "type".
-    #[serde(rename = "type")]
-    pub type_: Option<Script>,
-    /// The bytes count of the cell data.
-    pub output_data_len: Uint64,
-    /// Whether this is a cellbase transaction output.
-    ///
-    /// The cellbase transaction is the first transaction in a block which issues rewards and fees
-    /// to miners.
-    ///
-    /// The cellbase transaction has a maturity period of 4 epochs. Its output cells can only be
-    /// used as inputs after 4 epochs.
-    pub cellbase: bool,
-}
 
 /// The JSON view of a cell with its status information.
 ///
