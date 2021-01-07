@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint,
-    CellWithStatus, Consensus, EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof,
-    OutPoint, ResponseFormat, TransactionProof, TransactionWithStatus, Uint32,
+    BlockEconomicState, BlockNumber, BlockReward, BlockView, CellWithStatus, Consensus,
+    EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
+    TransactionProof, TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -633,23 +633,6 @@ pub trait ChainRpc {
         &self,
         verbosity: Option<Uint32>,
     ) -> Result<ResponseFormat<HeaderView, Header>>;
-
-    /// Returns the information about [live cell](#live-cell)s collection by the hash of lock script.
-    ///
-    /// This method will be removed. It always returns an error now.
-    #[deprecated(
-        since = "0.36.0",
-        note = "(Disabled since 0.36.0) This method is deprecated for reasons of flexibility.
-        Please use [ckb-indexer](https://github.com/nervosnetwork/ckb-indexer) as an alternate
-        solution"
-    )]
-    #[rpc(name = "deprecated.get_cells_by_lock_hash")] // noexample
-    fn get_cells_by_lock_hash(
-        &self,
-        lock_hash: H256,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<CellOutputWithOutPoint>>;
 
     /// Returns the status of a cell. The RPC returns extra information if it is a [live cell]
     /// (#live-cell).
@@ -1422,18 +1405,6 @@ impl ChainRpc for ChainRpcImpl {
                     .get_epoch_ext(&hash)
                     .map(|ext| EpochView::from_ext(ext.pack()))
             }))
-    }
-
-    fn get_cells_by_lock_hash(
-        &self,
-        _lock_hash: H256,
-        _from: BlockNumber,
-        _to: BlockNumber,
-    ) -> Result<Vec<CellOutputWithOutPoint>> {
-        Err(RPCError::custom(
-            RPCError::Invalid,
-            "get_cells_by_lock_hash have been deprecated, use [indexer] get_live_cells_by_lock_hash instead",
-        ))
     }
 
     fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
