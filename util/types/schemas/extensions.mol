@@ -89,40 +89,6 @@ table CellDataEntry {
     output_data_hash:      Byte32,
 }
 
-/* Types for Indexer */
-
-table TransactionPoint {
-    tx_hash:        Byte32,
-    block_number:   Uint64,
-    index:          Uint32,
-}
-
-option TransactionPointOpt (TransactionPoint);
-
-table LockHashCellOutput {
-    lock_hash:      Byte32,
-    block_number:   Uint64,
-    cell_output:    CellOutputOpt,
-}
-
-struct LockHashIndex {
-    lock_hash:      Byte32,
-    block_number:   BeUint64,
-    tx_hash:        Byte32,
-    index:          BeUint32,
-}
-
-table LockHashIndexState {
-    block_number:   Uint64,
-    block_hash:     Byte32,
-}
-
-table LiveCellOutput {
-    cell_output: CellOutput,
-    output_data_len: Uint64,
-    cellbase: Bool,
-}
-
 /* Types for Network/Relay */
 
 union RelayMessage {

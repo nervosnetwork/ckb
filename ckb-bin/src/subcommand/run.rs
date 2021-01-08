@@ -163,7 +163,6 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer, shared.clone())
         .enable_debug();
     let io_handler = builder.build();
 

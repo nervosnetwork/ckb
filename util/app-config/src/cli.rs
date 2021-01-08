@@ -79,8 +79,6 @@ pub const ARG_LIMIT: &str = "limit";
 /// TODO(doc): @doitian
 pub const ARG_DATABASE: &str = "database";
 /// TODO(doc): @doitian
-pub const ARG_INDEXER: &str = "indexer";
-/// TODO(doc): @doitian
 pub const ARG_NETWORK: &str = "network";
 /// TODO(doc): @doitian
 pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
@@ -192,9 +190,9 @@ fn miner() -> App<'static, 'static> {
 fn reset_data() -> App<'static, 'static> {
     SubCommand::with_name(CMD_RESET_DATA)
         .about(
-            "Truncate the data directory\n\
+            "Truncate the database directory\n\
              Example:\n\
-             ckb reset-data --force --indexer",
+             ckb reset-data --force --database",
         )
         .arg(
             Arg::with_name(ARG_FORCE)
@@ -210,12 +208,7 @@ fn reset_data() -> App<'static, 'static> {
         .arg(
             Arg::with_name(ARG_DATABASE)
                 .long(ARG_DATABASE)
-                .help("Delete both `data/db` and `data/indexer_db`"),
-        )
-        .arg(
-            Arg::with_name(ARG_INDEXER)
-                .long(ARG_INDEXER)
-                .help("Delete only `data/indexer_db`"),
+                .help("Delete only `data/db`"),
         )
         .arg(
             Arg::with_name(ARG_NETWORK)

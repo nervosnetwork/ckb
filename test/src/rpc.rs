@@ -6,10 +6,9 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
-    BlockView, Capacity, CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, Cycle,
-    DryRunResult, EpochNumber, EpochView, EstimateResult, HeaderView, JsonBytes, LiveCell,
-    LocalNode, LockHashIndexState, OutPoint, PeerState, RemoteNode, Script, Timestamp, Transaction,
-    TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
+    BlockView, Capacity, CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView,
+    EstimateResult, HeaderView, JsonBytes, LocalNode, OutPoint, PeerState, RemoteNode, Script,
+    Timestamp, Transaction, TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -87,17 +86,6 @@ impl RpcClient {
         self.inner
             .get_tip_header()
             .expect("rpc call get_block_hash")
-    }
-
-    pub fn get_cells_by_lock_hash(
-        &self,
-        lock_hash: Byte32,
-        from: CoreBlockNumber,
-        to: CoreBlockNumber,
-    ) -> Vec<CellOutputWithOutPoint> {
-        self.inner
-            .get_cells_by_lock_hash(lock_hash.unpack(), from.into(), to.into())
-            .expect("rpc call get_cells_by_lock_hash")
     }
 
     pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {
@@ -239,62 +227,6 @@ impl RpcClient {
             .pack()
     }
 
-    pub fn get_live_cells_by_lock_hash(
-        &self,
-        lock_hash: Byte32,
-        page: u64,
-        per_page: u64,
-        reverse_order: Option<bool>,
-    ) -> Vec<LiveCell> {
-        self.inner()
-            .get_live_cells_by_lock_hash(
-                lock_hash.unpack(),
-                page.into(),
-                per_page.into(),
-                reverse_order,
-            )
-            .expect("rpc call get_live_cells_by_lock_hash")
-    }
-
-    pub fn get_transactions_by_lock_hash(
-        &self,
-        lock_hash: Byte32,
-        page: u64,
-        per_page: u64,
-        reverse_order: Option<bool>,
-    ) -> Vec<CellTransaction> {
-        self.inner()
-            .get_transactions_by_lock_hash(
-                lock_hash.unpack(),
-                page.into(),
-                per_page.into(),
-                reverse_order,
-            )
-            .expect("rpc call get_transactions_by_lock_hash")
-    }
-
-    pub fn index_lock_hash(
-        &self,
-        lock_hash: Byte32,
-        index_from: Option<CoreBlockNumber>,
-    ) -> LockHashIndexState {
-        self.inner()
-            .index_lock_hash(lock_hash.unpack(), index_from.map(Into::into))
-            .expect("rpc call index_lock_hash")
-    }
-
-    pub fn deindex_lock_hash(&self, lock_hash: Byte32) {
-        self.inner()
-            .deindex_lock_hash(lock_hash.unpack())
-            .expect("rpc call deindex_lock_hash")
-    }
-
-    pub fn get_lock_hash_index_states(&self) -> Vec<LockHashIndexState> {
-        self.inner()
-            .get_lock_hash_index_states()
-            .expect("rpc call get_lock_hash_index_states")
-    }
-
     pub fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
@@ -334,12 +266,6 @@ jsonrpc!(pub struct Inner {
     pub fn get_transaction(&self, _hash: H256) -> Option<TransactionWithStatus>;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
-    pub fn get_cells_by_lock_hash(
-        &self,
-        _lock_hash: H256,
-        _from: BlockNumber,
-        _to: BlockNumber
-    ) -> Vec<CellOutputWithOutPoint>;
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;
     pub fn get_tip_block_number(&self) -> BlockNumber;
     pub fn get_current_epoch(&self) -> EpochView;
@@ -379,11 +305,6 @@ jsonrpc!(pub struct Inner {
     pub fn truncate(&self, target_tip_hash: H256) -> ();
     pub fn generate_block(&self, block_assembler_script: Option<Script>, block_assembler_message: Option<JsonBytes>) -> H256;
 
-    pub fn get_live_cells_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<LiveCell>;
-    pub fn get_transactions_by_lock_hash(&self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> Vec<CellTransaction>;
-    pub fn index_lock_hash(&self, lock_hash: H256, index_from: Option<BlockNumber>) -> LockHashIndexState;
-    pub fn deindex_lock_hash(&self, lock_hash: H256) -> ();
-    pub fn get_lock_hash_index_states(&self) -> Vec<LockHashIndexState>;
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;
     pub fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Option<BlockReward>;
     pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;

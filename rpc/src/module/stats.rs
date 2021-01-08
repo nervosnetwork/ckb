@@ -86,7 +86,7 @@ pub trait StatsRpc {
         since = "0.12.0",
         note = "Please use RPC [`get_peers`](trait.NetRpc.html#tymethod.get_peers) instead"
     )]
-    #[rpc(name = "get_peers_state")]
+    #[rpc(name = "deprecated.get_peers_state")]
     fn get_peers_state(&self) -> Result<Vec<PeerState>>;
 }
 

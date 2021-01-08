@@ -122,8 +122,6 @@ pub struct ResetDataArgs {
     /// TODO(doc): @doitian
     pub database: bool,
     /// TODO(doc): @doitian
-    pub indexer: bool,
-    /// TODO(doc): @doitian
     pub network: bool,
     /// TODO(doc): @doitian
     pub network_peer_store: bool,
@@ -135,8 +133,6 @@ pub struct ResetDataArgs {
     pub data_dir: PathBuf,
     /// TODO(doc): @doitian
     pub db_path: PathBuf,
-    /// TODO(doc): @doitian
-    pub indexer_db_path: PathBuf,
     /// TODO(doc): @doitian
     pub network_dir: PathBuf,
     /// TODO(doc): @doitian

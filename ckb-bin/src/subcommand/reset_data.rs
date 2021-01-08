@@ -15,10 +15,6 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         target_dirs.push(args.db_path);
     }
 
-    if args.database || args.indexer {
-        target_dirs.push(args.indexer_db_path);
-    }
-
     if args.network {
         target_dirs.push(args.network_dir);
     }

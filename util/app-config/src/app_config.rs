@@ -60,9 +60,6 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub db: DBConfig,
     /// TODO(doc): @doitian
-    #[serde(default)]
-    pub indexer: IndexerConfig,
-    /// TODO(doc): @doitian
     pub network: NetworkConfig,
     /// TODO(doc): @doitian
     pub rpc: RpcConfig,
@@ -216,9 +213,6 @@ impl CKBAppConfig {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
 
         self.db.adjust(root_dir, &self.data_dir, "db");
-        self.indexer
-            .db
-            .adjust(root_dir, &self.data_dir, "indexer_db");
         self.ancient = mkdir(path_specified_or_else(&self.ancient, || {
             self.data_dir.join("ancient")
         }))?;
@@ -239,7 +233,6 @@ impl CKBAppConfig {
 
         self.data_dir = mkdir(self.data_dir)?;
         self.db.path = mkdir(self.db.path)?;
-        self.indexer.db.path = mkdir(self.indexer.db.path)?;
         self.network.path = mkdir(self.network.path)?;
         if let Some(tmp_dir) = self.tmp_dir {
             self.tmp_dir = Some(mkdir(tmp_dir)?);

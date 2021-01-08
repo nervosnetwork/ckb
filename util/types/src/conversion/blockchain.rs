@@ -112,7 +112,6 @@ impl_conversion_for_entity_unpack!(core::EpochNumberWithFraction, Uint64);
 impl_conversion_for_option!(H256, Byte32Opt, Byte32OptReader);
 impl_conversion_for_vector!(Capacity, Uint64Vec, Uint64VecReader);
 impl_conversion_for_vector!(Bytes, BytesVec, BytesVecReader);
-impl_conversion_for_packed_optional_pack!(TransactionPoint, TransactionPointOpt);
 impl_conversion_for_packed_optional_pack!(Byte32, Byte32Opt);
 impl_conversion_for_packed_optional_pack!(CellOutput, CellOutputOpt);
 impl_conversion_for_packed_optional_pack!(Script, ScriptOpt);

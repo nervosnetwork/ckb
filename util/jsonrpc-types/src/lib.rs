@@ -9,7 +9,6 @@ mod debug;
 mod experiment;
 mod fee_rate;
 mod fixed_bytes;
-mod indexer;
 mod net;
 mod pool;
 mod primitive;
@@ -29,15 +28,12 @@ pub use self::blockchain::{
     TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
-pub use self::cell::{CellData, CellInfo, CellOutputWithOutPoint, CellWithStatus};
+pub use self::cell::{CellData, CellInfo, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
-pub use self::indexer::{
-    CellTransaction, LiveCell, LockHashCapacity, LockHashIndexState, TransactionPoint,
-};
 pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,

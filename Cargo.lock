@@ -678,26 +678,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-indexer"
-version = "0.40.0-pre"
-dependencies = [
- "ckb-app-config",
- "ckb-chain",
- "ckb-chain-spec",
- "ckb-db",
- "ckb-db-migration",
- "ckb-db-schema",
- "ckb-jsonrpc-types",
- "ckb-logger",
- "ckb-resource",
- "ckb-shared",
- "ckb-store",
- "ckb-types",
- "ckb-util",
- "tempfile",
-]
-
-[[package]]
 name = "ckb-instrument"
 version = "0.40.0-pre"
 dependencies = [
@@ -1031,7 +1011,6 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
- "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-logger-service",

@@ -16,8 +16,6 @@ pub enum Module {
     /// TODO(doc): @doitian
     Stats,
     /// TODO(doc): @doitian
-    Indexer,
-    /// TODO(doc): @doitian
     IntegrationTest,
     /// TODO(doc): @doitian
     Alert,
@@ -86,11 +84,6 @@ impl Config {
     /// TODO(doc): @doitian
     pub fn subscription_enable(&self) -> bool {
         self.modules.contains(&Module::Subscription)
-    }
-
-    /// TODO(doc): @doitian
-    pub fn indexer_enable(&self) -> bool {
-        self.modules.contains(&Module::Indexer)
     }
 
     /// TODO(doc): @doitian
