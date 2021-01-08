@@ -403,6 +403,7 @@ dependencies = [
  "ckb-sentry",
  "ckb-types",
  "clap",
+ "faketime",
  "path-clean",
  "rand 0.7.3",
  "serde",

@@ -48,6 +48,10 @@ pub const ARG_INTERACTIVE: &str = "interactive";
 pub const ARG_CHAIN: &str = "chain";
 /// TODO(doc): @doitian
 pub const ARG_IMPORT_SPEC: &str = "import-spec";
+/// The argument to disable customize chain spec.
+pub const ARG_USE_DEFAULT_SPEC: &str = "use-default-spec";
+/// The argument for the genesis timestamp.
+pub const ARG_GENESIS_TIMESTAMP: &str = "genesis-timestamp";
 /// The argument for the genesis message.
 pub const ARG_GENESIS_MESSAGE: &str = "genesis-message";
 /// TODO(doc): @doitian
@@ -107,6 +111,8 @@ pub const ARG_MIGRATE_CHECK: &str = "check";
 
 /// TODO(doc): @doitian
 const GROUP_BA: &str = "ba";
+/// All arguments to customize the spec.
+const GROUP_CUSTOMIZE_SPEC: &str = "customize-spec";
 
 fn basic_app<'b>() -> App<'static, 'b> {
     App::new("ckb")
@@ -455,12 +461,42 @@ fn init() -> App<'static, 'static> {
                 .takes_value(true)
                 .hidden(true),
         )
+        .group(
+            ArgGroup::with_name(GROUP_CUSTOMIZE_SPEC)
+                .args(&[ARG_GENESIS_TIMESTAMP, ARG_GENESIS_MESSAGE])
+                .multiple(true),
+        )
+        .arg(
+            Arg::with_name(ARG_USE_DEFAULT_SPEC)
+                .long(ARG_USE_DEFAULT_SPEC)
+                .value_name(ARG_USE_DEFAULT_SPEC)
+                .takes_value(false)
+                .conflicts_with(GROUP_CUSTOMIZE_SPEC)
+                .help(
+                    "Don't customize any parameters for chain spec, use the default parameters. \
+                     Only works for dev chains.",
+                ),
+        )
+        .arg(
+            Arg::with_name(ARG_GENESIS_TIMESTAMP)
+                .long(ARG_GENESIS_TIMESTAMP)
+                .value_name(ARG_GENESIS_TIMESTAMP)
+                .takes_value(true)
+                .help(
+                    "Specify a timestamp as the genesis timestamp. \
+                     If no timestamp is provided, use current timestamp. \
+                     Only works for dev chains.",
+                ),
+        )
         .arg(
             Arg::with_name(ARG_GENESIS_MESSAGE)
                 .long(ARG_GENESIS_MESSAGE)
                 .value_name(ARG_GENESIS_MESSAGE)
                 .takes_value(true)
-                .help("Specify a string as the genesis message. Only works for dev chains."),
+                .help(
+                    "Specify a string as the genesis message. \
+                     Only works for dev chains.",
+                ),
         )
 }
 

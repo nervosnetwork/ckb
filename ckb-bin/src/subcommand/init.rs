@@ -24,8 +24,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         return Ok(());
     }
 
-    if args.chain != "dev" && args.genesis_message.is_some() {
-        eprintln!("--genesis-message only works for dev chains.");
+    if args.chain != "dev" && (args.use_default_spec || !args.customize_spec.is_unset()) {
+        eprintln!("Customizing consensus parameters for chain spec only works for dev chains.");
         return Err(ExitCode::Failure);
     }
 
@@ -190,12 +190,13 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     } else if args.chain == "dev" {
         println!("create {}", SPEC_DEV_FILE_NAME);
         let bundled = Resource::bundled(SPEC_DEV_FILE_NAME.to_string());
-        if let Some(msg) = args.genesis_message {
-            let context_spec =
-                TemplateContext::new("customize", vec![("genesis_message", msg.as_str())]);
+        if args.use_default_spec {
+            let context_spec = TemplateContext::new("default", vec![]);
             bundled.export(&context_spec, &args.root_dir)?;
         } else {
-            let context_spec = TemplateContext::new("default", vec![]);
+            let kvs = args.customize_spec.key_value_pairs();
+            let context_spec =
+                TemplateContext::new("customize", kvs.iter().map(|(k, v)| (*k, v.as_str())));
             bundled.export(&context_spec, &args.root_dir)?;
         }
     }

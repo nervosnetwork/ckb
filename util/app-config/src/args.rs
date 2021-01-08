@@ -3,6 +3,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
 use ckb_types::packed::Byte32;
+use faketime::unix_time_as_millis;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -111,7 +112,22 @@ pub struct InitArgs {
     pub block_assembler_message: Option<String>,
     /// TODO(doc): @doitian
     pub import_spec: Option<String>,
-    /// Specify a string as the genesis message. Only works for dev chains.
+    /// Don't customize any parameters for chain spec, use the default parameters.
+    ///
+    /// Only works for dev chains.
+    pub use_default_spec: bool,
+    /// Customize parameters for chain spec or not.
+    ///
+    /// Only works for dev chains.
+    pub customize_spec: CustomizeSpec,
+}
+
+/// Customize parameters for chain spec.
+pub struct CustomizeSpec {
+    /// Specify a timestamp as the genesis timestamp.
+    /// If no timestamp is provided, use current timestamp.
+    pub genesis_timestamp: Option<u64>,
+    /// Specify a string as the genesis message.
     pub genesis_message: Option<String>,
 }
 
@@ -157,4 +173,24 @@ pub struct MigrateArgs {
     pub config: Box<CKBAppConfig>,
     /// check flag present
     pub check: bool,
+}
+
+impl CustomizeSpec {
+    /// No specified parameters for chain spec.
+    pub fn is_unset(&self) -> bool {
+        self.genesis_timestamp.is_none() && self.genesis_message.is_none()
+    }
+
+    /// Generates a vector of key-value pairs.
+    pub fn key_value_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut vec = Vec::new();
+        let genesis_timestamp = self
+            .genesis_timestamp
+            .unwrap_or_else(unix_time_as_millis)
+            .to_string();
+        let genesis_message = self.genesis_message.clone().unwrap_or_else(String::new);
+        vec.push(("genesis_timestamp", genesis_timestamp));
+        vec.push(("genesis_message", genesis_message));
+        vec
+    }
 }

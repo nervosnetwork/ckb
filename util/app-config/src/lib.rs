@@ -234,9 +234,28 @@ impl Setup {
         let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
         let import_spec = matches.value_of(cli::ARG_IMPORT_SPEC).map(str::to_string);
-        let genesis_message = matches
-            .value_of(cli::ARG_GENESIS_MESSAGE)
-            .map(str::to_string);
+
+        let use_default_spec = matches.is_present(cli::ARG_USE_DEFAULT_SPEC);
+        let customize_spec = {
+            let genesis_timestamp = matches
+                .value_of(cli::ARG_GENESIS_TIMESTAMP)
+                .map(u64::from_str)
+                .transpose()
+                .map_err(|err| {
+                    eprintln!(
+                        "genesis timestamp should be an unsigned integer, but {}",
+                        err
+                    );
+                    ExitCode::Cli
+                })?;
+            let genesis_message = matches
+                .value_of(cli::ARG_GENESIS_MESSAGE)
+                .map(str::to_string);
+            args::CustomizeSpec {
+                genesis_timestamp,
+                genesis_message,
+            }
+        };
 
         Ok(InitArgs {
             interactive,
@@ -253,7 +272,8 @@ impl Setup {
             block_assembler_hash_type,
             block_assembler_message,
             import_spec,
-            genesis_message,
+            use_default_spec,
+            customize_spec,
         })
     }
 
