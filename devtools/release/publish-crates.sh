@@ -83,7 +83,10 @@ for crate_dir in $CRATES; do
       else
         echo "=> publish $crate_dir"
         pushd "$crate_dir"
-        generate_readme
+        git clean -f README.md
+        if ! [ -f README.md ]; then
+          generate_readme
+        fi
         retry_cargo_publish "$@"
         popd
         rm -rf target/package/*
