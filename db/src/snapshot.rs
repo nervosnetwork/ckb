@@ -1,4 +1,4 @@
-//! TODO(doc): @quake
+//! RocksDB snapshot wrapper
 use crate::db::cf_handle;
 use crate::{internal_error, Result};
 use ckb_db_schema::Col;
@@ -10,7 +10,7 @@ use rocksdb::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @quake
+/// A snapshot captures a point-in-time view of the DB at the time it's created
 pub struct RocksDBSnapshot {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: *const ffi::rocksdb_snapshot_t,
@@ -33,7 +33,8 @@ impl RocksDBSnapshot {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
+    /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
         self.get_pinned_cf_full(Some(cf), &key, None)

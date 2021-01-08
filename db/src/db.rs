@@ -1,4 +1,4 @@
-//! TODO(doc): @quake
+//! RocksDB wrapper base on OptimisticTransactionDB
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
@@ -116,12 +116,12 @@ impl RocksDB {
         })
     }
 
-    /// TODO(doc): @quake
+    /// Open a database with the given configuration and columns count.
     pub fn open(config: &DBConfig, columns: u32) -> Self {
         Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
-    /// TODO(doc): @quake
+    /// Open a temporary database with the default configuration and columns count.
     pub fn open_tmp(columns: u32) -> Self {
         let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
         let config = DBConfig {
@@ -131,18 +131,20 @@ impl RocksDB {
         Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
-    /// TODO(doc): @quake
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
+    /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.inner, col)?;
         self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
+    /// so as to avoid unnecessary memory copy.
     pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         self.inner.get_pinned(&key).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Insert a value into the database under the given key.
     pub fn put_default<K, V>(&self, key: K, value: V) -> Result<()>
     where
         K: AsRef<[u8]>,
@@ -151,7 +153,7 @@ impl RocksDB {
         self.inner.put(key, value).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Traverse database column with the given callback function.
     pub fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
@@ -179,7 +181,7 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Construct `RocksDBWriteBatch` with default option.
     pub fn new_write_batch(&self) -> RocksDBWriteBatch {
         RocksDBWriteBatch {
             db: Arc::clone(&self.inner),
@@ -187,12 +189,12 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Write batch into transaction db.
     pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
         self.inner.write(&batch.inner).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Return `RocksDBSnapshot`.
     pub fn get_snapshot(&self) -> RocksDBSnapshot {
         unsafe {
             let snapshot = ffi::rocksdb_create_snapshot(self.inner.base_db_ptr());
@@ -200,12 +202,12 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Return rocksdb `OptimisticTransactionDB`.
     pub fn inner(&self) -> Arc<OptimisticTransactionDB> {
         Arc::clone(&self.inner)
     }
 
-    /// TODO(doc): @quake
+    /// Create a new column family for the database.
     pub fn create_cf(&mut self, col: Col) -> Result<()> {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
@@ -213,7 +215,7 @@ impl RocksDB {
         inner.create_cf(col, &opts).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Delete column family.
     pub fn drop_cf(&mut self, col: Col) -> Result<()> {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
