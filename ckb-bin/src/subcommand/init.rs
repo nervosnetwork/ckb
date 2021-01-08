@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Read};
 
 use crate::helper::prompt;
-use ckb_app_config::{ExitCode, InitArgs};
+use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
@@ -207,6 +207,19 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
     println!("create {}", DB_OPTIONS_FILE_NAME);
     Resource::bundled_db_options().export(&context, &args.root_dir)?;
+
+    let genesis_hash = AppConfig::load_for_subcommand(args.root_dir, cli::CMD_INIT)?
+        .chain_spec()?
+        .build_genesis()
+        .map_err(|err| {
+            eprintln!(
+                "couldn't build genesis from generated chain spec, since {}",
+                err
+            );
+            ExitCode::Failure
+        })?
+        .hash();
+    println!("Genesis Hash: {:#x}", genesis_hash);
 
     Ok(())
 }
