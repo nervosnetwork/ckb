@@ -43,6 +43,7 @@ use std::time::{Duration, Instant};
 
 mod header_map;
 
+use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
@@ -1999,13 +2000,7 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        if let Err(err) = nc.send_message(
-            SupportProtocols::Sync.protocol_id(),
-            peer,
-            message.as_bytes(),
-        ) {
-            debug!("synchronizer send get_headers error: {:?}", err);
-        }
+        let _status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {

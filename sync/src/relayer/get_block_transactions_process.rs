@@ -1,5 +1,6 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
-use crate::{Status, StatusCode};
+use crate::utils::send_message_to;
+use crate::{attempt, Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
@@ -82,11 +83,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
 
-            if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-                return StatusCode::Network
-                    .with_context(format!("Send BlockTransactions error: {:?}", err));
-            }
-            crate::relayer::metrics_counter_send(message.to_enum().item_name());
+            attempt!(send_message_to(self.nc.as_ref(), self.peer, &message));
         }
 
         Status::ok()

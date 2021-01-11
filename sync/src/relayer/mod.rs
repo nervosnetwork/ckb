@@ -22,6 +22,7 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, SyncShared};
+use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
@@ -245,18 +246,11 @@ impl Relayer {
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-
-            if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send GetBlockProposal error {:?}",
-                    err,
-                );
+            if !send_message_to(nc, peer, &message).is_ok() {
                 self.shared()
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
             }
-            crate::relayer::metrics_counter_send(message.to_enum().item_name());
         }
     }
 
@@ -529,15 +523,10 @@ impl Relayer {
                 .transactions(txs.into_iter().map(|tx| tx.data()).pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-
-            if let Err(err) = nc.send_message_to(peer_index, message.as_bytes()) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send BlockProposal error: {:?}",
-                    err,
-                );
+            let status = send_message_to(nc, peer_index, &message);
+            if !status.is_ok() {
+                ckb_logger::error!("break relaying transactions, status: {:?}", status);
             }
-            crate::relayer::metrics_counter_send(message.to_enum().item_name());
         }
     }
 
@@ -570,15 +559,10 @@ impl Relayer {
                     .tx_hashes(tx_hashes.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-
-                if let Err(err) = nc.send_message_to(*peer, message.as_bytes()) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "relayer send Transaction error: {:?}",
-                        err,
-                    );
+                let status = send_message_to(nc, *peer, &message);
+                if !status.is_ok() {
+                    ckb_logger::error!("break asking for transactions, status: {:?}", status);
                 }
-                crate::relayer::metrics_counter_send(message.to_enum().item_name());
             }
         }
     }
@@ -754,8 +738,4 @@ impl CKBProtocolHandler for Relayer {
             start_time.elapsed()
         );
     }
-}
-
-pub(self) fn metrics_counter_send(item_name: &str) {
-    metrics!(counter, "ckb-net.sent", 1, "action" => "relay", "item" => item_name.to_owned());
 }
