@@ -4,6 +4,7 @@ use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
+use ckb_metrics::{metrics, Timer};
 use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
@@ -162,6 +163,7 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
+        let timer = Timer::start();
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.since.verify()?;
@@ -171,6 +173,7 @@ where
             self.script.verify(max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
+        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(CacheEntry::new(cycles, fee))
     }
 }
@@ -324,8 +327,12 @@ impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
 
     /// Perform script verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
+        let timer = Timer::start();
         let data_loader = DataLoaderWrapper::new(self.chain_store);
-        TransactionScriptsVerifier::new(&self.resolved_transaction, &data_loader).verify(max_cycles)
+        let cycle = TransactionScriptsVerifier::new(&self.resolved_transaction, &data_loader)
+            .verify(max_cycles)?;
+        metrics!(timing, "ckb.verified_script", timer.stop());
+        Ok(cycle)
     }
 }
 

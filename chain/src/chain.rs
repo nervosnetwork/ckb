@@ -3,7 +3,7 @@
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
-use ckb_metrics::metrics;
+use ckb_metrics::{metrics, Timer};
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
@@ -288,15 +288,17 @@ impl ChainService {
     // visible pub just for test
     #[doc(hidden)]
     pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        debug!("begin processing block: {}", block.header().hash());
-        if block.header().number() < 1 {
-            warn!(
-                "receive 0 number block: {}-{}",
-                block.header().number(),
-                block.header().hash()
-            );
+        let block_number = block.number();
+        let block_hash = block.hash();
+
+        debug!("begin processing block: {}-{}", block_number, block_hash);
+        if block_number < 1 {
+            warn!("receive 0 number block: 0-{}", block_hash);
         }
+
+        let timer = Timer::start();
         self.insert_block(block, switch).map(|ret| {
+            metrics!(timing, "ckb.processed_block", timer.stop());
             debug!("finish processing block");
             ret
         })
