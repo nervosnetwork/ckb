@@ -98,6 +98,8 @@ pub const ARG_SANITY_CHECK: &str = "sanity-check";
 pub const ARG_FULL_VERIFICATION: &str = "full-verification";
 /// Present `skip-spec-check` arg to `run` skip spec check on setup
 pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
+/// Present `overwrite-spec` arg to force overriding the chain spec in the database with the present configured chain spec
+pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 /// assume valid target cli arg name
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Migrate check flag arg
@@ -154,6 +156,10 @@ fn run() -> App<'static, 'static> {
             Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .long(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .help("Skips checking the chain spec with the hash stored in the database"),
+        ).arg(
+            Arg::with_name(ARG_OVERWRITE_CHAIN_SPEC)
+                .long(ARG_OVERWRITE_CHAIN_SPEC)
+                .help("Overwrites the chain spec in the database with the present configured chain spec")
         ).arg(
         Arg::with_name(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)

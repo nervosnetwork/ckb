@@ -36,7 +36,11 @@ pub struct RunArgs {
     pub block_assembler_advanced: bool,
     /// Whether skip chain spec hash check
     pub skip_chain_spec_check: bool,
-    /// Config chain spec hash
+    /// Whether overwrite the chain spec hash in the database with [`RunArgs::chain_spec_hash`]
+    ///
+    /// [`RunArgs::chain_spec_hash`]: ./struct.RunArgs.html#structfield.chain_spec_hash
+    pub overwrite_chain_spec: bool,
+    /// Hash of serialized configured chain spec
     pub chain_spec_hash: Byte32,
 }
 
