@@ -5,7 +5,6 @@ use crate::utils::send_message_to;
 use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
-use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
@@ -261,12 +260,6 @@ impl<'a> CompactBlockProcess<'a> {
         } else {
             StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
         };
-        if !missing_transactions.is_empty() {
-            metrics!(value, "ckb-net.fresh", missing_transactions.len() as u64, "type" => "transactions", "status" => status.tag());
-        }
-        if !missing_uncles.is_empty() {
-            metrics!(value, "ckb-net.fresh", missing_uncles.len() as u64, "type" => "uncles", "status" => status.tag());
-        }
 
         let content = packed::GetBlockTransactions::new_builder()
             .block_hash(block_hash)

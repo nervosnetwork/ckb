@@ -12,7 +12,7 @@ use ckb_constant::sync::{
 };
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
-use ckb_metrics::{metrics, Timer};
+use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -682,7 +682,6 @@ impl InflightBlocks {
 
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
-        let prev_count = self.total_inflight_count();
         let mut disconnect_list = HashSet::new();
 
         let trace = &mut self.trace_number;
@@ -760,14 +759,6 @@ impl InflightBlocks {
             }
             true
         });
-
-        if prev_count == 0 {
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "elapsed_ms");
-        } else if prev_count != self.total_inflight_count() {
-            metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", BLOCK_DOWNLOAD_TIMEOUT, "type" => "elapsed_ms");
-        }
 
         disconnect_list
     }
@@ -852,11 +843,6 @@ impl InflightBlocks {
                         trace.remove(&block);
                     }
                 };
-                elapsed
-            })
-            .map(|elapsed| {
-                metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-                metrics!(value, "ckb-net.blocks_in_flight", elapsed, "type" => "elapsed_ms");
             })
             .is_some()
     }
@@ -1059,19 +1045,15 @@ impl HeaderView {
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let timer = Timer::start();
         let mut current = self;
         if number > current.number() {
             return None;
         }
 
-        let base_number = current.number();
-        let mut steps = 0u64;
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
-            steps += 1;
             let store_first = current.number() <= tip_number;
             match current.skip_hash {
                 Some(ref hash)
@@ -1094,11 +1076,6 @@ impl HeaderView {
                 break;
             }
         }
-        metrics!(timing, "ckb-net.get_ancestor", timer.stop(), "type" => "elapsed");
-        metrics!(value, "ckb-net.get_ancestor", steps, "type" => "steps");
-        metrics!(value, "ckb-net.get_ancestor", base_number, "type" => "base_number");
-        metrics!(value, "ckb-net.get_ancestor", number, "type" => "target_number");
-        metrics!(value, "ckb-net.get_ancestor", current.number(), "type" => "ancestor_number");
         Some(current).map(HeaderView::into_inner)
     }
 
