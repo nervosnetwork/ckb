@@ -1567,7 +1567,7 @@ impl SyncState {
             self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
-        metrics!(gauge, "ckb-chain.tip_number", header.number() as i64, "type" => "best_header");
+        metrics!(gauge, "ckb.shared_best_number", header.number() as i64);
         *self.shared_best_header.write() = header;
     }
 
