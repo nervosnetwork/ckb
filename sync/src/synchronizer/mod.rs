@@ -260,12 +260,17 @@ impl Synchronizer {
         message: packed::SyncMessageUnionReader<'r>,
     ) {
         let item_name = message.item_name();
+        let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
-        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
-        if !status.is_ok() {
-            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
-        }
+        metrics!(
+            counter,
+            "ckb.messages_bytes",
+            item_bytes,
+            "direction" => "in",
+            "name" => item_name.to_owned(),
+            "status" => status.tag(),
+        );
 
         if let Some(ban_time) = status.should_ban() {
             error!(
