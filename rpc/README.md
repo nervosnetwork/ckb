@@ -3553,7 +3553,7 @@ Chain information.
 
     *   "ckb_testnet" - Aggron the testnet.
 
-*   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks.
+*   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks, including the tip block.
 
 *   `epoch`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The epoch information of tip block in the chain.
 
