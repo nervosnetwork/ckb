@@ -162,7 +162,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
         .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-        .enable_alert(alert_verifier, alert_notifier, network_controller)
+        .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
         .enable_debug();
     let io_handler = builder.build();
 
@@ -177,6 +177,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
     drop(rpc_server);
+    drop(network_controller);
 
     Ok(())
 }
