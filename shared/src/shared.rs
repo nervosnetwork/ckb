@@ -261,6 +261,11 @@ impl Shared {
         let snapshot = self.snapshot();
         let current_epoch = snapshot.epoch_ext().number();
 
+        if snapshot.is_initial_block_download() {
+            ckb_logger::trace!("is_initial_block_download freeze skip");
+            return Ok(());
+        }
+
         if current_epoch <= THRESHOLD_EPOCH {
             ckb_logger::trace!("freezer loaf");
             return Ok(());
