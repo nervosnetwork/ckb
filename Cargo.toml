@@ -45,6 +45,7 @@ members = [
     "util/fixed-hash",
     "util/occupied-capacity",
     "util/crypto",
+    "util/constant",
     "error",
     "util/multisig",
     "util/types",

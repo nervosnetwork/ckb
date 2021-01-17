@@ -1,4 +1,4 @@
-use crate::BAD_MESSAGE_BAN_TIME;
+use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{packed, prelude::*};

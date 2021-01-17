@@ -22,8 +22,9 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, SyncShared};
-use crate::{Status, StatusCode, BAD_MESSAGE_BAN_TIME};
+use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
+use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{

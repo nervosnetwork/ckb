@@ -1,6 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::{Status, StatusCode, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
+use crate::{Status, StatusCode};
+use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};

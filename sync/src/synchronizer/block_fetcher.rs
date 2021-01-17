@@ -1,7 +1,9 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, HeaderView, IBDState};
-use crate::BLOCK_DOWNLOAD_WINDOW;
+use ckb_constant::sync::{
+    BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+};
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
@@ -164,7 +166,7 @@ impl<'a> BlockFetcher<'a> {
 
         let tip = self.active_chain.tip_number();
         let should_mark = fetch.last().map_or(false, |header| {
-            header.number().saturating_sub(crate::CHECK_POINT_WINDOW) > tip
+            header.number().saturating_sub(CHECK_POINT_WINDOW) > tip
         });
         if should_mark {
             inflight.mark_slow_block(tip);
@@ -185,7 +187,7 @@ impl<'a> BlockFetcher<'a> {
 
         Some(
             fetch
-                .chunks(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER)
+                .chunks(INIT_BLOCKS_IN_TRANSIT_PER_PEER)
                 .map(|headers| headers.iter().map(core::HeaderView::hash).collect())
                 .collect(),
         )

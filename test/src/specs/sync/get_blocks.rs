@@ -1,9 +1,9 @@
 use crate::util::mining::mine;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Node, Spec};
+use ckb_constant::sync::{BLOCK_DOWNLOAD_TIMEOUT, INIT_BLOCKS_IN_TRANSIT_PER_PEER};
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
-use ckb_sync::{BLOCK_DOWNLOAD_TIMEOUT, INIT_BLOCKS_IN_TRANSIT_PER_PEER};
 use ckb_types::{core::HeaderView, packed, prelude::*};
 use std::time::{Duration, Instant};
 
