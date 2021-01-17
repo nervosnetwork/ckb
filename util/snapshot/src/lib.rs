@@ -108,6 +108,7 @@ impl Snapshot {
         &self.tip_header
     }
 
+    /// Return whether chain is in initial block download
     pub fn is_initial_block_download(&self) -> bool {
         // Once this function has returned false, it must remain false.
         if IBD_FINISHED.load(Ordering::Relaxed) {

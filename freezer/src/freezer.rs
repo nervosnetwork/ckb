@@ -8,13 +8,13 @@ use ckb_types::{
 };
 use ckb_util::Mutex;
 use fs2::FileExt;
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 const LOCKNAME: &str = "FLOCK";
-type FreezeResult = (BlockNumber, packed::Byte32, u32);
 
 struct Inner {
     pub(crate) files: FreezerFiles,
@@ -72,13 +72,13 @@ impl Freezer {
         &self,
         threshold: BlockNumber,
         get_block_by_number: F,
-    ) -> Result<Vec<FreezeResult>, Error>
+    ) -> Result<BTreeMap<packed::Byte32, (BlockNumber, u32)>, Error>
     where
         F: Fn(BlockNumber) -> Option<BlockView>,
     {
         let number = self.number();
         let mut guard = self.inner.lock();
-        let mut ret = Vec::with_capacity(threshold.saturating_sub(number) as usize);
+        let mut ret = BTreeMap::new();
         ckb_logger::trace!("freezer freeze start {} threshold {}", number, threshold);
 
         for number in number..threshold {
@@ -102,11 +102,11 @@ impl Freezer {
                     .files
                     .append(number, raw_block.as_slice())
                     .map_err(internal_error)?;
-                ret.push((
-                    number,
+
+                ret.insert(
                     block.header().hash(),
-                    block.transactions().len() as u32,
-                ));
+                    (number, block.transactions().len() as u32),
+                );
                 guard.tip = Some(block.header());
                 ckb_logger::trace!("freezer block append {}", number);
             } else {

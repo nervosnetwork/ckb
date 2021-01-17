@@ -5,8 +5,10 @@ use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, 
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
+use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_db::{Direction, IteratorMode, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
+use ckb_db_schema::COLUMN_BLOCK_BODY;
 use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
@@ -23,6 +25,7 @@ use ckb_types::{
 };
 use ckb_verification::cache::TxVerifyCache;
 use std::cmp;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -293,10 +296,11 @@ impl Shared {
             threshold
         );
 
+        let store = self.store();
         let get_unfrozen_block = |number: BlockNumber| {
-            self.store()
+            store
                 .get_block_hash(number)
-                .and_then(|hash| self.store().get_unfrozen_block(&hash))
+                .and_then(|hash| store.get_unfrozen_block(&hash))
         };
 
         let ret = freezer.freeze(threshold, get_unfrozen_block)?;
@@ -312,59 +316,93 @@ impl Shared {
     fn wipe_out_frozen_data(
         &self,
         snapshot: &Snapshot,
-        frozen: Vec<(BlockNumber, packed::Byte32, u32)>,
+        frozen: BTreeMap<packed::Byte32, (BlockNumber, u32)>,
     ) -> Result<(), Error> {
-        let mut side = Vec::with_capacity(frozen.len());
+        let mut side = BTreeMap::new();
         let mut batch = self.store.new_write_batch();
 
         ckb_logger::trace!("freezer wipe_out_frozen_data {} ", frozen.len());
 
-        // remain header
-        for (number, hash, txs) in frozen {
-            batch.delete_block_body(number, &hash, txs).map_err(|e| {
-                ckb_logger::error!("freezer delete_block_body failed {}", e);
-                e
-            })?;
-
-            let pack_number: packed::Uint64 = number.pack();
-            let prefix = pack_number.as_slice();
-            for (key, value) in snapshot
-                .get_iter(
-                    COLUMN_NUMBER_HASH,
-                    IteratorMode::From(prefix, Direction::Forward),
-                )
-                .take_while(|(key, _)| key.starts_with(prefix))
-            {
-                let reader = packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
-                let block_hash = reader.block_hash().to_entity();
-                if block_hash != hash {
-                    let txs =
-                        packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..]).unpack();
-                    side.push((reader.number().to_entity(), block_hash, txs));
-                }
-            }
-        }
-        self.store.write(&batch).map_err(|e| {
-            ckb_logger::error!("freezer write_batch delete failed {}", e);
-            e
-        })?;
-        batch.clear()?;
-
-        // Wipe out side chain
-        for (number, hash, txs) in side {
-            batch
-                .delete_block(number.unpack(), &hash, txs)
-                .map_err(|e| {
+        if !frozen.is_empty() {
+            // remain header
+            for (hash, (number, txs)) in &frozen {
+                batch.delete_block_body(*number, hash, *txs).map_err(|e| {
                     ckb_logger::error!("freezer delete_block_body failed {}", e);
                     e
                 })?;
+
+                let pack_number: packed::Uint64 = number.pack();
+                let prefix = pack_number.as_slice();
+                for (key, value) in snapshot
+                    .get_iter(
+                        COLUMN_NUMBER_HASH,
+                        IteratorMode::From(prefix, Direction::Forward),
+                    )
+                    .take_while(|(key, _)| key.starts_with(prefix))
+                {
+                    let reader =
+                        packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
+                    let block_hash = reader.block_hash().to_entity();
+                    if &block_hash != hash {
+                        let txs =
+                            packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..])
+                                .unpack();
+                        side.insert(block_hash, (reader.number().to_entity(), txs));
+                    }
+                }
+            }
+            self.store.write_sync(&batch).map_err(|e| {
+                ckb_logger::error!("freezer write_batch delete failed {}", e);
+                e
+            })?;
+            batch.clear()?;
+
+            let start = frozen.keys().min().expect("frozen empty checked");
+            let end = frozen.keys().max().expect("frozen empty checked");
+            self.compact_block_body(start, end);
         }
 
-        self.store.write(&batch).map_err(|e| {
-            ckb_logger::error!("freezer write_batch delete failed {}", e);
-            e
-        })?;
+        if !side.is_empty() {
+            // Wipe out side chain
+            for (hash, (number, txs)) in &side {
+                batch
+                    .delete_block(number.unpack(), hash, *txs)
+                    .map_err(|e| {
+                        ckb_logger::error!("freezer delete_block_body failed {}", e);
+                        e
+                    })?;
+            }
+
+            self.store.write(&batch).map_err(|e| {
+                ckb_logger::error!("freezer write_batch delete failed {}", e);
+                e
+            })?;
+
+            let start = side.keys().min().expect("side empty checked");
+            let end = side.keys().max().expect("side empty checked");
+            self.compact_block_body(start, end);
+        }
         Ok(())
+    }
+
+    fn compact_block_body(&self, start: &packed::Byte32, end: &packed::Byte32) {
+        let start_t = packed::TransactionKey::new_builder()
+            .block_hash(start.clone())
+            .index(0u32.pack())
+            .build();
+
+        let end_t = packed::TransactionKey::new_builder()
+            .block_hash(end.clone())
+            .index(TX_INDEX_UPPER_BOUND.pack())
+            .build();
+
+        if let Err(e) = self.store.compact_range(
+            COLUMN_BLOCK_BODY,
+            Some(start_t.as_slice()),
+            Some(end_t.as_slice()),
+        ) {
+            ckb_logger::error!("freezer compact_range {}-{} error {}", start, end, e);
+        }
     }
 
     /// TODO(doc): @quake

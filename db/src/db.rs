@@ -7,8 +7,8 @@ use ckb_app_config::DBConfig;
 use ckb_db_schema::Col;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{
-    CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,
-    WriteOps,
+    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF,
+    Put, SetOptions, WriteOps,
 };
 use rocksdb::{
     ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
@@ -201,6 +201,49 @@ impl RocksDB {
     /// Write batch into transaction db.
     pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
         self.inner.write(&batch.inner).map_err(internal_error)
+    }
+
+    /// WriteOptions set_sync true
+    /// If true, the write will be flushed from the operating system
+    /// buffer cache (by calling WritableFile::Sync()) before the write
+    /// is considered complete.  If this flag is true, writes will be
+    /// slower.
+    ///
+    /// If this flag is false, and the machine crashes, some recent
+    /// writes may be lost.  Note that if it is just the process that
+    /// crashes (i.e., the machine does not reboot), no writes will be
+    /// lost even if sync==false.
+    ///
+    /// In other words, a DB write with sync==false has similar
+    /// crash semantics as the "write()" system call.  A DB write
+    /// with sync==true has similar crash semantics to a "write()"
+    /// system call followed by "fdatasync()".
+    ///
+    /// Default: false
+    pub fn write_sync(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        let mut wo = WriteOptions::new();
+        wo.set_sync(true);
+        self.inner
+            .write_opt(&batch.inner, &wo)
+            .map_err(internal_error)
+    }
+
+    /// The begin and end arguments define the key range to be compacted.
+    /// The behavior varies depending on the compaction style being used by the db.
+    /// In case of universal and FIFO compaction styles, the begin and end arguments are ignored and all files are compacted.
+    /// Also, files in each level are compacted and left in the same level.
+    /// For leveled compaction style, all files containing keys in the given range are compacted to the last level containing files.
+    /// If either begin or end are NULL, it is taken to mean the key before all keys in the db or the key after all keys respectively.
+    ///
+    /// If more than one thread calls manual compaction,
+    /// only one will actually schedule it while the other threads will simply wait for
+    /// the scheduled manual compaction to complete.
+    ///
+    /// CompactRange waits while compaction is performed on the background threads and thus is a blocking call.
+    pub fn compact_range(&self, col: Col, start: Option<&[u8]>, end: Option<&[u8]>) -> Result<()> {
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner.compact_range_cf(&cf, start, end);
+        Ok(())
     }
 
     /// Return `RocksDBSnapshot`.

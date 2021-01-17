@@ -15,7 +15,6 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.41.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
 ckb-network = { path = "../network", version = "= 0.41.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.41.0-pre" }
-ckb-sync = { path = "../sync", version = "= 0.41.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.41.0-pre" }
 ckb-hash = { path = "../util/hash", version = "= 0.41.0-pre" }
 ckb-util = { path = "../util", version = "= 0.41.0-pre" }
