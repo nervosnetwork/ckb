@@ -3,20 +3,17 @@ use ckb_db::RocksDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::COLUMN_CELL;
 use ckb_error::Error;
+use ckb_migration_template::multi_thread_migration;
 use ckb_store::{ChainDB, ChainStore, StoreWriteBatch};
 use ckb_types::{
     core::{BlockView, TransactionView},
     packed,
     prelude::*,
 };
-use std::sync::{Arc, Barrier};
-use std::thread;
+use std::sync::Arc;
 
 const RESTORE_CELL_VERSION: &str = "20200707214700";
-const BATCH: usize = 1_000;
 const MAX_DELETE_BATCH_SIZE: usize = 32 * 1024;
-const MAX_THREAD: u64 = 6;
-const MIN_THREAD: u64 = 2;
 
 pub struct CellMigration;
 
@@ -28,51 +25,13 @@ impl Migration for CellMigration {
     ) -> Result<RocksDB, Error> {
         clean_cell_column(&mut db)?;
 
-        let chain_db = ChainDB::new(db, StoreConfig::default());
-        let tip = chain_db.get_tip_header().unwrap();
-        let tip_number = tip.number();
-
-        let tb_num = std::cmp::max(MIN_THREAD, num_cpus::get() as u64);
-        let tb_num = std::cmp::min(tb_num, MAX_THREAD);
-        let chunk_size = tip_number / tb_num;
-        let remainder = tip_number % tb_num;
-        let barrier = Arc::new(Barrier::new(tb_num as usize));
-
-        let handles: Vec<_> = (0..tb_num).map(|i| {
-            let chain_db = chain_db.clone();
-            let pb = Arc::clone(&pb);
-            let c = Arc::clone(&barrier);
-
-            let last = i == (tb_num - 1);
-            let size = if last {
-                chunk_size + remainder
-            } else {
-                chunk_size
-            };
-            let end = if last {
-                tip_number + 1
-            } else {
-                (i + 1) * chunk_size
-            };
-
-            let pbi = pb(size * 2);
-            pbi.set_style(
-                ProgressStyle::default_bar()
-                    .template(
-                        "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
-                    )
-                    .progress_chars("#>-"),
-            );
-            pbi.set_position(0);
-            pbi.enable_steady_tick(5000);
-            thread::spawn(move || {
-                let mut wb = chain_db.new_write_batch();
-
+        multi_thread_migration! {
+            {
                 let mut hashes = Vec::new();
                 for number in i * chunk_size..end {
                     let block = chain_db
                         .get_block_hash(number)
-                        .and_then(|hash| chain_db.get_block(&hash)).unwrap();
+                        .and_then(|hash| chain_db.get_block(&hash)).expect("DB data integrity");
 
                     if block.transactions().len() > 1 {
                         hashes.push(block.hash());
@@ -92,7 +51,7 @@ impl Migration for CellMigration {
                 }
 
                 // wait all cell insert
-                c.wait();
+                barrier.wait();
 
                 pbi.set_length(size + hashes.len() as u64);
 
@@ -106,19 +65,8 @@ impl Migration for CellMigration {
                     }
                     pbi.inc(1);
                 }
-
-                if !wb.is_empty() {
-                    chain_db.write(&wb).unwrap();
-                }
-                pbi.finish_with_message("done!");
-            })
-        }).collect();
-
-        // Wait for other threads to finish.
-        for handle in handles {
-            handle.join().unwrap();
+            }
         }
-        Ok(chain_db.into_inner())
     }
 
     fn version(&self) -> &str {
