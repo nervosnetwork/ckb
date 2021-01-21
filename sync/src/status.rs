@@ -63,6 +63,8 @@ pub enum StatusCode {
     CompactBlockMeetsShortIdsCollision = 108,
     /// In-flight blocks limit exceeded
     BlocksInFlightReachLimit = 109,
+    /// Generic rate limit error
+    TooManyRequests = 110,
 
     ///////////////////////////////////
     //      Malformed Errors 4xx     //
@@ -99,9 +101,6 @@ pub enum StatusCode {
     GetHeadersMissCommonAncestors = 414,
     /// Headers verified failed
     HeadersIsInvalid = 415,
-
-    /// Generic rate limit error
-    TooManyRequests = 429,
 
     ///////////////////////////////////
     //      Warning 5xx              //
