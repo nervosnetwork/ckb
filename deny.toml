@@ -10,6 +10,9 @@ ignore = [
     "RUSTSEC-2020-0056", # We did not use the `stdweb` library, only `wasm32-unknown-unknown` would use `getrandom` and `wasm-bindgen`, `stdweb` would only be used in cargo-web
     "RUSTSEC-2020-0082", # TODO ordered_float:NotNan may contain NaN after panic in assignment operators
                          #      Could be removed after heim 0.1.0 released.
+    "RUSTSEC-2020-0095", # TODO difference is unmaintained
+                         #      It is introduced by pretty_assertions and we only use it in one unit test.
+    "RUSTSEC-2021-0013", # TODO We did not use heim-virt to get cpu information
 ]
 
 [licenses]
