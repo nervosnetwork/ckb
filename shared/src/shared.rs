@@ -305,8 +305,10 @@ impl Shared {
 
         let ret = freezer.freeze(threshold, get_unfrozen_block)?;
 
+        let stopped = freezer.stopped.load(Ordering::SeqCst);
+
         // Wipe out frozen data
-        self.wipe_out_frozen_data(&snapshot, ret)?;
+        self.wipe_out_frozen_data(&snapshot, ret, stopped)?;
 
         ckb_logger::trace!("freezer finish");
 
@@ -317,6 +319,7 @@ impl Shared {
         &self,
         snapshot: &Snapshot,
         frozen: BTreeMap<packed::Byte32, (BlockNumber, u32)>,
+        stopped: bool,
     ) -> Result<(), Error> {
         let mut side = BTreeMap::new();
         let mut batch = self.store.new_write_batch();
@@ -357,9 +360,11 @@ impl Shared {
             })?;
             batch.clear()?;
 
-            let start = frozen.keys().min().expect("frozen empty checked");
-            let end = frozen.keys().max().expect("frozen empty checked");
-            self.compact_block_body(start, end);
+            if !stopped {
+                let start = frozen.keys().min().expect("frozen empty checked");
+                let end = frozen.keys().max().expect("frozen empty checked");
+                self.compact_block_body(start, end);
+            }
         }
 
         if !side.is_empty() {
@@ -378,9 +383,11 @@ impl Shared {
                 e
             })?;
 
-            let start = side.keys().min().expect("side empty checked");
-            let end = side.keys().max().expect("side empty checked");
-            self.compact_block_body(start, end);
+            if !stopped {
+                let start = side.keys().min().expect("side empty checked");
+                let end = side.keys().max().expect("side empty checked");
+                self.compact_block_body(start, end);
+            }
         }
         Ok(())
     }
