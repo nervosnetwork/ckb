@@ -10,6 +10,7 @@ ignore = [
                          #      Could be removed after heim 0.1.0 released.
     "RUSTSEC-2020-0095", # TODO difference is unmaintained
                          #      It is introduced by pretty_assertions and we only use it in one unit test.
+    "RUSTSEC-2021-0013", # TODO We did not use heim-virt to get cpu information
 ]
 
 [licenses]
