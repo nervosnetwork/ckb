@@ -35,6 +35,7 @@ use p2p::{
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,
     utils::extract_peer_id,
+    yamux::config::Config as YamuxConfig,
     SessionId,
 };
 #[cfg(feature = "with_sentry")]
@@ -848,6 +849,8 @@ impl<T: ExitHandler> NetworkService<T> {
         protocol_metas.push(identify_meta);
 
         let mut service_builder = ServiceBuilder::default();
+        let mut yamux_config = YamuxConfig::default();
+        yamux_config.max_stream_count = protocol_metas.len();
         for meta in protocol_metas.into_iter() {
             network_state
                 .protocols
@@ -862,6 +865,7 @@ impl<T: ExitHandler> NetworkService<T> {
         service_builder = service_builder
             .key_pair(network_state.local_private_key.clone())
             .upnp(config.upnp)
+            .yamux_config(yamux_config)
             .forever(true)
             .max_connection_number(1024);
 
