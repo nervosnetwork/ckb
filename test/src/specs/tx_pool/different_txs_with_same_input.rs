@@ -36,6 +36,10 @@ impl Spec for DifferentTxsWithSameInput {
         info!("RBF (Replace-By-Fees) is not implemented, but transaction fee sorting is ready");
         info!("tx2 should be included in the next + 2 block, and tx1 should be ignored");
         mine(&node0, 1);
+
+        // tx pool statics should reset
+        node0.assert_tx_pool_statics(0, 0);
+
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block
             .transactions()

@@ -488,12 +488,8 @@ impl TxPool {
             Err(err) => {
                 match err.kind() {
                     ErrorKind::Transaction => {
-                        self.update_statics_for_remove_tx(
-                            size,
-                            cache_entry.map(|c| c.cycles).unwrap_or(0),
-                        );
                         debug!(
-                            "Failed to add tx to {} {}, verify failed, reason: {:?}",
+                            "Failed to add tx to {} {}, verify failed, reason: {}",
                             pool_name, tx_hash, err,
                         );
                     }
@@ -503,16 +499,8 @@ impl TxPool {
                             .expect("error kind checked")
                         {
                             OutPointError::Dead(_) => {
-                                if self
-                                    .conflict
-                                    .put(short_id, DefectEntry::new(tx, 0, cache_entry, size))
-                                    .is_some()
-                                {
-                                    self.update_statics_for_remove_tx(
-                                        size,
-                                        cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                    );
-                                }
+                                self.conflict
+                                    .put(short_id, DefectEntry::new(tx, 0, cache_entry, size));
                             }
 
                             OutPointError::Unknown(out_points) => {
@@ -521,14 +509,8 @@ impl TxPool {
                                 if !out_points
                                     .iter()
                                     .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
-                                    && self
-                                        .add_orphan(cache_entry, size, tx, out_points.to_owned())
-                                        .is_some()
                                 {
-                                    self.update_statics_for_remove_tx(
-                                        size,
-                                        cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                    );
+                                    self.add_orphan(cache_entry, size, tx, out_points.to_owned());
                                 }
                             }
 
@@ -542,12 +524,7 @@ impl TxPool {
                             OutPointError::ImmatureHeader(_)
                             | OutPointError::InvalidHeader(_)
                             | OutPointError::InvalidDepGroup(_)
-                            | OutPointError::OutOfOrder(_) => {
-                                self.update_statics_for_remove_tx(
-                                    size,
-                                    cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                );
-                            }
+                            | OutPointError::OutOfOrder(_) => {}
                         }
                     }
                     _ => {
@@ -555,12 +532,9 @@ impl TxPool {
                             "Failed to add tx to {} {}, unknown reason: {:?}",
                             pool_name, tx_hash, err
                         );
-                        self.update_statics_for_remove_tx(
-                            size,
-                            cache_entry.map(|c| c.cycles).unwrap_or(0),
-                        );
                     }
                 }
+                self.update_statics_for_remove_tx(size, cache_entry.map(|c| c.cycles).unwrap_or(0));
                 Err(err)
             }
         }
