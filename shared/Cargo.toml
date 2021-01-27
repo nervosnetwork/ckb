@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.39.1"
+version = "0.39.2"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,21 +9,21 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.39.1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.39.1" }
-ckb-store = { path = "../store", version = "= 0.39.1" }
-ckb-db = { path = "../db", version = "= 0.39.1" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.39.1" }
+ckb-types = { path = "../util/types", version = "= 0.39.2" }
+ckb-chain-spec = { path = "../spec", version = "= 0.39.2" }
+ckb-store = { path = "../store", version = "= 0.39.2" }
+ckb-db = { path = "../db", version = "= 0.39.2" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.39.2" }
 arc-swap = "0.4"
-ckb-error = { path = "../error", version = "= 0.39.1" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.39.1" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.39.1" }
-ckb-verification = { path = "../verification", version = "= 0.39.1" }
-ckb-notify = { path = "../notify", version = "= 0.39.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.39.1" }
-ckb-db-migration = { path = "../db-migration", version = "= 0.39.1" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.39.1" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.39.1" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.1" }
+ckb-error = { path = "../error", version = "= 0.39.2" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.39.2" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.39.2" }
+ckb-verification = { path = "../verification", version = "= 0.39.2" }
+ckb-notify = { path = "../notify", version = "= 0.39.2" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.39.2" }
+ckb-db-migration = { path = "../db-migration", version = "= 0.39.2" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.39.2" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.39.2" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.39.2" }
 num_cpus = "1.10"
 once_cell = "1.3.1"

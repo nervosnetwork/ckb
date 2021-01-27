@@ -1,6 +1,6 @@
 [package]
 name = "ckb-indexer"
-version = "0.39.1"
+version = "0.39.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,19 +9,19 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.39.1" }
-ckb-db = { path = "../db", version = "= 0.39.1" }
-ckb-shared = { path = "../shared", version = "= 0.39.1" }
-ckb-store = { path = "../store", version = "= 0.39.1" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.39.1" }
-ckb-logger = { path = "../util/logger", version = "= 0.39.1" }
-ckb-util = { path = "../util", version = "= 0.39.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.39.1" }
-ckb-db-migration = { path = "../db-migration", version = "= 0.39.1" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.39.1" }
+ckb-types = { path = "../util/types", version = "= 0.39.2" }
+ckb-db = { path = "../db", version = "= 0.39.2" }
+ckb-shared = { path = "../shared", version = "= 0.39.2" }
+ckb-store = { path = "../store", version = "= 0.39.2" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.39.2" }
+ckb-logger = { path = "../util/logger", version = "= 0.39.2" }
+ckb-util = { path = "../util", version = "= 0.39.2" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.39.2" }
+ckb-db-migration = { path = "../db-migration", version = "= 0.39.2" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.39.2" }
 
 [dev-dependencies]
 tempfile = "3.0"
-ckb-chain =  { path = "../chain", version = "= 0.39.1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.39.1" }
-ckb-resource = { path = "../resource", version = "= 0.39.1" }
+ckb-chain =  { path = "../chain", version = "= 0.39.2" }
+ckb-chain-spec = { path = "../spec", version = "= 0.39.2" }
+ckb-resource = { path = "../resource", version = "= 0.39.2" }
