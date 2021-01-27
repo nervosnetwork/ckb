@@ -12,8 +12,9 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainStore;
+use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_types::packed::Byte32;
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
 use ckb_verification::{GenesisVerifier, Verifier};
 use std::sync::Arc;
@@ -193,31 +194,52 @@ fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
 
 fn check_spec(shared: &Shared, args: &RunArgs) -> Result<(), ExitCode> {
     let store = shared.store();
-    if let Some(spec_hash) = store.get_chain_spec_hash() {
-        if args.chain_spec_hash != spec_hash && !args.skip_chain_spec_check {
-            eprintln!(
-                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument --skip-spec-check if you are sure that the two different chains are compatible.",
-                args.chain_spec_hash, spec_hash
-            );
-            return Err(ExitCode::Config);
-        }
-    } else {
-        store
-            .put_chain_spec_hash(&args.chain_spec_hash)
-            .map_err(|err| {
-                eprintln!(
-                    "Touch chain_spec_hash {} error: {}",
-                    args.chain_spec_hash, err
-                );
-                ExitCode::IO
-            })?;
+    let stored_spec_hash = store.get_chain_spec_hash();
+
+    if stored_spec_hash.is_none() {
+        // fresh yet
+        write_chain_spec_hash(store, &args.chain_spec_hash)?;
         info_target!(
             crate::LOG_TARGET_MAIN,
             "Touch chain spec hash: {}",
             args.chain_spec_hash
         );
+    } else if stored_spec_hash.as_ref() == Some(&args.chain_spec_hash) {
+        // stored == configured
+        // do nothing
+    } else if args.overwrite_chain_spec {
+        // stored != configured with --overwrite-spec
+        write_chain_spec_hash(store, &args.chain_spec_hash)?;
+        info_target!(
+            crate::LOG_TARGET_MAIN,
+            "Overwrite chain spec hash from {} to {}",
+            stored_spec_hash.expect("checked"),
+            args.overwrite_chain_spec,
+        );
+    } else if args.skip_chain_spec_check {
+        // stored != configured with --skip-spec-check
+        // do nothing
+    } else {
+        // stored != configured
+        eprintln!(
+            "chain_spec_hash mismatch Config({}) storage({}), pass command line argument \
+                --skip-spec-check if you are sure that the two different chains are compatible; \
+                or pass --overwrite-spec to force overriding stored chain spec with configured chain spec",
+            args.chain_spec_hash, stored_spec_hash.expect("checked")
+        );
+        return Err(ExitCode::Config);
     }
     Ok(())
+}
+
+fn write_chain_spec_hash(store: &ChainDB, chain_spec_hash: &Byte32) -> Result<(), ExitCode> {
+    store.put_chain_spec_hash(chain_spec_hash).map_err(|err| {
+        eprintln!(
+            "store.put_chain_spec_hash {} error: {}",
+            chain_spec_hash, err
+        );
+        ExitCode::IO
+    })
 }
 
 fn sanitize_block_assembler_config(
