@@ -351,7 +351,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains(&addr) {
+        if !allow_dial_to_self && self.public_addrs.read().contains(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -468,7 +468,7 @@ impl NetworkState {
     /// this method is intent to check observed addr by dial to self
     pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        let public_addrs = self.public_addrs.read().clone();
+        let public_addrs = { self.public_addrs.read().clone() };
         for addr in pending_observed_addrs
             .drain()
             .chain(public_addrs.into_iter())
@@ -1338,4 +1338,46 @@ pub(crate) fn disconnect_with_message(
         )?;
     }
     control.disconnect(peer_index)
+}
+
+#[cfg(test)]
+mod test {
+    use super::NetworkState;
+    use crate::peer_registry::PeerRegistry;
+    use crate::peer_store::{types::MultiaddrExt, PeerStore};
+    use ckb_app_config::NetworkConfig;
+    use ckb_util::{Mutex, RwLock};
+    use p2p::{multiaddr::MultiAddr, secio::SecioKeyPair};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::atomic::AtomicBool,
+    };
+
+    #[test]
+    fn test_can_dail_self() {
+        let local_private_key = SecioKeyPair::secp256k1_generated();
+        let mut public_addrs = HashSet::new();
+        let addr = "/ip4/127.0.0.1/tcp/8114"
+            .parse::<MultiAddr>()
+            .unwrap()
+            .attach_p2p(&local_private_key.peer_id())
+            .unwrap();
+        public_addrs.insert(addr.clone());
+        let state = NetworkState {
+            peer_store: Mutex::new(PeerStore::default()),
+            config: NetworkConfig::default(),
+            bootnodes: Vec::new(),
+            peer_registry: RwLock::new(PeerRegistry::new(1, 1, false, Vec::default())),
+            dialing_addrs: RwLock::new(HashMap::default()),
+            public_addrs: RwLock::new(public_addrs),
+            listened_addrs: RwLock::new(Vec::new()),
+            pending_observed_addrs: RwLock::new(HashSet::default()),
+            local_private_key: local_private_key.clone(),
+            local_peer_id: local_private_key.public_key().peer_id(),
+            active: AtomicBool::new(true),
+            protocols: RwLock::new(Vec::new()),
+        };
+
+        assert!(state.can_dial(&local_private_key.peer_id(), &addr, true));
+    }
 }
