@@ -1,3 +1,13 @@
+# [v0.39.2](https://github.com/nervosnetwork/ckb/compare/v0.39.1...v0.39.2) (2021-01-27)
+
+### Improvements
+
+* Upgrade tentacle to 0.3.6 (@driftluo).
+
+### Bug Fixes
+
+* #2532: Update statics for removing tx (@zhangsoledad)
+
 # [v0.39.1](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.39.1) (2021-01-07)
 
 ### Improvements
