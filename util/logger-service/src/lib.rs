@@ -117,7 +117,7 @@ fn test_convert_compatible_crate_name() {
 }
 
 impl Logger {
-    fn new(config: Config) -> Logger {
+    fn new(env_opt: Option<&str>, config: Config) -> Logger {
         for name in config.extra.keys() {
             if let Err(err) = Self::check_extra_logger_name(name) {
                 eprintln!("Error: {}", err);
@@ -160,7 +160,7 @@ impl Logger {
         };
 
         let filter = {
-            let filter = if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
+            let filter = if let Some(Ok(ref env_filter)) = env_opt.map(std::env::var) {
                 Self::build_filter(env_filter)
             } else if let Some(ref config_filter) = config.filter {
                 Self::build_filter(config_filter)
@@ -471,10 +471,10 @@ impl Drop for LoggerInitGuard {
 }
 
 /// Initializes the [Logger](struct.Logger.html) and run the logging service.
-pub fn init(config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
+pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
 
-    let logger = Logger::new(config);
+    let logger = Logger::new(env_opt, config);
     let filter = logger.filter();
     log::set_boxed_logger(Box::new(logger)).map(|_| {
         log::set_max_level(filter);
