@@ -1,7 +1,7 @@
 use crate::{utils::nodes_panicked, Spec};
 use ckb_channel::{unbounded, Receiver, Sender};
+use ckb_logger::{error, info};
 use ckb_util::Mutex;
-use log::{error, info};
 use std::any::Any;
 use std::panic;
 use std::path::PathBuf;

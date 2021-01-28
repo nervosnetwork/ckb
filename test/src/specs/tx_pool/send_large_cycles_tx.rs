@@ -4,6 +4,7 @@ use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
+use ckb_logger::info;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -14,7 +15,6 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use log::info;
 
 pub struct SendLargeCyclesTxInBlock {
     privkey: Privkey,

@@ -4,6 +4,7 @@ use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
+use ckb_logger::debug;
 use ckb_types::core::{FeeRate, TransactionBuilder};
 
 pub struct TransactionRelayLowFeeRate;
@@ -32,7 +33,7 @@ impl Spec for TransactionRelayLowFeeRate {
             .dry_run_transaction(low_fee.data().into())
             .cycles;
 
-        log::debug!("make sure node1 has the cell");
+        debug!("make sure node1 has the cell");
         waiting_for_sync(nodes);
 
         node0

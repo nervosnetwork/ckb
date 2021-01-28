@@ -1,7 +1,7 @@
 use crate::node::waiting_for_sync;
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
-use log::info;
+use ckb_logger::info;
 
 pub struct PoolReconcile;
 

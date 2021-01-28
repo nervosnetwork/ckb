@@ -1,7 +1,7 @@
 use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::mining::mine;
 use crate::{Node, Spec};
-use log::info;
+use ckb_logger::info;
 
 pub struct SyncTimeout;
 
