@@ -71,7 +71,7 @@ matrix:
     - name: PR Integration
       if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
-      script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
+      script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4 --no-report" integration
     - name: Linters
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
       os: linux
@@ -142,11 +142,11 @@ matrix:
     - name: Integration on macOS
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: osx
-      script: make CKB_TEST_ARGS="--max-time 1200 -c 1" integration
+      script: make CKB_TEST_ARGS="--max-time 1200 -c 1 --no-report" integration
     - name: Integration on Linux
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
-      script: make CKB_TEST_ARGS="--max-time 1200 -c 1" integration
+      script: make CKB_TEST_ARGS="--max-time 1200 -c 1 --no-report" integration
     - name: Code Coverage
       if: 'tag IS NOT present AND ((branch = master AND type != pull_request) OR head_branch =~ /^rc\//)'
       os: linux

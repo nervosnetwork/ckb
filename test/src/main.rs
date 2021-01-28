@@ -519,6 +519,9 @@ fn tail_node_logs(node_log_paths: &[PathBuf]) {
         .unwrap_or_default()
         .parse()
         .unwrap_or(2000);
+    if tail_n == 0 {
+        return;
+    }
 
     for (i, node_log) in node_log_paths.iter().enumerate() {
         let content = read_to_string(node_log).expect("failed to read node's log");
