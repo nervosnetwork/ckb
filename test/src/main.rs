@@ -8,12 +8,12 @@ use ckb_test::{
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
 use clap::{value_t, App, Arg};
-use log::{error, info};
+use log::{error, info, warn};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
 use std::env;
-use std::fs::{read_to_string, File};
+use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -52,6 +52,7 @@ fn main() {
     let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
     let fail_fast = !matches.is_present("no-fail-fast");
     let report = !matches.is_present("no-report");
+    let clean_tmp = !matches.is_present("keep-tmp-data");
     let verbose = matches.is_present("verbose");
 
     let _ = {
@@ -162,7 +163,11 @@ fn main() {
                     print_panicked_logs(&node_log_paths);
                 }
             }
-            Notify::Done { spec_name, seconds } => {
+            Notify::Done {
+                spec_name,
+                seconds,
+                node_paths,
+            } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
                     status: TestResultStatus::Passed,
@@ -173,6 +178,13 @@ fn main() {
                     "{}/{} .............. [{}] Done in {} seconds",
                     done_specs, total, spec_name, seconds
                 );
+                if clean_tmp {
+                    for path in node_paths {
+                        if let Err(err) = fs::remove_dir_all(&path) {
+                            warn!("failed to remove directory [{:?}] since {}", path, err);
+                        }
+                    }
+                }
             }
             Notify::Stop => {
                 worker_running -= 1;
@@ -274,6 +286,9 @@ fn clap_app() -> App<'static, 'static> {
                 .long("no-report")
                 .help("Do not show integration test report"),
         )
+        .arg(Arg::with_name("keep-tmp-data").long("keep-tmp-data").help(
+            "Keep all temporary files. Default: only keep temporary file for the failed tests.",
+        ))
 }
 
 fn filter_specs(
