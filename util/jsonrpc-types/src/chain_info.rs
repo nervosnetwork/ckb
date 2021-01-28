@@ -12,7 +12,7 @@ pub struct ChainInfo {
     /// * "ckb" - Lina the mainnet.
     /// * "ckb_testnet" - Aggron the testnet.
     pub chain: String,
-    /// The median time of the last 37 blocks.
+    /// The median time of the last 37 blocks, including the tip block.
     pub median_time: Timestamp,
     /// The epoch information of tip block in the chain.
     pub epoch: EpochNumberWithFraction,
