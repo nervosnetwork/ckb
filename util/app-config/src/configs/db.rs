@@ -8,6 +8,9 @@ pub struct Config {
     /// TODO(doc): @doitian
     #[serde(default)]
     pub path: PathBuf,
+    /// The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 128MB
+    #[serde(default)]
+    pub cache_size: Option<usize>,
     /// TODO(doc): @doitian
     #[serde(default)]
     pub options: HashMap<String, String>,
