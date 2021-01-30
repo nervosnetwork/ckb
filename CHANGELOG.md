@@ -2,11 +2,12 @@
 
 ### Improvements
 
-* Upgrade tentacle to 0.3.6 (@driftluo).
+* Upgrade tentacle to 0.3.7 (@driftluo).
 
 ### Bug Fixes
 
 * #2532: Update statics for removing tx (@zhangsoledad)
+* #2546: Resolve rocksdb cache size issue when using `default.db-options` (@quake)
 
 # [v0.39.1](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.39.1) (2021-01-07)
 
