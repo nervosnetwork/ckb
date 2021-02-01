@@ -1,6 +1,6 @@
 [package]
 name = "ckb-tx-pool"
-version = "0.40.0-rc1"
+version = "0.40.0-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,20 +11,20 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.40.0-rc1" }
-ckb-logger = {path = "../util/logger", version = "= 0.40.0-rc1"}
-ckb-verification = { path = "../verification", version = "= 0.40.0-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.40.0-rc2" }
+ckb-logger = {path = "../util/logger", version = "= 0.40.0-rc2"}
+ckb-verification = { path = "../verification", version = "= 0.40.0-rc2" }
 faketime = "0.2"
 lru = "0.6.0"
-ckb-dao = { path = "../util/dao", version = "= 0.40.0-rc1" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.40.0-rc1" }
-ckb-store = { path = "../store", version = "= 0.40.0-rc1" }
-ckb-util = { path = "../util", version = "= 0.40.0-rc1" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.40.0-rc1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.40.0-rc1" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.40.0-rc1" }
-ckb-error = { path = "../error", version = "= 0.40.0-rc1" }
+ckb-dao = { path = "../util/dao", version = "= 0.40.0-rc2" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.40.0-rc2" }
+ckb-store = { path = "../store", version = "= 0.40.0-rc2" }
+ckb-util = { path = "../util", version = "= 0.40.0-rc2" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.40.0-rc2" }
+ckb-chain-spec = { path = "../spec", version = "= 0.40.0-rc2" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.40.0-rc2" }
+ckb-error = { path = "../error", version = "= 0.40.0-rc2" }
 tokio = { version = "0.2", features = ["sync"] }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.40.0-rc1" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.40.0-rc1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.40.0-rc1" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.40.0-rc2" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.40.0-rc2" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.40.0-rc2" }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-instrument"
-version = "0.40.0-rc1"
+version = "0.40.0-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,11 +9,11 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.40.0-rc1" }
-ckb-chain = { path = "../../chain", version = "= 0.40.0-rc1" }
-ckb-chain-iter = { path = "../chain-iter", version = "= 0.40.0-rc1" }
-ckb-shared = { path = "../../shared", version = "= 0.40.0-rc1" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.40.0-rc1" }
+ckb-types = { path = "../types", version = "= 0.40.0-rc2" }
+ckb-chain = { path = "../../chain", version = "= 0.40.0-rc2" }
+ckb-chain-iter = { path = "../chain-iter", version = "= 0.40.0-rc2" }
+ckb-shared = { path = "../../shared", version = "= 0.40.0-rc2" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.40.0-rc2" }
 serde_json = "1.0"
 indicatif = { version = "0.15", optional = true }
 
