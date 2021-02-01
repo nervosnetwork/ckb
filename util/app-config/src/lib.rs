@@ -88,6 +88,7 @@ impl Setup {
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
             skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
+            overwrite_chain_spec: matches.is_present(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
         })
     }

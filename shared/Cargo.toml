@@ -28,5 +28,5 @@ ckb-db-schema = { path = "../db-schema", version = "= 0.40.0-rc1" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.40.0-rc1" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.40.0-rc1" }
 ckb-channel = { path = "../util/channel", version = "= 0.40.0-rc1" }
-ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.40.0-rc1" }
+ckb-migration-template = { path = "migration-template", version = "= 0.40.0-rc1" }
 num_cpus = "1.10"

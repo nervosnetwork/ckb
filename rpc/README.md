@@ -50,6 +50,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
         * [Method `get_fork_block`](#method-get_fork_block)
         * [Method `get_consensus`](#method-get_consensus)
+        * [Method `get_block_median_time`](#method-get_block_median_time)
     * [Module Experiment](#module-experiment)
         * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
         * [Method `compute_script_hash`](#method-compute_script_hash)
@@ -1377,6 +1378,48 @@ Response
         "tx_version": "0x0",
         "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
     }
+}
+```
+
+#### Method `get_block_median_time`
+* `get_block_median_time(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`Timestamp`](#type-timestamp) `|` `null`
+
+Returns the past median time by block hash.
+
+##### Params
+
+*   `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
+
+##### Returns
+
+When the given block hash is not on the current canonical chain, this RPC returns null; otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
+
+Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_median_time",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x5cd2b105"
 }
 ```
 
@@ -3553,7 +3596,7 @@ Chain information.
 
     *   "ckb_testnet" - Aggron the testnet.
 
-*   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks.
+*   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks, including the tip block.
 
 *   `epoch`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction) - The epoch information of tip block in the chain.
 

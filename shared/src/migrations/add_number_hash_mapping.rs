@@ -1,13 +1,11 @@
 use ckb_app_config::StoreConfig;
-use ckb_chain_iter::ChainIterator;
-use ckb_db::{Result, RocksDB};
+use ckb_db::{Direction, IteratorMode, Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_NUMBER_HASH;
-use ckb_store::ChainDB;
-use ckb_types::{packed, prelude::*};
+use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_NUMBER_HASH};
+use ckb_migration_template::multi_thread_migration;
+use ckb_store::{ChainDB, ChainStore};
+use ckb_types::{molecule::io::Write, packed, prelude::*};
 use std::sync::Arc;
-
-const BATCH: usize = 1_000;
 
 pub struct AddNumberHashMapping;
 
@@ -19,40 +17,40 @@ impl Migration for AddNumberHashMapping {
         db: RocksDB,
         pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB> {
-        let chain_db = ChainDB::new(db, StoreConfig::default());
-        let iter = ChainIterator::new(&chain_db);
-        let pb = pb(iter.len());
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
-                )
-                .progress_chars("#>-"),
-        );
-        let mut batch = chain_db.new_write_batch();
-        for block in iter {
-            let txs_len: packed::Uint32 = (block.transactions().len() as u32).pack();
-            batch.put(
-                COLUMN_NUMBER_HASH,
-                packed::NumberHash::new_builder()
-                    .number(block.number().pack())
-                    .block_hash(block.header().hash())
-                    .build()
-                    .as_slice(),
-                txs_len.as_slice(),
-            )?;
+        multi_thread_migration! {
+            {
+                for number in i * chunk_size..end {
+                    let block_number: packed::Uint64 = number.pack();
+                    let raw_hash = chain_db.get(COLUMN_INDEX, block_number.as_slice()).expect("DB data integrity");
+                    let txs_len = chain_db.get_iter(
+                        COLUMN_BLOCK_BODY,
+                        IteratorMode::From(&raw_hash, Direction::Forward),
+                    )
+                    .take_while(|(key, _)| key.starts_with(&raw_hash))
+                    .count();
 
-            if batch.len() > BATCH {
-                chain_db.write(&batch)?;
-                batch.clear()?;
+                    let raw_txs_len: packed::Uint32 = (txs_len as u32).pack();
+
+                    let mut raw_key = Vec::with_capacity(40);
+                    raw_key.write_all(block_number.as_slice()).expect("write_all block_number");
+                    raw_key.write_all(&raw_hash).expect("write_all hash");
+                    let key = packed::NumberHash::new_unchecked(raw_key.into());
+
+                    wb.put(
+                        COLUMN_NUMBER_HASH,
+                        key.as_slice(),
+                        raw_txs_len.as_slice(),
+                    )
+                    .expect("put number_hash");
+
+                    if wb.len() > BATCH {
+                        chain_db.write(&wb).expect("write db batch");
+                        wb.clear().unwrap();
+                    }
+                    pbi.inc(1);
+                }
             }
-            pb.inc(1);
         }
-        if !batch.is_empty() {
-            chain_db.write(&batch)?;
-        }
-        pb.finish_with_message("finish");
-        Ok(chain_db.into_inner())
     }
 
     fn version(&self) -> &str {
