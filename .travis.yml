@@ -30,6 +30,7 @@ addons:
       - libtool
       - clang-8
       - libc6-dev-i386
+      - expect
 
 before_script:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
