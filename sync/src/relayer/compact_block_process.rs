@@ -267,7 +267,14 @@ impl<'a> CompactBlockProcess<'a> {
             .uncle_indexes(missing_uncles.pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
-        let _ignore = send_message_to(self.nc.as_ref(), self.peer, &message);
+        let sending = send_message_to(self.nc.as_ref(), self.peer, &message);
+        if !sending.is_ok() {
+            ckb_logger::warn_target!(
+                crate::LOG_TARGET_RELAY,
+                "ignore the sending message error, error: {}",
+                sending
+            );
+        }
 
         status
     }

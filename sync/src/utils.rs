@@ -1,7 +1,7 @@
 use crate::{Status, StatusCode};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, ProtocolId, SupportProtocols};
-use ckb_types::packed::{RelayMessage, SyncMessage};
+use ckb_types::packed::{RelayMessageReader, SyncMessageReader};
 use ckb_types::prelude::*;
 
 /// Send network message into parameterized `protocol_id` protocol connection.
@@ -41,18 +41,16 @@ pub(crate) fn send_message_to<Message: Entity>(
     send_message(protocol_id, nc, peer_index, message)
 }
 
-// As for `SyncMessage` and `RelayMessage`, returns the internal item name;
+// As for Sync protocol and Relay protocol, returns the internal item name;
 // otherwise returns the entity name.
 fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> String {
     if protocol_id == SupportProtocols::Sync.protocol_id() {
-        SyncMessage::from_slice(message.as_slice())
-            .expect("protocol_id match with message structure")
+        SyncMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()
             .to_owned()
     } else if protocol_id == SupportProtocols::Relay.protocol_id() {
-        RelayMessage::from_slice(message.as_slice())
-            .expect("protocol_id match with message structure")
+        RelayMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()
             .to_owned()
