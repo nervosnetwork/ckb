@@ -55,6 +55,9 @@ jobs:
         env:
           CI: true
           SENTRY_DSN: 'https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7'
+          LOGBAK_USER: $(LOGBAK_USER)
+          LOGBAK_PASSWORD: $(LOGBAK_PASSWORD)
+          LOGBAK_SERVER: $(LOGBAK_SERVER)
 
   - job: Package
     timeoutInMinutes: 0
