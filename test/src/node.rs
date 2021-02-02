@@ -6,6 +6,7 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
+use ckb_logger::{debug, error};
 use ckb_types::{
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
@@ -28,8 +29,8 @@ struct ProcessGuard(pub Child);
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         match self.0.kill() {
-            Err(e) => log::error!("Could not kill ckb process: {}", e),
-            Ok(_) => log::debug!("Successfully killed ckb process"),
+            Err(e) => error!("Could not kill ckb process: {}", e),
+            Ok(_) => debug!("Successfully killed ckb process"),
         }
         let _ = self.0.wait();
     }
@@ -48,7 +49,6 @@ pub struct Node {
 impl Node {
     pub fn new(spec_name: &str, node_name: &str) -> Self {
         let working_dir = temp_path(spec_name, node_name);
-        // log::info!("New {}-{} on: {}", spec_name, node_name, working_dir);
 
         // Copy node template into node's working directory
         let cells_dir = working_dir.join("specs").join("cells");
@@ -496,7 +496,7 @@ impl Node {
             match child_process.try_wait() {
                 Ok(None) => sleep(std::time::Duration::from_secs(1)),
                 Ok(Some(status)) => {
-                    log::error!(
+                    error!(
                         "Error: node crashed: {}, log_path: {}",
                         status,
                         self.log_path().display()
@@ -504,7 +504,7 @@ impl Node {
                     process::exit(status.code().unwrap());
                 }
                 Err(error) => {
-                    log::error!(
+                    error!(
                         "Error: node crashed with reason: {}, log_path: {}",
                         error,
                         self.log_path().display()

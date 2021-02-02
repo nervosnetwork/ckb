@@ -4,13 +4,13 @@ use crate::util::check::{is_transaction_committed, is_transaction_pending};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
+use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
     prelude::*,
     H256,
 };
-use log::info;
 use std::thread::sleep;
 use std::time::Duration;
 

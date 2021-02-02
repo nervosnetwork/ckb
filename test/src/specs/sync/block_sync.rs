@@ -7,13 +7,13 @@ use crate::utils::{
 };
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
+use ckb_logger::info;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
     core::BlockView,
     packed::{self, Byte32, SyncMessage},
     prelude::*,
 };
-use log::info;
 use std::time::Duration;
 
 pub struct BlockSyncFromOne;
@@ -301,7 +301,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         net.send(node0, SupportProtocols::Relay, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
-        log::info!("{}", rpc_client.get_tip_block_number());
+        info!("{}", rpc_client.get_tip_block_number());
         assert!(ret, "node0 should grow up");
     }
 }

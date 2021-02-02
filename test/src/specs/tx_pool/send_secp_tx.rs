@@ -4,6 +4,7 @@ use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
+use ckb_logger::info;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
@@ -11,7 +12,6 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use log::info;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
