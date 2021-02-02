@@ -1,17 +1,17 @@
 use crate::utils::{find_available_port, message_name, temp_path, wait_until};
 use crate::Node;
 use ckb_app_config::NetworkConfig;
+use ckb_async_runtime::new_global_runtime;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
+use ckb_logger::info;
 use ckb_network::{
     bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
     NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId, SupportProtocols,
 };
+use ckb_stop_handler::StopHandler;
 use ckb_util::Mutex;
 use std::collections::HashMap;
-
-use ckb_async_runtime::new_global_runtime;
-use ckb_stop_handler::StopHandler;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -161,7 +161,7 @@ impl Net {
             .get(node_id)
             .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
         let net_message = receiver.recv_timeout(timeout)?;
-        log::info!(
+        info!(
             "Net received from peer-{}, message_name: {}",
             peer_index,
             message_name(&net_message.2)
