@@ -1,9 +1,14 @@
-//! Switch used as bit flags for particular process block verify
-
-#![allow(clippy::unreadable_literal)]
-
+//! The trait abstract for particular verification
 use bitflags::bitflags;
-use ckb_verification::Switch as VerificationSwitch;
+use ckb_error::Error;
+
+/// Trait for verification
+pub trait Verifier {
+    /// The verification associated target
+    type Target;
+    /// The Interface for verification
+    fn verify(&self, target: &Self::Target) -> Result<(), Error>;
+}
 
 bitflags! {
     /// The bit flags for particular process block verify
@@ -41,34 +46,43 @@ bitflags! {
 }
 
 impl Switch {
-    /// Whether all verifier disable
+    /// Whether all verifiers are disabled
     pub fn disable_all(self) -> bool {
         self.contains(Switch::DISABLE_ALL)
     }
 
-    /// Whether non-contextual verifier disable
+    /// Whether non-contextual verifier is disabled
     pub fn disable_non_contextual(self) -> bool {
         self.contains(Switch::DISABLE_NON_CONTEXTUAL)
     }
-}
 
-impl VerificationSwitch for Switch {
-    fn disable_epoch(&self) -> bool {
+    /// Whether epoch verifier is disabled
+    pub fn disable_epoch(&self) -> bool {
         self.contains(Switch::DISABLE_EPOCH)
     }
-    fn disable_uncles(&self) -> bool {
+
+    /// Whether uncles verifier is disabled
+    pub fn disable_uncles(&self) -> bool {
         self.contains(Switch::DISABLE_UNCLES)
     }
-    fn disable_two_phase_commit(&self) -> bool {
+
+    /// Whether two-phase-commit verifier is disabled
+    pub fn disable_two_phase_commit(&self) -> bool {
         self.contains(Switch::DISABLE_TWO_PHASE_COMMIT)
     }
-    fn disable_daoheader(&self) -> bool {
+
+    /// Whether DAO-header verifier is disabled
+    pub fn disable_daoheader(&self) -> bool {
         self.contains(Switch::DISABLE_DAOHEADER)
     }
-    fn disable_reward(&self) -> bool {
+
+    /// Whether reward verifier is disabled
+    pub fn disable_reward(&self) -> bool {
         self.contains(Switch::DISABLE_REWARD)
     }
-    fn disable_script(&self) -> bool {
+
+    /// Whether script verifier is disabled
+    pub fn disable_script(&self) -> bool {
         self.contains(Switch::DISABLE_SCRIPT)
     }
 }

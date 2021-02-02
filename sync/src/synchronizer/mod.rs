@@ -794,7 +794,7 @@ mod tests {
         types::{HeaderView, HeadersSyncController, PeerState},
         SyncShared, MAX_TIP_AGE,
     };
-    use ckb_chain::{chain::ChainService, switch::Switch};
+    use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
     use ckb_network::{
@@ -818,6 +818,7 @@ mod tests {
         U256,
     };
     use ckb_util::Mutex;
+    use ckb_verification_traits::Switch;
     use futures::future::Future;
     use std::{
         collections::{HashMap, HashSet},

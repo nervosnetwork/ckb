@@ -1,6 +1,5 @@
 //! CKB chain service.
 
-use crate::switch::Switch;
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
@@ -21,9 +20,10 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::{
-    BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
+    BlockVerifier, ContextualBlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier,
+    VerifyContext,
 };
-use ckb_verification::{InvalidParentError, Switch as _};
+use ckb_verification_traits::{Switch, Verifier};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;

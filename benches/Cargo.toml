@@ -29,6 +29,7 @@ ckb-crypto = { path = "../util/crypto", version = "= 0.40.0-pre" }
 faketime = "0.2.0"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.40.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.40.0-pre" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.40.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.40.0-pre" }
 
 [[bench]]

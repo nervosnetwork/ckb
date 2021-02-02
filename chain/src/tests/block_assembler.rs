@@ -1,5 +1,5 @@
+use crate::chain::ChainController;
 use crate::chain::ChainService;
-use crate::{chain::ChainController, switch::Switch};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,7 +21,8 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification_traits::{Switch, Verifier};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 
