@@ -24,6 +24,8 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
+    info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
+
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
@@ -75,7 +77,6 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
-    info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
     info_target!(
         crate::LOG_TARGET_MAIN,
         "chain genesis hash: {:#x}",
