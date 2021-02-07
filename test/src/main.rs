@@ -476,6 +476,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockSyncRelayerCollaboration),
         Box::new(RpcGetBlockTemplate),
         Box::new(RpcSubmitBlock),
+        Box::new(RpcGetBlockchainInfo),
         Box::new(RpcTruncate),
         Box::new(RpcTransactionProof),
         Box::new(RpcGetBlockMedianTime),
