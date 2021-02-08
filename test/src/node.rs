@@ -149,7 +149,7 @@ impl Node {
         &self.rpc_client
     }
 
-    fn working_dir(&self) -> PathBuf {
+    pub fn working_dir(&self) -> PathBuf {
         self.working_dir.clone()
     }
 

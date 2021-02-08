@@ -1,5 +1,5 @@
 use ckb_channel::unbounded;
-use ckb_logger::{error, info};
+use ckb_logger::{error, info, warn};
 use ckb_test::specs::*;
 use ckb_test::{
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
@@ -13,7 +13,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
 use std::env;
-use std::fs::{read_to_string, File};
+use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -59,6 +59,7 @@ fn main() {
         .unwrap_or_else(|err| panic!("failed to parse the log file path since {}", err));
     let fail_fast = !matches.is_present("no-fail-fast");
     let report = !matches.is_present("no-report");
+    let clean_tmp = !matches.is_present("keep-tmp-data");
     let verbose = matches.is_present("verbose");
 
     let logger_guard = {
@@ -181,7 +182,11 @@ fn main() {
                     print_panicked_logs(&node_log_paths);
                 }
             }
-            Notify::Done { spec_name, seconds } => {
+            Notify::Done {
+                spec_name,
+                seconds,
+                node_paths,
+            } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
                     status: TestResultStatus::Passed,
@@ -192,6 +197,13 @@ fn main() {
                     "{}/{} .............. [{}] Done in {} seconds",
                     done_specs, total, spec_name, seconds
                 );
+                if clean_tmp {
+                    for path in node_paths {
+                        if let Err(err) = fs::remove_dir_all(&path) {
+                            warn!("failed to remove directory [{:?}] since {}", path, err);
+                        }
+                    }
+                }
             }
             Notify::Stop => {
                 worker_running -= 1;
@@ -301,6 +313,9 @@ fn clap_app() -> App<'static, 'static> {
                 .takes_value(true)
                 .help("Write log outputs into file."),
         )
+        .arg(Arg::with_name("keep-tmp-data").long("keep-tmp-data").help(
+            "Keep all temporary files. Default: only keep temporary file for the failed tests.",
+        ))
 }
 
 fn filter_specs(

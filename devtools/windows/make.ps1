@@ -30,6 +30,15 @@ function Restore-Env {
   }
 }
 
+function Unset-Env {
+  param(
+    [string] $Key
+  )
+
+  echo "unset $Key"
+  Remove-Item -Path "env:\$Key" -ErrorAction SilentlyContinue
+}
+
 function Enable-DebugSymbols {
   $content = Get-Content Cargo.toml | % {
     $_
@@ -78,8 +87,9 @@ function run-integration {
   Set-Env RUST_BACKTRACE 1
   Set-Env RUST_LOG $env:INTEGRATION_RUST_LOG
 
+  $test_id=$(Get-Date -UFormat "%Y%m%d-%H%M%S")
   if ($env:CKB_INTEGRATION_TEST_TMP -eq $null) {
-    Set-Env CKB_INTEGRATION_TEST_TMP "target/ckb-test/tmp"
+    Set-Env CKB_INTEGRATION_TEST_TMP "target/ckb-test/$test_id"
   }
   if ($env:CKB_INTEGRATION_FAILURE_FILE -eq $null) {
     Set-Env CKB_INTEGRATION_FAILURE_FILE "$env:CKB_INTEGRATION_TEST_TMP/integration.failure"
@@ -94,6 +104,14 @@ function run-integration {
   $errcode=$LASTEXITCODE
 
   if ($errcode -ne 0) {
+    if ($env:LOGBAK_SERVER -ne $null) {
+        $upload_id="azure-$test_id-$($env:BUILD_BUILDID ?? "0")-$($env:ImageOS ?? "unknown")"
+        7z a -t7z "$upload_id.7z" "$env:CKB_INTEGRATION_TEST_TMP"
+        echo y | pscp -sftp -P 22 -pw "${env:LOGBAK_PASSWORD}" "$upload_id.7z" "${env:LOGBAK_USER}@${env:LOGBAK_SERVER}:/ci/azure/"
+    }
+    Unset-Env LOGBAK_USER
+    Unset-Env LOGBAK_PASSWORD
+    Unset-Env LOGBAK_SERVER
     if ($env:SENTRY_DSN -ne $null) {
       foreach($line in Get-Content $env:CKB_INTEGRATION_FAILURE_FILE) {
         sentry-cli send-event -m "$line" -r "$ckb_release" --logfile "$logfile"

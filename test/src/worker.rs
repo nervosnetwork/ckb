@@ -23,6 +23,7 @@ pub enum Notify {
     Done {
         spec_name: String,
         seconds: u64,
+        node_paths: Vec<PathBuf>,
     },
     Error {
         spec_error: Box<dyn Any + Send>,
@@ -115,6 +116,10 @@ impl Worker {
             .unwrap();
 
         let mut nodes = spec.before_run();
+        let node_paths = nodes
+            .iter()
+            .map(|node| node.working_dir())
+            .collect::<Vec<_>>();
         let node_log_paths = nodes.iter().map(|node| node.log_path()).collect::<Vec<_>>();
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
             spec.run(&mut nodes);
@@ -148,6 +153,7 @@ impl Worker {
                 .send(Notify::Done {
                     spec_name: spec.name().to_string(),
                     seconds: now.elapsed().as_secs(),
+                    node_paths,
                 })
                 .unwrap();
         }
