@@ -53,8 +53,6 @@ pub struct TxPool {
     pub(crate) total_tx_cycles: Cycle,
     /// storage snapshot reference
     pub(crate) snapshot: Arc<Snapshot>,
-    /// tx lifetime callbacks
-    pub(crate) callbacks: Arc<Callbacks>,
 }
 
 /// Transaction pool information.
@@ -95,7 +93,6 @@ impl TxPool {
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
-        callbacks: Arc<Callbacks>,
     ) -> TxPool {
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
@@ -110,7 +107,6 @@ impl TxPool {
             total_tx_size: 0,
             total_tx_cycles: 0,
             snapshot,
-            callbacks,
         }
     }
 
@@ -311,18 +307,22 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
+    pub(crate) fn remove_expired<'a>(
+        &mut self,
+        ids: impl Iterator<Item = &'a ProposalShortId>,
+        callbacks: &Callbacks,
+    ) {
         for id in ids {
             for entry in self.gap.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired gap to pending error {}", err);
-                    self.callbacks.call_reject(entry, err.clone());
+                    callbacks.call_reject(self, entry, err.clone());
                 }
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired proposed to pending error {}", err);
-                    self.callbacks.call_reject(entry, err.clone());
+                    callbacks.call_reject(self, entry, err.clone());
                 }
             }
         }
@@ -412,19 +412,11 @@ impl TxPool {
             if self.contains_proposed(&entry.transaction.proposal_short_id()) {
                 let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
                 if ret.is_err() {
-                    self.update_statics_for_remove_tx(
-                        entry.size,
-                        entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
-                    );
                     trace!("proposed tx {} failed {:?}", tx_hash, ret);
                 }
             } else {
                 let ret = self.pending_tx(entry.cache_entry, entry.size, entry.transaction);
                 if ret.is_err() {
-                    self.update_statics_for_remove_tx(
-                        entry.size,
-                        entry.cache_entry.map(|c| c.cycles).unwrap_or(0),
-                    );
                     trace!("pending tx {} failed {:?}", tx_hash, ret);
                 }
             }
@@ -484,10 +476,6 @@ impl TxPool {
             Err(reject) => {
                 match reject {
                     Reject::Verification(ref err) => {
-                        self.update_statics_for_remove_tx(
-                            size,
-                            cache_entry.map(|c| c.cycles).unwrap_or(0),
-                        );
                         debug!(
                             "Failed to add tx to {} {}, verify failed, reason: {}",
                             pool_name, tx_hash, err,
@@ -495,27 +483,14 @@ impl TxPool {
                     }
                     Reject::Resolve(ref out_point_error) => {
                         match out_point_error {
-                            OutPointError::Dead(_) => {
-                                self.update_statics_for_remove_tx(
-                                    size,
-                                    cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                );
-                            }
-
                             OutPointError::Unknown(out_points) => {
                                 let snapshot = self.snapshot();
                                 // if resolved input is unknown, but we known tx, it's dead or invalid
                                 if !out_points
                                     .iter()
                                     .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
-                                    && self
-                                        .add_orphan(cache_entry, size, tx, out_points.to_owned())
-                                        .is_some()
                                 {
-                                    self.update_statics_for_remove_tx(
-                                        size,
-                                        cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                    );
+                                    self.add_orphan(cache_entry, size, tx, out_points.to_owned());
                                 }
                             }
 
@@ -526,15 +501,11 @@ impl TxPool {
                             // use placeholder `_` as the match arm.
                             //
                             // OutOfOrder should only appear in BlockCellProvider
-                            OutPointError::ImmatureHeader(_)
+                            OutPointError::Dead(_)
+                            | OutPointError::ImmatureHeader(_)
                             | OutPointError::InvalidHeader(_)
                             | OutPointError::InvalidDepGroup(_)
-                            | OutPointError::OutOfOrder(_) => {
-                                self.update_statics_for_remove_tx(
-                                    size,
-                                    cache_entry.map(|c| c.cycles).unwrap_or(0),
-                                );
-                            }
+                            | OutPointError::OutOfOrder(_) => {}
                         }
                     }
                     _ => {
@@ -542,12 +513,9 @@ impl TxPool {
                             "Failed to add tx to {} {}, unknown reason: {}",
                             pool_name, tx_hash, reject
                         );
-                        self.update_statics_for_remove_tx(
-                            size,
-                            cache_entry.map(|c| c.cycles).unwrap_or(0),
-                        );
                     }
                 }
+                self.update_statics_for_remove_tx(size, cache_entry.map(|c| c.cycles).unwrap_or(0));
                 Err(reject)
             }
         }

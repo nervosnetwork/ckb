@@ -431,7 +431,6 @@ impl TxPoolServiceBuilder {
             self.tx_pool_config,
             self.snapshot,
             Arc::clone(&last_txs_updated_at),
-            Arc::new(self.callbacks),
         );
 
         TxPoolService::new(
@@ -441,6 +440,7 @@ impl TxPoolServiceBuilder {
             self.txs_verify_cache,
             last_txs_updated_at,
             self.snapshot_mgr,
+            Arc::new(self.callbacks),
         )
     }
 
@@ -482,6 +482,7 @@ pub(crate) struct TxPoolService {
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
+    pub(crate) callbacks: Arc<Callbacks>,
     snapshot_mgr: Arc<SnapshotMgr>,
 }
 
@@ -494,6 +495,7 @@ impl TxPoolService {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
+        callbacks: Arc<Callbacks>,
     ) -> Self {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
@@ -504,6 +506,7 @@ impl TxPoolService {
             txs_verify_cache,
             last_txs_updated_at,
             snapshot_mgr,
+            callbacks,
         }
     }
 
