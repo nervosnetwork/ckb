@@ -1,4 +1,5 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
+use crate::callback::Callbacks;
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
 use crate::error::Reject;
@@ -441,7 +442,7 @@ impl TxPoolService {
                 TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
             };
             if inserted {
-                tx_pool.callbacks.call_pending(entry);
+                self.callbacks.call_pending(&mut tx_pool, entry);
                 tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
             }
         }
@@ -519,6 +520,7 @@ impl TxPoolService {
                 attached_blocks,
                 detached_proposal_id,
                 snapshot,
+                &self.callbacks,
             )
         });
 
@@ -535,12 +537,7 @@ impl TxPoolService {
         let mut tx_pool = self.tx_pool.write().await;
         let config = tx_pool.config;
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        *tx_pool = TxPool::new(
-            config,
-            new_snapshot,
-            Arc::clone(&self.last_txs_updated_at),
-            Arc::clone(&tx_pool.callbacks),
-        );
+        *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
     }
 }
 
@@ -674,6 +671,7 @@ fn _update_tx_pool_for_reorg(
     attached_blocks: VecDeque<BlockView>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
+    callbacks: &Callbacks,
 ) -> HashMap<Byte32, CacheEntry> {
     tx_pool.snapshot = Arc::clone(&snapshot);
     let mut detached = LinkedHashSet::default();
@@ -705,7 +703,7 @@ fn _update_tx_pool_for_reorg(
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs_from_proposed` before `remove_expired`.
     tx_pool.remove_committed_txs_from_proposed(txs_iter);
-    tx_pool.remove_expired(detached_proposal_id.iter());
+    tx_pool.remove_expired(detached_proposal_id.iter(), callbacks);
 
     let to_update_cache = retain
         .into_iter()
@@ -764,9 +762,9 @@ fn _update_tx_pool_for_reorg(
             tx_pool.proposed_tx_and_descendants(cycles, entry.size, entry.transaction.clone())
         {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            tx_pool.callbacks.call_reject(entry, e.clone());
+            callbacks.call_reject(tx_pool, entry, e.clone());
         } else {
-            tx_pool.callbacks.call_proposed(entry);
+            callbacks.call_proposed(tx_pool, entry);
         }
     }
 
@@ -775,7 +773,7 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = entry.transaction.hash();
         if let Err(e) = tx_pool.gap_tx(cycles, entry.size, entry.transaction.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            tx_pool.callbacks.call_reject(entry, e.clone());
+            callbacks.call_reject(tx_pool, entry, e.clone());
         }
     }
 
