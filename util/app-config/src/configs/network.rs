@@ -10,60 +10,75 @@ use std::path::PathBuf;
 // Max data size in send buffer: 24MB (a little larger than max frame length)
 const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
-/// TODO(doc): @doitian
+/// Network config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Config {
-    /// TODO(doc): @doitian
+    /// Only connect to whitelist peers.
     #[serde(default)]
     pub whitelist_only: bool,
-    /// TODO(doc): @doitian
+    /// Maximum number of allowed connected peers.
+    ///
+    /// The node will evict connections when the number exceeds this limit.
     pub max_peers: u32,
-    /// TODO(doc): @doitian
+    /// Maximum number of outbound peers.
+    ///
+    /// When node A connects to B, B is the outbound peer of A.
     pub max_outbound_peers: u32,
-    /// TODO(doc): @doitian
+    /// Network data storage directory path.
     #[serde(default)]
     pub path: PathBuf,
-    /// TODO(doc): @doitian
+    /// A list of DNS servers to discover peers.
     #[serde(default)]
     pub dns_seeds: Vec<String>,
-    /// TODO(doc): @doitian
-    // Set if discovery add local address to peer store
+    /// Whether to probe and store local addresses.
     #[serde(default)]
     pub discovery_local_address: bool,
-    /// TODO(doc): @doitian
+    /// Interval between pings in seconds.
+    ///
+    /// A node pings peer regularly to see whether the connection is alive.
     pub ping_interval_secs: u64,
-    /// TODO(doc): @doitian
+    /// The ping timeout in seconds.
+    ///
+    /// If a peer does not respond to ping before the timeout, it is evicted.
     pub ping_timeout_secs: u64,
-    /// TODO(doc): @doitian
+    /// The interval between trials to connect more outbound peers.
     pub connect_outbound_interval_secs: u64,
-    /// TODO(doc): @doitian
+    /// Listen addresses.
     pub listen_addresses: Vec<Multiaddr>,
-    /// TODO(doc): @doitian
+    /// Public addresses.
+    ///
+    /// Set this if this is different from `listen_addresses`.
     #[serde(default)]
     pub public_addresses: Vec<Multiaddr>,
-    /// TODO(doc): @doitian
+    /// A list of peers used to boot the node discovery.
+    ///
+    /// Bootnodes are used to bootstrap the discovery when local peer storage is empty.
     pub bootnodes: Vec<Multiaddr>,
-    /// TODO(doc): @doitian
+    /// A list of peers added in the whitelist.
+    ///
+    /// When `whitelist_only` is enabled, the node will only connect to peers in this list.
     #[serde(default)]
     pub whitelist_peers: Vec<Multiaddr>,
-    /// TODO(doc): @doitian
+    /// Enable UPNP when the router supports it.
     #[serde(default)]
     pub upnp: bool,
-    /// TODO(doc): @doitian
+    /// Enable bootnode mode.
+    ///
+    /// It is recommended to enable this when this server is intended to be used as a node in the
+    /// `bootnodes`.
     #[serde(default)]
     pub bootnode_mode: bool,
-    /// TODO(doc): @doitian
-    // Max send buffer size
+    /// Max send buffer size in bytes.
     pub max_send_buffer: Option<usize>,
-    /// Sync config
+    /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
 }
 
-/// TODO(doc): @doitian
+/// Chain synchronization config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct SyncConfig {
-    /// HeaderMap config
+    /// Header map config options.
     #[serde(default)]
     pub header_map: HeaderMapConfig,
     /// Block hash of assume valid target
@@ -74,7 +89,9 @@ pub struct SyncConfig {
     pub min_chain_work: U256,
 }
 
-/// TODO(doc): @doitian
+/// Header map config options.
+///
+/// Header map stores the block headers before fully verifying the block.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HeaderMapConfig {
     /// The maximum size of data in memory
@@ -159,21 +176,21 @@ pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPai
 }
 
 impl Config {
-    /// TODO(doc): @doitian
+    /// Gets the network secret key path.
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
         path
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the peer store path.
     pub fn peer_store_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("peer_store");
         path
     }
 
-    /// TODO(doc): @doitian
+    /// Creates missing directories.
     pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
         if !self.path.exists() {
             fs::create_dir(&self.path)
@@ -182,33 +199,37 @@ impl Config {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets maximum inbound peers.
     pub fn max_inbound_peers(&self) -> u32 {
         self.max_peers.saturating_sub(self.max_outbound_peers)
     }
 
-    /// TODO(doc): @doitian
+    /// Gets maximum outbound peers.
     pub fn max_outbound_peers(&self) -> u32 {
         self.max_outbound_peers
     }
 
-    /// TODO(doc): @doitian
+    /// Gets maximum send buffer size.
     pub fn max_send_buffer(&self) -> usize {
         self.max_send_buffer.unwrap_or(DEFAULT_SEND_BUFFER)
     }
 
+    /// Reads the secret key from secret key file.
+    ///
+    /// If the key file does not exists, it returns `Ok(None)`.
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
         let path = self.secret_key_path();
         read_secret_key(path)
     }
 
+    /// Generates a random secret key and saves it into the file.
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
         let random_key_pair = generate_random_key();
         write_secret_to_file(&random_key_pair, path)
     }
 
-    /// TODO(doc): @doitian
+    /// Reads the private key from file or generates one if the file does not exist.
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
         match self.read_secret_key()? {
             Some(key) => Ok(key),
@@ -219,7 +240,11 @@ impl Config {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the list of whitelist peers.
+    ///
+    /// ## Error
+    ///
+    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
     pub fn whitelist_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.whitelist_peers.len());
         for addr_str in &self.whitelist_peers {
@@ -240,7 +265,11 @@ impl Config {
         Ok(peers)
     }
 
-    /// TODO(doc): @doitian
+    /// Gets a list of bootnodes.
+    ///
+    /// ## Error
+    ///
+    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
     pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.bootnodes.len());
         for addr_str in &self.bootnodes {
@@ -260,12 +289,12 @@ impl Config {
         Ok(peers)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the outbound peer service should be enabled.
     pub fn outbound_peer_service_enabled(&self) -> bool {
         self.connect_outbound_interval_secs > 0
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the DNS seeding service should be enabled.
     pub fn dns_seeding_service_enabled(&self) -> bool {
         !self.dns_seeds.is_empty()
     }

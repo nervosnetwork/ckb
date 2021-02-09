@@ -1,102 +1,99 @@
 use serde::{Deserialize, Serialize};
 
-/// TODO(doc): @doitian
+/// RPC modules.
 #[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
 pub enum Module {
-    /// TODO(doc): @doitian
     Net,
-    /// TODO(doc): @doitian
     Chain,
-    /// TODO(doc): @doitian
     Miner,
-    /// TODO(doc): @doitian
     Pool,
-    /// TODO(doc): @doitian
     Experiment,
-    /// TODO(doc): @doitian
     Stats,
-    /// TODO(doc): @doitian
     IntegrationTest,
-    /// TODO(doc): @doitian
     Alert,
-    /// TODO(doc): @doitian
     Subscription,
-    /// TODO(doc): @doitian
     Debug,
 }
 
-/// TODO(doc): @doitian
+/// RPC config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// TODO(doc): @doitian
+    /// RPC server listen addresses.
     pub listen_address: String,
-    /// TODO(doc): @doitian
+    /// RPC TCP server listen addresses.
+    ///
+    /// Only TCP and WS are supported to subscribe events via the Subscription RPC module.
     #[serde(default)]
     pub tcp_listen_address: Option<String>,
-    /// TODO(doc): @doitian
+    /// RPC WS server listen addresses.
+    ///
+    /// Only TCP and WS are supported to subscribe events via the Subscription RPC module.
     #[serde(default)]
     pub ws_listen_address: Option<String>,
-    /// TODO(doc): @doitian
+    /// Max request body size in bytes.
     pub max_request_body_size: usize,
-    /// TODO(doc): @doitian
+    /// Number of RPC worker threads.
     pub threads: Option<usize>,
-    /// TODO(doc): @doitian
+    /// Enabled RPC modules.
     pub modules: Vec<Module>,
     /// Rejects txs with scripts that might trigger known bugs
     #[serde(default)]
     pub reject_ill_transactions: bool,
-    /// TODO(doc): @doitian
+    /// Whether enable deprecated RPC methods.
+    ///
+    /// Deprecated RPC methods are disabled by default.
     #[serde(default)]
     pub enable_deprecated_rpc: bool,
 }
 
 impl Config {
-    /// TODO(doc): @doitian
+    /// Checks whether the Net module is enabled.
     pub fn net_enable(&self) -> bool {
         self.modules.contains(&Module::Net)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Chain module is enabled.
     pub fn chain_enable(&self) -> bool {
         self.modules.contains(&Module::Chain)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Miner module is enabled.
     pub fn miner_enable(&self) -> bool {
         self.modules.contains(&Module::Miner)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Pool module is enabled.
     pub fn pool_enable(&self) -> bool {
         self.modules.contains(&Module::Pool)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Experiment module is enabled.
     pub fn experiment_enable(&self) -> bool {
         self.modules.contains(&Module::Experiment)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Stats module is enabled.
     pub fn stats_enable(&self) -> bool {
         self.modules.contains(&Module::Stats)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Subscription module is enabled.
     pub fn subscription_enable(&self) -> bool {
         self.modules.contains(&Module::Subscription)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the IntegrationTest module is enabled.
     pub fn integration_test_enable(&self) -> bool {
         self.modules.contains(&Module::IntegrationTest)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Alert module is enabled.
     pub fn alert_enable(&self) -> bool {
         self.modules.contains(&Module::Alert)
     }
 
-    /// TODO(doc): @doitian
+    /// Checks whether the Debug module is enabled.
     pub fn debug_enable(&self) -> bool {
         self.modules.contains(&Module::Debug)
     }

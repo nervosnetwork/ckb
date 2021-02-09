@@ -48,15 +48,17 @@ impl Default for TxPoolConfig {
     }
 }
 
-/// TODO(doc): @doitian
+/// Block assembler config options.
+///
+/// The block assembler section tells CKB how to claim the miner rewards.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
-    /// TODO(doc): @doitian
+    /// The miner lock script code hash.
     pub code_hash: H256,
-    /// TODO(doc): @doitian
+    /// The miner lock script hash type.
     pub hash_type: ScriptHashType,
-    /// TODO(doc): @doitian
+    /// The miner lock script args.
     pub args: JsonBytes,
-    /// TODO(doc): @doitian
+    /// An arbitrary message to be added into the cellbase transaction.
     pub message: JsonBytes,
 }
