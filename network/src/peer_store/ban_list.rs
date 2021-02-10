@@ -82,4 +82,9 @@ impl BanList {
         self.inner
             .retain(|_, banned_addr| banned_addr.ban_until.gt(&now));
     }
+
+    /// Get the numbers of banned address
+    pub fn count(&self) -> usize {
+        self.inner.keys().count()
+    }
 }

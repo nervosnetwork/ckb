@@ -8,9 +8,11 @@ use crate::{
     },
 };
 use ckb_logger::{debug, error};
-use std::fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions};
-use std::io::{Read, Write};
 use std::path::Path;
+use std::{
+    fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions},
+    io::{Read, Write},
+};
 
 const DEFAULT_ADDR_MANAGER_DB: &str = "addr_manager.db";
 const DEFAULT_BAN_LIST_DB: &str = "ban_list.db";
@@ -25,10 +27,15 @@ impl AddrManager {
     }
 
     /// Dump address list to disk
-    pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
+    pub fn dump(&self, mut file: File) -> Result<(), Error> {
         let addrs: Vec<_> = self.addrs_iter().collect();
         debug!("dump {} addrs", addrs.len());
-        serde_json::to_writer(w, &addrs).map_err(|err| PeerStoreError::Serde(err).into())
+        // empty file and dump the json string to it
+        file.set_len(0)
+            .and_then(|_| serde_json::to_string(&addrs).map_err(Into::into))
+            .and_then(|json_string| file.write_all(json_string.as_bytes()))
+            .and_then(|_| file.sync_all())
+            .map_err(Into::into)
     }
 }
 
@@ -45,10 +52,15 @@ impl BanList {
     }
 
     /// Dump ban list to disk
-    pub fn dump<W: Write>(&self, w: W) -> Result<(), Error> {
+    pub fn dump(&self, mut file: File) -> Result<(), Error> {
         let banned_addrs = self.get_banned_addrs();
         debug!("dump {} banned addrs", banned_addrs.len());
-        serde_json::to_writer(w, &banned_addrs).map_err(|err| PeerStoreError::Serde(err).into())
+        // empty file and dump the json string to it
+        file.set_len(0)
+            .and_then(|_| serde_json::to_string(&banned_addrs).map_err(Into::into))
+            .and_then(|json_string| file.write_all(json_string.as_bytes()))
+            .and_then(|_| file.sync_all())
+            .map_err(Into::into)
     }
 }
 
