@@ -43,7 +43,7 @@ impl NetTimeChecker {
             return None;
         }
         let mut samples = self.samples.iter().cloned().collect::<Vec<_>>();
-        samples.sort();
+        samples.sort_unstable();
         let mid = samples.len() >> 1;
         if samples.len() & 0x1 == 0 {
             // samples is even

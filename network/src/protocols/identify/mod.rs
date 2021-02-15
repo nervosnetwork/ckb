@@ -51,10 +51,7 @@ pub enum MisbehaveResult {
 
 impl MisbehaveResult {
     pub fn is_disconnect(&self) -> bool {
-        match self {
-            MisbehaveResult::Disconnect => true,
-            _ => false,
-        }
+        matches!(self, MisbehaveResult::Disconnect)
     }
 }
 
@@ -254,10 +251,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
         let observed_addr = session
             .address
             .iter()
-            .filter(|proto| match proto {
-                Protocol::P2P(_) => false,
-                _ => true,
-            })
+            .filter(|proto| !matches!(proto, Protocol::P2P(_)))
             .collect::<Multiaddr>();
 
         let identify = self.callback.identify();
@@ -552,7 +546,7 @@ impl Identify {
         &self.encode_data
     }
 
-    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, String)> {
+    fn verify(&self, data: &[u8]) -> Option<(Flags, String)> {
         let reader = packed::IdentifyReader::from_slice(data).ok()?;
 
         let name = reader.name().as_utf8().ok()?.to_owned();

@@ -31,7 +31,7 @@ impl Spec for RpcSubmitBlock {
         // build block with wrong block version
         let block = node0
             .new_block_builder(None, None, None)
-            .version((42 as u32).pack())
+            .version((42_u32).pack())
             .build();
         let block_err = node0
             .rpc_client()

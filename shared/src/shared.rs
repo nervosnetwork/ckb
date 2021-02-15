@@ -277,13 +277,11 @@ impl Shared {
                     )
                     .take_while(|(key, _)| key.starts_with(prefix))
                 {
-                    let reader =
-                        packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
+                    let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
                     let block_hash = reader.block_hash().to_entity();
                     if &block_hash != hash {
                         let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..])
-                                .unpack();
+                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).unpack();
                         side.insert(block_hash, (reader.number().to_entity(), txs));
                     }
                 }

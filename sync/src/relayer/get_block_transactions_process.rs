@@ -29,6 +29,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
         }
     }
 
+    #[allow(clippy::needless_collect)]
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         {

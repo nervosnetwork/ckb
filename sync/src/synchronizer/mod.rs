@@ -1428,7 +1428,6 @@ mod tests {
     #[cfg(not(disable_faketime))]
     #[test]
     fn test_header_sync_timeout() {
-        use std::iter::FromIterator;
         let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
         faketime::enable(&faketime_file);
 
@@ -1475,14 +1474,13 @@ mod tests {
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
             disconnected.deref(),
-            &HashSet::from_iter(vec![0, 1, 2].into_iter().map(Into::into))
+            &vec![0, 1, 2].into_iter().map(Into::into).collect()
         )
     }
 
     #[cfg(not(disable_faketime))]
     #[test]
     fn test_chain_sync_timeout() {
-        use std::iter::FromIterator;
         let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
         faketime::enable(&faketime_file);
 
@@ -1676,7 +1674,7 @@ mod tests {
             let disconnected = network_context.disconnected.lock();
             assert_eq!(
                 disconnected.deref(),
-                &HashSet::from_iter(vec![3, 4].into_iter().map(Into::into))
+                &vec![3, 4].into_iter().map(Into::into).collect()
             )
         }
     }

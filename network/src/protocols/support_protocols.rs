@@ -152,14 +152,14 @@ impl SupportProtocols {
     }
 }
 
-impl Into<MetaBuilder> for SupportProtocols {
-    fn into(self) -> MetaBuilder {
-        let max_frame_length = self.max_frame_length();
+impl From<SupportProtocols> for MetaBuilder {
+    fn from(p: SupportProtocols) -> Self {
+        let max_frame_length = p.max_frame_length();
         MetaBuilder::default()
-            .id(self.protocol_id())
-            .support_versions(self.support_versions())
-            .flag(self.flag())
-            .name(move |_| self.name())
+            .id(p.protocol_id())
+            .support_versions(p.support_versions())
+            .flag(p.flag())
+            .name(move |_| p.name())
             .codec(move || {
                 Box::new(
                     length_delimited::Builder::new()

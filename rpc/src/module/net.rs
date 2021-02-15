@@ -699,8 +699,8 @@ impl NetRpc for NetRpcImpl {
                             .value()
                 };
                 self.network_controller
-                    .ban(ip_network, ban_until, reason.unwrap_or_default())
-                    .map_err(RPCError::ckb_internal_error)
+                    .ban(ip_network, ban_until, reason.unwrap_or_default());
+                Ok(())
             }
             "delete" => {
                 self.network_controller.unban(&ip_network);

@@ -83,7 +83,6 @@ mod tests {
     use ckb_types::prelude::*;
     use faketime::unix_time_as_millis;
     use std::collections::HashSet;
-    use std::iter::FromIterator;
     use std::sync::Arc;
     use std::thread;
 
@@ -111,8 +110,8 @@ mod tests {
         }
 
         let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
-        let orphan: HashSet<BlockView> = HashSet::from_iter(orphan.into_iter());
-        let block: HashSet<BlockView> = HashSet::from_iter(blocks.into_iter());
+        let orphan: HashSet<BlockView> = orphan.into_iter().collect();
+        let block: HashSet<BlockView> = blocks.into_iter().collect();
         assert_eq!(orphan, block)
     }
 

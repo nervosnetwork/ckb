@@ -108,17 +108,15 @@ impl Relayer {
         &self.shared
     }
 
-    fn try_process<'r>(
+    fn try_process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: packed::RelayMessageUnionReader<'r>,
+        message: packed::RelayMessageUnionReader<'_>,
     ) -> Status {
         // CompactBlock will be verified by POW, it's OK to skip rate limit checking.
-        let should_check_rate = match message {
-            packed::RelayMessageUnionReader::CompactBlock(_) => false,
-            _ => true,
-        };
+        let should_check_rate =
+            !matches!(message, packed::RelayMessageUnionReader::CompactBlock(_));
 
         if should_check_rate
             && self
@@ -168,11 +166,11 @@ impl Relayer {
         }
     }
 
-    fn process<'r>(
+    fn process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: packed::RelayMessageUnionReader<'r>,
+        message: packed::RelayMessageUnionReader<'_>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;

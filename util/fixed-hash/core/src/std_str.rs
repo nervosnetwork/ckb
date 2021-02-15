@@ -168,7 +168,7 @@ macro_rules! impl_from_trimmed_str {
             concat!("use ckb_fixed_hash_core::", stringify!($name), " as Hash;"),
             concat!("const BYTES_SIZE: usize = ", stringify!($bytes_size), ";")
         );
-    }
+    };
 }
 
 impl_std_str_fromstr!(H160, 20);

@@ -111,7 +111,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
     }
 }
 
-pub fn list_hashes<'m>(root_dir: PathBuf, matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
+pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches<'_>) -> Result<(), ExitCode> {
     let mut specs = Vec::new();
 
     if matches.is_present(cli::ARG_BUNDLED) {

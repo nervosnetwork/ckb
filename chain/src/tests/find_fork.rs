@@ -12,7 +12,6 @@ use ckb_types::{
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::sync::Arc;
 
 // 0--1--2--3--4
@@ -73,17 +72,15 @@ fn test_find_fork_case1() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
+    let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
     assert_eq!(
         detached_blocks,
-        HashSet::from_iter(fork.detached_blocks.iter().cloned())
+        fork.detached_blocks.iter().cloned().collect()
     );
     assert_eq!(
         attached_blocks,
-        HashSet::from_iter(fork.attached_blocks.iter().cloned())
+        fork.attached_blocks.iter().cloned().collect()
     );
 }
 
@@ -145,17 +142,15 @@ fn test_find_fork_case2() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork1.blocks()[1..].iter().cloned());
-    let attached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> = fork1.blocks()[1..].iter().cloned().collect();
+    let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
     assert_eq!(
         detached_blocks,
-        HashSet::from_iter(fork.detached_blocks.iter().cloned())
+        fork.detached_blocks.iter().cloned().collect()
     );
     assert_eq!(
         attached_blocks,
-        HashSet::from_iter(fork.attached_blocks.iter().cloned())
+        fork.attached_blocks.iter().cloned().collect()
     );
 }
 
@@ -217,17 +212,15 @@ fn test_find_fork_case3() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
+    let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
     assert_eq!(
         detached_blocks,
-        HashSet::from_iter(fork.detached_blocks.iter().cloned())
+        fork.detached_blocks.iter().cloned().collect()
     );
     assert_eq!(
         attached_blocks,
-        HashSet::from_iter(fork.attached_blocks.iter().cloned())
+        fork.attached_blocks.iter().cloned().collect()
     );
 }
 
@@ -290,17 +283,15 @@ fn test_find_fork_case4() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<BlockView> =
-        HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
+    let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
     assert_eq!(
         detached_blocks,
-        HashSet::from_iter(fork.detached_blocks.iter().cloned())
+        fork.detached_blocks.iter().cloned().collect()
     );
     assert_eq!(
         attached_blocks,
-        HashSet::from_iter(fork.attached_blocks.iter().cloned())
+        fork.attached_blocks.iter().cloned().collect()
     );
 }
 
@@ -413,8 +404,10 @@ fn repeatedly_switch_fork() {
 #[test]
 fn test_fork_proposal_table() {
     let builder = SharedBuilder::with_temp_db();
-    let mut consensus = Consensus::default();
-    consensus.tx_proposal_window = ProposalWindow(2, 3);
+    let consensus = Consensus {
+        tx_proposal_window: ProposalWindow(2, 3),
+        ..Default::default()
+    };
 
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
@@ -462,23 +455,21 @@ fn test_fork_proposal_table() {
     let proposals = snapshot.proposals();
 
     assert_eq!(
-        &HashSet::from_iter(
-            vec![
-                packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-                packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4])
-            ]
-            .into_iter()
-        ),
+        &vec![
+            packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
+            packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4])
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>(),
         proposals.set()
     );
 
     assert_eq!(
-        &HashSet::from_iter(
-            vec![packed::ProposalShortId::new([
-                1u8, 0, 0, 0, 0, 0, 0, 0, 0, 5
-            ])]
-            .into_iter()
-        ),
+        &vec![packed::ProposalShortId::new([
+            1u8, 0, 0, 0, 0, 0, 0, 0, 0, 5
+        ])]
+        .into_iter()
+        .collect::<HashSet<_>>(),
         proposals.gap()
     );
 }

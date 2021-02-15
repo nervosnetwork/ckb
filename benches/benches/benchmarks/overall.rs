@@ -110,8 +110,10 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
-    let mut tx_pool_config = TxPoolConfig::default();
-    tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
+    let tx_pool_config = TxPoolConfig {
+        min_fee_rate: FeeRate::from_u64(0),
+        ..Default::default()
+    };
 
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)

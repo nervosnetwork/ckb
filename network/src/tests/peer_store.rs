@@ -55,9 +55,7 @@ fn test_ban_peer() {
     peer_store
         .add_connected_peer(addr.clone(), SessionType::Inbound)
         .unwrap();
-    peer_store
-        .ban_addr(&addr, 10_000, "no reason".into())
-        .unwrap();
+    peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert!(peer_store.is_addr_banned(&addr));
 }
 
@@ -67,9 +65,7 @@ fn test_attempt_ban() {
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
-    peer_store
-        .ban_addr(&addr, 10_000, "no reason".into())
-        .unwrap();
+    peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
 }
 
