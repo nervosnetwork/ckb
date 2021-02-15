@@ -23,6 +23,7 @@ use ckb_types::{
     packed::{Byte32, CellOutput, Script},
     prelude::*,
 };
+use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -32,22 +33,6 @@ use tokio::sync::{oneshot, RwLock};
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
-}
-
-/// The trait abstract for particular verification
-pub trait Switch {
-    /// Disable epoch verification
-    fn disable_epoch(&self) -> bool;
-    /// Disable uncles-related verification
-    fn disable_uncles(&self) -> bool;
-    /// Disable two-phase-commit verification
-    fn disable_two_phase_commit(&self) -> bool;
-    /// Disable DAO-header verification
-    fn disable_daoheader(&self) -> bool;
-    /// Disable reward verification
-    fn disable_reward(&self) -> bool;
-    /// Whether execute script?
-    fn disable_script(&self) -> bool;
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
@@ -541,13 +526,13 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
     }
 
     /// Perform context-dependent verification checks for block
-    pub fn verify<SW: Switch>(
+    pub fn verify(
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         handle: &Handle,
-        switch: SW,
+        switch: Switch,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self

@@ -1,6 +1,6 @@
 use crate::benchmarks::util::{gen_always_success_block, new_always_success_chain};
-use ckb_chain::switch::Switch;
 use ckb_store::{self, ChainStore};
+use ckb_verification_traits::Switch;
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use std::sync::Arc;
 

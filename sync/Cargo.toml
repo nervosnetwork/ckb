@@ -22,6 +22,7 @@ ckb-util = { path = "../util", version = "= 0.40.0-pre" }
 faketime = "0.2.0"
 bitflags = "1.0"
 ckb-verification = { path = "../verification", version = "= 0.40.0-pre" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.40.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.40.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.40.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.40.0-pre" }

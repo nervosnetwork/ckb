@@ -20,7 +20,8 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     U256,
 };
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification_traits::Verifier;
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use rand::random;
 use std::convert::TryFrom;

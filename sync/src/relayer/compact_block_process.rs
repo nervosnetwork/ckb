@@ -8,7 +8,8 @@ use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
-use ckb_verification::{HeaderError, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderVerifier};
+use ckb_verification_traits::Verifier;
 use std::collections::HashMap;
 use std::sync::Arc;
 

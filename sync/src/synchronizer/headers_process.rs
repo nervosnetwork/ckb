@@ -7,7 +7,8 @@ use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
-use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier};
+use ckb_verification_traits::Verifier;
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,

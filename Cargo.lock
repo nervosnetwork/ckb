@@ -448,6 +448,7 @@ dependencies = [
  "ckb-test-chain-utils",
  "ckb-types",
  "ckb-verification",
+ "ckb-verification-traits",
  "criterion",
  "faketime",
  "lazy_static",
@@ -484,6 +485,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "ckb-verification-traits",
  "clap",
  "ctrlc",
  "rayon",
@@ -501,7 +503,6 @@ version = "0.40.0-pre"
 name = "ckb-chain"
 version = "0.40.0-pre"
 dependencies = [
- "bitflags",
  "ckb-app-config",
  "ckb-chain-spec",
  "ckb-channel",
@@ -520,6 +521,7 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
+ "ckb-verification-traits",
  "faketime",
  "lazy_static",
 ]
@@ -1044,6 +1046,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "ckb-verification-traits",
  "faketime",
  "futures 0.1.29",
  "jsonrpc-core",
@@ -1283,6 +1286,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "ckb-verification-traits",
  "faketime",
  "futures 0.3.8",
  "governor",
@@ -1399,12 +1403,21 @@ dependencies = [
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
+ "ckb-verification-traits",
  "derive_more",
  "faketime",
  "lru",
  "rand 0.7.3",
  "rayon",
  "tokio 0.2.25",
+]
+
+[[package]]
+name = "ckb-verification-traits"
+version = "0.40.0-pre"
+dependencies = [
+ "bitflags",
+ "ckb-error",
 ]
 
 [[package]]

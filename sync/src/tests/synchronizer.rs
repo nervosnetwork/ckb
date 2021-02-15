@@ -4,7 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
-use ckb_chain::{chain::ChainService, switch::Switch};
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,6 +21,7 @@ use ckb_types::{
     U256,
 };
 use ckb_util::RwLock;
+use ckb_verification_traits::Switch;
 use faketime::{self, unix_time_as_millis};
 use std::collections::HashSet;
 use std::sync::mpsc::sync_channel;

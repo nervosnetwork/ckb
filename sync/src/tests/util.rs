@@ -1,9 +1,5 @@
 use crate::SyncShared;
-use ckb_chain::{
-    chain::{ChainController, ChainService},
-    switch::Switch,
-};
-
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -16,6 +12,7 @@ use ckb_types::{
     core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
     packed::Byte32,
 };
+use ckb_verification_traits::Switch;
 use std::collections::HashSet;
 use std::sync::Arc;
 

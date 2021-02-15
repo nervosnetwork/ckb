@@ -1,6 +1,7 @@
-use crate::header_verifier::HeaderResolver;
-pub use crate::transaction_verifier::NonContextualTransactionVerifier;
-use crate::{BlockErrorKind, CellbaseError, Verifier};
+use crate::{
+    header_verifier::HeaderResolver, transaction_verifier::NonContextualTransactionVerifier,
+    BlockErrorKind, CellbaseError,
+};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_store::ChainStore;
@@ -9,6 +10,7 @@ use ckb_types::{
     packed::{CellInput, CellbaseWitness},
     prelude::*,
 };
+use ckb_verification_traits::Verifier;
 use std::collections::HashSet;
 
 /// Block verifier that are independent of context.

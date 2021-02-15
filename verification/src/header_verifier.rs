@@ -1,4 +1,3 @@
-use super::Verifier;
 use crate::{
     BlockVersionError, NumberError, PowError, TimestampError, UnknownParentError,
     ALLOWED_FUTURE_BLOCKTIME,
@@ -8,6 +7,7 @@ use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::core::{HeaderView, Version};
+use ckb_verification_traits::Verifier;
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 

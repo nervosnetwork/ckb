@@ -16,7 +16,8 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::packed::Byte32;
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
-use ckb_verification::{GenesisVerifier, Verifier};
+use ckb_verification::GenesisVerifier;
+use ckb_verification_traits::Verifier;
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
