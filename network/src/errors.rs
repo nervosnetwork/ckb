@@ -23,8 +23,6 @@ pub enum Error {
     Io(IoError),
     /// Error from tentacle
     P2P(P2PError),
-    /// Address error
-    Addr(AddrError),
     /// Dail error
     Dial(String),
     /// Peer store error
@@ -72,15 +70,6 @@ pub enum PeerError {
     ReachMaxOutboundLimit,
 }
 
-/// Address error
-#[derive(Debug)]
-pub enum AddrError {
-    /// Missing ip
-    MissingIP,
-    /// Missing port
-    MissingPort,
-}
-
 impl From<PeerStoreError> for Error {
     fn from(err: PeerStoreError) -> Error {
         Error::PeerStore(err)
@@ -102,12 +91,6 @@ impl From<IoError> for Error {
 impl From<P2PError> for Error {
     fn from(err: P2PError) -> Error {
         Error::P2P(err)
-    }
-}
-
-impl From<AddrError> for Error {
-    fn from(err: AddrError) -> Error {
-        Error::Addr(err)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     multiaddr::Multiaddr,
     peer_store::{
-        types::{multiaddr_to_ip_network, AddrInfo, BannedAddr, MultiaddrExt},
+        types::{multiaddr_to_ip_network, AddrInfo, BannedAddr},
         PeerStore,
     },
     PeerId,
@@ -19,24 +19,16 @@ fn test_peer_store_persistent() {
     // add addrs to addr manager
     let addr_manager = peer_store.mut_addr_manager();
     let addr1 = {
-        let addr: Multiaddr = "/ip4/127.0.0.1/tcp/42".parse().unwrap();
-        AddrInfo::new(
-            PeerId::random(),
-            addr.extract_ip_addr().unwrap(),
-            addr,
-            0,
-            60,
-        )
+        let addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+        AddrInfo::new(addr, 0, 60)
     };
     let addr2 = {
-        let addr: Multiaddr = "/ip4/127.0.0.5/tcp/42".parse().unwrap();
-        let mut addr_info = AddrInfo::new(
-            PeerId::random(),
-            addr.extract_ip_addr().unwrap(),
-            addr,
-            100,
-            30,
-        );
+        let addr: Multiaddr = format!("/ip4/127.0.0.5/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+        let mut addr_info = AddrInfo::new(addr, 100, 30);
         addr_info.mark_tried(now_ms);
         addr_info
     };
@@ -170,14 +162,14 @@ fn test_peer_store_dump_with_broken_tmp_file_should_be_ok() {
     let mut peer_store = PeerStore::default();
     let addr_manager = peer_store.mut_addr_manager();
     for i in 0..3 {
-        let addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", i).parse().unwrap();
-        addr_manager.add(AddrInfo::new(
-            PeerId::random(),
-            addr.extract_ip_addr().unwrap(),
-            addr,
-            0,
-            60,
-        ));
+        let addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            i,
+            PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap();
+        addr_manager.add(AddrInfo::new(addr, 0, 60));
     }
     let ban_list = peer_store.mut_ban_list();
     let now_ms = faketime::unix_time_as_millis();

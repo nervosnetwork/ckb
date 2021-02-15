@@ -34,9 +34,7 @@ impl ServiceProtocol for Feeler {
             .map(PublicKey::peer_id)
             .expect("Secio must enabled");
         self.network_state.with_peer_store_mut(|peer_store| {
-            if let Err(err) =
-                peer_store.add_connected_peer(peer_id.clone(), session.address.clone(), session.ty)
-            {
+            if let Err(err) = peer_store.add_connected_peer(session.address.clone(), session.ty) {
                 debug!(
                     "Failed to add connected peer to peer_store {:?} {:?} {:?}",
                     err, peer_id, session
@@ -53,13 +51,8 @@ impl ServiceProtocol for Feeler {
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
         let session = context.session;
-        let peer_id = session
-            .remote_pubkey
-            .as_ref()
-            .map(PublicKey::peer_id)
-            .expect("Secio must enabled");
         self.network_state.with_peer_registry_mut(|reg| {
-            reg.remove_feeler(&peer_id);
+            reg.remove_feeler(&session.address);
         });
         info!("peer={} FeelerProtocol.disconnected", session.address);
     }

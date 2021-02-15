@@ -1,9 +1,6 @@
 use crate::{
     multiaddr::Multiaddr,
-    peer_store::{
-        addr_manager::AddrManager,
-        types::{AddrInfo, MultiaddrExt},
-    },
+    peer_store::{addr_manager::AddrManager, types::AddrInfo},
     PeerId,
 };
 use proptest::prelude::*;
@@ -16,11 +13,8 @@ proptest! {
     fn test_add_random_addrs(count in RANDOM_REMOVE_ADDRS..MAX_FETCHED_ADDRS) {
         fn new_addr(id: usize) -> AddrInfo{
             let ip = Ipv4Addr::from(((225 << 24) + id) as u32);
-            let addr: Multiaddr = format!("/ip4/{}/tcp/42", ip).parse().unwrap();
-            let ip_addr = addr.extract_ip_addr().unwrap();
+            let addr: Multiaddr = format!("/ip4/{}/tcp/42/p2p/{}", ip, PeerId::random().to_base58()).parse().unwrap();
             AddrInfo::new(
-                PeerId::random(),
-                ip_addr,
                 addr,
                 0,
                 0,
@@ -34,7 +28,7 @@ proptest! {
         let removed_addrs = addr_manager.fetch_random(RANDOM_REMOVE_ADDRS, |_| true);
         assert_eq!(removed_addrs.len(), RANDOM_REMOVE_ADDRS);
         for addr in &removed_addrs {
-            addr_manager.remove(&addr.ip_port());
+            addr_manager.remove(&addr.addr);
         }
         assert_eq!(addr_manager.count(), count - RANDOM_REMOVE_ADDRS);
         // add back removed addrs

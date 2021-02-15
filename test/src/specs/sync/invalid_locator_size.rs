@@ -44,7 +44,7 @@ impl Spec for InvalidLocatorSize {
             net.controller()
                 .connected_peers()
                 .iter()
-                .find(|(_, peer)| peer.peer_id.to_base58() == node0.node_id())
+                .find(|(_, peer)| peer.connected_addr.to_string() == node0.p2p_address())
                 .is_none()
         });
         assert!(

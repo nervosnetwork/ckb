@@ -1,13 +1,12 @@
 //! Peer store manager
 pub mod addr_manager;
 pub mod ban_list;
-mod peer_id_serde;
 mod peer_store_db;
 mod peer_store_impl;
 pub mod types;
 
+pub(crate) use crate::Behaviour;
 pub use crate::SessionType;
-pub(crate) use crate::{Behaviour, PeerId};
 use p2p::multiaddr::Multiaddr;
 pub use peer_store_impl::PeerStore;
 

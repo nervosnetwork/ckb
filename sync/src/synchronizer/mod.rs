@@ -1201,8 +1201,9 @@ mod tests {
         Peer::new(
             0.into(),
             SessionType::Outbound,
-            PeerId::random(),
-            "/ip4/127.0.0.1".parse().expect("parse multiaddr"),
+            format!("/ip4/127.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
+                .parse()
+                .expect("parse multiaddr"),
             false,
         )
     }

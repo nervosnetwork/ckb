@@ -2,7 +2,6 @@ use std::{error::Error, sync::Arc, time::Duration};
 
 use ckb_logger::{debug, error, trace, warn};
 use faster_hex::hex_decode;
-use p2p::{multiaddr::Protocol, secio::PeerId};
 use secp256k1::key::PublicKey;
 use tokio::time::Interval;
 
@@ -105,22 +104,8 @@ impl DnsSeedingService {
 
         debug!("DNS seeding got {} address", addrs.len());
         self.network_state.with_peer_store_mut(|peer_store| {
-            for mut addr in addrs {
-                match addr.pop() {
-                    Some(Protocol::P2P(key)) => {
-                        if let Ok(peer_id) = PeerId::from_bytes(key.to_vec()) {
-                            if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
-                                debug!(
-                                    "failed to add addrs to peer_store: {:?}, {:?}",
-                                    err, peer_id
-                                );
-                            }
-                        }
-                    }
-                    _ => {
-                        debug!("Got addr without peer_id: {}, ignore it", addr);
-                    }
-                }
+            for addr in addrs {
+                let _ = peer_store.add_addr(addr);
             }
         });
         Ok(())

@@ -1,10 +1,11 @@
 use crate::{
     errors::{PeerStoreError, Result},
+    extract_peer_id, multiaddr_to_socketaddr,
     network_group::Group,
     peer_store::{
         addr_manager::AddrManager,
         ban_list::BanList,
-        types::{ip_to_network, AddrInfo, BannedAddr, MultiaddrExt, PeerInfo},
+        types::{ip_to_network, AddrInfo, BannedAddr, PeerInfo},
         Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
         ADDR_TIMEOUT_MS,
     },
@@ -36,14 +37,13 @@ impl PeerStore {
 
     /// Add a peer and address into peer_store
     /// this method will assume peer is connected, which implies address is "verified".
-    pub fn add_connected_peer(
-        &mut self,
-        peer_id: PeerId,
-        addr: Multiaddr,
-        session_type: SessionType,
-    ) -> Result<()> {
+    pub fn add_connected_peer(&mut self, addr: Multiaddr, session_type: SessionType) -> Result<()> {
         let now_ms = faketime::unix_time_as_millis();
-        match self.peers.get_mut().entry(peer_id.to_owned()) {
+        match self
+            .peers
+            .get_mut()
+            .entry(extract_peer_id(&addr).expect("connected addr should have peer id"))
+        {
             Entry::Occupied(mut entry) => {
                 let mut peer = entry.get_mut();
                 peer.connected_addr = addr.clone();
@@ -51,35 +51,23 @@ impl PeerStore {
                 peer.session_type = session_type;
             }
             Entry::Vacant(entry) => {
-                let peer = PeerInfo::new(peer_id.to_owned(), addr.clone(), session_type, now_ms);
+                let peer = PeerInfo::new(addr.clone(), session_type, now_ms);
                 entry.insert(peer);
             }
         }
         let score = self.score_config.default_score;
         if session_type.is_outbound() {
-            self.addr_manager.add(AddrInfo::new(
-                peer_id,
-                addr.extract_ip_addr()?,
-                addr.exclude_p2p(),
-                now_ms,
-                score,
-            ));
+            self.addr_manager.add(AddrInfo::new(addr, now_ms, score));
         }
         Ok(())
     }
 
     /// Add discovered peer addresses
     /// this method will assume peer and addr is untrust since we have not connected to it.
-    pub fn add_addr(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<()> {
+    pub fn add_addr(&mut self, addr: Multiaddr) -> Result<()> {
         self.check_purge()?;
         let score = self.score_config.default_score;
-        self.addr_manager.add(AddrInfo::new(
-            peer_id,
-            addr.extract_ip_addr()?,
-            addr.exclude_p2p(),
-            0,
-            score,
-        ));
+        self.addr_manager.add(AddrInfo::new(addr, 0, score));
         Ok(())
     }
 
@@ -94,18 +82,13 @@ impl PeerStore {
     }
 
     /// Report peer behaviours
-    pub fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> Result<ReportResult> {
-        if let Some(peer) = {
-            let peers = self.peers.borrow();
-            peers.get(peer_id).map(ToOwned::to_owned)
-        } {
-            let key = peer.connected_addr.extract_ip_addr()?;
-            let mut peer_addr = self.addr_manager.get_mut(&key).expect("peer addr exists");
+    pub fn report(&mut self, addr: &Multiaddr, behaviour: Behaviour) -> Result<ReportResult> {
+        if let Some(peer_addr) = self.addr_manager.get_mut(addr) {
             let score = peer_addr.score.saturating_add(behaviour.score());
             peer_addr.score = score;
             if score < self.score_config.ban_score {
                 self.ban_addr(
-                    &peer.connected_addr,
+                    addr,
                     self.score_config.ban_timeout_ms,
                     format!("report behaviour {:?}", behaviour),
                 )?;
@@ -116,8 +99,8 @@ impl PeerStore {
     }
 
     /// Remove peer id
-    pub fn remove_disconnected_peer(&mut self, peer_id: &PeerId) -> Option<PeerInfo> {
-        self.peers.borrow_mut().remove(peer_id)
+    pub fn remove_disconnected_peer(&mut self, addr: &Multiaddr) -> Option<PeerInfo> {
+        extract_peer_id(addr).and_then(|peer_id| self.peers.borrow_mut().remove(&peer_id))
     }
 
     /// Get peer status
@@ -138,7 +121,9 @@ impl PeerStore {
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 !ban_list.is_addr_banned(&peer_addr.addr)
-                    && !peers.contains_key(&peer_addr.peer_id)
+                    && extract_peer_id(&peer_addr.addr)
+                        .map(|peer_id| !peers.contains_key(&peer_id))
+                        .unwrap_or_default()
                     && !peer_addr.tried_in_last_minute(now_ms)
             })
     }
@@ -154,7 +139,9 @@ impl PeerStore {
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 !ban_list.is_addr_banned(&peer_addr.addr)
-                    && !peers.contains_key(&peer_addr.peer_id)
+                    && extract_peer_id(&peer_addr.addr)
+                        .map(|peer_id| !peers.contains_key(&peer_id))
+                        .unwrap_or_default()
                     && !peer_addr.tried_in_last_minute(now_ms)
                     && !peer_addr.had_connected(addr_expired_ms)
             })
@@ -170,7 +157,9 @@ impl PeerStore {
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 !ban_list.is_addr_banned(&peer_addr.addr)
-                    && (peers.contains_key(&peer_addr.peer_id)
+                    && (extract_peer_id(&peer_addr.addr)
+                        .map(|peer_id| peers.contains_key(&peer_id))
+                        .unwrap_or_default()
                         || peer_addr.had_connected(addr_expired_ms))
             })
     }
@@ -182,8 +171,12 @@ impl PeerStore {
         timeout_ms: u64,
         ban_reason: String,
     ) -> Result<()> {
-        let network = ip_to_network(addr.extract_ip_addr()?.ip);
-        self.ban_network(network, timeout_ms, ban_reason)
+        if let Some(addr) = multiaddr_to_socketaddr(addr) {
+            let network = ip_to_network(addr.ip());
+            self.ban_network(network, timeout_ms, ban_reason)
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn ban_network(
@@ -246,8 +239,13 @@ impl PeerStore {
                 .max_by_key(|peers| peers.len())
                 .expect("largest network group")
                 .iter()
-                .filter(move |addr| addr.is_terrible(now_ms) || addr.score <= ban_score)
-                .map(|addr| addr.ip_port())
+                .filter_map(move |addr| {
+                    if addr.is_terrible(now_ms) || addr.score <= ban_score {
+                        Some(addr.addr.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect()
         };
 

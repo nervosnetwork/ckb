@@ -1,7 +1,6 @@
 use ckb_types::{H256, U256};
-use multiaddr::{Multiaddr, Protocol};
+use multiaddr::Multiaddr;
 use rand::Rng;
-use secio::{self, PeerId};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -241,52 +240,13 @@ impl Config {
     }
 
     /// Gets the list of whitelist peers.
-    ///
-    /// ## Error
-    ///
-    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
-    pub fn whitelist_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.whitelist_peers.len());
-        for addr_str in &self.whitelist_peers {
-            let mut addr = addr_str.to_owned();
-            let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec()).map_err(|_| {
-                    Error::new(ErrorKind::InvalidData, "invalid whitelist peers config")
-                })?,
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "invalid whitelist peers config",
-                    ))
-                }
-            };
-            peers.push((peer_id, addr))
-        }
-        Ok(peers)
+    pub fn whitelist_peers(&self) -> Vec<Multiaddr> {
+        self.whitelist_peers.clone()
     }
 
     /// Gets a list of bootnodes.
-    ///
-    /// ## Error
-    ///
-    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
-    pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.bootnodes.len());
-        for addr_str in &self.bootnodes {
-            let mut addr = addr_str.to_owned();
-            let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec())
-                    .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid bootnodes config"))?,
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "invalid bootnodes config",
-                    ))
-                }
-            };
-            peers.push((peer_id, addr));
-        }
-        Ok(peers)
+    pub fn bootnodes(&self) -> Vec<Multiaddr> {
+        self.bootnodes.clone()
     }
 
     /// Checks whether the outbound peer service should be enabled.
