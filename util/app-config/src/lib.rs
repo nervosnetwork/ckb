@@ -99,8 +99,13 @@ impl Setup {
     pub fn migrate<'m>(self, matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
         let config = self.config.into_ckb()?;
         let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
+        let force = matches.is_present(cli::ARG_FORCE);
 
-        Ok(MigrateArgs { config, check })
+        Ok(MigrateArgs {
+            config,
+            check,
+            force,
+        })
     }
 
     /// Executes `ckb miner`.

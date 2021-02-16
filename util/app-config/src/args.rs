@@ -167,4 +167,6 @@ pub struct MigrateArgs {
     pub config: Box<CKBAppConfig>,
     /// Check whether it is required to do migration instead of really perform the migration.
     pub check: bool,
+    /// Do migration without interactive prompt.
+    pub force: bool,
 }

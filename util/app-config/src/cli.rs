@@ -335,6 +335,12 @@ fn migrate() -> App<'static, 'static> {
                     otherwise ExitCode(64) is returned",
                 ),
         )
+        .arg(
+            Arg::with_name(ARG_FORCE)
+                .long(ARG_FORCE)
+                .conflicts_with(ARG_MIGRATE_CHECK)
+                .help("Do migration without interactive prompt"),
+        )
 }
 
 fn list_hashes() -> App<'static, 'static> {

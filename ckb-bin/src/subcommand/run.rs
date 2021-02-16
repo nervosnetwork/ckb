@@ -31,21 +31,36 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::new(
-        &args.config.db,
-        Some(args.config.ancient.clone()),
-        async_handle,
-    )
-    .consensus(args.consensus.clone())
-    .tx_pool_config(args.config.tx_pool)
-    .notify_config(args.config.notify.clone())
-    .store_config(args.config.store)
-    .block_assembler_config(block_assembler_config)
-    .build()
-    .map_err(|err| {
-        eprintln!("Run error: {:?}", err);
-        ExitCode::Failure
-    })?;
+    let (shared, table) = {
+        let shared_builder = SharedBuilder::new(
+            &args.config.db,
+            Some(args.config.ancient.clone()),
+            async_handle,
+        );
+
+        if shared_builder.migration_check() {
+            eprintln!(
+                "For optimal performance, CKB wants to migrate the data into new format.\n\
+                You can use the old version CKB if you don't want to do the migration.\n\
+                We strongly recommended you to use the latest stable version of CKB, \
+                since the old versions may have unfixed vulnerabilities.\n\
+                Run `ckb migrate --help` for more information about migration."
+            );
+            return Err(ExitCode::Failure);
+        }
+
+        shared_builder
+            .consensus(args.consensus.clone())
+            .tx_pool_config(args.config.tx_pool)
+            .notify_config(args.config.notify.clone())
+            .store_config(args.config.store)
+            .block_assembler_config(block_assembler_config)
+            .build()
+            .map_err(|err| {
+                eprintln!("Run error: {:?}", err);
+                ExitCode::Failure
+            })?
+    };
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
