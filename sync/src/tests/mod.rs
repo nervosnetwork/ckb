@@ -246,7 +246,4 @@ impl CKBProtocolContext for TestNetworkContext {
     fn protocol_id(&self) -> ProtocolId {
         self.protocol
     }
-    fn send_paused(&self) -> bool {
-        false
-    }
 }
