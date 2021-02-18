@@ -42,5 +42,5 @@ pub const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 
 /// CHAIN_SPEC_HASH_KEY tracks the hash of chain spec which created current database
 pub const CHAIN_SPEC_HASH_KEY: &[u8] = b"chain-spec-hash";
-/// CHAIN_SPEC_HASH_KEY tracks the current database version.
+/// MIGRATION_VERSION_KEY tracks the current database version.
 pub const MIGRATION_VERSION_KEY: &[u8] = b"db-version";
