@@ -1800,7 +1800,7 @@ impl ActiveChain {
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        self.snapshot.is_initial_block_download()
+        self.shared.shared().is_initial_block_download()
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {

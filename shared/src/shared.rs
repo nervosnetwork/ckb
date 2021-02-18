@@ -6,6 +6,7 @@ use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
+use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::COLUMN_BLOCK_BODY;
@@ -24,6 +25,7 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerifyCache;
+use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -70,6 +72,7 @@ pub struct Shared {
     pub(crate) async_handle: Handle,
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
+    pub(crate) ibd_finished: Arc<AtomicBool>,
 }
 
 impl Shared {
@@ -158,6 +161,7 @@ impl Shared {
             notify_controller,
             async_handle,
             async_stop,
+            ibd_finished: Arc::new(AtomicBool::new(false)),
         };
 
         Ok((shared, proposal_table))
@@ -264,7 +268,7 @@ impl Shared {
         let snapshot = self.snapshot();
         let current_epoch = snapshot.epoch_ext().number();
 
-        if snapshot.is_initial_block_download() {
+        if self.is_initial_block_download() {
             ckb_logger::trace!("is_initial_block_download freeze skip");
             return Ok(());
         }
@@ -479,6 +483,21 @@ impl Shared {
     /// TODO(doc): @quake
     pub fn store(&self) -> &ChainDB {
         &self.store
+    }
+
+    /// Return whether chain is in initial block download
+    pub fn is_initial_block_download(&self) -> bool {
+        // Once this function has returned false, it must remain false.
+        if self.ibd_finished.load(Ordering::Relaxed) {
+            false
+        } else if unix_time_as_millis().saturating_sub(self.snapshot().tip_header().timestamp())
+            > MAX_TIP_AGE
+        {
+            true
+        } else {
+            self.ibd_finished.store(true, Ordering::Relaxed);
+            false
+        }
     }
 }
 

@@ -2,7 +2,6 @@
 
 use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{
     iter::{DBIter, IteratorMode},
     DBPinnableSlice,
@@ -23,11 +22,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint, Script},
     U256,
 };
-use faketime::unix_time_as_millis;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-static IBD_FINISHED: AtomicBool = AtomicBool::new(false);
 
 /// An Atomic wrapper for Snapshot
 pub struct SnapshotMgr {
@@ -106,20 +101,6 @@ impl Snapshot {
     /// Return reference of tip header
     pub fn tip_header(&self) -> &HeaderView {
         &self.tip_header
-    }
-
-    /// Return whether chain is in initial block download
-    pub fn is_initial_block_download(&self) -> bool {
-        // Once this function has returned false, it must remain false.
-        if IBD_FINISHED.load(Ordering::Relaxed) {
-            false
-        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
-        {
-            true
-        } else {
-            IBD_FINISHED.store(true, Ordering::Relaxed);
-            false
-        }
     }
 
     /// Return tip header number

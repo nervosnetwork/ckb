@@ -16,6 +16,10 @@ use std::sync::Arc;
 
 const LOCKNAME: &str = "FLOCK";
 
+/// freeze result represent blkhash -> (blknum, txsnum) btree-map
+/// sorted blkhash for making ranges for compaction
+type FreezeResult = BTreeMap<packed::Byte32, (BlockNumber, u32)>;
+
 struct Inner {
     pub(crate) files: FreezerFiles,
     pub(crate) tip: Option<HeaderView>,
@@ -72,7 +76,7 @@ impl Freezer {
         &self,
         threshold: BlockNumber,
         get_block_by_number: F,
-    ) -> Result<BTreeMap<packed::Byte32, (BlockNumber, u32)>, Error>
+    ) -> Result<FreezeResult, Error>
     where
         F: Fn(BlockNumber) -> Option<BlockView>,
     {
