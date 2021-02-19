@@ -19,7 +19,7 @@ pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> 
         return Ok(());
     }
 
-    if !args.force {
+    if builder.require_expensive_migrations() && !args.force {
         if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
             let input = prompt("\
             \n\

@@ -53,6 +53,24 @@ impl Migrations {
             .unwrap_or(false)
     }
 
+    /// Check if the migrations will consume a lot of time.
+    pub fn expensive(&self, db: &RocksDB) -> bool {
+        let db_version = match db
+            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .expect("get the version of database")
+        {
+            Some(version_bytes) => {
+                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+            }
+            None => return false,
+        };
+
+        self.migrations
+            .values()
+            .skip_while(|m| m.version() <= db_version.as_str())
+            .any(|m| m.expensive())
+    }
+
     /// TODO(doc): @quake
     pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
         let db_version = db
@@ -129,6 +147,13 @@ pub trait Migration {
 
     /// returns migration version, use `date +'%Y%m%d%H%M%S'` timestamp format
     fn version(&self) -> &str;
+
+    /// Will cost a lot of time to perform this migration operation.
+    ///
+    /// Override this function for `Migrations` which could be executed very fast.
+    fn expensive(&self) -> bool {
+        true
+    }
 }
 
 /// TODO(doc): @quake
@@ -156,6 +181,10 @@ impl Migration for DefaultMigration {
 
     fn version(&self) -> &str {
         &self.version
+    }
+
+    fn expensive(&self) -> bool {
+        false
     }
 }
 

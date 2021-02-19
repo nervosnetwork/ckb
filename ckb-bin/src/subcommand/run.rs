@@ -38,7 +38,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
             async_handle,
         );
 
-        if shared_builder.migration_check() {
+        if shared_builder.require_expensive_migrations() {
             eprintln!(
                 "For optimal performance, CKB wants to migrate the data into new format.\n\
                 You can use the old version CKB if you don't want to do the migration.\n\
