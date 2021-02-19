@@ -1,7 +1,7 @@
 //! Tx-pool background service
 
 use crate::block_assembler::BlockAssembler;
-use crate::callback::{Callback, Callbacks, RejectCallback};
+use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::component::entry::TxEntry;
 use crate::error::{handle_recv_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
@@ -409,17 +409,22 @@ impl TxPoolServiceBuilder {
         }
     }
 
-    /// Register a new pending callback
+    /// Register new pending callback
     pub fn register_pending(&mut self, callback: Callback) {
         self.callbacks.register_pending(callback);
     }
 
-    /// Register a new proposed callback
-    pub fn register_proposed(&mut self, callback: Callback) {
+    /// Register new proposed callback
+    pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
     }
 
-    /// Register a new abandon callback
+    /// Register new committed callback
+    pub fn register_committed(&mut self, callback: Callback) {
+        self.callbacks.register_committed(callback);
+    }
+
+    /// Register new abandon callback
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.callbacks.register_reject(callback);
     }

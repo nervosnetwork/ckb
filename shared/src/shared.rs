@@ -16,7 +16,9 @@ use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPoolController, TxPoolServiceBuilder};
+use ckb_tx_pool::{
+    error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolController, TxPoolServiceBuilder,
+};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::{self, Byte32},
@@ -117,7 +119,11 @@ impl Shared {
         );
 
         let notify_pending = notify_controller.clone();
-        tx_pool_builder.register_pending(Box::new(move |entry: TxEntry| {
+        tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: TxEntry| {
+            // update statics
+            tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
+
+            // notify
             let notify_tx_entry = PoolTransactionEntry {
                 transaction: entry.transaction,
                 cycles: entry.cycles,
@@ -128,26 +134,46 @@ impl Shared {
         }));
 
         let notify_proposed = notify_controller.clone();
-        tx_pool_builder.register_proposed(Box::new(move |entry: TxEntry| {
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-            };
-            notify_proposed.notify_proposed_transaction(notify_tx_entry);
-        }));
+        tx_pool_builder.register_proposed(Box::new(
+            move |tx_pool: &mut TxPool, entry: TxEntry, new: bool| {
+                // update statics
+                if new {
+                    tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
+                }
+
+                // notify
+                let notify_tx_entry = PoolTransactionEntry {
+                    transaction: entry.transaction,
+                    cycles: entry.cycles,
+                    size: entry.size,
+                    fee: entry.fee,
+                };
+                notify_proposed.notify_proposed_transaction(notify_tx_entry);
+            },
+        ));
+
+        tx_pool_builder.register_committed(Box::new(
+            move |tx_pool: &mut TxPool, entry: TxEntry| {
+                tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+            },
+        ));
 
         let notify_reject = notify_controller.clone();
-        tx_pool_builder.register_reject(Box::new(move |entry: TxEntry, reject: Reject| {
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-            };
-            notify_reject.notify_reject_transaction(notify_tx_entry, reject);
-        }));
+        tx_pool_builder.register_reject(Box::new(
+            move |tx_pool: &mut TxPool, entry: TxEntry, reject: Reject| {
+                // update statics
+                tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+
+                // notify
+                let notify_tx_entry = PoolTransactionEntry {
+                    transaction: entry.transaction,
+                    cycles: entry.cycles,
+                    size: entry.size,
+                    fee: entry.fee,
+                };
+                notify_reject.notify_reject_transaction(notify_tx_entry, reject);
+            },
+        ));
 
         let tx_pool_controller = tx_pool_builder.start(&async_handle);
 

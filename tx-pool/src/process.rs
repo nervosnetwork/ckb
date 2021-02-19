@@ -436,14 +436,19 @@ impl TxPoolService {
                 tx_size,
                 related_dep_out_points,
             );
-            let inserted = match status {
-                TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
-                TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
-                TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
-            };
-            if inserted {
-                self.callbacks.call_pending(&mut tx_pool, entry);
-                tx_pool.update_statics_for_add_tx(tx_size, cache_entry.cycles);
+            match status {
+                TxStatus::Fresh => {
+                    tx_pool.add_pending(entry.clone())?;
+                    self.callbacks.call_pending(&mut tx_pool, entry);
+                }
+                TxStatus::Gap => {
+                    tx_pool.add_gap(entry.clone())?;
+                    self.callbacks.call_pending(&mut tx_pool, entry);
+                }
+                TxStatus::Proposed => {
+                    tx_pool.add_proposed(entry.clone())?;
+                    self.callbacks.call_proposed(&mut tx_pool, entry, true);
+                }
             }
         }
         Ok(())
@@ -701,18 +706,30 @@ fn _update_tx_pool_for_reorg(
     // pending-pool if they can be found within txpool. As for a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
-    // that involves `remove_committed_txs_from_proposed` before `remove_expired`.
-    tx_pool.remove_committed_txs_from_proposed(txs_iter);
+    // that involves `remove_committed_txs` before `remove_expired`.
+    tx_pool.remove_committed_txs(txs_iter, callbacks);
     tx_pool.remove_expired(detached_proposal_id.iter(), callbacks);
 
-    let to_update_cache = retain
-        .into_iter()
-        .filter_map(|tx| tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx))
-        .collect();
+    let mut to_update_cache = HashMap::new();
+    // if !retain.is_empty() {
+    //     for tx in retain {
+    //         let tx_size = tx.data().serialized_size_in_block();
+    //         if let Some((hash, entry)) =
+    //             tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx, callbacks)
+    //         {
+    //             to_update_cache.insert(hash, entry);
+    //         }
+    //     }
+    // }
 
-    for tx in &attached {
-        tx_pool.try_proposed_orphan_by_ancestor(tx);
-    }
+    // let to_update_cache = retain
+    //     .into_iter()
+    //     .filter_map(|tx| tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx))
+    //     .collect();
+
+    // for tx in &attached {
+    //     tx_pool.try_proposed_orphan_by_ancestor(tx);
+    // }
 
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
@@ -731,7 +748,7 @@ fn _update_tx_pool_for_reorg(
         }
     }
     removed.into_iter().for_each(|id| {
-        tx_pool.gap.remove_entry_and_descendants(&id);
+        tx_pool.gap.remove_entry(&id);
     });
 
     // try move pending to proposed
@@ -758,13 +775,11 @@ fn _update_tx_pool_for_reorg(
 
     for (cycles, entry) in entries {
         let tx_hash = entry.transaction.hash();
-        if let Err(e) =
-            tx_pool.proposed_tx_and_descendants(cycles, entry.size, entry.transaction.clone())
-        {
+        if let Err(e) = tx_pool.proposed_tx(cycles, entry.size, entry.transaction.clone()) {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
             callbacks.call_reject(tx_pool, entry, e.clone());
         } else {
-            callbacks.call_proposed(tx_pool, entry);
+            callbacks.call_proposed(tx_pool, entry, false);
         }
     }
 
