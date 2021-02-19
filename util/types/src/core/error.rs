@@ -12,7 +12,7 @@ pub enum OutPointError {
 
     /// There are cells which is unknown to the canonical chain.
     #[error("Unknown({0:?})")]
-    Unknown(Vec<OutPoint>),
+    Unknown(OutPoint),
 
     /// There is an input out-point or dependency out-point which references a newer cell in the same block.
     #[error("OutOfOrder({0:?})")]

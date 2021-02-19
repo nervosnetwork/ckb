@@ -497,14 +497,16 @@ impl TxPool {
                     }
                     Reject::Resolve(ref out_point_error) => {
                         match out_point_error {
-                            OutPointError::Unknown(out_points) => {
+                            OutPointError::Unknown(out_point) => {
                                 let snapshot = self.snapshot();
                                 // if resolved input is unknown, but we known tx, it's dead or invalid
-                                if !out_points
-                                    .iter()
-                                    .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
-                                {
-                                    self.add_orphan(cache_entry, size, tx, out_points.to_owned());
+                                if !snapshot.transaction_exists(&out_point.tx_hash()) {
+                                    self.add_orphan(
+                                        cache_entry,
+                                        size,
+                                        tx,
+                                        vec![out_point.to_owned()],
+                                    );
                                 }
                             }
 
