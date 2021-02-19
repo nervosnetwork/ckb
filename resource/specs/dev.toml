@@ -3,9 +3,7 @@ name = "ckb_dev"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 0 # {{
-# customize => timestamp = {genesis_timestamp}
-# }}
+timestamp = 0
 compact_target = 0x20010000
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
