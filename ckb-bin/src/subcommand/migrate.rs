@@ -15,6 +15,10 @@ pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> 
         }
     }
 
+    if !builder.migration_check() {
+        return Ok(());
+    }
+
     if !args.force {
         if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
             let input = prompt("\
