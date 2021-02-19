@@ -142,9 +142,9 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             )
             .take_while(|(key, _)| key.starts_with(prefix))
             .map(|(_key, value)| {
-                let reader =
-                    packed::TransactionViewReader::from_slice_should_be_ok(&value.as_ref());
-                reader.hash().to_entity()
+                packed::TransactionViewReader::new_unchecked(&value.as_ref())
+                    .hash()
+                    .to_entity()
             })
             .collect();
 
