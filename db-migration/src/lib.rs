@@ -43,7 +43,7 @@ impl Migrations {
             Some(version_bytes) => {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
-            None => return true,
+            None => return false,
         };
 
         self.migrations
