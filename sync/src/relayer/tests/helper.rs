@@ -1,5 +1,5 @@
 use crate::{Relayer, SyncShared};
-use ckb_chain::{chain::ChainService, switch::Switch};
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
@@ -22,6 +22,7 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     U256,
 };
+use ckb_verification_traits::Switch;
 use faketime::{self, unix_time_as_millis};
 use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 

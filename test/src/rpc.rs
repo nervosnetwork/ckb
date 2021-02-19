@@ -166,6 +166,12 @@ impl RpcClient {
             .expect("rpc call get_blockchain_info")
     }
 
+    pub fn get_block_median_time(&self, block_hash: Byte32) -> Option<Timestamp> {
+        self.inner
+            .get_block_median_time(block_hash.unpack())
+            .expect("rpc call get_block_median_time")
+    }
+
     pub fn send_transaction(&self, tx: Transaction) -> Byte32 {
         self.send_transaction_result(tx)
             .expect("rpc call send_transaction")
@@ -291,6 +297,7 @@ jsonrpc!(pub struct Inner {
     ) -> BlockTemplate;
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
     pub fn get_blockchain_info(&self) -> ChainInfo;
+    pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
     pub fn get_peers_state(&self) -> Vec<PeerState>;
     pub fn compute_transaction_hash(&self, tx: Transaction) -> H256;
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;

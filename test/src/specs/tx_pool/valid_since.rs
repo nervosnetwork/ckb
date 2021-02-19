@@ -5,8 +5,8 @@ use crate::utils::{
 };
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
+use ckb_logger::info;
 use ckb_types::core::BlockNumber;
-use log::info;
 use std::thread::sleep;
 use std::time::Duration;
 

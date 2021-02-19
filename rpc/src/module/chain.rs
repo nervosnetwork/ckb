@@ -2,12 +2,13 @@ use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockReward, BlockView, CellWithStatus, Consensus,
     EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
-    TransactionProof, TransactionWithStatus, Uint32,
+    Timestamp, TransactionProof, TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
     core::{self, cell::CellProvider},
     packed::{self, Block, Header},
@@ -1193,6 +1194,46 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "get_consensus")]
     fn get_consensus(&self) -> Result<Consensus>;
+
+    /// Returns the past median time by block hash.
+    ///
+    /// ## Params
+    ///
+    /// * `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
+    ///
+    /// ## Returns
+    ///
+    /// When the given block hash is not on the current canonical chain, this RPC returns null;
+    /// otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
+    ///
+    /// Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_block_median_time",
+    ///   "params": [
+    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x5cd2b105"
+    /// }
+    /// ```
+    #[rpc(name = "get_block_median_time")]
+    fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1660,5 +1701,16 @@ impl ChainRpc for ChainRpcImpl {
     fn get_consensus(&self) -> Result<Consensus> {
         let consensus = self.shared.consensus().clone();
         Ok(consensus.into())
+    }
+
+    fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {
+        let block_hash = block_hash.pack();
+        let snapshot = self.shared.snapshot();
+        if !snapshot.is_main_chain(&block_hash) {
+            return Ok(None);
+        }
+
+        let median_time = snapshot.block_median_time(&block_hash);
+        Ok(Some(median_time.into()))
     }
 }

@@ -47,6 +47,12 @@ dsn = "" # {{
 # interval = 600
 
 [db]
+# The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 128MB.
+# Rocksdb will automatically create and use an 8MB internal cache if you set this value to 0.
+# To turning off cache, you need to set this value to 0 and set `no_block_cache = true` in the options_file,
+# however, we strongly discourage this setting, it may lead to severe performance degradation.
+cache_size = 134217728
+
 # Provide an options file to tune RocksDB for your workload and your system configuration.
 # More details can be found in [the official tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide).
 options_file = "default.db-options"

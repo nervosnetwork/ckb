@@ -2,21 +2,35 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// TODO(doc): @doitian
+/// Database config options.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
-    /// TODO(doc): @doitian
+    /// Database directory path.
+    ///
+    /// By default, it is a subdirectory inside the data directory.
     #[serde(default)]
     pub path: PathBuf,
-    /// TODO(doc): @doitian
+    /// The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 128MB
+    #[serde(default)]
+    pub cache_size: Option<usize>,
+    /// Provide RocksDB options.
+    ///
+    /// More details can be found in [the official tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide).
     #[serde(default)]
     pub options: HashMap<String, String>,
-    /// TODO(doc): @doitian
+    /// Provide an options file to tune RocksDB for your workload and your system configuration.
+    ///
+    /// More details can be found in [the official tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide).
     pub options_file: Option<PathBuf>,
 }
 
 impl Config {
-    /// TODO(doc): @doitian
+    /// Canonicalizes paths in the config options.
+    ///
+    /// If `self.path` is not set, set it to `data_dir / name`.
+    ///
+    /// If `self.path` or `self.options_file` is relative, convert them to absolute path using
+    /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P, name: &str) {
         // If path is not set, use the default path
         if self.path.to_str().is_none() || self.path.to_str() == Some("") {

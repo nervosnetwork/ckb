@@ -1,4 +1,4 @@
-//! TODO(doc): @quake
+//! RocksDB wrapper base on OptimisticTransactionDB
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
@@ -24,14 +24,23 @@ pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
 }
 
+const DEFAULT_CACHE_SIZE: usize = 128 << 20;
+
 impl RocksDB {
     pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
         let cf_names: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
 
         let (mut opts, cf_descriptors) = if let Some(ref file) = config.options_file {
-            let mut full_opts = FullOptions::load_from_file(file, None, false).map_err(|err| {
-                internal_error(format!("failed to load the options file: {}", err))
-            })?;
+            let cache_size = match config.cache_size {
+                Some(0) => None,
+                Some(size) => Some(size),
+                None => Some(DEFAULT_CACHE_SIZE),
+            };
+
+            let mut full_opts =
+                FullOptions::load_from_file(file, cache_size, false).map_err(|err| {
+                    internal_error(format!("failed to load the options file: {}", err))
+                })?;
             let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
             full_opts
                 .complete_column_families(&cf_names_str, false)
@@ -116,12 +125,12 @@ impl RocksDB {
         })
     }
 
-    /// TODO(doc): @quake
+    /// Open a database with the given configuration and columns count.
     pub fn open(config: &DBConfig, columns: u32) -> Self {
         Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
-    /// TODO(doc): @quake
+    /// Open a temporary database with the default configuration and columns count.
     pub fn open_tmp(columns: u32) -> Self {
         let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
         let config = DBConfig {
@@ -131,18 +140,20 @@ impl RocksDB {
         Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
-    /// TODO(doc): @quake
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
+    /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.inner, col)?;
         self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
+    /// so as to avoid unnecessary memory copy.
     pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         self.inner.get_pinned(&key).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Insert a value into the database under the given key.
     pub fn put_default<K, V>(&self, key: K, value: V) -> Result<()>
     where
         K: AsRef<[u8]>,
@@ -151,7 +162,7 @@ impl RocksDB {
         self.inner.put(key, value).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Traverse database column with the given callback function.
     pub fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
@@ -179,7 +190,7 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Construct `RocksDBWriteBatch` with default option.
     pub fn new_write_batch(&self) -> RocksDBWriteBatch {
         RocksDBWriteBatch {
             db: Arc::clone(&self.inner),
@@ -187,12 +198,12 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Write batch into transaction db.
     pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
         self.inner.write(&batch.inner).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Return `RocksDBSnapshot`.
     pub fn get_snapshot(&self) -> RocksDBSnapshot {
         unsafe {
             let snapshot = ffi::rocksdb_create_snapshot(self.inner.base_db_ptr());
@@ -200,12 +211,12 @@ impl RocksDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Return rocksdb `OptimisticTransactionDB`.
     pub fn inner(&self) -> Arc<OptimisticTransactionDB> {
         Arc::clone(&self.inner)
     }
 
-    /// TODO(doc): @quake
+    /// Create a new column family for the database.
     pub fn create_cf(&mut self, col: Col) -> Result<()> {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
@@ -213,7 +224,7 @@ impl RocksDB {
         inner.create_cf(col, &opts).map_err(internal_error)
     }
 
-    /// TODO(doc): @quake
+    /// Delete column family.
     pub fn drop_cf(&mut self, col: Col) -> Result<()> {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
@@ -259,7 +270,7 @@ mod tests {
                 opts.insert("disable_auto_compactions".to_owned(), "true".to_owned());
                 opts
             },
-            options_file: None,
+            ..Default::default()
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -273,7 +284,7 @@ mod tests {
         let config = DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
             options: HashMap::new(),
-            options_file: None,
+            ..Default::default()
         };
         RocksDB::open(&config, 2); // no panic
     }
@@ -292,7 +303,7 @@ mod tests {
                 opts.insert("letsrock".to_owned(), "true".to_owned());
                 opts
             },
-            options_file: None,
+            ..Default::default()
         };
         RocksDB::open(&config, 2); // panic
     }

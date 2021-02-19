@@ -1,4 +1,4 @@
-//! TODO(doc): @quake
+//! RocksDB iterator wrapper base on DBIter
 use crate::db::cf_handle;
 use crate::{
     internal_error, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
@@ -8,18 +8,17 @@ use ckb_db_schema::Col;
 use rocksdb::{ops::IterateCF, ReadOptions};
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
 
-/// TODO(doc): @quake
-pub type DBIterItem = (Box<[u8]>, Box<[u8]>);
-
-/// TODO(doc): @quake
+/// An iterator over a column family, with specifiable ranges and direction.
 pub trait DBIterator {
-    /// TODO(doc): @quake
+    /// Opens an interator using the provided IteratorMode.
+    /// This is used when you want to iterate over a specific ColumnFamily
     fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIter> {
         let opts = ReadOptions::default();
         self.iter_opt(col, mode, &opts)
     }
 
-    /// TODO(doc): @quake
+    /// Opens an interator using the provided IteratorMode and ReadOptions.
+    /// This is used when you want to iterate over a specific ColumnFamily with a modified ReadOptions
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter>;
 }
 

@@ -33,6 +33,7 @@ serde_json = "1.0"
 num_cpus = "1.10"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.40.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.40.0-pre" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.40.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.40.0-pre" }
 ckb-util = { path = "../util", version = "= 0.40.0-pre" }
 faketime = "0.2.0"

@@ -1,6 +1,6 @@
 use crate::{
     errors::{PeerStoreError, Result},
-    network_group::{Group, NetworkGroup},
+    network_group::Group,
     peer_store::{
         addr_manager::AddrManager,
         ban_list::BanList,
@@ -234,9 +234,8 @@ impl PeerStore {
             // find candidate peers by network group
             let mut peers_by_network_group: HashMap<Group, Vec<_>> = HashMap::default();
             for addr in self.addr_manager.addrs_iter() {
-                let network_group = addr.addr.network_group();
                 peers_by_network_group
-                    .entry(network_group)
+                    .entry((&addr.addr).into())
                     .or_default()
                     .push(addr);
             }

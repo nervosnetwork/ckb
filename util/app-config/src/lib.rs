@@ -1,4 +1,4 @@
-//! TODO(doc): @doitian
+//! CKB command line arguments and config options.
 mod app_config;
 mod args;
 pub mod cli;
@@ -25,19 +25,21 @@ use std::{path::PathBuf, str::FromStr};
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 // const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
-/// TODO(doc): @doitian
+/// A struct including all the informations to start the ckb process.
 pub struct Setup {
-    /// TODO(doc): @doitian
+    /// Subcommand name.
+    ///
+    /// For example, this is set to `run` when ckb is executed with `ckb run`.
     pub subcommand_name: String,
-    /// TODO(doc): @doitian
+    /// The config file for the current subcommand.
     pub config: AppConfig,
-    /// TODO(doc): @doitian
+    /// Whether sentry is enabled.
     #[cfg(feature = "with_sentry")]
     pub is_sentry_enabled: bool,
 }
 
 impl Setup {
-    /// TODO(doc): @doitian
+    /// Boots the ckb process by parsing the command line arguments and loading the config file.
     pub fn from_matches<'m>(matches: &ArgMatches<'m>) -> Result<Setup, ExitCode> {
         let subcommand_name = match matches.subcommand_name() {
             Some(subcommand_name) => subcommand_name,
@@ -60,7 +62,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb run`.
     pub fn run<'m>(self, matches: &ArgMatches<'m>) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
@@ -88,6 +90,7 @@ impl Setup {
             consensus,
             block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
             skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
+            overwrite_chain_spec: matches.is_present(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
         })
     }
@@ -100,7 +103,7 @@ impl Setup {
         Ok(MigrateArgs { config, check })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb miner`.
     pub fn miner<'m>(self, matches: &ArgMatches<'m>) -> Result<MinerArgs, ExitCode> {
         let spec = self.chain_spec()?;
         let memory_tracker = self.config.memory_tracker().to_owned();
@@ -122,7 +125,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb replay`.
     pub fn replay<'m>(self, matches: &ArgMatches<'m>) -> Result<ReplayArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
@@ -146,7 +149,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb stats`.
     pub fn stats<'m>(self, matches: &ArgMatches<'m>) -> Result<StatsArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
@@ -162,7 +165,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb import`.
     pub fn import<'m>(self, matches: &ArgMatches<'m>) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
@@ -175,7 +178,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb export`.
     pub fn export<'m>(self, matches: &ArgMatches<'m>) -> Result<ExportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
@@ -188,7 +191,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb init`.
     pub fn init<'m>(matches: &ArgMatches<'m>) -> Result<InitArgs, ExitCode> {
         if matches.is_present("list-specs") {
             eprintln!(
@@ -277,7 +280,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Executes `ckb reset-data`.
     pub fn reset_data<'m>(self, matches: &ArgMatches<'m>) -> Result<ResetDataArgs, ExitCode> {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
@@ -313,7 +316,7 @@ impl Setup {
         })
     }
 
-    /// TODO(doc): @doitian
+    /// Resolves the root directory for ckb from the command line arguments.
     pub fn root_dir_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<PathBuf, ExitCode> {
         let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
             Some(arg_config_dir) => PathBuf::from(arg_config_dir),
@@ -323,6 +326,7 @@ impl Setup {
         Ok(config_dir)
     }
 
+    /// Loads the chain spec.
     #[cfg(feature = "with_sentry")]
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec();
@@ -343,7 +347,7 @@ impl Setup {
         self.config.chain_spec()
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the consensus.
     #[cfg(feature = "with_sentry")]
     pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         let result = consensus_from_spec(&self.chain_spec()?);
@@ -364,7 +368,7 @@ impl Setup {
         consensus_from_spec(&self.chain_spec()?)
     }
 
-    /// TODO(doc): @doitian
+    /// Gets the network peer id by reading the network secret key.
     pub fn peer_id<'m>(matches: &ArgMatches<'m>) -> Result<PeerIDArgs, ExitCode> {
         let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
         match read_secret_key(path.into()) {
@@ -376,7 +380,7 @@ impl Setup {
         }
     }
 
-    /// TODO(doc): @doitian
+    /// Generates the network secret key.
     pub fn gen<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
         let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
         configs::write_secret_to_file(&configs::generate_random_key(), path.into())
@@ -384,9 +388,9 @@ impl Setup {
     }
 }
 
-/// TODO(doc): @doitian
 // There are two types of errors,
 // parse failures and those where the argument wasn't present
+#[doc(hidden)]
 #[macro_export]
 macro_rules! option_value_t {
     ($m:ident, $v:expr, $t:ty) => {

@@ -1,8 +1,5 @@
+use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
-use crate::{
-    chain::{ChainService, ForkChanges},
-    switch::Switch,
-};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -12,6 +9,7 @@ use ckb_types::{
     prelude::Pack,
     U256,
 };
+use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::iter::FromIterator;

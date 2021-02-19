@@ -48,7 +48,8 @@ pub use self::sync::PeerState;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
-    BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, FeeRate, Timestamp, Version,
+    AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
+    FeeRate, Timestamp, Version,
 };
 pub use serde::{Deserialize, Serialize};
 

@@ -10,13 +10,9 @@ pub enum Group {
     IP6([u8; 4]),
 }
 
-pub trait NetworkGroup {
-    fn network_group(&self) -> Group;
-}
-
-impl NetworkGroup for Multiaddr {
-    fn network_group(&self) -> Group {
-        if let Ok(ip_addr) = self.extract_ip_addr().map(|ip_port| ip_port.ip) {
+impl From<&Multiaddr> for Group {
+    fn from(multiaddr: &Multiaddr) -> Group {
+        if let Ok(ip_addr) = multiaddr.extract_ip_addr().map(|ip_port| ip_port.ip) {
             if ip_addr.is_loopback() {
                 return Group::LocalNetwork;
             }

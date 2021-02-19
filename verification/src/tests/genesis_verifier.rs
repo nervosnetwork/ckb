@@ -1,7 +1,8 @@
-use crate::{genesis_verifier::GenesisVerifier, NumberError, UnknownParentError, Verifier};
+use crate::{genesis_verifier::GenesisVerifier, NumberError, UnknownParentError};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_types::prelude::*;
+use ckb_verification_traits::Verifier;
 
 #[test]
 pub fn test_genesis_non_zero_number() {

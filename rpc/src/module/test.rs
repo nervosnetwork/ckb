@@ -1,12 +1,13 @@
 use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_chain::{chain::ChainController, switch::Switch};
+use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, Cycle, JsonBytes, Script, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
+use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;

@@ -1,12 +1,12 @@
 use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
+use ckb_logger::info;
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
     packed::{GetHeaders, SyncMessage},
     prelude::*,
 };
-use log::info;
 
 pub struct MalformedMessage;
 

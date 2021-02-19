@@ -8,7 +8,7 @@ use crate::{
     TIME_TRACE_SIZE,
 };
 use ckb_app_config::SyncConfig;
-use ckb_chain::{chain::ChainController, switch::Switch};
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
@@ -27,6 +27,7 @@ use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
+use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::cmp;

@@ -1,4 +1,5 @@
 use crate::{Uint32, Uint64};
+use ckb_types::core::EpochNumberWithFraction as CkbEpochNumberWithFraction;
 
 /// Consecutive block number starting from 0.
 ///
@@ -50,3 +51,31 @@ pub type Timestamp = Uint64;
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 pub type Version = Uint32;
+
+/// This trait is a restriction for type `Uint64`, so we can only get epoch_number, epoch_index
+/// and epoch_length from the type `EpochNumberWithFraction` instead of all `Uint64`
+pub trait AsEpochNumberWithFraction {
+    /// Return the epoch number of current block
+    fn epoch_number(&self) -> u64;
+    /// Return the index in epoch of current block
+    fn epoch_index(&self) -> u64;
+    /// Return the epoch length of current block
+    fn epoch_length(&self) -> u64;
+}
+
+impl AsEpochNumberWithFraction for EpochNumberWithFraction {
+    fn epoch_number(&self) -> u64 {
+        (self.value() >> CkbEpochNumberWithFraction::NUMBER_OFFSET)
+            & CkbEpochNumberWithFraction::NUMBER_MASK
+    }
+
+    fn epoch_index(&self) -> u64 {
+        (self.value() >> CkbEpochNumberWithFraction::INDEX_OFFSET)
+            & CkbEpochNumberWithFraction::INDEX_MASK
+    }
+
+    fn epoch_length(&self) -> u64 {
+        (self.value() >> CkbEpochNumberWithFraction::LENGTH_OFFSET)
+            & CkbEpochNumberWithFraction::LENGTH_MASK
+    }
+}

@@ -1,10 +1,11 @@
 use ckb_app_config::{ExitCode, ReplayArgs};
 use ckb_async_runtime::Handle;
-use ckb_chain::{chain::ChainService, switch::Switch};
+use ckb_chain::chain::ChainService;
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
+use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {

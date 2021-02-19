@@ -1,9 +1,6 @@
 use super::super::contextual_block_verifier::{TwoPhaseCommitVerifier, VerifyContext};
 use crate::CommitError;
-use ckb_chain::{
-    chain::{ChainController, ChainService},
-    switch::Switch,
-};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -18,6 +15,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
 };
+use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 fn gen_block(

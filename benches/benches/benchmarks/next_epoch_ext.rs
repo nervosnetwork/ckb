@@ -9,7 +9,7 @@ use ckb_types::{
     prelude::*,
     utilities::DIFF_TWO,
 };
-use criterion::{criterion_group, Criterion};
+use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use faketime::unix_time_as_millis;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -75,73 +75,79 @@ fn gen_empty_block(parent: &HeaderView) -> BlockView {
 }
 
 fn bench(c: &mut Criterion) {
-    c.bench_function_over_inputs(
-        "next_epoch_ext",
-        |b, samples| {
-            b.iter_with_setup(
-                || {
-                    let now = unix_time_as_millis();
-                    let header = HeaderBuilder::default()
-                        .compact_target(GENESIS_TARGET.pack())
-                        .timestamp(now.pack())
-                        .build();
+    let mut group = c.benchmark_group("next_epoch_ext");
 
-                    let input = CellInput::new_cellbase_input(0);
-                    let witness = Script::default().into_witness();
-                    let cellbase = TransactionBuilder::default()
-                        .input(input)
-                        .witness(witness)
-                        .build();
-                    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
-                    let genesis_block = BlockBuilder::default()
-                        .compact_target(DIFF_TWO.pack())
-                        .dao(dao)
-                        .transaction(cellbase)
-                        .header(header)
-                        .build();
+    // benchmark processing 20 blocks on main branch
+    for samples in SAMPLES.iter() {
+        group.bench_with_input(
+            BenchmarkId::new("next_epoch_ext", samples),
+            samples,
+            |b, samples| {
+                b.iter_batched(
+                    || {
+                        let now = unix_time_as_millis();
+                        let header = HeaderBuilder::default()
+                            .compact_target(GENESIS_TARGET.pack())
+                            .timestamp(now.pack())
+                            .build();
 
-                    let mut parent = genesis_block.header();
-                    let epoch_ext = build_genesis_epoch_ext(
-                        DEFAULT_EPOCH_REWARD,
-                        DIFF_TWO,
-                        1000,
-                        14400,
-                        (1, 40),
-                    );
-                    let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)
-                        .initial_primary_epoch_reward(DEFAULT_EPOCH_REWARD)
-                        .build();
-                    let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
+                        let input = CellInput::new_cellbase_input(0);
+                        let witness = Script::default().into_witness();
+                        let cellbase = TransactionBuilder::default()
+                            .input(input)
+                            .witness(witness)
+                            .build();
+                        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
+                        let genesis_block = BlockBuilder::default()
+                            .compact_target(DIFF_TWO.pack())
+                            .dao(dao)
+                            .transaction(cellbase)
+                            .header(header)
+                            .build();
 
-                    let mut store = FakeStore::default();
-
-                    store.insert(genesis_block);
-                    for _ in 1..genesis_epoch_ext.length() {
-                        let block = gen_empty_block(&parent);
-                        parent = block.header();
-                        store.insert(block);
-                    }
-
-                    (consensus, genesis_epoch_ext, parent, store)
-                },
-                |(consensus, genesis_epoch_ext, parent, store)| {
-                    let get_block_header = |hash: &Byte32| store.get_block_header(hash);
-
-                    let total_uncles_count = |hash: &Byte32| store.total_uncles_count(hash);
-
-                    for _ in 0..=**samples {
-                        consensus.next_epoch_ext(
-                            &genesis_epoch_ext,
-                            &parent,
-                            get_block_header,
-                            total_uncles_count,
+                        let mut parent = genesis_block.header();
+                        let epoch_ext = build_genesis_epoch_ext(
+                            DEFAULT_EPOCH_REWARD,
+                            DIFF_TWO,
+                            1000,
+                            14400,
+                            (1, 40),
                         );
-                    }
-                },
-            )
-        },
-        SAMPLES,
-    );
+                        let consensus = ConsensusBuilder::new(genesis_block.clone(), epoch_ext)
+                            .initial_primary_epoch_reward(DEFAULT_EPOCH_REWARD)
+                            .build();
+                        let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
+
+                        let mut store = FakeStore::default();
+
+                        store.insert(genesis_block);
+                        for _ in 1..genesis_epoch_ext.length() {
+                            let block = gen_empty_block(&parent);
+                            parent = block.header();
+                            store.insert(block);
+                        }
+
+                        (consensus, genesis_epoch_ext, parent, store)
+                    },
+                    |(consensus, genesis_epoch_ext, parent, store)| {
+                        let get_block_header = |hash: &Byte32| store.get_block_header(hash);
+
+                        let total_uncles_count = |hash: &Byte32| store.total_uncles_count(hash);
+
+                        for _ in 0..=*samples {
+                            consensus.next_epoch_ext(
+                                &genesis_epoch_ext,
+                                &parent,
+                                get_block_header,
+                                total_uncles_count,
+                            );
+                        }
+                    },
+                    BatchSize::PerIteration,
+                )
+            },
+        );
+    }
 }
 
 criterion_group!(next_epoch_ext, bench);
