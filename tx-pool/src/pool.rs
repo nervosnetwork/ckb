@@ -292,16 +292,30 @@ impl TxPool {
             .cloned()
     }
 
-    pub(crate) fn remove_committed_txs_from_proposed<'a>(
+    pub(crate) fn remove_committed_txs<'a>(
         &mut self,
         txs: impl Iterator<Item = (&'a TransactionView, Vec<OutPoint>)>,
+        callbacks: &Callbacks,
     ) {
         for (tx, related_out_points) in txs {
             let hash = tx.hash();
             trace!("committed {}", hash);
-            for entry in self.proposed.remove_committed_tx(tx, &related_out_points) {
-                self.update_statics_for_remove_tx(entry.size, entry.cycles);
+            // try remove committed tx from proposed
+            if let Some(entry) = self.proposed.remove_committed_tx(tx, &related_out_points) {
+                callbacks.call_committed(self, entry)
+            } else {
+                // if committed tx is not in proposed, it may conflict
+                let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
+
+                for (entry, reject) in input_conflict {
+                    callbacks.call_reject(self, entry, reject);
+                }
+
+                for (entry, reject) in deps_consumed {
+                    callbacks.call_reject(self, entry, reject);
+                }
             }
+
             self.committed_txs_hash_cache
                 .put(tx.proposal_short_id(), hash.to_owned());
         }
@@ -405,23 +419,23 @@ impl TxPool {
     }
 
     // remove resolved tx from orphan pool
-    pub(crate) fn try_proposed_orphan_by_ancestor(&mut self, tx: &TransactionView) {
-        let entries = self.orphan.remove_by_ancestor(tx);
-        for entry in entries {
-            let tx_hash = entry.transaction.hash();
-            if self.contains_proposed(&entry.transaction.proposal_short_id()) {
-                let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
-                if ret.is_err() {
-                    trace!("proposed tx {} failed {:?}", tx_hash, ret);
-                }
-            } else {
-                let ret = self.pending_tx(entry.cache_entry, entry.size, entry.transaction);
-                if ret.is_err() {
-                    trace!("pending tx {} failed {:?}", tx_hash, ret);
-                }
-            }
-        }
-    }
+    // pub(crate) fn try_proposed_orphan_by_ancestor(&mut self, tx: &TransactionView) {
+    //     let entries = self.orphan.remove_by_ancestor(tx);
+    //     for entry in entries {
+    //         let tx_hash = entry.transaction.hash();
+    //         if self.contains_proposed(&entry.transaction.proposal_short_id()) {
+    //             let ret = self.proposed_tx(entry.cache_entry, entry.size, entry.transaction);
+    //             if ret.is_err() {
+    //                 trace!("proposed tx {} failed {:?}", tx_hash, ret);
+    //             }
+    //         } else {
+    //             let ret = self.pending_tx(entry.cache_entry, entry.size, entry.transaction);
+    //             if ret.is_err() {
+    //                 trace!("pending tx {} failed {:?}", tx_hash, ret);
+    //             }
+    //         }
+    //     }
+    // }
 
     pub(crate) fn calculate_transaction_fee(
         &self,
@@ -515,7 +529,6 @@ impl TxPool {
                         );
                     }
                 }
-                self.update_statics_for_remove_tx(size, cache_entry.map(|c| c.cycles).unwrap_or(0));
                 Err(reject)
             }
         }
@@ -611,54 +624,43 @@ impl TxPool {
         )
     }
 
-    pub(crate) fn proposed_tx_and_descendants(
-        &mut self,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-        tx: TransactionView,
-    ) -> Result<CacheEntry, Reject> {
-        self.proposed_tx(cache_entry, size, tx.clone())
-            .map(|cache_entry| {
-                self.try_proposed_orphan_by_ancestor(&tx);
-                cache_entry
-            })
-    }
+    // pub(crate) fn proposed_tx_and_descendants(
+    //     &mut self,
+    //     cache_entry: Option<CacheEntry>,
+    //     size: usize,
+    //     tx: TransactionView,
+    // ) -> Result<CacheEntry, Reject> {
+    //     self.proposed_tx(cache_entry, size, tx.clone())
+    //         .map(|cache_entry| {
+    //             self.try_proposed_orphan_by_ancestor(&tx);
+    //             cache_entry
+    //         })
+    // }
 
-    pub(crate) fn readd_dettached_tx(
-        &mut self,
-        snapshot: &Snapshot,
-        txs_verify_cache: &HashMap<Byte32, CacheEntry>,
-        tx: TransactionView,
-    ) -> Option<(Byte32, CacheEntry)> {
-        let mut ret = None;
-        let tx_hash = tx.hash();
-        let cache_entry = txs_verify_cache.get(&tx_hash).cloned();
-        let tx_short_id = tx.proposal_short_id();
-        let tx_size = tx.data().serialized_size_in_block();
-        if snapshot.proposals().contains_proposed(&tx_short_id) {
-            if let Ok(new_cache_entry) = self.proposed_tx_and_descendants(cache_entry, tx_size, tx)
-            {
-                if cache_entry.is_none() {
-                    ret = Some((tx_hash, new_cache_entry));
-                }
-                self.update_statics_for_add_tx(tx_size, new_cache_entry.cycles);
-            }
-        } else if snapshot.proposals().contains_gap(&tx_short_id) {
-            if let Ok(new_cache_entry) = self.gap_tx(cache_entry, tx_size, tx) {
-                if cache_entry.is_none() {
-                    ret = Some((tx_hash, new_cache_entry));
-                }
-                self.update_statics_for_add_tx(tx_size, cache_entry.map(|c| c.cycles).unwrap_or(0));
-            }
-        } else if let Ok(new_cache_entry) = self.pending_tx(cache_entry, tx_size, tx) {
-            if cache_entry.is_none() {
-                ret = Some((tx_hash, new_cache_entry));
-            }
-            self.update_statics_for_add_tx(tx_size, cache_entry.map(|c| c.cycles).unwrap_or(0));
-        }
+    // pub(crate) fn readd_dettached_tx(
+    //     &mut self,
+    //     snapshot: &Snapshot,
+    //     txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+    //     tx: TransactionView,
+    // ) -> Option<(Byte32, CacheEntry)> {
+    //     let tx_hash = tx.hash();
+    //     let cache_entry = txs_verify_cache.get(&tx_hash).cloned();
+    //     let tx_short_id = tx.proposal_short_id();
+    //     let tx_size = tx.data().serialized_size_in_block();
+    //     if snapshot.proposals().contains_proposed(&tx_short_id) {
+    //         if let Ok(new_cache_entry) = self.proposed_tx(cache_entry, tx_size, tx) {
+    //             return Some((tx_hash, new_cache_entry));
+    //         }
+    //     } else if snapshot.proposals().contains_gap(&tx_short_id) {
+    //         if let Ok(new_cache_entry) = self.gap_tx(cache_entry, tx_size, tx) {
+    //             return Some((tx_hash, new_cache_entry));
+    //         }
+    //     } else if let Ok(new_cache_entry) = self.pending_tx(cache_entry, tx_size, tx) {
+    //         return Some((tx_hash, new_cache_entry));
+    //     }
 
-        ret
-    }
+    //     None
+    // }
 
     /// Get to-be-proposal transactions that may be included in the next block.
     pub fn get_proposals(
