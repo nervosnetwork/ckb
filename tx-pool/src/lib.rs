@@ -8,6 +8,7 @@ pub mod error;
 pub mod pool;
 mod process;
 pub mod service;
+mod util;
 
 pub use component::entry::TxEntry;
 pub use pool::TxPool;

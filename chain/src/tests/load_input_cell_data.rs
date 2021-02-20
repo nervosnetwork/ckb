@@ -85,10 +85,10 @@ fn test_load_input_one_byte_cell() {
     let tx1 = create_load_input_one_byte_transaction(&tx0, 0);
 
     let tx_pool = shared.tx_pool_controller();
-    let ret = tx_pool.submit_txs(vec![tx0]).unwrap();
+    let ret = tx_pool.submit_tx(tx0).unwrap();
     assert!(ret.is_ok());
 
     // Permit tx-pool accept tx which calls syscall load_cell_data from input
-    let ret = tx_pool.submit_txs(vec![tx1]).unwrap();
+    let ret = tx_pool.submit_tx(tx1).unwrap();
     assert!(ret.is_ok());
 }

@@ -12,7 +12,7 @@ use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
-use std::hash::BuildHasher;
+use std::hash::{BuildHasher, Hash, Hasher};
 
 /// TODO(doc): @quake
 #[derive(Debug)]
@@ -197,7 +197,7 @@ impl CellStatus {
 }
 
 /// Transaction with resolved input cells.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq)]
 pub struct ResolvedTransaction {
     /// TODO(doc): @quake
     pub transaction: TransactionView,
@@ -209,7 +209,29 @@ pub struct ResolvedTransaction {
     pub resolved_dep_groups: Vec<CellMeta>,
 }
 
+impl Hash for ResolvedTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.transaction, state);
+    }
+}
+
+impl PartialEq for ResolvedTransaction {
+    fn eq(&self, other: &ResolvedTransaction) -> bool {
+        self.transaction == other.transaction
+    }
+}
+
 impl ResolvedTransaction {
+    /// Construct `ResolvedTransaction` from `TransactionView` without actually performing resolve
+    pub fn dummy_resolve(tx: TransactionView) -> Self {
+        ResolvedTransaction {
+            transaction: tx,
+            resolved_cell_deps: vec![],
+            resolved_inputs: vec![],
+            resolved_dep_groups: vec![],
+        }
+    }
+
     /// TODO(doc): @quake
     // cellbase will be resolved with empty input cells, we can use low cost check here:
     pub fn is_cellbase(&self) -> bool {
@@ -230,13 +252,11 @@ impl ResolvedTransaction {
     }
 
     /// TODO(doc): @quake
-    pub fn related_dep_out_points(&self) -> Vec<OutPoint> {
+    pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
         self.resolved_cell_deps
             .iter()
             .map(|d| &d.out_point)
             .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
-            .cloned()
-            .collect()
     }
 }
 

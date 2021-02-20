@@ -621,7 +621,7 @@ fn test_collision() {
 
     let parent = {
         let tx_pool = relayer.shared.shared().tx_pool_controller();
-        let entry = TxEntry::new(missing_tx, 0, Capacity::shannons(0), 0, vec![]);
+        let entry = TxEntry::dummy_resolve(missing_tx, 0, Capacity::shannons(0), 0);
         tx_pool
             .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();

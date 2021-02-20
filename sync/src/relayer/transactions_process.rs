@@ -1,10 +1,10 @@
 use crate::relayer::Relayer;
 use crate::{Status, StatusCode};
 use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
-use ckb_logger::debug_target;
+use ckb_logger::{debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
-    core::{Cycle, TransactionView},
+    core::{tx_pool::Reject, Cycle, TransactionView},
     packed,
     prelude::*,
 };
@@ -65,7 +65,7 @@ impl<'a> TransactionsProcess<'a> {
         // Insert tx_hash into `already_known`
         // Remove tx_hash from `inflight_transactions`
         {
-            shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()).collect());
+            shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
         }
 
         // Remove tx_hash from `tx_ask_for_set`
@@ -77,124 +77,37 @@ impl<'a> TransactionsProcess<'a> {
             }
         }
 
-        let mut notify_txs = Vec::with_capacity(txs.len());
-        let max_tx_verify_cycles = self.relayer.max_tx_verify_cycles;
-        let relay_cycles_vec: Vec<_> = txs
-            .into_iter()
-            .filter_map(|(tx, relay_cycles)| {
-                // skip txs which consume too much cycles
-                if relay_cycles > max_tx_verify_cycles {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "ignore tx {} which relay cycles({}) is large than max tx verify cycles {}",
-                        tx.hash(),
-                        relay_cycles,
-                        max_tx_verify_cycles
-                    );
-                    return None;
-                }
-                let tx_hash = tx.hash();
-                let tx_size = tx.data().serialized_size_in_block();
-                notify_txs.push(tx);
-                Some((tx_hash, relay_cycles, tx_size))
-            })
-            .collect();
-        if notify_txs.is_empty() {
-            return Status::ok();
-        }
+        let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
+        let relayer = self.relayer.clone();
         let nc = Arc::clone(&self.nc);
-        let peer_index = self.peer;
-        let shared = Arc::clone(self.relayer.shared());
-        let min_fee_rate = self.relayer.min_fee_rate;
-
-        let callback = Box::new(move |ret: Result<Vec<CacheEntry>, Error>| match ret {
-            Ok(cache_entry_vec) => {
-                for ((tx_hash, relay_cycles, tx_size), cache_entry) in relay_cycles_vec
-                    .into_iter()
-                    .zip(cache_entry_vec.into_iter())
-                {
-                    if relay_cycles == cache_entry.cycles {
-                        if cache_entry.fee < min_fee_rate.fee(tx_size) {
-                            debug_target!(
-                                crate::LOG_TARGET_RELAY,
-                                "peer {} relay tx lower than min fee rate {} shannons/KB. \
-                                 tx: {:?}  size {} fee {}",
-                                peer_index,
-                                min_fee_rate,
-                                tx_hash,
-                                tx_size,
-                                cache_entry.fee,
-                            );
-                            continue;
-                        }
-                        let mut cache = shared.state().tx_hashes();
-                        let entry = cache
-                            .entry(peer_index)
-                            .or_insert_with(LinkedHashSet::default);
-                        entry.insert(tx_hash);
-                    } else {
+        let peer = self.peer;
+        self.relayer.shared.shared().async_handle().spawn(
+            async move {
+                for (tx, declared_cycle) in txs {
+                    if declared_cycle > relayer.max_tx_verify_cycles {
                         debug_target!(
                             crate::LOG_TARGET_RELAY,
-                            "peer {} relay wrong cycles tx_hash: {} real cycles {} wrong cycles {}",
-                            peer_index,
-                            tx_hash,
-                            cache_entry.cycles,
-                            relay_cycles,
+                            "ignore tx {} which declared cycles({}) is large than max tx verify cycles {}",
+                            tx.hash(),
+                            declared_cycle,
+                            relayer.max_tx_verify_cycles
                         );
-
-                        nc.ban_peer(
-                            peer_index,
-                            DEFAULT_BAN_TIME,
-                            String::from("send us a transaction with wrong cycles"),
-                        );
-                        break;
+                        continue;
                     }
-                }
-            }
-            Err(err) => {
-                if is_malformed(&err) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "peer {} relay an invalid tx, error: {:?}",
-                        peer_index,
-                        err
-                    );
-                    #[cfg(feature = "with_sentry")]
-                    with_scope(
-                        |scope| scope.set_fingerprint(Some(&["ckb-sync", "relay-invalid-tx"])),
-                        || {
-                            capture_message(
-                                &format!(
-                                    "Ban peer {} for {} seconds, reason: \
-                                     relay invalid tx, error: {:?}",
-                                    peer_index,
-                                    DEFAULT_BAN_TIME.as_secs(),
-                                    err
-                                ),
-                                Level::Info,
-                            )
-                        },
-                    );
-                    nc.ban_peer(
-                        peer_index,
-                        DEFAULT_BAN_TIME,
-                        String::from("send us an invalid transaction"),
-                    );
-                } else {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "peer {} relay a conflict or missing input, error: {}",
-                        peer_index,
-                        err
-                    );
-                }
-            }
-        });
 
-        let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-        if let Err(err) = tx_pool.notify_txs(notify_txs, Some(callback)) {
-            return StatusCode::TxPool.with_context(format!("TxPool notify_txs error: {:?}", err));
-        }
+                    match tx_pool.async_submit_tx(tx.clone()).await {
+                        Ok(ret) => {
+                            if handle_submit_result(nc.as_ref(), &relayer, ret, declared_cycle, tx, peer).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            error!("TxPool submit_tx error: {:?}", err);
+                        }
+                    };
+                }
+            }
+        );
 
         Status::ok()
     }
@@ -202,18 +115,98 @@ impl<'a> TransactionsProcess<'a> {
 
 fn is_malformed(error: &Error) -> bool {
     match error.kind() {
-        ErrorKind::Transaction => error
-            .downcast_ref::<TransactionError>()
+        ErrorKind::SubmitTransaction => error
+            .downcast_ref::<Reject>()
             .expect("error kind checked")
             .is_malformed_tx(),
-        ErrorKind::Script => true,
-        ErrorKind::Internal => {
-            error
-                .downcast_ref::<InternalError>()
-                .expect("error kind checked")
-                .kind()
-                == InternalErrorKind::CapacityOverflow
-        }
         _ => false,
+    }
+}
+
+#[allow(unused_variables)]
+fn ban_malformed(nc: &(dyn CKBProtocolContext + Sync), error: &Error, peer: PeerIndex) {
+    #[cfg(feature = "with_sentry")]
+    with_scope(
+        |scope| scope.set_fingerprint(Some(&["ckb-sync", "relay-invalid-tx"])),
+        || {
+            capture_message(
+                &format!(
+                    "Ban peer {} for {} seconds, reason: \
+                     relay invalid tx, error: {:?}",
+                    peer,
+                    DEFAULT_BAN_TIME.as_secs(),
+                    error
+                ),
+                Level::Info,
+            )
+        },
+    );
+    nc.ban_peer(
+        peer,
+        DEFAULT_BAN_TIME,
+        String::from("send us an invalid transaction"),
+    );
+}
+
+async fn handle_submit_error(
+    nc: &(dyn CKBProtocolContext + Sync),
+    relayer: &Relayer,
+    error: &Error,
+    tx: TransactionView,
+    peer: PeerIndex,
+) -> Result<(), ()> {
+    error!(
+        "received tx {} submit error: {} peer: {}",
+        tx.hash(),
+        error,
+        peer
+    );
+    if is_malformed(error) {
+        ban_malformed(nc, error, peer);
+        return Err(());
+    }
+    Ok(())
+}
+
+fn broadcast_tx(relayer: &Relayer, tx_hash: packed::Byte32, peer: PeerIndex) {
+    let mut map = relayer.shared().state().tx_hashes();
+    let set = map.entry(peer).or_insert_with(LinkedHashSet::default);
+    set.insert(tx_hash);
+}
+
+async fn handle_submit_result(
+    nc: &(dyn CKBProtocolContext + Sync),
+    relayer: &Relayer,
+    ret: Result<CacheEntry, Error>,
+    declared_cycle: Cycle,
+    tx: TransactionView,
+    peer: PeerIndex,
+) -> Result<(), ()> {
+    let tx_hash = tx.hash();
+    match ret {
+        Ok(verified) => {
+            if declared_cycle == verified.cycles {
+                broadcast_tx(relayer, tx_hash, peer);
+                Ok(())
+            } else {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "peer {} relay wrong cycles tx_hash: {} verified cycles {} declared cycles {}",
+                    peer,
+                    tx_hash,
+                    verified.cycles,
+                    declared_cycle,
+                );
+
+                nc.ban_peer(
+                    peer,
+                    DEFAULT_BAN_TIME,
+                    String::from("send us a transaction with wrong cycles"),
+                );
+
+                Err(())
+            }
+        }
+        Err(err) => handle_submit_error(nc, relayer, &err, tx, peer).await,
     }
 }

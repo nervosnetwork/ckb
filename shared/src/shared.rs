@@ -126,7 +126,7 @@ impl Shared {
 
             // notify
             let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
+                transaction: entry.rtx.transaction,
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
@@ -144,7 +144,7 @@ impl Shared {
 
                 // notify
                 let notify_tx_entry = PoolTransactionEntry {
-                    transaction: entry.transaction,
+                    transaction: entry.rtx.transaction,
                     cycles: entry.cycles,
                     size: entry.size,
                     fee: entry.fee,
@@ -167,7 +167,7 @@ impl Shared {
 
                 // notify
                 let notify_tx_entry = PoolTransactionEntry {
-                    transaction: entry.transaction,
+                    transaction: entry.rtx.transaction,
                     cycles: entry.cycles,
                     size: entry.size,
                     fee: entry.fee,

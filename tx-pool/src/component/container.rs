@@ -166,20 +166,20 @@ impl SortedTxMap {
     }
 
     pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
-        let short_id = entry.transaction.proposal_short_id();
+        let short_id = entry.proposal_short_id();
 
         // find in pool parents
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
-            entry.transaction.inputs().len() + entry.transaction.cell_deps().len(),
+            entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
-        for input in entry.transaction.inputs() {
+        for input in entry.transaction().inputs() {
             let parent_hash = &input.previous_output().tx_hash();
             let id = ProposalShortId::from_tx_hash(&(parent_hash));
             if self.links.contains_key(&id) {
                 parents.insert(id);
             }
         }
-        for cell_dep in entry.transaction.cell_deps() {
+        for cell_dep in entry.transaction().cell_deps() {
             let id = ProposalShortId::from_tx_hash(&(cell_dep.out_point().tx_hash()));
             if self.links.contains_key(&id) {
                 parents.insert(id);
@@ -428,42 +428,38 @@ mod tests {
     #[test]
     fn test_sorted_tx_map_with_conflict_tx_hash() {
         let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
-        let tx1 = TxEntry::new(
+        let tx1 = TxEntry::dummy_resolve(
             TransactionBuilder::default().build(),
             100,
             Capacity::shannons(100),
             100,
-            Default::default(),
         );
-        let tx2 = TxEntry::new(
+        let tx2 = TxEntry::dummy_resolve(
             TransactionBuilder::default()
                 .witness(Bytes::new().pack())
                 .build(),
             200,
             Capacity::shannons(200),
             200,
-            Default::default(),
         );
-        assert_eq!(tx1.transaction.hash(), tx2.transaction.hash());
+        assert_eq!(tx1.transaction().hash(), tx2.transaction().hash());
         assert_ne!(
-            tx1.transaction.witness_hash(),
-            tx2.transaction.witness_hash()
+            tx1.transaction().witness_hash(),
+            tx2.transaction().witness_hash()
         );
         let ret = map.add_entry(tx1.clone()).unwrap();
         assert!(ret.is_none());
         // tx2 should replace tx1
         let ret = map.add_entry(tx2.clone()).unwrap().unwrap();
         assert_eq!(
-            ret.transaction.witness_hash(),
-            tx1.transaction.witness_hash()
+            ret.transaction().witness_hash(),
+            tx1.transaction().witness_hash()
         );
         // should return tx2
-        let ret = map
-            .remove_entry(&tx2.transaction.proposal_short_id())
-            .unwrap();
+        let ret = map.remove_entry(&tx2.proposal_short_id()).unwrap();
         assert_eq!(
-            ret.transaction.witness_hash(),
-            tx2.transaction.witness_hash()
+            ret.transaction().witness_hash(),
+            tx2.transaction().witness_hash()
         );
         // check consistency
         for key in map.keys_sorted_by_fee() {
@@ -474,20 +470,19 @@ mod tests {
     #[test]
     fn test_remove_entry_and_descendants() {
         let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
-        let tx1 = TxEntry::new(
+        let tx1 = TxEntry::dummy_resolve(
             TransactionBuilder::default().build(),
             100,
             Capacity::shannons(100),
             100,
-            Default::default(),
         );
-        let tx2 = TxEntry::new(
+        let tx2 = TxEntry::dummy_resolve(
             TransactionBuilder::default()
                 .input(
                     CellInput::new_builder()
                         .previous_output(
                             OutPoint::new_builder()
-                                .tx_hash(tx1.transaction.hash())
+                                .tx_hash(tx1.transaction().hash())
                                 .index(0u32.pack())
                                 .build(),
                         )
@@ -498,15 +493,14 @@ mod tests {
             200,
             Capacity::shannons(200),
             200,
-            Default::default(),
         );
-        let tx3 = TxEntry::new(
+        let tx3 = TxEntry::dummy_resolve(
             TransactionBuilder::default()
                 .input(
                     CellInput::new_builder()
                         .previous_output(
                             OutPoint::new_builder()
-                                .tx_hash(tx2.transaction.hash())
+                                .tx_hash(tx2.transaction().hash())
                                 .index(0u32.pack())
                                 .build(),
                         )
@@ -517,11 +511,10 @@ mod tests {
             200,
             Capacity::shannons(200),
             200,
-            Default::default(),
         );
-        let tx1_id = tx1.transaction.proposal_short_id();
-        let tx2_id = tx2.transaction.proposal_short_id();
-        let tx3_id = tx3.transaction.proposal_short_id();
+        let tx1_id = tx1.proposal_short_id();
+        let tx2_id = tx2.proposal_short_id();
+        let tx3_id = tx3.proposal_short_id();
         map.add_entry(tx1).unwrap();
         map.add_entry(tx2).unwrap();
         map.add_entry(tx3).unwrap();

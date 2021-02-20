@@ -101,7 +101,7 @@ fn test_reconstruct_transactions_and_uncles() {
     let entries = pool_transactions
         .iter()
         .cloned()
-        .map(|tx| TxEntry::new(tx, 0, Capacity::shannons(0), 0, vec![]))
+        .map(|tx| TxEntry::dummy_resolve(tx, 0, Capacity::shannons(0), 0))
         .collect();
     relayer
         .shared

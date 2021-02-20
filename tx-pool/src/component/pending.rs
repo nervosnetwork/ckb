@@ -44,7 +44,7 @@ impl PendingQueue {
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.inner.get(id).map(|x| &x.transaction)
+        self.inner.get(id).map(|entry| entry.transaction())
     }
 
     pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
@@ -109,8 +109,11 @@ impl PendingQueue {
 impl CellProvider for PendingQueue {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         let tx_hash = out_point.tx_hash();
-        if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
-            match x.transaction.output_with_data(out_point.index().unpack()) {
+        if let Some(entry) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
+            match entry
+                .transaction()
+                .output_with_data(out_point.index().unpack())
+            {
                 Some((output, data)) => {
                     let mut cell_meta = CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.to_owned())
@@ -168,28 +171,25 @@ mod tests {
 
         let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx1.clone(),
             MOCK_CYCLES,
             Capacity::shannons(100),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx2.clone(),
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx3.clone(),
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
 
@@ -227,36 +227,32 @@ mod tests {
 
         let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx1.clone(),
             MOCK_CYCLES,
             Capacity::shannons(100),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx2.clone(),
             MOCK_CYCLES,
             Capacity::shannons(300),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx3.clone(),
             MOCK_CYCLES,
             Capacity::shannons(200),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
-        pool.add_entry(TxEntry::new(
+        pool.add_entry(TxEntry::dummy_resolve(
             tx4.clone(),
             MOCK_CYCLES,
             Capacity::shannons(400),
             MOCK_SIZE,
-            vec![],
         ))
         .unwrap();
 
@@ -310,12 +306,11 @@ mod tests {
         let mut pool = PendingQueue::new(DEFAULT_MAX_ANCESTORS_SIZE);
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
-            pool.add_entry(TxEntry::new(
+            pool.add_entry(TxEntry::dummy_resolve(
                 tx.clone(),
                 MOCK_CYCLES,
                 Capacity::shannons(200),
                 MOCK_SIZE,
-                vec![],
             ))
             .unwrap();
         }

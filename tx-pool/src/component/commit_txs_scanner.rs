@@ -58,11 +58,11 @@ impl<'a> CommitTxsScanner<'a> {
                     cycles_limit,
                     size,
                     cycles,
-                    |tx| {
-                        let tx_id = tx.transaction.proposal_short_id();
+                    |entry| {
+                        let tx_id = entry.proposal_short_id();
                         !self.fetched_txs.contains(&tx_id)
                             && !self.modified_entries.contains_key(&tx_id)
-                            && tx.ancestors_fee >= min_fee_rate.fee(tx.ancestors_size)
+                            && entry.ancestors_fee >= min_fee_rate.fee(entry.ancestors_size)
                     },
                 );
                 self.modified_entries.with_sorted_by_score_iter(|iter| {
@@ -73,7 +73,7 @@ impl<'a> CommitTxsScanner<'a> {
                         cycles_limit,
                         size,
                         cycles,
-                        |tx| tx.ancestors_fee >= min_fee_rate.fee(tx.ancestors_size),
+                        |entry| entry.ancestors_fee >= min_fee_rate.fee(entry.ancestors_size),
                     );
                 });
                 // take tx with higher scores
@@ -85,13 +85,11 @@ impl<'a> CommitTxsScanner<'a> {
                         break;
                     }
                 };
-                debug_assert!(!self
-                    .fetched_txs
-                    .contains(&tx_entry.transaction.proposal_short_id()));
+                debug_assert!(!self.fetched_txs.contains(&tx_entry.proposal_short_id()));
                 // prepare to package tx with ancestors
                 let mut ancestors = self
                     .proposed_pool
-                    .get_ancestors(&tx_entry.transaction.proposal_short_id())
+                    .get_ancestors(&tx_entry.proposal_short_id())
                     .into_iter()
                     .filter_map(|short_id| {
                         if self.fetched_txs.contains(&short_id) {
@@ -132,7 +130,7 @@ impl<'a> CommitTxsScanner<'a> {
                 ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
                 // insert ancestors
                 for entry in ancestors {
-                    let short_id = entry.transaction.proposal_short_id();
+                    let short_id = entry.proposal_short_id();
                     // try remove from modified
                     self.modified_entries.remove(&short_id);
                     let is_inserted = self.fetched_txs.insert(short_id);
@@ -149,7 +147,7 @@ impl<'a> CommitTxsScanner<'a> {
     /// update weight for all descendants of packaged txs
     fn update_modified_entries(&mut self, new_fetched_txs: &HashSet<TxEntry>) {
         for ptx in new_fetched_txs {
-            let ptx_id = ptx.transaction.proposal_short_id();
+            let ptx_id = ptx.proposal_short_id();
             if self.fetched_txs.contains(&ptx_id) {
                 continue;
             }

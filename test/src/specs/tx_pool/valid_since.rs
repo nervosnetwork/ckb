@@ -41,7 +41,11 @@ impl ValidSince {
 
         // Failed to send transaction since SinceImmaturity
         for _ in 1..relative {
-            assert_send_transaction_fail(node, &transaction, "TransactionFailedToVerify: Immature");
+            assert_send_transaction_fail(
+                node,
+                &transaction,
+                "TransactionFailedToVerify: Verification failed Transaction(Immature(",
+            );
             mine(&node, 1);
         }
 
@@ -66,7 +70,11 @@ impl ValidSince {
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
         for _ in tip_number + 1..absolute {
-            assert_send_transaction_fail(node, &transaction, "TransactionFailedToVerify: Immature");
+            assert_send_transaction_fail(
+                node,
+                &transaction,
+                "TransactionFailedToVerify: Verification failed Transaction(Immature(",
+            );
             mine(&node, 1);
         }
 
@@ -110,7 +118,11 @@ impl ValidSince {
         {
             let since = since_from_relative_timestamp(median_time_seconds + 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
-            assert_send_transaction_fail(node, &transaction, "TransactionFailedToVerify: Immature");
+            assert_send_transaction_fail(
+                node,
+                &transaction,
+                "TransactionFailedToVerify: Verification failed Transaction(Immature(",
+            );
         }
         {
             let since = since_from_relative_timestamp(median_time_seconds - 1);
@@ -152,7 +164,11 @@ impl ValidSince {
         {
             let since = since_from_absolute_timestamp(median_time_seconds + 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
-            assert_send_transaction_fail(node, &transaction, "TransactionFailedToVerify: Immature");
+            assert_send_transaction_fail(
+                node,
+                &transaction,
+                "TransactionFailedToVerify: Verification failed Transaction(Immature(",
+            );
         }
         {
             let since = since_from_absolute_timestamp(median_time_seconds - 1);
@@ -179,7 +195,11 @@ impl ValidSince {
 
         (0..relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is Immature in block N + {}", i);
-            assert_send_transaction_fail(node, &tx, "TransactionFailedToVerify: Immature");
+            assert_send_transaction_fail(
+                node,
+                &tx,
+                "TransactionFailedToVerify: Verification failed Transaction(Immature(",
+            );
             mine(&node, 1);
         });
 
