@@ -62,8 +62,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxsResult = Result<Vec<CacheEntry>, Error>;
-type NotifyTxsCallback = Option<Box<dyn FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
+pub(crate) type SubmitTxResult = Result<CacheEntry, Error>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -78,8 +77,8 @@ pub(crate) type ChainReorgArgs = (
 
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitTxs(Request<Vec<TransactionView>, SubmitTxsResult>),
-    NotifyTxs(Notify<(Vec<TransactionView>, NotifyTxsCallback)>),
+    SubmitTx(Request<TransactionView, SubmitTxResult>),
+    NotifyTxs(Notify<Vec<TransactionView>>),
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
@@ -198,17 +197,32 @@ impl TxPoolController {
         })
     }
 
-    /// Submit local txs to tx-pool
-    pub fn submit_txs(&self, txs: Vec<TransactionView>) -> Result<SubmitTxsResult, AnyError> {
+    /// Submit local tx to tx-pool
+    pub fn submit_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
-        let request = Request::call(txs, responder);
-        sender.try_send(Message::SubmitTxs(request)).map_err(|e| {
+        let request = Request::call(tx, responder);
+        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
         self.handle
             .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Async submit local tx to tx-pool
+    pub async fn async_submit_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(tx, responder);
+        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
+        response
+            .await
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -229,13 +243,9 @@ impl TxPoolController {
     }
 
     /// Receive txs from network, try to add txs to tx-pool
-    pub fn notify_txs(
-        &self,
-        txs: Vec<TransactionView>,
-        callback: NotifyTxsCallback,
-    ) -> Result<(), AnyError> {
+    pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         let mut sender = self.sender.clone();
-        let notify = Notify::notify((txs, callback));
+        let notify = Notify::notify(txs);
         sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e.into()
@@ -545,22 +555,19 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send block_template_result failed {:?}", e);
             };
         }
-        Message::SubmitTxs(Request {
+        Message::SubmitTx(Request {
             responder,
-            arguments: txs,
+            arguments: tx,
         }) => {
-            let submit_txs_result = service.process_txs(txs).await;
-            if let Err(e) = responder.send(submit_txs_result) {
-                error!("responder send submit_txs_result failed {:?}", e);
+            let result = service.process_tx(tx, None).await;
+            if let Err(e) = responder.send(result.map_err(Into::into)) {
+                error!("responder send submit_tx result failed {:?}", e);
             };
         }
-        Message::NotifyTxs(Notify {
-            arguments: (txs, callback),
-        }) => {
-            let submit_txs_result = service.process_txs(txs).await;
-            if let Some(call) = callback {
-                call(submit_txs_result)
-            };
+        Message::NotifyTxs(Notify { arguments: txs }) => {
+            for tx in txs {
+                let _ret = service.process_tx(tx, None).await;
+            }
         }
         Message::FreshProposalsFilter(Request {
             responder,
@@ -580,8 +587,9 @@ async fn process(mut service: TxPoolService, message: Message) {
             let tx = tx_pool
                 .proposed()
                 .get(&id)
-                .map(|entry| (true, entry.transaction.clone()))
-                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)));
+                .map(|entry| (true, entry.transaction()))
+                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)))
+                .map(|(proposed, tx)| (proposed, tx.clone()));
             if let Err(e) = responder.send(tx) {
                 error!("responder send fetch_tx_for_rpc failed {:?}", e)
             };
@@ -615,7 +623,9 @@ async fn process(mut service: TxPoolService, message: Message) {
                 .filter_map(|short_id| {
                     tx_pool
                         .get_tx_with_cycles(&short_id)
-                        .and_then(|(tx, cycles)| cycles.map(|cycles| (short_id, (tx, cycles))))
+                        .and_then(|(tx, cycles)| {
+                            cycles.map(|cycles| (short_id, (tx.clone(), cycles)))
+                        })
                 })
                 .collect();
             if let Err(e) = responder.send(txs) {

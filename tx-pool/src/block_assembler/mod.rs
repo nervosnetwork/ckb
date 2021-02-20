@@ -112,16 +112,16 @@ impl BlockAssembler {
     }
 
     pub(crate) fn transform_tx(
-        tx: &TxEntry,
+        entry: &TxEntry,
         required: bool,
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash().unpack(),
+            hash: entry.transaction().hash().unpack(),
             required,
-            cycles: Some(tx.cycles.into()),
+            cycles: Some(entry.cycles.into()),
             depends: depends.map(|deps| deps.into_iter().map(|x| u64::from(x).into()).collect()),
-            data: tx.transaction.data().into(),
+            data: entry.transaction().data().into(),
         }
     }
 

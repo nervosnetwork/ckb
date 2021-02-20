@@ -30,16 +30,14 @@ use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
-use std::cmp;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
-use std::fmt;
 use std::hash::Hash;
-use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, fmt, iter, mem};
 
 mod header_map;
 
@@ -1576,14 +1574,17 @@ impl SyncState {
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
-        self.mark_as_known_txs(vec![hash]);
+        self.mark_as_known_txs(iter::once(hash));
     }
 
-    pub fn mark_as_known_txs(&self, hashes: Vec<Byte32>) {
+    // maybe someday we can use
+    // where T: Iterator<Item=Byte32>,
+    // for<'a> &'a T: Iterator<Item=&'a Byte32>,
+    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.iter() {
-                inflight_transactions.pop(hash);
+            for hash in hashes.clone() {
+                inflight_transactions.pop(&hash);
             }
         }
 
