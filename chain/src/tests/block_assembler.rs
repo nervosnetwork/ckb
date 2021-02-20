@@ -323,13 +323,13 @@ fn test_package_basic() {
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500, vec![]),
-        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100, vec![]),
+        TxEntry::dummy_resolve(tx1.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx2.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx3.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx4.clone(), 0, Capacity::shannons(1500), 500),
+        TxEntry::dummy_resolve(tx2_1.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_2.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_3.clone(), 0, Capacity::shannons(150), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -441,16 +441,16 @@ fn test_package_multi_best_scores() {
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(200), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(200), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(50), 50, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(1500), 500, vec![]),
-        TxEntry::new(tx2_1.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_2.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_3.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx2_4.clone(), 0, Capacity::shannons(150), 100, vec![]),
-        TxEntry::new(tx3_1.clone(), 0, Capacity::shannons(1000), 1000, vec![]),
-        TxEntry::new(tx4_1.clone(), 0, Capacity::shannons(300), 250, vec![]),
+        TxEntry::dummy_resolve(tx1.clone(), 0, Capacity::shannons(200), 100),
+        TxEntry::dummy_resolve(tx2.clone(), 0, Capacity::shannons(200), 100),
+        TxEntry::dummy_resolve(tx3.clone(), 0, Capacity::shannons(50), 50),
+        TxEntry::dummy_resolve(tx4.clone(), 0, Capacity::shannons(1500), 500),
+        TxEntry::dummy_resolve(tx2_1.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_2.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_3.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_4.clone(), 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx3_1.clone(), 0, Capacity::shannons(1000), 1000),
+        TxEntry::dummy_resolve(tx4_1.clone(), 0, Capacity::shannons(300), 250),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -534,11 +534,11 @@ fn test_package_low_fee_decendants() {
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
-        TxEntry::new(tx2.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx3.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx4.clone(), 0, Capacity::shannons(100), 100, vec![]),
-        TxEntry::new(tx5.clone(), 0, Capacity::shannons(100), 100, vec![]),
+        TxEntry::dummy_resolve(tx1.clone(), 0, Capacity::shannons(1000), 100),
+        TxEntry::dummy_resolve(tx2.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx3.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx4.clone(), 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx5.clone(), 0, Capacity::shannons(100), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
@@ -583,11 +583,11 @@ fn test_package_txs_lower_than_min_fee_rate() {
 
     let tx_pool = shared.tx_pool_controller();
     let entries = vec![
-        TxEntry::new(tx1.clone(), 0, Capacity::shannons(1000), 100, vec![]),
-        TxEntry::new(tx2, 0, Capacity::shannons(80), 100, vec![]),
-        TxEntry::new(tx3, 0, Capacity::shannons(50), 100, vec![]),
-        TxEntry::new(tx4, 0, Capacity::shannons(20), 100, vec![]),
-        TxEntry::new(tx5, 0, Capacity::shannons(0), 100, vec![]),
+        TxEntry::dummy_resolve(tx1.clone(), 0, Capacity::shannons(1000), 100),
+        TxEntry::dummy_resolve(tx2, 0, Capacity::shannons(80), 100),
+        TxEntry::dummy_resolve(tx3, 0, Capacity::shannons(50), 100),
+        TxEntry::dummy_resolve(tx4, 0, Capacity::shannons(20), 100),
+        TxEntry::dummy_resolve(tx5, 0, Capacity::shannons(0), 100),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 

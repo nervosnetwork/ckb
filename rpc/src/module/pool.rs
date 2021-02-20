@@ -274,10 +274,10 @@ impl PoolRpc for PoolRpcImpl {
         }
 
         let tx_pool = self.shared.tx_pool_controller();
-        let submit_txs = tx_pool.submit_txs(vec![tx.clone()]);
+        let submit_tx = tx_pool.submit_tx(tx.clone());
 
-        if let Err(e) = submit_txs {
-            error!("send submit_txs request error {}", e);
+        if let Err(e) = submit_tx {
+            error!("send submit_tx request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
 
@@ -292,7 +292,7 @@ impl PoolRpc for PoolRpcImpl {
                 .insert(tx_hash);
         };
         let tx_hash = tx.hash();
-        match submit_txs.unwrap() {
+        match submit_tx.unwrap() {
             Ok(_) => {
                 broadcast(tx_hash.clone());
                 Ok(tx_hash.unpack())
