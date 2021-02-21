@@ -40,6 +40,7 @@ where
     R: Reader<'r>,
 {
     fn from_slice_should_be_ok(slice: &'r [u8]) -> Self {
+        #[cfg(debug_assertions)]
         match Self::from_slice(slice) {
             Ok(ret) => ret,
             Err(err) => panic!(
@@ -48,6 +49,9 @@ where
                 hex_string(slice)
             ),
         }
+        #[cfg(not(debug_assertions))]
+        // we should view the the slice as infallible, trusted entity in release build, skip length and bounds check.
+        Self::new_unchecked(slice)
     }
 }
 
