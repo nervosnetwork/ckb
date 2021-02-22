@@ -27,10 +27,14 @@ pub struct CellMeta {
     pub out_point: OutPoint,
     pub transaction_info: Option<TransactionInfo>,
     pub data_bytes: u64,
-    /// In memory cell data and its hash
+    /// In memory cell data
     /// A live cell either exists in memory or DB
     /// must check DB if this field is None
-    pub mem_cell_data: Option<(Bytes, Byte32)>,
+    pub mem_cell_data: Option<Bytes>,
+    /// memory cell data hash
+    /// A live cell either exists in memory or DB
+    /// must check DB if this field is None
+    pub mem_cell_data_hash: Option<Byte32>,
 }
 
 #[derive(Default)]
@@ -39,7 +43,8 @@ pub struct CellMetaBuilder {
     out_point: OutPoint,
     transaction_info: Option<TransactionInfo>,
     data_bytes: u64,
-    mem_cell_data: Option<(Bytes, Byte32)>,
+    mem_cell_data: Option<Bytes>,
+    mem_cell_data_hash: Option<Byte32>,
 }
 
 impl CellMetaBuilder {
@@ -50,6 +55,7 @@ impl CellMetaBuilder {
             transaction_info,
             data_bytes,
             mem_cell_data,
+            mem_cell_data_hash,
         } = cell_meta;
         Self {
             cell_output,
@@ -57,6 +63,7 @@ impl CellMetaBuilder {
             transaction_info,
             data_bytes,
             mem_cell_data,
+            mem_cell_data_hash,
         }
     }
 
@@ -64,8 +71,8 @@ impl CellMetaBuilder {
         let mut builder = CellMetaBuilder::default();
         builder.cell_output = cell_output;
         builder.data_bytes = data.len().try_into().expect("u32");
-        let data_hash = CellOutput::calc_data_hash(&data);
-        builder.mem_cell_data = Some((data, data_hash));
+        builder.mem_cell_data_hash = Some(CellOutput::calc_data_hash(&data));
+        builder.mem_cell_data = Some(data);
         builder
     }
 
@@ -86,6 +93,7 @@ impl CellMetaBuilder {
             transaction_info,
             data_bytes,
             mem_cell_data,
+            mem_cell_data_hash,
         } = self;
         CellMeta {
             cell_output,
@@ -93,6 +101,7 @@ impl CellMetaBuilder {
             transaction_info,
             data_bytes,
             mem_cell_data,
+            mem_cell_data_hash,
         }
     }
 }
@@ -299,7 +308,8 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                             index: *i,
                         }),
                         data_bytes: data.len() as u64,
-                        mem_cell_data: Some((data, data_hash)),
+                        mem_cell_data: Some(data),
+                        mem_cell_data_hash: Some(data_hash), // make sure load_cell_data_hash works within block
                     })
                 })
             })
@@ -337,7 +347,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .raw_data();
                     let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
                     if !with_data {
-                        cell_meta.mem_cell_data = None;
+                        cell_meta.mem_cell_data_hash = None;
                     }
                     CellStatus::live_cell(cell_meta)
                 })
@@ -402,8 +412,7 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<CellMeta>, Error
     let data = dep_group_cell
         .mem_cell_data
         .clone()
-        .expect("Load cell meta must with data")
-        .0;
+        .expect("Load cell meta must with data");
 
     let sub_out_points = parse_dep_group_data(&data)
         .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
@@ -696,7 +705,8 @@ mod tests {
             cell_output,
             out_point,
             data_bytes: data.len() as u64,
-            mem_cell_data: Some((data, data_hash)),
+            mem_cell_data: Some(data),
+            mem_cell_data_hash: Some(data_hash),
         }
     }
 

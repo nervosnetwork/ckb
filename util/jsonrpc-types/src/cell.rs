@@ -41,11 +41,16 @@ pub struct CellData {
 
 impl From<CellMeta> for CellInfo {
     fn from(cell_meta: CellMeta) -> Self {
+        let data = cell_meta.mem_cell_data;
+        let data_hash = cell_meta.mem_cell_data_hash;
+        let output = cell_meta.cell_output.into();
         CellInfo {
-            output: cell_meta.cell_output.into(),
-            data: cell_meta.mem_cell_data.map(|(data, hash)| CellData {
-                content: JsonBytes::from_bytes(data),
-                hash: hash.unpack(),
+            output,
+            data: data.and_then(move |data| {
+                data_hash.map(|hash| CellData {
+                    content: JsonBytes::from_bytes(data),
+                    hash: hash.unpack(),
+                })
             }),
         }
     }

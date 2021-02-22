@@ -88,8 +88,10 @@ impl<'a> CellProvider for DryRunner<'a> {
             .get_cell_meta(&out_point.tx_hash(), out_point.index().unpack())
             .map(|mut cell_meta| {
                 if with_data {
-                    cell_meta.mem_cell_data = snapshot
-                        .get_cell_data(&out_point.tx_hash(), out_point.index().unpack());
+                    if let Some((data, data_hash)) = snapshot.get_cell_data(&out_point.tx_hash(), out_point.index().unpack()) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
                 }
                 CellStatus::live_cell(cell_meta)
             })  // treat as live cell, regardless of live or dead
