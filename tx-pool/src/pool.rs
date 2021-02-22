@@ -196,18 +196,6 @@ impl TxPool {
         self.proposed.add_entry(entry).map(|entry| entry.is_none())
     }
 
-    // pub(crate) fn add_orphan(
-    //     &mut self,
-    //     cache_entry: Option<CacheEntry>,
-    //     size: usize,
-    //     tx: TransactionView,
-    //     unknowns: Vec<OutPoint>,
-    // ) -> Option<DefectEntry> {
-    //     trace!("add_orphan {}", &tx.hash());
-    //     self.orphan
-    //         .add_tx(cache_entry, size, tx, unknowns.into_iter())
-    // }
-
     pub(crate) fn touch_last_txs_updated_at(&self) {
         self.last_txs_updated_at
             .store(unix_time_as_millis(), Ordering::SeqCst);
@@ -243,11 +231,6 @@ impl TxPool {
                     .get(id)
                     .map(|entry| (entry.transaction(), Some(entry.cycles)))
             })
-        // .or_else(|| {
-        //     self.orphan
-        //         .get(id)
-        //         .map(|entry| (entry.transaction(), entry.cache_entry.map(|c| c.cycles)))
-        // })
     }
 
     /// Returns tx corresponding to the id.
@@ -429,44 +412,6 @@ impl TxPool {
             Err(Reject::Duplicated(tx_hash))
         }
     }
-
-    // pub(crate) fn proposed_tx_and_descendants(
-    //     &mut self,
-    //     cache_entry: Option<CacheEntry>,
-    //     size: usize,
-    //     tx: TransactionView,
-    // ) -> Result<CacheEntry, Reject> {
-    //     self.proposed_tx(cache_entry, size, tx.clone())
-    //         .map(|cache_entry| {
-    //             self.try_proposed_orphan_by_ancestor(&tx);
-    //             cache_entry
-    //         })
-    // }
-
-    // pub(crate) fn readd_dettached_tx(
-    //     &mut self,
-    //     snapshot: &Snapshot,
-    //     txs_verify_cache: &HashMap<Byte32, CacheEntry>,
-    //     tx: TransactionView,
-    // ) -> Option<(Byte32, CacheEntry)> {
-    //     let tx_hash = tx.hash();
-    //     let cache_entry = txs_verify_cache.get(&tx_hash).cloned();
-    //     let tx_short_id = tx.proposal_short_id();
-    //     let tx_size = tx.data().serialized_size_in_block();
-    //     if snapshot.proposals().contains_proposed(&tx_short_id) {
-    //         if let Ok(new_cache_entry) = self.proposed_tx(cache_entry, tx_size, tx) {
-    //             return Some((tx_hash, new_cache_entry));
-    //         }
-    //     } else if snapshot.proposals().contains_gap(&tx_short_id) {
-    //         if let Ok(new_cache_entry) = self.gap_tx(cache_entry, tx_size, tx) {
-    //             return Some((tx_hash, new_cache_entry));
-    //         }
-    //     } else if let Ok(new_cache_entry) = self.pending_tx(cache_entry, tx_size, tx) {
-    //         return Some((tx_hash, new_cache_entry));
-    //     }
-
-    //     None
-    // }
 
     /// Get to-be-proposal transactions that may be included in the next block.
     pub fn get_proposals(

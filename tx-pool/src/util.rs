@@ -10,6 +10,7 @@ use ckb_verification::{
     cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier,
 };
+use tokio::task::block_in_place;
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
@@ -97,17 +98,20 @@ pub(crate) fn verify_rtx(
         .map(|_| (rtx, cached))
         .map_err(Reject::Verification)
     } else {
-        ContextualTransactionVerifier::new(
-            &rtx,
-            snapshot,
-            tip_number + 1,
-            epoch,
-            tip_header.hash(),
-            consensus,
-            snapshot,
-        )
-        .verify(max_tx_verify_cycles, false)
-        .map(|cache_entry| (rtx, cache_entry))
-        .map_err(Reject::Verification)
+        // block: script verify
+        block_in_place(|| {
+            ContextualTransactionVerifier::new(
+                &rtx,
+                snapshot,
+                tip_number + 1,
+                epoch,
+                tip_header.hash(),
+                consensus,
+                snapshot,
+            )
+            .verify(max_tx_verify_cycles, false)
+            .map(|cache_entry| (rtx, cache_entry))
+            .map_err(Reject::Verification)
+        })
     }
 }

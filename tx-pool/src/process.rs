@@ -203,25 +203,28 @@ impl TxPoolService {
 
         let mut template_txs = Vec::with_capacity(entries.len());
 
-        let rtxs: Vec<_> = entries_iter.enumerate().filter_map(|(index, entry)| {
-            resolve_transaction(
-                entry.transaction().clone(),
-                &mut seen_inputs,
-                &overlay_cell_provider,
-                snapshot,
-            ).map_err(|err| {
-                error!(
-                    "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
-                    tip_header.number(), tip_hash, err
-                );
-                err
-            }).map(|rtx| {
-                if index != 0 {
-                    template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
-                }
-                rtx
-            }).ok()
-        }).collect();
+        // block: resolve_transaction
+        let rtxs: Vec<_> = block_in_place(|| {
+            entries_iter.enumerate().filter_map(|(index, entry)| {
+                resolve_transaction(
+                    entry.transaction().clone(),
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    snapshot,
+                ).map_err(|err| {
+                    error!(
+                        "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
+                        tip_header.number(), tip_hash, err
+                    );
+                    err
+                }).map(|rtx| {
+                    if index != 0 {
+                        template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
+                    }
+                    rtx
+                }).ok()
+            }).collect()
+        });
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
@@ -309,9 +312,8 @@ impl TxPoolService {
                 return Ok(cache);
             }
 
-            let cellbase = block_in_place(|| {
-                self.build_block_template_cellbase(&snapshot, &block_assembler.config)
-            })?;
+            let cellbase =
+                self.build_block_template_cellbase(&snapshot, &block_assembler.config)?;
 
             let (uncles, current_epoch, uncles_updated_at) = self
                 .prepare_block_template_uncles(&snapshot, &block_assembler)
@@ -329,19 +331,17 @@ impl TxPoolService {
 
             let work_id = block_assembler.work_id.fetch_add(1, Ordering::SeqCst);
 
-            let block_template = block_in_place(|| {
-                self.build_block_template(
-                    &snapshot,
-                    entries,
-                    proposals,
-                    cellbase,
-                    work_id,
-                    current_epoch,
-                    uncles,
-                    bytes_limit,
-                    version,
-                )
-            })?;
+            let block_template = self.build_block_template(
+                &snapshot,
+                entries,
+                proposals,
+                cellbase,
+                work_id,
+                current_epoch,
+                uncles,
+                bytes_limit,
+                version,
+            )?;
 
             self.update_block_template_cache(
                 &block_assembler,
@@ -359,6 +359,18 @@ impl TxPoolService {
     async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
         guard.peek(hash).cloned()
+    }
+
+    async fn fetch_txs_verify_cache(
+        &self,
+        txs: impl Iterator<Item = &TransactionView>,
+    ) -> HashMap<Byte32, CacheEntry> {
+        let guard = self.txs_verify_cache.read().await;
+        txs.filter_map(|tx| {
+            let hash = tx.hash();
+            guard.peek(&hash).cloned().map(|value| (hash, value))
+        })
+        .collect()
     }
 
     async fn submit_entry(
@@ -380,22 +392,7 @@ impl TxPoolService {
             status = new_status;
         }
 
-        match status {
-            TxStatus::Fresh => {
-                tx_pool.add_pending(entry.clone())?;
-                self.callbacks.call_pending(&mut tx_pool, entry);
-            }
-            TxStatus::Gap => {
-                tx_pool.add_gap(entry.clone())?;
-                self.callbacks.call_pending(&mut tx_pool, entry);
-            }
-            TxStatus::Proposed => {
-                tx_pool.add_proposed(entry.clone())?;
-                self.callbacks.call_proposed(&mut tx_pool, entry, true);
-            }
-        }
-
-        Ok(())
+        _submit_entry(&mut tx_pool, status, entry, &self.callbacks)
     }
 
     async fn pre_check(&self, tx: TransactionView) -> Result<PreCheckedTx, Reject> {
@@ -434,8 +431,7 @@ impl TxPoolService {
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = max_cycles.unwrap_or(self.tx_pool_config.max_tx_verify_cycles);
-        let (rtx, verified) =
-            block_in_place(|| verify_rtx(&snapshot, rtx, verify_cache, max_cycles))?;
+        let (rtx, verified) = verify_rtx(&snapshot, rtx, verify_cache, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -460,25 +456,54 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
-        let mut detached_txs = HashSet::new();
-        let mut attached_txs = HashSet::new();
-        for blk in &detached_blocks {
-            detached_txs.extend(blk.transactions().iter().skip(1).cloned())
+        let mut detached = LinkedHashSet::default();
+        let mut attached = LinkedHashSet::default();
+
+        for blk in detached_blocks {
+            detached.extend(blk.transactions().into_iter().skip(1))
         }
-        for blk in &attached_blocks {
-            attached_txs.extend(blk.transactions().iter().skip(1).cloned())
+
+        for blk in attached_blocks {
+            attached.extend(blk.transactions().into_iter().skip(1));
         }
+        let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
+
+        let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
+
         let mut tx_pool = self.tx_pool.write().await;
-        block_in_place(|| {
-            _update_tx_pool_for_reorg(
-                &mut tx_pool,
-                detached_blocks,
-                attached_blocks,
-                detached_proposal_id,
-                snapshot,
-                &self.callbacks,
-            )
-        });
+        _update_tx_pool_for_reorg(
+            &mut tx_pool,
+            attached,
+            detached_proposal_id,
+            snapshot,
+            &self.callbacks,
+        );
+
+        self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache)
+    }
+
+    fn readd_dettached_tx(
+        &self,
+        tx_pool: &mut TxPool,
+        txs: Vec<TransactionView>,
+        fetched_cache: HashMap<Byte32, CacheEntry>,
+    ) {
+        let max_cycles = self.tx_pool_config.max_tx_verify_cycles;
+        for tx in txs {
+            let tx_size = tx.data().serialized_size_in_block();
+            let tx_hash = tx.hash();
+            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
+                if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
+                    let verify_cache = fetched_cache.get(&tx_hash).cloned();
+                    if let Ok((rtx, verified)) =
+                        verify_rtx(tx_pool.snapshot(), rtx, verify_cache, max_cycles)
+                    {
+                        let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
+                        _submit_entry(tx_pool, status, entry, &self.callbacks);
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) async fn clear_pool(&self, new_snapshot: Arc<Snapshot>) {
@@ -518,27 +543,37 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
     }
 }
 
+fn _submit_entry(
+    tx_pool: &mut TxPool,
+    status: TxStatus,
+    entry: TxEntry,
+    callbacks: &Callbacks,
+) -> Result<(), Reject> {
+    match status {
+        TxStatus::Fresh => {
+            tx_pool.add_pending(entry.clone())?;
+            callbacks.call_pending(tx_pool, entry);
+        }
+        TxStatus::Gap => {
+            tx_pool.add_gap(entry.clone())?;
+            callbacks.call_pending(tx_pool, entry);
+        }
+        TxStatus::Proposed => {
+            tx_pool.add_proposed(entry.clone())?;
+            callbacks.call_proposed(tx_pool, entry, true);
+        }
+    }
+    Ok(())
+}
+
 fn _update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
-    detached_blocks: VecDeque<BlockView>,
-    attached_blocks: VecDeque<BlockView>,
+    attached: LinkedHashSet<TransactionView>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
-    let mut detached = LinkedHashSet::default();
-    let mut attached = LinkedHashSet::default();
-
-    for blk in detached_blocks {
-        detached.extend(blk.transactions().iter().skip(1).cloned())
-    }
-
-    for blk in attached_blocks {
-        attached.extend(blk.transactions().iter().skip(1).cloned());
-    }
-
-    let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
     let txs_iter = attached.iter().map(|tx| {
         let get_cell_data = |out_point: &OutPoint| {
@@ -557,27 +592,6 @@ fn _update_tx_pool_for_reorg(
     // that involves `remove_committed_txs` before `remove_expired`.
     tx_pool.remove_committed_txs(txs_iter, callbacks);
     tx_pool.remove_expired(detached_proposal_id.iter(), callbacks);
-
-    // let mut to_update_cache = HashMap::new();
-    // if !retain.is_empty() {
-    //     for tx in retain {
-    //         let tx_size = tx.data().serialized_size_in_block();
-    //         if let Some((hash, entry)) =
-    //             tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx, callbacks)
-    //         {
-    //             to_update_cache.insert(hash, entry);
-    //         }
-    //     }
-    // }
-
-    // let to_update_cache = retain
-    //     .into_iter()
-    //     .filter_map(|tx| tx_pool.readd_dettached_tx(&snapshot, txs_verify_cache, tx))
-    //     .collect();
-
-    // for tx in &attached {
-    //     tx_pool.try_proposed_orphan_by_ancestor(tx);
-    // }
 
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
