@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain"
-version = "0.38.1"
+version = "0.38.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,26 +9,26 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.38.1" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.38.1" }
-ckb-types = { path = "../util/types", version = "= 0.38.1" }
-ckb-shared = { path = "../shared", version = "= 0.38.1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.38.1" }
-ckb-store = { path = "../store", version = "= 0.38.1" }
-ckb-verification = { path = "../verification", version = "= 0.38.1" }
+ckb-logger = { path = "../util/logger", version = "= 0.38.2" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.38.2" }
+ckb-types = { path = "../util/types", version = "= 0.38.2" }
+ckb-shared = { path = "../shared", version = "= 0.38.2" }
+ckb-chain-spec = { path = "../spec", version = "= 0.38.2" }
+ckb-store = { path = "../store", version = "= 0.38.2" }
+ckb-verification = { path = "../verification", version = "= 0.38.2" }
 faketime = "0.2.0"
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.1" }
-ckb-dao = { path = "../util/dao", version = "= 0.38.1" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.38.1" }
-ckb-error = { path = "../error", version = "= 0.38.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.38.1" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.38.2" }
+ckb-dao = { path = "../util/dao", version = "= 0.38.2" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.38.2" }
+ckb-error = { path = "../error", version = "= 0.38.2" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.38.2" }
 bitflags = "1.0"
-ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.38.1" }
-ckb-channel = { path = "../util/channel", version = "= 0.38.1" }
+ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.38.2" }
+ckb-channel = { path = "../util/channel", version = "= 0.38.2" }
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.1" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.1" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.1" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.38.1" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.38.2" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.38.2" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.38.2" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.38.2" }
 lazy_static = "1.4"
