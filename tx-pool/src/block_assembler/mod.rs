@@ -23,6 +23,7 @@ use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Mutex;
+use tokio::task::block_in_place;
 
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
@@ -165,8 +166,9 @@ impl BlockAssembler {
         let candidate_number = tip.number() + 1;
 
         let tx = {
-            let (target_lock, block_reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
-                .block_reward_to_finalize(tip)?;
+            let (target_lock, block_reward) = block_in_place(|| {
+                RewardCalculator::new(snapshot.consensus(), snapshot).block_reward_to_finalize(tip)
+            })?;
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
                 .capacity(block_reward.total.pack())
