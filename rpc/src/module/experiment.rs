@@ -331,7 +331,10 @@ impl<'a> CellProvider for DryRunner<'a> {
             .get_cell(out_point)
             .map(|mut cell_meta| {
                 if with_data {
-                    cell_meta.mem_cell_data = snapshot.get_cell_data(out_point);
+                    if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
                 }
                 CellStatus::live_cell(cell_meta)
             })  // treat as live cell, regardless of live or dead
