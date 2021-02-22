@@ -1,6 +1,6 @@
 [package]
 name = "ckb-wasm-test"
-version = "0.35.1"
+version = "0.35.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
