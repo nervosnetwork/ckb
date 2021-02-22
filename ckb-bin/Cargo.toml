@@ -13,7 +13,6 @@ toml = "0.5"
 crossbeam-channel = "0.3"
 ckb-app-config = { path = "../util/app-config" }
 ckb-logger = { path = "../util/logger" }
-ckb-logger-service = { path = "../util/logger-service" }
 ckb-util = { path = "../util" }
 ckb-types = { path = "../util/types" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
