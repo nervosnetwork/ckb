@@ -74,30 +74,6 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         Ok(Capacity::shannons(reward))
     }
 
-    /// Returns the sum of primary block reward and secondary block reward for `target` block.
-    ///
-    /// Notice unlike primary_block_reward and secondary_epoch_reward above,
-    /// this starts calculating from parent, not target header.
-    ///
-    /// NOTE: Used for testing only!
-    #[doc(hidden)]
-    pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, Error> {
-        let target_number = self
-            .consensus
-            .finalize_target(parent.number() + 1)
-            .ok_or(DaoError::InvalidHeader)?;
-        let target = self
-            .store
-            .get_block_hash(target_number)
-            .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or(DaoError::InvalidHeader)?;
-
-        let primary_block_reward = self.primary_block_reward(&target)?;
-        let secondary_block_reward = self.secondary_block_reward(&target)?;
-
-        Ok(primary_block_reward.safe_add(secondary_block_reward)?)
-    }
-
     /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
     ///
     /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
