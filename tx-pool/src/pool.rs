@@ -15,7 +15,7 @@ use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction},
+        cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
         error::OutPointError,
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Capacity, Cycle, TransactionView,
@@ -339,6 +339,20 @@ impl TxPool {
         .map_err(Reject::Resolve)
     }
 
+    pub(crate) fn check_rtx_from_pending_and_proposed(
+        &self,
+        rtx: &ResolvedTransaction,
+    ) -> Result<(), Reject> {
+        let snapshot = self.snapshot();
+        let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
+        let gap_and_proposed_checker = OverlayCellChecker::new(&self.gap, &proposed_checker);
+        let pending_and_proposed_checker =
+            OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
+
+        rtx.check(&pending_and_proposed_checker, snapshot)
+            .map_err(Reject::Resolve)
+    }
+
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
@@ -349,19 +363,23 @@ impl TxPool {
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
     }
 
-    pub(crate) fn gap_tx(
+    pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
+        let snapshot = self.snapshot();
+        let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
+        rtx.check(&cell_checker, snapshot).map_err(Reject::Resolve)
+    }
+
+    pub(crate) fn gap_rtx(
         &mut self,
         cache_entry: Option<CacheEntry>,
         size: usize,
-        tx: TransactionView,
+        rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        let (rtx, verified) = self
-            .resolve_tx_from_pending_and_proposed(tx)
-            .and_then(|rtx| {
-                let snapshot = self.snapshot();
-                let max_cycles = snapshot.consensus().max_block_cycles();
-                verify_rtx(snapshot, rtx, cache_entry, max_cycles)
-            })?;
+        self.check_rtx_from_pending_and_proposed(&rtx)?;
+        let snapshot = self.snapshot();
+        let max_cycles = snapshot.consensus().max_block_cycles();
+        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry)? {
@@ -371,42 +389,20 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn proposed_tx(
+    pub(crate) fn proposed_rtx(
         &mut self,
         cache_entry: Option<CacheEntry>,
         size: usize,
-        tx: TransactionView,
+        rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        let (rtx, verified) = self.resolve_tx_from_proposed(tx.clone()).and_then(|rtx| {
-            let snapshot = self.snapshot();
-            let max_cycles = snapshot.consensus().max_block_cycles();
-            verify_rtx(snapshot, rtx, cache_entry, max_cycles)
-        })?;
+        self.check_rtx_from_proposed(&rtx)?;
+        let snapshot = self.snapshot();
+        let max_cycles = snapshot.consensus().max_block_cycles();
+        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
-            Ok(verified)
-        } else {
-            Err(Reject::Duplicated(tx_hash))
-        }
-    }
-
-    fn pending_tx(
-        &mut self,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-        tx: TransactionView,
-    ) -> Result<CacheEntry, Reject> {
-        let (rtx, verified) = self
-            .resolve_tx_from_pending_and_proposed(tx.clone())
-            .and_then(|rtx| {
-                let snapshot = self.snapshot();
-                let max_cycles = snapshot.consensus().max_block_cycles();
-                verify_rtx(snapshot, rtx, cache_entry, max_cycles)
-            })?;
-        let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
-        let tx_hash = entry.transaction().hash();
-        if self.add_pending(entry)? {
             Ok(verified)
         } else {
             Err(Reject::Duplicated(tx_hash))
