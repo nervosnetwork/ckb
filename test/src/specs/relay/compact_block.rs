@@ -1,27 +1,24 @@
 use crate::node::waiting_for_sync;
 use crate::util::cell::gen_spendable;
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::check::is_transaction_committed;
+use crate::util::mining::{mine, mine_until_bool, out_ibd_mode};
 use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
     build_header, build_headers, wait_until,
 };
 use crate::{Net, Node, Spec};
-use ckb_dao::DaoCalculator;
 use ckb_network::{bytes::Bytes, SupportProtocols};
-use ckb_test_chain_utils::MockStore;
-use ckb_types::packed::SyncMessageUnion::GetBlocks;
 use ckb_types::{
-    core::{
-        cell::{resolve_transaction, ResolvedTransaction},
-        BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,
-    },
+    core::{HeaderBuilder, HeaderView},
     h256,
-    packed::{self, CellInput, GetHeaders, RelayMessage, SyncMessage},
+    packed::{
+        self, GetHeaders, RelayMessage, RelayMessageUnion::GetBlockTransactions, SyncMessage,
+        SyncMessageUnion::GetBlocks,
+    },
     prelude::*,
     H256,
 };
-use std::collections::HashSet;
 
 pub struct CompactBlockEmptyParentUnknown;
 
@@ -304,130 +301,65 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
     }
 }
 
-pub struct CompactBlockRelayParentOfOrphanBlock;
+pub struct BlockTransactionsRelayParentOfOrphanBlock;
 
-impl Spec for CompactBlockRelayParentOfOrphanBlock {
-    // Case: A <- B, A == B.parent
-    // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
-    // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
-    // orphan_block_pool now
+impl Spec for BlockTransactionsRelayParentOfOrphanBlock {
+    crate::setup!(num_nodes: 2);
+
+    // Case: A == B.parent, A.transactions is not empty
+    // 1. Sync SentBlock-B to node0. Node0 will put B into orphan_block_pool since B's parent is unknown
+    // 2. Relay CompactBlock-A to node0. Node0 misses fresh transactions of A, hence it will request for
+    // the missing A.transactions via GetBlockTransactions
+    // 3. Relay BlockTransactions-A to node0. Node0 will process A, and by the way process B that was
+    // inserted in orphan_block_pool before
     fn run(&self, nodes: &mut Vec<Node>) {
-        let node = &nodes[0];
-        out_ibd_mode(nodes);
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+        let block_a = {
+            let cells = gen_spendable(node1, 1);
+            let tx = always_success_transaction(node1, &cells[0]);
+            node1.submit_transaction(&tx);
+            mine_until_bool(node1, || is_transaction_committed(node1, &tx));
+            node1.get_tip_block()
+        };
+        mine(node1, 1);
+        let block_b = node1.get_tip_block();
 
-        // Proposal a tx, and grow up into proposal window
-        let cells = gen_spendable(node, 1);
-        let new_tx = always_success_transaction(node, &cells[0]);
-        node.submit_block(
-            &node
-                .new_block_builder(None, None, None)
-                .proposal(new_tx.proposal_short_id())
-                .build(),
-        );
-        mine(node, 6);
-
-        let consensus = node.consensus();
-        let mock_store = MockStore::default();
-        for i in 0..=node.get_tip_block_number() {
-            let block = node.get_block_by_number(i);
-            mock_store.insert_block(&block, consensus.genesis_epoch_ext());
+        for number in 1..block_a.number() {
+            let block = node1.get_block_by_number(number);
+            node0.submit_block(&block);
         }
-
-        let parent = node
-            .new_block_builder(None, None, None)
-            .transaction(new_tx)
-            .build();
-        let mut seen_inputs = HashSet::new();
-        let transactions = parent.transactions();
-        let rtxs: Vec<ResolvedTransaction> = transactions
-            .into_iter()
-            .map(|tx| resolve_transaction(tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
-            .collect();
-        let calculator = DaoCalculator::new(&consensus, mock_store.store());
-        let dao = calculator
-            .dao_field(&rtxs, &node.get_tip_block().header())
-            .unwrap();
-        let header = parent.header().as_advanced_builder().dao(dao).build();
-        let parent = parent.as_advanced_builder().header(header).build();
-        mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
-
-        let fakebase = node.new_block(None, None, None).transactions()[0].clone();
-        let output = fakebase
-            .outputs()
-            .as_reader()
-            .get(0)
-            .unwrap()
-            .to_entity()
-            .as_builder()
-            .capacity(
-                calculator
-                    .base_block_reward(&parent.header())
-                    .unwrap()
-                    .pack(),
-            )
-            .build();
-        let output_data = fakebase
-            .outputs_data()
-            .as_reader()
-            .get(0)
-            .unwrap()
-            .to_entity();
-
-        let cellbase = TransactionBuilder::default()
-            .output(output)
-            .output_data(output_data)
-            .witness(fakebase.witnesses().as_reader().get(0).unwrap().to_entity())
-            .input(CellInput::new_cellbase_input(parent.header().number() + 1))
-            .build();
-        let rtxs = vec![resolve_transaction(
-            cellbase.clone(),
-            &mut HashSet::new(),
-            &mock_store,
-            &mock_store,
-        )
-        .unwrap()];
-        let dao = DaoCalculator::new(&consensus, mock_store.store())
-            .dao_field(&rtxs, &parent.header())
-            .unwrap();
-        let block = BlockBuilder::default()
-            .transaction(cellbase)
-            .header(
-                parent
-                    .header()
-                    .as_advanced_builder()
-                    .number((parent.header().number() + 1).pack())
-                    .timestamp((parent.header().timestamp() + 1).pack())
-                    .parent_hash(parent.hash())
-                    .dao(dao)
-                    .epoch(
-                        consensus
-                            .genesis_epoch_ext()
-                            .number_with_fraction(parent.header().number() + 1)
-                            .pack(),
-                    )
-                    .build(),
-            )
-            .build();
-        let old_tip = node.get_tip_block().header().number();
 
         let mut net = Net::new(
             self.name(),
-            node.consensus(),
+            node0.consensus(),
             vec![SupportProtocols::Sync, SupportProtocols::Relay],
         );
-        net.connect(node);
-        net.send(node, SupportProtocols::Relay, build_compact_block(&parent));
+        net.connect(node0);
 
-        net.send(node, SupportProtocols::Sync, build_header(&parent.header()));
-        net.send(node, SupportProtocols::Sync, build_header(&block.header()));
-
-        // Send block to node. Node will save it into orphan_block_pool since the parent is unknown.
-        let ret = net.should_receive(node, |data| {
+        // 1. Sync block_b's SendBlock to node0. It has the following steps:
+        //   (1) Sync block_a's SendHeader to node0
+        //   (2) Sync block_b's SendHeader to node0
+        //   (3) Wait GetBlocks from node0
+        //   (4) Sync block_b's SendBlock to node0
+        // After then node0 should save block_b into orphan_block_pool as it only receives block_a's
+        // header but lack of block_a's body.
+        net.send(
+            node0,
+            SupportProtocols::Sync,
+            build_header(&block_a.header()),
+        );
+        net.send(
+            node0,
+            SupportProtocols::Sync,
+            build_header(&block_b.header()),
+        );
+        let ret = net.should_receive(node0, |data| {
             SyncMessage::from_slice(data)
                 .map(|message| {
                     if let GetBlocks(get_blocks) = message.to_enum() {
                         for hash in get_blocks.block_hashes().into_iter() {
-                            if hash == block.hash() {
+                            if hash == block_b.hash() {
                                 return true;
                             }
                         }
@@ -438,21 +370,131 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         });
         assert!(
             ret,
-            "Node should receive GetBlocks which consists of `block`"
+            "Node0 should receive GetBlocks which consists of `block_b`"
         );
-        net.send(node, SupportProtocols::Sync, build_block(&block));
+        net.send(node0, SupportProtocols::Sync, build_block(&block_b));
 
+        // 2. Relay CompactBlock-A to node0. Node0 misses fresh transactions of A, hence it will request for
+        // the missing A.transactions via GetBlockTransactions
         net.send(
-            node,
+            node0,
             SupportProtocols::Relay,
-            build_block_transactions(&parent),
+            build_compact_block(&block_a),
+        );
+        let ret = net.should_receive(node0, |data| {
+            RelayMessage::from_slice(data)
+                .map(|message| {
+                    if let GetBlockTransactions(get_block_transactions) = message.to_enum() {
+                        get_block_transactions.block_hash() == block_a.hash()
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Node0 should request block_a's missing transactions via GetBlockTransactions"
         );
 
-        let ret = wait_until(20, move || node.get_tip_block_number() == old_tip + 2);
+        // 3. Relay BlockTransactions-A to node0. Node0 will process A, and by the way process B that was
+        // inserted in orphan_block_pool before
+        net.send(
+            node0,
+            SupportProtocols::Relay,
+            build_block_transactions(&block_a),
+        );
+
+        let ret = wait_until(20, || node0.get_tip_block_number() == block_b.number());
         if !ret {
             assert_eq!(
-                node.get_tip_block_number(),
-                old_tip + 2,
+                node0.get_tip_block_number(),
+                block_b.number(),
+                "relayer should process the two blocks, including the orphan block"
+            );
+        }
+    }
+}
+
+pub struct CompactBlockRelayParentOfOrphanBlock;
+
+impl Spec for CompactBlockRelayParentOfOrphanBlock {
+    crate::setup!(num_nodes: 2);
+
+    // Case: A == B.parent
+    // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent is unknown
+    // 2. Relay A to node0. Node0 will process A, and by the way process B that was inserted in
+    // orphan_block_pool before
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        out_ibd_mode(nodes);
+
+        let (block_a, block_b) = {
+            let node1 = &nodes[1];
+            mine(node1, 2);
+            let tip_number = node1.get_tip_block_number();
+            (
+                node1.get_block_by_number(tip_number - 1),
+                node1.get_block_by_number(tip_number),
+            )
+        };
+
+        let mut net = Net::new(
+            self.name(),
+            node0.consensus(),
+            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+        );
+        net.connect(node0);
+
+        // 1. Sync block_b's SendBlock to node0. It has the following steps:
+        //   (1) Sync block_a's SendHeader to node0
+        //   (2) Sync block_b's SendHeader to node0
+        //   (3) Wait GetBlocks from node0
+        //   (4) Sync block_b's SendBlock to node0
+        // After then node0 should save block_b into orphan_block_pool as it only receives block_a's
+        // header but lack of block_a's body.
+        net.send(
+            node0,
+            SupportProtocols::Sync,
+            build_header(&block_a.header()),
+        );
+        net.send(
+            node0,
+            SupportProtocols::Sync,
+            build_header(&block_b.header()),
+        );
+        let ret = net.should_receive(node0, |data| {
+            SyncMessage::from_slice(data)
+                .map(|message| {
+                    if let GetBlocks(get_blocks) = message.to_enum() {
+                        for hash in get_blocks.block_hashes().into_iter() {
+                            if hash == block_b.hash() {
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                })
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Node0 should receive GetBlocks which consists of `block_b`"
+        );
+        net.send(node0, SupportProtocols::Sync, build_block(&block_b));
+
+        // 2. Relay block_a's CompactBlock to node0
+        net.send(
+            node0,
+            SupportProtocols::Relay,
+            build_compact_block(&block_a),
+        );
+
+        let ret = wait_until(20, || node0.get_tip_block_number() == block_b.number());
+        if !ret {
+            assert_eq!(
+                node0.get_tip_block_number(),
+                block_b.number(),
                 "relayer should process the two blocks, including the orphan block"
             );
         }
