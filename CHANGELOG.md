@@ -1,3 +1,46 @@
+# [v0.40.0](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.40.0) (2021-02-23)
+
+### Features
+
+* #2501: chore: remove deprecated RPC and add `deprecated` to some RPC.
+
+    Resolve #2487
+
+* #2297: Chain freezer (@zhangsoledad)
+
+    Introduce chain freezer, Inspired by  [[Splitting the data directory]](https://en.bitcoin.it/wiki/Splitting_the_data_directory) and [[geth-v1-9-0]](https://blog.ethereum.org/2019/07/10/geth-v1-9-0/#freezer)
+
+    Now, separated database into two parts, recent block and ancient history. If your data directory is located on a magnetic disk, you can link db to an SSD drive to improve performance. If your data directory is on an SSD: you can link ancient to an HDD drive to save space.
+
+    Freezer is disabled by default. It has some performance bottlenecks that we are fixing.
+
+* #2365: Tx pool callback (@zhangsoledad)
+* #2505: Provide `--overwrite-spec` to override the chain spec in storage (@keroro520)
+* #2526: Multi thread `number_hash_mapping` migration (@zhangsoledad)
+* #2520: Add RPC `get_block_median_time` (@keroro520)
+
+### Bug Fixes
+
+* #2455: Relay and sync should be order independent (@yangby-cryptape)
+
+    Fix #2450.
+
+* #2484: Don't do sync before sync connected (@yangby-cryptape)
+
+    This issue was introduced since #2455.
+
+* #2458: Fix potential failure in integration test TransactionRelayLowFeeRate (@yangby-cryptape)
+* #2454: Fix the log output of integration tests and output more logs (@yangby-cryptape)
+* #2502: Skip RUSTSEC-2020-0095 temporarily (@yangby-cryptape)
+* #2521: Fix wasm build by locking tempfile (@doitian)
+* #2523: Network should work without enabling the module in RPC (@yangby-cryptape)
+* #2537: Allow dail self (@driftluo)
+
+### Improvements
+
+* #2542: Resolve rocksdb cache size issue when using `default.db-options` (@quake)
+* #2519: Make median_time clear in RPC doc (@doitian)
+
 # [v0.39.0](https://github.com/nervosnetwork/ckb/compare/v0.38.1...v0.39.0) (2020-12-21)
 
 ### Features
