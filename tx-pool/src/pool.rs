@@ -436,7 +436,7 @@ impl TxPool {
         snapshot: &Snapshot,
         rtx: &ResolvedTransaction,
     ) -> Result<Capacity, Error> {
-        DaoCalculator::new(snapshot.consensus(), snapshot)
+        DaoCalculator::new(snapshot.consensus(), snapshot.as_data_provider())
             .transaction_fee(&rtx)
             .map_err(|err| {
                 error!(

@@ -11,6 +11,7 @@ use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
+use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
@@ -737,147 +738,141 @@ impl Consensus {
 
     /// The [dynamic-difficulty-adjustment-mechanism](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
     /// implementation
-    pub fn next_epoch_ext<A, B>(
+    pub fn next_epoch_ext<P: EpochProvider>(
         &self,
-        last_epoch: &EpochExt,
         header: &HeaderView,
-        get_block_header: A,
-        total_uncles_count: B,
-    ) -> Option<EpochExt>
-    where
-        A: Fn(&Byte32) -> Option<HeaderView>,
-        B: Fn(&Byte32) -> Option<u64>,
-    {
-        let last_epoch_length = last_epoch.length();
-        let header_number = header.number();
-        if header_number != (last_epoch.start_number() + last_epoch_length - 1) {
-            return None;
-        }
+        provider: &P,
+    ) -> Option<NextBlockEpoch> {
+        provider
+            .get_block_epoch(header)
+            .map(|block_epoch| match block_epoch {
+                BlockEpoch::NonTailBlock { epoch } => NextBlockEpoch::NonHeadBlock(epoch),
+                BlockEpoch::TailBlock {
+                    epoch,
+                    epoch_uncles_count,
+                    epoch_duration_in_milliseconds,
+                } => {
+                    if self.permanent_difficulty() {
+                        let dummy_epoch_ext = epoch
+                            .clone()
+                            .into_builder()
+                            .number(epoch.number() + 1)
+                            .last_block_hash_in_previous_epoch(header.hash())
+                            .start_number(header.number() + 1)
+                            .build();
+                        NextBlockEpoch::HeadBlock(dummy_epoch_ext)
+                    } else {
+                        // (1) Computing the Adjusted Hash Rate Estimation
+                        let last_difficulty = &header.difficulty();
+                        let last_epoch_duration = U256::from(cmp::max(
+                            epoch_duration_in_milliseconds / MILLISECONDS_IN_A_SECOND,
+                            1,
+                        ));
 
-        if self.permanent_difficulty() {
-            let dummy_epoch_ext = last_epoch
-                .clone()
-                .into_builder()
-                .number(last_epoch.number() + 1)
-                .last_block_hash_in_previous_epoch(header.hash())
-                .start_number(header_number + 1)
-                .build();
-            return Some(dummy_epoch_ext);
-        }
+                        let last_epoch_hash_rate = last_difficulty
+                            * (epoch.length() + epoch_uncles_count)
+                            / &last_epoch_duration;
 
-        let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
-            self.genesis_block().header()
-        } else {
-            get_block_header(&last_epoch.last_block_hash_in_previous_epoch())?
-        };
+                        let adjusted_last_epoch_hash_rate = cmp::max(
+                            self.bounding_hash_rate(
+                                last_epoch_hash_rate,
+                                epoch.previous_epoch_hash_rate().to_owned(),
+                            ),
+                            U256::one(),
+                        );
 
-        // (1) Computing the Adjusted Hash Rate Estimation
-        let last_difficulty = &header.difficulty();
-        let last_hash = header.hash();
-        let start_total_uncles_count =
-            total_uncles_count(&last_block_header_in_previous_epoch.hash())
-                .expect("block_ext exist");
-        let last_total_uncles_count = total_uncles_count(&last_hash).expect("block_ext exist");
-        let last_uncles_count = last_total_uncles_count - start_total_uncles_count;
-        let last_epoch_duration = U256::from(cmp::max(
-            header
-                .timestamp()
-                .saturating_sub(last_block_header_in_previous_epoch.timestamp())
-                / MILLISECONDS_IN_A_SECOND,
-            1,
-        ));
+                        // (2) Computing the Next Epoch’s Main Chain Block Number
+                        let orphan_rate_target = self.orphan_rate_target();
+                        let epoch_duration_target = self.epoch_duration_target();
+                        let epoch_duration_target_u256 = U256::from(self.epoch_duration_target());
+                        let last_epoch_length_u256 = U256::from(epoch.length());
+                        let last_orphan_rate = RationalU256::new(
+                            U256::from(epoch_uncles_count),
+                            last_epoch_length_u256.clone(),
+                        );
 
-        let last_epoch_hash_rate =
-            last_difficulty * (last_epoch_length + last_uncles_count) / &last_epoch_duration;
+                        let (next_epoch_length, bound) = if epoch_uncles_count == 0 {
+                            (
+                                cmp::min(self.max_epoch_length(), epoch.length() * TAU),
+                                true,
+                            )
+                        } else {
+                            // o_ideal * (1 + o_i ) * L_ideal * C_i,m
+                            let numerator = orphan_rate_target
+                                * (&last_orphan_rate + U256::one())
+                                * &epoch_duration_target_u256
+                                * &last_epoch_length_u256;
+                            // o_i * (1 + o_ideal ) * L_i
+                            let denominator = &last_orphan_rate
+                                * (orphan_rate_target + U256::one())
+                                * &last_epoch_duration;
+                            let raw_next_epoch_length =
+                                u256_low_u64((numerator / denominator).into_u256());
 
-        let adjusted_last_epoch_hash_rate = cmp::max(
-            self.bounding_hash_rate(
-                last_epoch_hash_rate,
-                last_epoch.previous_epoch_hash_rate().to_owned(),
-            ),
-            U256::one(),
-        );
+                            self.bounding_epoch_length(raw_next_epoch_length, epoch.length())
+                        };
 
-        // (2) Computing the Next Epoch’s Main Chain Block Number
-        let orphan_rate_target = self.orphan_rate_target();
-        let epoch_duration_target = self.epoch_duration_target();
-        let epoch_duration_target_u256 = U256::from(self.epoch_duration_target());
-        let last_epoch_length_u256 = U256::from(last_epoch_length);
-        let last_orphan_rate = RationalU256::new(
-            U256::from(last_uncles_count),
-            last_epoch_length_u256.clone(),
-        );
+                        // (3) Determining the Next Epoch’s Difficulty
+                        let next_epoch_length_u256 = U256::from(next_epoch_length);
+                        let diff_numerator = RationalU256::new(
+                            &adjusted_last_epoch_hash_rate * epoch_duration_target,
+                            U256::one(),
+                        );
+                        let diff_denominator = if bound {
+                            if last_orphan_rate.is_zero() {
+                                RationalU256::new(next_epoch_length_u256, U256::one())
+                            } else {
+                                let orphan_rate_estimation_recip = ((&last_orphan_rate
+                                    + U256::one())
+                                    * &epoch_duration_target_u256
+                                    * &last_epoch_length_u256
+                                    / (&last_orphan_rate
+                                        * &last_epoch_duration
+                                        * &next_epoch_length_u256))
+                                    .saturating_sub_u256(U256::one());
 
-        let (next_epoch_length, bound) = if last_uncles_count == 0 {
-            (
-                cmp::min(self.max_epoch_length(), last_epoch_length * TAU),
-                true,
-            )
-        } else {
-            // o_ideal * (1 + o_i ) * L_ideal * C_i,m
-            let numerator = orphan_rate_target
-                * (&last_orphan_rate + U256::one())
-                * &epoch_duration_target_u256
-                * &last_epoch_length_u256;
-            // o_i * (1 + o_ideal ) * L_i
-            let denominator =
-                &last_orphan_rate * (orphan_rate_target + U256::one()) * &last_epoch_duration;
-            let raw_next_epoch_length = u256_low_u64((numerator / denominator).into_u256());
+                                if orphan_rate_estimation_recip.is_zero() {
+                                    // small probability event, use o_ideal for now
+                                    (orphan_rate_target + U256::one()) * next_epoch_length_u256
+                                } else {
+                                    let orphan_rate_estimation =
+                                        RationalU256::one() / orphan_rate_estimation_recip;
+                                    (orphan_rate_estimation + U256::one()) * next_epoch_length_u256
+                                }
+                            }
+                        } else {
+                            (orphan_rate_target + U256::one()) * next_epoch_length_u256
+                        };
 
-            self.bounding_epoch_length(raw_next_epoch_length, last_epoch_length)
-        };
+                        let next_epoch_diff = if diff_numerator > diff_denominator {
+                            (diff_numerator / diff_denominator).into_u256()
+                        } else {
+                            // next_epoch_diff cannot be zero
+                            U256::one()
+                        };
 
-        // (3) Determining the Next Epoch’s Difficulty
-        let next_epoch_length_u256 = U256::from(next_epoch_length);
-        let diff_numerator = RationalU256::new(
-            &adjusted_last_epoch_hash_rate * epoch_duration_target,
-            U256::one(),
-        );
-        let diff_denominator = if bound {
-            if last_orphan_rate.is_zero() {
-                RationalU256::new(next_epoch_length_u256, U256::one())
-            } else {
-                let orphan_rate_estimation_recip = ((&last_orphan_rate + U256::one())
-                    * &epoch_duration_target_u256
-                    * &last_epoch_length_u256
-                    / (&last_orphan_rate * &last_epoch_duration * &next_epoch_length_u256))
-                    .saturating_sub_u256(U256::one());
+                        let primary_epoch_reward =
+                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
+                        let block_reward =
+                            Capacity::shannons(primary_epoch_reward / next_epoch_length);
+                        let remainder_reward =
+                            Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
-                if orphan_rate_estimation_recip.is_zero() {
-                    // small probability event, use o_ideal for now
-                    (orphan_rate_target + U256::one()) * next_epoch_length_u256
-                } else {
-                    let orphan_rate_estimation = RationalU256::one() / orphan_rate_estimation_recip;
-                    (orphan_rate_estimation + U256::one()) * next_epoch_length_u256
+                        let epoch_ext = EpochExt::new_builder()
+                            .number(epoch.number() + 1)
+                            .base_block_reward(block_reward)
+                            .remainder_reward(remainder_reward)
+                            .previous_epoch_hash_rate(adjusted_last_epoch_hash_rate)
+                            .last_block_hash_in_previous_epoch(header.hash())
+                            .start_number(header.number() + 1)
+                            .length(next_epoch_length)
+                            .compact_target(difficulty_to_compact(next_epoch_diff))
+                            .build();
+
+                        NextBlockEpoch::HeadBlock(epoch_ext)
+                    }
                 }
-            }
-        } else {
-            (orphan_rate_target + U256::one()) * next_epoch_length_u256
-        };
-
-        let next_epoch_diff = if diff_numerator > diff_denominator {
-            (diff_numerator / diff_denominator).into_u256()
-        } else {
-            // next_epoch_diff cannot be zero
-            U256::one()
-        };
-
-        let primary_epoch_reward = self.primary_epoch_reward_of_next_epoch(last_epoch).as_u64();
-        let block_reward = Capacity::shannons(primary_epoch_reward / next_epoch_length);
-        let remainder_reward = Capacity::shannons(primary_epoch_reward % next_epoch_length);
-
-        let epoch_ext = EpochExt::new_builder()
-            .number(last_epoch.number() + 1)
-            .base_block_reward(block_reward)
-            .remainder_reward(remainder_reward)
-            .previous_epoch_hash_rate(adjusted_last_epoch_hash_rate)
-            .last_block_hash_in_previous_epoch(header.hash())
-            .start_number(header_number + 1)
-            .length(next_epoch_length)
-            .compact_target(difficulty_to_compact(next_epoch_diff))
-            .build();
-
-        Some(epoch_ext)
+            })
     }
 
     /// The network identify name, used for network identify protocol
@@ -913,6 +908,29 @@ impl Consensus {
         } else {
             self.primary_epoch_reward(epoch.number() + 1)
         }
+    }
+}
+
+/// Corresponding epoch information of next block
+pub enum NextBlockEpoch {
+    /// Next block is the head block of epoch
+    HeadBlock(EpochExt),
+    /// Next block is not the head block of epoch
+    NonHeadBlock(EpochExt),
+}
+
+impl NextBlockEpoch {
+    /// Returns epoch information
+    pub fn epoch(self) -> EpochExt {
+        match self {
+            Self::HeadBlock(epoch_ext) => epoch_ext,
+            Self::NonHeadBlock(epoch_ext) => epoch_ext,
+        }
+    }
+
+    /// Is a head block of epoch
+    pub fn is_head(&self) -> bool {
+        matches!(*self, Self::HeadBlock(_))
     }
 }
 
@@ -965,6 +983,7 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use ckb_traits::{BlockEpoch, EpochProvider};
     use ckb_types::core::{capacity_bytes, BlockBuilder, HeaderBuilder, TransactionBuilder};
     use ckb_types::packed::Bytes;
 
@@ -1000,26 +1019,44 @@ pub mod test {
             DEFAULT_ORPHAN_RATE_TARGET,
         );
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = ConsensusBuilder::new(genesis.clone(), epoch_ext)
+        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
             .initial_primary_epoch_reward(capacity_bytes!(100))
             .build();
         let genesis_epoch = consensus.genesis_epoch_ext();
 
-        let get_block_header = |_hash: &Byte32| Some(genesis.header());
-        let total_uncles_count = |_hash: &Byte32| Some(0);
         let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
 
+        struct DummyEpochProvider(EpochExt);
+        impl EpochProvider for DummyEpochProvider {
+            fn get_epoch_ext(&self, _block_header: &HeaderView) -> Option<EpochExt> {
+                Some(self.0.clone())
+            }
+            fn get_block_epoch(&self, block_header: &HeaderView) -> Option<BlockEpoch> {
+                let block_epoch =
+                    if block_header.number() == self.0.start_number() + self.0.length() - 1 {
+                        BlockEpoch::TailBlock {
+                            epoch: self.0.clone(),
+                            epoch_uncles_count: 0,
+                            epoch_duration_in_milliseconds: DEFAULT_EPOCH_DURATION_TARGET * 1000,
+                        }
+                    } else {
+                        BlockEpoch::NonTailBlock {
+                            epoch: self.0.clone(),
+                        }
+                    };
+                Some(block_epoch)
+            }
+        }
         let initial_primary_epoch_reward = genesis_epoch.primary_reward();
 
         {
             let epoch = consensus
                 .next_epoch_ext(
-                    &consensus.genesis_epoch_ext(),
                     &header(genesis_epoch.length() - 1),
-                    get_block_header,
-                    total_uncles_count,
+                    &DummyEpochProvider(genesis_epoch.clone()),
                 )
-                .expect("test: get next epoch");
+                .expect("test: get next epoch")
+                .epoch();
 
             assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
         }
@@ -1036,23 +1073,21 @@ pub mod test {
         // first_halving_epoch_number - 1
         let epoch = consensus
             .next_epoch_ext(
-                &epoch,
                 &header(epoch.start_number() + epoch.length() - 1),
-                get_block_header,
-                total_uncles_count,
+                &DummyEpochProvider(epoch),
             )
-            .expect("test: get next epoch");
+            .expect("test: get next epoch")
+            .epoch();
         assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
 
         // first_halving_epoch_number
         let epoch = consensus
             .next_epoch_ext(
-                &epoch,
                 &header(epoch.start_number() + epoch.length() - 1),
-                get_block_header,
-                total_uncles_count,
+                &DummyEpochProvider(epoch),
             )
-            .expect("test: get next epoch");
+            .expect("test: get next epoch")
+            .epoch();
 
         assert_eq!(
             initial_primary_epoch_reward.as_u64() / 2,
@@ -1062,12 +1097,11 @@ pub mod test {
         // first_halving_epoch_number + 1
         let epoch = consensus
             .next_epoch_ext(
-                &epoch,
                 &header(epoch.start_number() + epoch.length() - 1),
-                get_block_header,
-                total_uncles_count,
+                &DummyEpochProvider(epoch),
             )
-            .expect("test: get next epoch");
+            .expect("test: get next epoch")
+            .epoch();
 
         assert_eq!(
             initial_primary_epoch_reward.as_u64() / 2,
@@ -1090,12 +1124,11 @@ pub mod test {
         // first_halving_epoch_number * 4 - 1
         let epoch = consensus
             .next_epoch_ext(
-                &epoch,
                 &header(epoch.start_number() + epoch.length() - 1),
-                get_block_header,
-                total_uncles_count,
+                &DummyEpochProvider(epoch),
             )
-            .expect("test: get next epoch");
+            .expect("test: get next epoch")
+            .epoch();
 
         assert_eq!(
             initial_primary_epoch_reward.as_u64() / 8,
@@ -1105,12 +1138,11 @@ pub mod test {
         // first_halving_epoch_number * 4
         let epoch = consensus
             .next_epoch_ext(
-                &epoch,
                 &header(epoch.start_number() + epoch.length() - 1),
-                get_block_header,
-                total_uncles_count,
+                &DummyEpochProvider(epoch),
             )
-            .expect("test: get next epoch");
+            .expect("test: get next epoch")
+            .epoch();
 
         assert_eq!(
             initial_primary_epoch_reward.as_u64() / 16,

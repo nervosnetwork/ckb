@@ -44,11 +44,12 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
 
 pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> HeaderBuilder {
     let parent_hash = parent.hash();
-    let parent_epoch = shared.store().get_block_epoch(&parent_hash).unwrap();
     let snapshot = shared.snapshot();
     let epoch = snapshot
-        .next_epoch_ext(snapshot.consensus(), &parent_epoch, parent)
-        .unwrap_or(parent_epoch);
+        .consensus()
+        .next_epoch_ext(&parent, &snapshot.as_data_provider())
+        .unwrap()
+        .epoch();
     HeaderBuilder::default()
         .parent_hash(parent_hash)
         .number((parent.number() + 1).pack())

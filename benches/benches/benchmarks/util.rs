@@ -177,15 +177,11 @@ pub fn gen_always_success_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
-    let last_epoch = shared
-        .store()
-        .get_block_epoch_index(&p_block.hash())
-        .and_then(|index| shared.store().get_epoch_ext(&index))
-        .unwrap();
     let epoch = shared
-        .store()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
-        .unwrap_or(last_epoch);
+        .consensus()
+        .next_epoch_ext(&p_block.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
@@ -391,15 +387,11 @@ pub fn gen_secp_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
-    let last_epoch = shared
-        .store()
-        .get_block_epoch_index(&p_block.hash())
-        .and_then(|index| shared.store().get_epoch_ext(&index))
-        .unwrap();
     let epoch = shared
-        .store()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
-        .unwrap_or(last_epoch);
+        .consensus()
+        .next_epoch_ext(&p_block.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
@@ -508,7 +500,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot);
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
     calculator
         .dao_field(&rtxs, &parent)
         .expect("calculator dao_field")
@@ -520,7 +512,7 @@ pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity
     let target_number = shared.consensus().finalize_target(number).unwrap();
     let target_hash = snapshot.get_block_hash(target_number).unwrap();
     let target = snapshot.get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_ref());
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
     calculator
         .primary_block_reward(&target)
         .expect("calculate_reward primary_block_reward")

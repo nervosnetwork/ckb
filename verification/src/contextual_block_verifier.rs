@@ -45,19 +45,6 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
     fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
     }
-
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {
-        self.consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.store.get_block_header(hash),
-            |hash| {
-                self.store
-                    .get_block_ext(hash)
-                    .map(|ext| ext.total_uncles_count)
-            },
-        )
-    }
 }
 
 impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
@@ -302,17 +289,20 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let dao = DaoCalculator::new(self.context.consensus, self.context.store)
-            .dao_field(&self.resolved, self.parent)
-            .map_err(|e| {
-                error_target!(
-                    crate::LOG_TARGET,
-                    "Error generating dao data for block {}: {:?}",
-                    self.header.hash(),
-                    e
-                );
+        let dao = DaoCalculator::new(
+            self.context.consensus,
+            self.context.store.as_data_provider(),
+        )
+        .dao_field(&self.resolved, self.parent)
+        .map_err(|e| {
+            error_target!(
+                crate::LOG_TARGET,
+                "Error generating dao data for block {}: {:?}",
+                self.header.hash(),
                 e
-            })?;
+            );
+            e
+        })?;
 
         if dao != self.header.dao() {
             return Err((BlockErrorKind::InvalidDAO).into());
@@ -456,22 +446,6 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
     }
 }
-
-fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
-    context: &VerifyContext<'a, CS>,
-    parent: &HeaderView,
-) -> Result<EpochExt, Error> {
-    let parent_ext = context
-        .store
-        .get_block_epoch(&parent.hash())
-        .ok_or_else(|| UnknownParentError {
-            parent_hash: parent.hash(),
-        })?;
-    Ok(context
-        .next_epoch_ext(&parent_ext, parent)
-        .unwrap_or(parent_ext))
-}
-
 /// EpochVerifier
 ///
 /// Check for block epoch
@@ -550,7 +524,13 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         let epoch_ext = if block.is_genesis() {
             self.context.consensus.genesis_epoch_ext().to_owned()
         } else {
-            prepare_epoch_ext(&self.context, &parent)?
+            self.context
+                .consensus
+                .next_epoch_ext(&parent, &self.context.store.as_data_provider())
+                .ok_or_else(|| UnknownParentError {
+                    parent_hash: parent.hash(),
+                })?
+                .epoch()
         };
 
         if !switch.disable_epoch() {

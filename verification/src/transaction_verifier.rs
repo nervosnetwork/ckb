@@ -249,7 +249,8 @@ impl<'a, CS: ChainStore<'a>> FeeCalculator<'a, CS> {
         if self.transaction.is_cellbase() {
             Ok(Capacity::zero())
         } else {
-            DaoCalculator::new(&self.consensus, self.chain_store).transaction_fee(&self.transaction)
+            DaoCalculator::new(&self.consensus, self.chain_store.as_data_provider())
+                .transaction_fee(&self.transaction)
         }
     }
 }

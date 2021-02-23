@@ -104,21 +104,18 @@ fn construct_example_transaction() -> TransactionView {
 // Construct the next block based the given `parent`
 fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let snapshot: &Snapshot = &shared.snapshot();
-    let epoch = {
-        let last_epoch = snapshot
-            .get_block_epoch(&parent.hash())
-            .expect("current epoch exists");
-        snapshot
-            .next_epoch_ext(shared.consensus(), &last_epoch, parent)
-            .unwrap_or(last_epoch)
-    };
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(parent, &snapshot.as_data_provider())
+        .unwrap()
+        .epoch();
     let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     let dao = {
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        DaoCalculator::new(shared.consensus(), shared.store())
+        DaoCalculator::new(shared.consensus(), shared.store().as_data_provider())
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
     };
