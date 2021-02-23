@@ -3,6 +3,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
 use ckb_types::packed::Byte32;
+use faketime::unix_time_as_millis;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -123,6 +124,16 @@ pub struct InitArgs {
     ///
     /// The spec file will be saved into `specs/{CHAIN}.toml`, where `CHAIN` is the chain name.
     pub import_spec: Option<String>,
+    /// Customize parameters for chain spec or not.
+    ///
+    /// Only works for dev chains.
+    pub customize_spec: CustomizeSpec,
+}
+
+/// Customize parameters for chain spec.
+pub struct CustomizeSpec {
+    /// Specify a string as the genesis message.
+    pub genesis_message: Option<String>,
 }
 
 /// Parsed command line arguments for `ckb reset-data`.
@@ -167,4 +178,22 @@ pub struct MigrateArgs {
     pub config: Box<CKBAppConfig>,
     /// Check whether it is required to do migration instead of really perform the migration.
     pub check: bool,
+}
+
+impl CustomizeSpec {
+    /// No specified parameters for chain spec.
+    pub fn is_unset(&self) -> bool {
+        self.genesis_message.is_none()
+    }
+
+    /// Generates a vector of key-value pairs.
+    pub fn key_value_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut vec = Vec::new();
+        let genesis_message = self
+            .genesis_message
+            .clone()
+            .unwrap_or_else(|| unix_time_as_millis().to_string());
+        vec.push(("genesis_message", genesis_message));
+        vec
+    }
 }

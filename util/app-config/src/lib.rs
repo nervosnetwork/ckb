@@ -238,6 +238,13 @@ impl Setup {
 
         let import_spec = matches.value_of(cli::ARG_IMPORT_SPEC).map(str::to_string);
 
+        let customize_spec = {
+            let genesis_message = matches
+                .value_of(cli::ARG_GENESIS_MESSAGE)
+                .map(str::to_string);
+            args::CustomizeSpec { genesis_message }
+        };
+
         Ok(InitArgs {
             interactive,
             root_dir,
@@ -253,6 +260,7 @@ impl Setup {
             block_assembler_hash_type,
             block_assembler_message,
             import_spec,
+            customize_spec,
         })
     }
 
