@@ -3,7 +3,7 @@ use crate::{
     bytes::Bytes,
     core::error::OutPointError,
     core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
-    packed::{Byte32, CellDep, CellOutput, OutPoint, OutPointVec},
+    packed::{Byte32, CellDep, CellOutput, CellOutputVec, OutPoint, OutPointVec},
     prelude::*,
 };
 use ckb_error::Error;
@@ -258,6 +258,104 @@ impl ResolvedTransaction {
             .map(|d| &d.out_point)
             .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
     }
+
+    pub fn check<CC: CellChecker, HC: HeaderChecker>(
+        &self,
+        cell_checker: &CC,
+        header_checker: &HC,
+    ) -> Result<(), OutPointError> {
+        let check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
+            match cell_checker.is_live(out_point) {
+                Some(true) => Ok(()),
+                Some(false) => Err(OutPointError::Dead(out_point.clone())),
+                None => Err(OutPointError::Unknown(out_point.clone())),
+            }
+        };
+
+        // // check input
+        for cell_meta in &self.resolved_inputs {
+            check_cell(&cell_meta.out_point)?;
+        }
+
+        let mut resolved_system_deps: HashSet<&OutPoint> = HashSet::new();
+        if let Some(system_cell) = SYSTEM_CELL.get() {
+            for cell_meta in &self.resolved_dep_groups {
+                let cell_dep = CellDep::new_builder()
+                    .out_point(cell_meta.out_point.clone())
+                    .dep_type(DepType::DepGroup.into())
+                    .build();
+
+                let dep_group = system_cell.get(&cell_dep);
+                if let Some(ResolvedDep::Group((_, cell_deps))) = dep_group {
+                    resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
+                } else {
+                    check_cell(&cell_meta.out_point)?;
+                }
+            }
+
+            for cell_meta in &self.resolved_cell_deps {
+                let cell_dep = CellDep::new_builder()
+                    .out_point(cell_meta.out_point.clone())
+                    .dep_type(DepType::Code.into())
+                    .build();
+
+                if system_cell.get(&cell_dep).is_none()
+                    && !resolved_system_deps.contains(&cell_meta.out_point)
+                {
+                    check_cell(&cell_meta.out_point)?;
+                }
+            }
+        } else {
+            for cell_meta in self
+                .resolved_cell_deps
+                .iter()
+                .chain(self.resolved_dep_groups.iter())
+            {
+                check_cell(&cell_meta.out_point)?;
+            }
+        }
+
+        for block_hash in self.transaction.header_deps_iter() {
+            header_checker.check_valid(&block_hash)?;
+        }
+
+        Ok(())
+    }
+}
+
+pub trait CellChecker {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool>;
+}
+
+pub struct OverlayCellChecker<'a, A, B> {
+    overlay: &'a A,
+    cell_checker: &'a B,
+}
+
+impl<'a, A, B> OverlayCellChecker<'a, A, B>
+where
+    A: CellChecker,
+    B: CellChecker,
+{
+    /// TODO(doc): @quake
+    pub fn new(overlay: &'a A, cell_checker: &'a B) -> Self {
+        Self {
+            overlay,
+            cell_checker,
+        }
+    }
+}
+
+impl<'a, A, B> CellChecker for OverlayCellChecker<'a, A, B>
+where
+    A: CellChecker,
+    B: CellChecker,
+{
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.overlay
+            .is_live(out_point)
+            .or_else(|| self.cell_checker.is_live(out_point))
+    }
 }
 
 /// TODO(doc): @quake
@@ -373,6 +471,26 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 })
             })
             .unwrap_or_else(|| CellStatus::Unknown)
+    }
+}
+
+#[derive(Default)]
+pub struct TransactionsChecker {
+    inner: HashMap<Byte32, CellOutputVec>,
+}
+
+impl TransactionsChecker {
+    pub fn new<'a>(txs: impl Iterator<Item = &'a TransactionView>) -> Self {
+        let inner = txs.map(|tx| (tx.hash(), tx.outputs())).collect();
+        Self { inner }
+    }
+}
+
+impl CellChecker for TransactionsChecker {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.inner
+            .get(&out_point.tx_hash())
+            .and_then(|outputs| outputs.get(out_point.index().unpack()).map(|_| true))
     }
 }
 

@@ -4,7 +4,9 @@ use crate::error::Reject;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, CellMetaBuilder, CellProvider, CellStatus, ResolvedTransaction},
+        cell::{
+            CellChecker, CellMeta, CellMetaBuilder, CellProvider, CellStatus, ResolvedTransaction,
+        },
         error::OutPointError,
         TransactionView,
     },
@@ -116,6 +118,23 @@ impl CellProvider for ProposedPool {
             CellStatus::Dead
         } else {
             CellStatus::Unknown
+        }
+    }
+}
+
+impl CellChecker for ProposedPool {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        if let Some(x) = self.edges.get_output_ref(out_point) {
+            // output consumed
+            if x.is_some() {
+                Some(false)
+            } else {
+                Some(true)
+            }
+        } else if self.edges.get_input_ref(out_point).is_some() {
+            Some(false)
+        } else {
+            None
         }
     }
 }

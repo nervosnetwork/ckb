@@ -11,7 +11,7 @@ use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, CellProvider, CellStatus},
+        cell::{CellChecker, CellMeta, CellProvider, CellStatus},
         BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
         TransactionView, UncleBlockVecView,
     },
@@ -296,6 +296,12 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             })
     }
 
+    /// Return whether cell is live
+    fn have_cell(&'a self, out_point: &OutPoint) -> bool {
+        let key = out_point.to_cell_key();
+        self.get(COLUMN_CELL, &key).is_some()
+    }
+
     /// Gets cell meta data with out_point
     fn get_cell(&'a self, out_point: &OutPoint) -> Option<CellMeta> {
         let key = out_point.to_cell_key();
@@ -498,6 +504,19 @@ where
                 CellStatus::live_cell(cell_meta)
             }
             None => CellStatus::Unknown,
+        }
+    }
+}
+
+impl<'a, S> CellChecker for CellProviderWrapper<'a, S>
+where
+    S: ChainStore<'a>,
+{
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        if self.0.have_cell(out_point) {
+            Some(true)
+        } else {
+            None
         }
     }
 }

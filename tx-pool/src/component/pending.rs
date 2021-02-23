@@ -3,7 +3,7 @@ use crate::component::entry::TxEntry;
 use crate::error::Reject;
 use ckb_types::{
     core::{
-        cell::{CellMetaBuilder, CellProvider, CellStatus},
+        cell::{CellChecker, CellMetaBuilder, CellProvider, CellStatus},
         FeeRate, TransactionView,
     },
     packed::{OutPoint, ProposalShortId},
@@ -127,6 +127,20 @@ impl CellProvider for PendingQueue {
             }
         } else {
             CellStatus::Unknown
+        }
+    }
+}
+
+impl CellChecker for PendingQueue {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        let tx_hash = out_point.tx_hash();
+        if let Some(entry) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
+            entry
+                .transaction()
+                .output(out_point.index().unpack())
+                .map(|_| true)
+        } else {
+            None
         }
     }
 }
