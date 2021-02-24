@@ -116,9 +116,10 @@ impl TxPoolService {
     ) -> (Vec<UncleBlockView>, EpochExt, u64) {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
-        let last_epoch = snapshot.get_current_epoch_ext().expect("current epoch ext");
-        let next_epoch_ext = snapshot.next_epoch_ext(consensus, &last_epoch, tip_header);
-        let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
+        let next_epoch_ext = snapshot
+            .next_epoch_ext(consensus, tip_header)
+            .expect("current epoch ext");
+        let current_epoch = next_epoch_ext.unwrap_epoch();
         let candidate_number = tip_header.number() + 1;
 
         let mut guard = block_assembler.candidate_uncles.lock().await;

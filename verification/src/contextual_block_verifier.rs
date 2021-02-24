@@ -6,7 +6,7 @@ use crate::{
     TimeRelativeTransactionVerifier, UnknownParentError,
 };
 use ckb_async_runtime::Handle;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, NextEpoch};
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_logger::error_target;
@@ -45,17 +45,9 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
     }
 
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {
-        self.consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.store.get_block_header(hash),
-            |hash| {
-                self.store
-                    .get_block_ext(hash)
-                    .map(|ext| ext.total_uncles_count)
-            },
-        )
+    fn next_epoch_ext(&self, header: &HeaderView) -> Result<NextEpoch, Error> {
+        self.consensus
+            .next_epoch_ext(&self.store.provider(), header)
     }
 }
 
@@ -458,15 +450,12 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
     context: &VerifyContext<'a, CS>,
     parent: &HeaderView,
 ) -> Result<EpochExt, Error> {
-    let parent_ext = context
-        .store
-        .get_block_epoch(&parent.hash())
-        .ok_or_else(|| UnknownParentError {
-            parent_hash: parent.hash(),
-        })?;
     Ok(context
-        .next_epoch_ext(&parent_ext, parent)
-        .unwrap_or(parent_ext))
+        .next_epoch_ext(parent)
+        .map_err(|_| UnknownParentError {
+            parent_hash: parent.hash(),
+        })?
+        .unwrap_epoch())
 }
 
 /// EpochVerifier

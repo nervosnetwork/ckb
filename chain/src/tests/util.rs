@@ -307,7 +307,7 @@ impl<'a> MockChain<'a> {
             .unwrap();
         let epoch = store
             .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
+            .next_epoch_ext(self.consensus, &parent)
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()
@@ -390,7 +390,7 @@ impl<'a> MockChain<'a> {
             .unwrap();
         let epoch = store
             .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
+            .next_epoch_ext(self.consensus, &parent)
             .unwrap_or(last_epoch);
 
         let new_block = BlockBuilder::default()

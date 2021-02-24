@@ -8,6 +8,7 @@ use crate::{
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
+use ckb_error::Error;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
@@ -737,21 +738,17 @@ impl Consensus {
 
     /// The [dynamic-difficulty-adjustment-mechanism](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
     /// implementation
-    pub fn next_epoch_ext<A, B>(
+    pub fn next_epoch_ext<P: NextEpochProvider>(
         &self,
-        last_epoch: &EpochExt,
+        provider: &P,
         header: &HeaderView,
-        get_block_header: A,
-        total_uncles_count: B,
-    ) -> Option<EpochExt>
-    where
-        A: Fn(&Byte32) -> Option<HeaderView>,
-        B: Fn(&Byte32) -> Option<u64>,
-    {
+    ) -> Result<NextEpoch, Error> {
+        let last_epoch = provider.get_epoch_by_block_hash(&header.hash())?;
         let last_epoch_length = last_epoch.length();
+
         let header_number = header.number();
         if header_number != (last_epoch.start_number() + last_epoch_length - 1) {
-            return None;
+            return Ok(NextEpoch::Last(last_epoch));
         }
 
         if self.permanent_difficulty() {
@@ -762,22 +759,21 @@ impl Consensus {
                 .last_block_hash_in_previous_epoch(header.hash())
                 .start_number(header_number + 1)
                 .build();
-            return Some(dummy_epoch_ext);
+            return Ok(NextEpoch::Last(dummy_epoch_ext));
         }
 
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
             self.genesis_block().header()
         } else {
-            get_block_header(&last_epoch.last_block_hash_in_previous_epoch())?
+            provider.get_block_header(&last_epoch.last_block_hash_in_previous_epoch())?
         };
 
         // (1) Computing the Adjusted Hash Rate Estimation
         let last_difficulty = &header.difficulty();
         let last_hash = header.hash();
         let start_total_uncles_count =
-            total_uncles_count(&last_block_header_in_previous_epoch.hash())
-                .expect("block_ext exist");
-        let last_total_uncles_count = total_uncles_count(&last_hash).expect("block_ext exist");
+            provider.total_uncles_count(&last_block_header_in_previous_epoch.hash())?;
+        let last_total_uncles_count = provider.total_uncles_count(&last_hash)?;
         let last_uncles_count = last_total_uncles_count - start_total_uncles_count;
         let last_epoch_duration = U256::from(cmp::max(
             header
@@ -862,7 +858,9 @@ impl Consensus {
             U256::one()
         };
 
-        let primary_epoch_reward = self.primary_epoch_reward_of_next_epoch(last_epoch).as_u64();
+        let primary_epoch_reward = self
+            .primary_epoch_reward_of_next_epoch(&last_epoch)
+            .as_u64();
         let block_reward = Capacity::shannons(primary_epoch_reward / next_epoch_length);
         let remainder_reward = Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
@@ -877,7 +875,7 @@ impl Consensus {
             .compact_target(difficulty_to_compact(next_epoch_diff))
             .build();
 
-        Some(epoch_ext)
+        Ok(NextEpoch::New(epoch_ext))
     }
 
     /// The network identify name, used for network identify protocol
@@ -913,6 +911,30 @@ impl Consensus {
         } else {
             self.primary_epoch_reward(epoch.number() + 1)
         }
+    }
+}
+
+pub trait NextEpochProvider {
+    fn get_epoch_by_block_hash(&self, hash: &Byte32) -> Result<EpochExt, Error>;
+    fn get_block_header(&self, hash: &Byte32) -> Result<HeaderView, Error>;
+    fn total_uncles_count(&self, hash: &Byte32) -> Result<u64, Error>;
+}
+
+pub enum NextEpoch {
+    New(EpochExt),
+    Last(EpochExt),
+}
+
+impl NextEpoch {
+    pub fn unwrap_epoch(self) -> EpochExt {
+        match self {
+            NextEpoch::New(new) => new,
+            NextEpoch::Last(last) => last,
+        }
+    }
+
+    pub fn is_new(&self) -> bool {
+        matches!(*self, NextEpoch::New(_))
     }
 }
 

@@ -487,8 +487,8 @@ fn prepare_context_chain(
     for _ in 1..final_number - 1 {
         let epoch = shared
             .snapshot()
-            .next_epoch_ext(shared.consensus(), &last_epoch, &parent)
-            .unwrap_or(last_epoch);
+            .next_epoch_ext(shared.consensus(), &parent)
+            .unwrap_epoch();
 
         let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
         let dao = dao_data(

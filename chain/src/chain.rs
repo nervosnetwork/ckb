@@ -358,18 +358,11 @@ impl ChainService {
 
         db_txn.insert_block(&block)?;
 
-        let parent_header_epoch = txn_snapshot
-            .get_block_epoch(&parent_header.hash())
-            .expect("parent epoch already store");
+        let next_epoch_ext =
+            txn_snapshot.next_epoch_ext(self.shared.consensus(), &parent_header)?;
+        let new_epoch = next_epoch_ext.is_new();
 
-        let next_epoch_ext = txn_snapshot.next_epoch_ext(
-            self.shared.consensus(),
-            &parent_header_epoch,
-            &parent_header,
-        );
-        let new_epoch = next_epoch_ext.is_some();
-
-        let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
+        let epoch = next_epoch_ext.unwrap_epoch();
 
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
@@ -708,7 +701,7 @@ impl ChainService {
 
                     let transactions = b.transactions();
                     let resolved = {
-                        let txn_cell_provider = txn.cell_provider();
+                        let txn_cell_provider = txn.provider();
                         let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
                         transactions
                             .iter()

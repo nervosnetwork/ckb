@@ -177,15 +177,10 @@ pub fn gen_always_success_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
-    let last_epoch = shared
-        .store()
-        .get_block_epoch_index(&p_block.hash())
-        .and_then(|index| shared.store().get_epoch_ext(&index))
-        .unwrap();
     let epoch = shared
         .store()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
-        .unwrap_or(last_epoch);
+        .next_epoch_ext(shared.consensus(), &p_block.header())
+        .unwrap_epoch();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
@@ -391,15 +386,10 @@ pub fn gen_secp_block(
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
-    let last_epoch = shared
-        .store()
-        .get_block_epoch_index(&p_block.hash())
-        .and_then(|index| shared.store().get_epoch_ext(&index))
-        .unwrap();
     let epoch = shared
         .store()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &p_block.header())
-        .unwrap_or(last_epoch);
+        .next_epoch_ext(shared.consensus(), &p_block.header())
+        .unwrap_epoch();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)

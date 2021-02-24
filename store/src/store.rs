@@ -1,5 +1,5 @@
 use crate::cache::StoreCache;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, NextEpoch, NextEpochProvider};
 use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
@@ -7,6 +7,7 @@ use ckb_db_schema::{
     COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
+use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
@@ -19,7 +20,7 @@ use ckb_types::{
     prelude::*,
 };
 
-pub struct CellProviderWrapper<'a, S>(&'a S);
+pub struct ProviderWrapper<'a, S>(&'a S);
 
 /// TODO(doc): @quake
 pub trait ChainStore<'a>: Send + Sync + Sized {
@@ -34,8 +35,8 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
     /// TODO(doc): @quake
-    fn cell_provider(&self) -> CellProviderWrapper<Self> {
-        CellProviderWrapper(self)
+    fn provider(&self) -> ProviderWrapper<Self> {
+        ProviderWrapper(self)
     }
 
     /// Get block by block header hash
@@ -422,15 +423,9 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     fn next_epoch_ext(
         &'a self,
         consensus: &Consensus,
-        last_epoch: &EpochExt,
         header: &HeaderView,
-    ) -> Option<EpochExt> {
-        consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.get_block_header(&hash),
-            |hash| self.get_block_ext(&hash).map(|ext| ext.total_uncles_count),
-        )
+    ) -> Result<NextEpoch, Error> {
+        consensus.next_epoch_ext(&self.provider(), header)
     }
 
     /// TODO(doc): @quake
@@ -493,7 +488,37 @@ fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryRea
     }
 }
 
-impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
+impl<'a, S> NextEpochProvider for ProviderWrapper<'a, S>
+where
+    S: ChainStore<'a>,
+{
+    fn get_epoch_by_block_hash(&self, hash: &packed::Byte32) -> Result<EpochExt, Error> {
+        self.0.get_block_epoch(hash).ok_or_else(|| {
+            InternalErrorKind::Database
+                .other("get_block_epoch not found")
+                .into()
+        })
+    }
+    fn get_block_header(&self, hash: &packed::Byte32) -> Result<HeaderView, Error> {
+        self.0.get_block_header(hash).ok_or_else(|| {
+            InternalErrorKind::Database
+                .other("get_block_header not found")
+                .into()
+        })
+    }
+    fn total_uncles_count(&self, hash: &packed::Byte32) -> Result<u64, Error> {
+        self.0
+            .get_block_ext(hash)
+            .map(|ext| ext.total_uncles_count)
+            .ok_or_else(|| {
+                InternalErrorKind::Database
+                    .other("get_block_ext not found")
+                    .into()
+            })
+    }
+}
+
+impl<'a, S> CellProvider for ProviderWrapper<'a, S>
 where
     S: ChainStore<'a>,
 {

@@ -101,15 +101,12 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         // issuance for each block(which will only be issued on chain
         // after the finalization delay), not the capacities generated
         // in the cellbase of current block.
-        let parent_block_epoch = self
-            .store
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| self.store.get_epoch_ext(&index))
-            .ok_or(DaoError::InvalidHeader)?;
+
         let current_block_epoch = self
-            .store
-            .next_epoch_ext(&self.consensus, &parent_block_epoch, &parent)
-            .unwrap_or(parent_block_epoch);
+            .consensus
+            .next_epoch_ext(&self.store.provider(), &parent)
+            .map_err(|_| DaoError::InvalidHeader)?
+            .unwrap_epoch();
         let current_block_number = parent.number() + 1;
         let current_g2 = current_block_epoch.secondary_block_issuance(
             current_block_number,

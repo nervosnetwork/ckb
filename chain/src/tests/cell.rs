@@ -142,7 +142,7 @@ fn test_block_cells_update() {
     db_txn.attach_block(&block).unwrap();
 
     attach_block_cell(&db_txn, &block).unwrap();
-    let txn_cell_provider = db_txn.cell_provider();
+    let txn_cell_provider = db_txn.provider();
 
     // ensure tx0-2 outputs is spent after attach_block_cell
     for tx in block.transactions()[1..4].iter() {

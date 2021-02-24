@@ -88,7 +88,7 @@ pub(crate) fn gen_block(
         .unwrap();
     let epoch = store
         .0
-        .next_epoch_ext(shared.consensus(), &last_epoch, &parent_header)
+        .next_epoch_ext(shared.consensus(), &parent_header)
         .unwrap_or(last_epoch);
 
     let block = BlockBuilder::default()

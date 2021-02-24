@@ -56,7 +56,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
-        &shared.store().cell_provider(),
+        &shared.store().provider(),
     );
 
     rayon::ThreadPoolBuilder::new()
