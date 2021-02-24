@@ -54,10 +54,10 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     // spawn freezer background process
     let _freezer = shared.spawn_freeze();
 
-    setup_system_cell_cache(
-        shared.consensus().genesis_block(),
-        &shared.store().cell_provider(),
-    );
+    // setup_system_cell_cache(
+    //     shared.consensus().genesis_block(),
+    //     &shared.store().cell_provider(),
+    // );
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("RayonGlobal-{}", i))
