@@ -17,6 +17,7 @@ set +e
 
 test_id=$(date +"%Y%m%d-%H%M%S")
 test_tmp_dir=${CKB_INTEGRATION_TEST_TMP:-$(pwd)/target/ckb-test/${test_id}}
+export CKB_INTEGRATION_TEST_TMP="${test_tmp_dir}"
 mkdir -p "${test_tmp_dir}"
 test_log_file="${test_tmp_dir}/integration.log"
 
