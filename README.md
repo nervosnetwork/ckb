@@ -18,6 +18,8 @@ CKB supports scripting in any programming language with its own [CKB-VM](https:/
 
 [Nervos project](https://www.nervos.org) defines [a suite of scalable and interoperable blockchain protocols](https://github.com/nervosnetwork/rfcs) to create a self-evolving distributed economy, [CKB](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md) is among them.
 
+Support for different platforms are organized into [three tiers](docs/platform-support.md), each with a different set of guarantees.
+
 **Notice**: The ckb process will send stack trace to sentry on Rust panics.
 This is enabled by default before mainnet, which can be opted out by setting
 the option `dsn` to empty in the config file.
@@ -67,5 +69,6 @@ Mainnet Lina or Testnet Aggron, switch to the branch [master].
 
 - [Quick Start](docs/quick-start.md)
 - [Configure CKB](docs/configure.md)
+- [Platform Support](docs/platform-support.md)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).
