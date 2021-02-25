@@ -1402,6 +1402,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-error",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-pow",
  "ckb-resource",
  "ckb-reward-calculator",

@@ -10,6 +10,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_logger::error_target;
+use ckb_metrics::{metrics, Timer};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
@@ -375,6 +376,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         handle: &Handle,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+        let timer = Timer::start();
         let keys: Vec<Byte32> = self
             .resolved
             .iter()
@@ -446,6 +448,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             }
         });
 
+        metrics!(timing, "ckb.contextual_verified_block_txs", timer.stop());
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
@@ -534,6 +537,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         handle: &Handle,
         switch: Switch,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+        let timer = Timer::start();
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
             .context
@@ -570,13 +574,15 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockTxsVerifier::new(
+        let ret = BlockTxsVerifier::new(
             &self.context,
             block.number(),
             block.epoch(),
             parent_hash,
             resolved,
         )
-        .verify(txs_verify_cache, handle, switch.disable_script())
+        .verify(txs_verify_cache, handle, switch.disable_script())?;
+        metrics!(timing, "ckb.contextual_verified_block", timer.stop());
+        Ok(ret)
     }
 }
