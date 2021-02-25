@@ -107,7 +107,7 @@ value       = 5000
 
 Each node requires its own `<config-dir>`. Since the default ports will conflict, please export the config files and edit the listen ports in the config files.
 
-The option `--genesis-message` is required to set to the same message for dev chain, because by default def chain generates a random genesis message. Nodes with different genesis messages cannot connect to each other.
+The option `--genesis-message` is required to set to the same message for dev chain, because by default dev chain generates a random genesis message. Nodes with different genesis messages cannot connect to each other.
 
 ```
 mkdir node1 node2
