@@ -120,6 +120,25 @@ impl ChainDB {
         self.db.write(&write_batch.inner)
     }
 
+    /// write options set_sync = true
+    ///
+    /// see [`RocksDB::write_sync`](ckb_db::RocksDB::write_sync).
+    pub fn write_sync(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
+        self.db.write_sync(&write_batch.inner)
+    }
+
+    /// Force the data to go through the compaction in order to consolidate it
+    ///
+    /// see [`RocksDB::compact_range`](ckb_db::RocksDB::compact_range).
+    pub fn compact_range(
+        &self,
+        col: Col,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<(), Error> {
+        self.db.compact_range(col, start, end)
+    }
+
     /// TODO(doc): @quake
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
         let genesis = consensus.genesis_block();

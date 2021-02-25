@@ -1,5 +1,6 @@
 use crate::synchronizer::Synchronizer;
-use crate::{Status, StatusCode, MAX_LOCATOR_SIZE};
+use crate::{Status, StatusCode};
+use ckb_constant::sync::MAX_LOCATOR_SIZE;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_types::{

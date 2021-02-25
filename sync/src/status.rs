@@ -1,4 +1,4 @@
-use crate::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
+use ckb_constant::sync::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 

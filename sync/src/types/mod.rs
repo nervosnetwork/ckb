@@ -1,15 +1,15 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
-use crate::{
-    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
-    HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
-    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, NORMAL_INDEX, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
-    TIME_TRACE_SIZE,
-};
+use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_constant::sync::{
+    BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
+    HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    SUSPEND_SYNC_TIME,
+};
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
 use ckb_metrics::{metrics, Timer};
@@ -37,7 +37,7 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -1224,7 +1224,6 @@ impl SyncShared {
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
-            ibd_finished: AtomicBool::new(false),
             shared_best_header,
             header_map,
             block_status_map: Mutex::new(HashMap::new()),
@@ -1481,7 +1480,6 @@ impl SyncShared {
 pub struct SyncState {
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
-    ibd_finished: AtomicBool,
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
@@ -1802,16 +1800,7 @@ impl ActiveChain {
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        // Once this function has returned false, it must remain false.
-        if self.state.ibd_finished.load(Ordering::Relaxed) {
-            false
-        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
-        {
-            true
-        } else {
-            self.state.ibd_finished.store(true, Ordering::Relaxed);
-            false
-        }
+        self.shared.shared().is_initial_block_download()
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {

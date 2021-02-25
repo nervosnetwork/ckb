@@ -13,12 +13,13 @@ use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
-use crate::{
-    Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
-};
+use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
+use ckb_constant::sync::{
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
+};
 use ckb_error::AnyError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
@@ -544,7 +545,7 @@ impl Synchronizer {
             ::std::cmp::Reverse(
                 state
                     .get(id)
-                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count()),
+                    .map_or(INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count()),
             )
         });
         peers
@@ -792,10 +793,11 @@ mod tests {
     use super::*;
     use crate::{
         types::{HeaderView, HeadersSyncController, PeerState},
-        SyncShared, MAX_TIP_AGE,
+        SyncShared,
     };
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+    use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,

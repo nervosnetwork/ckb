@@ -15,7 +15,6 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.41.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
 ckb-network = { path = "../network", version = "= 0.41.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.41.0-pre" }
-ckb-sync = { path = "../sync", version = "= 0.41.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.41.0-pre" }
 ckb-hash = { path = "../util/hash", version = "= 0.41.0-pre" }
 ckb-util = { path = "../util", version = "= 0.41.0-pre" }
@@ -30,6 +29,7 @@ ckb-logger = { path = "../util/logger", version = "= 0.41.0-pre" }
 ckb-logger-config = { path = "../util/logger-config", version = "= 0.41.0-pre" }
 ckb-logger-service = { path = "../util/logger-service", version = "= 0.41.0-pre" }
 ckb-error = { path = "../error", version = "= 0.41.0-pre" }
+ckb-constant = { path = "../util/constant", version = "= 0.41.0-pre" }
 tempfile = "3.0"
 reqwest = { version = "0.10.9", features = ["blocking", "json"] }
 rand = "0.7"

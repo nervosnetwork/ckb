@@ -560,6 +560,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-constant"
+version = "0.41.0-pre"
+
+[[package]]
 name = "ckb-crypto"
 version = "0.41.0-pre"
 dependencies = [
@@ -1196,6 +1200,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-channel",
+ "ckb-constant",
  "ckb-db",
  "ckb-db-migration",
  "ckb-db-schema",
@@ -1211,6 +1216,7 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
+ "faketime",
  "num_cpus",
 ]
 
@@ -1271,6 +1277,7 @@ dependencies = [
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-channel",
+ "ckb-constant",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-db",

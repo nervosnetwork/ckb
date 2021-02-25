@@ -4,9 +4,9 @@ use crate::util::mining::{mine, out_ibd_mode};
 use crate::util::transaction::{always_success_transaction, always_success_transactions};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};
+use ckb_constant::sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
-use ckb_sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
 use ckb_types::{
     core::TransactionBuilder,
     packed::{GetRelayTransactions, RelayMessage},
