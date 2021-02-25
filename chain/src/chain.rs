@@ -383,7 +383,9 @@ impl ChainService {
             &block.header().hash(),
             &epoch.last_block_hash_in_previous_epoch(),
         )?;
-        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        if new_epoch {
+            db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        }
 
         let shared_snapshot = Arc::clone(&self.shared.snapshot());
         let origin_proposals = shared_snapshot.proposals();
