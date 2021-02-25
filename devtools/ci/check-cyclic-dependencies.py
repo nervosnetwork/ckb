@@ -75,5 +75,6 @@ for crate in members:
         print("{} depends on following members which come after it:".format(crate), file=sys.stderr)
         for e in crate_deps[crate]:
             print("    |- ", e, file=sys.stderr)
+        sys.exit(127)
     for crate_user in crate_deps_reverse[crate]:
         crate_deps[crate_user].remove(crate)
