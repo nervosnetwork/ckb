@@ -52,14 +52,6 @@ impl<'a> GetBlocksProcess<'a> {
                 continue;
             }
 
-            if self.nc.send_paused() {
-                debug!(
-                    "Session send buffer is full, stop send blocks to peer {:?}",
-                    self.peer
-                );
-                break;
-            }
-
             if let Some(block) = active_chain.get_block(&block_hash) {
                 debug!(
                     "respond_block {} {} to peer {:?}",
