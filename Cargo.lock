@@ -460,6 +460,7 @@ dependencies = [
 name = "ckb-bin"
 version = "0.41.0-pre"
 dependencies = [
+ "atty",
  "base64",
  "ckb-app-config",
  "ckb-async-runtime",

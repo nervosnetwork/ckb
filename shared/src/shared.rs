@@ -568,6 +568,11 @@ impl SharedBuilder {
         self.migrations.check(&self.db)
     }
 
+    /// Check whether database requires expensive migrations.
+    pub fn require_expensive_migrations(&self) -> bool {
+        self.migrations.expensive(&self.db)
+    }
+
     /// TODO(doc): @quake
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
