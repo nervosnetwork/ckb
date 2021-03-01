@@ -467,6 +467,7 @@ dependencies = [
  "ckb-chain-iter",
  "ckb-chain-spec",
  "ckb-channel",
+ "ckb-db",
  "ckb-instrument",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -720,9 +721,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-librocksdb-sys"
-version = "6.7.4"
+version = "6.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "995341a6dea5f0d8ff4570bebbde3691349842d2c671472e09ea2ee2e3e0b083"
+checksum = "6a78d3b9b5fd3b4990ddd2083f6a6d4389b6c8e603a4f2896914165113beed2d"
 dependencies = [
  "cc",
  "glob",
@@ -1013,9 +1014,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-rocksdb"
-version = "0.14.1"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "809a3a50c82a5fd7429c5141e64d8c4c37451ceb25fe3b51fce7fd5d929ad521"
+checksum = "a645f6745c3519bbcbeed80486e59cb3f74d2ac08a1d9621c399b892508aca6e"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
@@ -1218,6 +1219,7 @@ dependencies = [
  "ckb-verification",
  "faketime",
  "num_cpus",
+ "tempfile",
 ]
 
 [[package]]
