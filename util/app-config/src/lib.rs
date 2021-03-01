@@ -9,7 +9,7 @@ mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
+    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
@@ -106,6 +106,13 @@ impl Setup {
             check,
             force,
         })
+    }
+
+    /// `db-repair` subcommand
+    pub fn db_repair<'m>(self, _matches: &ArgMatches<'m>) -> Result<RepairArgs, ExitCode> {
+        let config = self.config.into_ckb()?;
+
+        Ok(RepairArgs { config })
     }
 
     /// Executes `ckb miner`.
