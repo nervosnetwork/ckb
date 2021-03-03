@@ -594,4 +594,7 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     if !synced {
         panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
     }
+    for node in nodes {
+        node.borrow().wait_for_tx_pool();
+    }
 }
