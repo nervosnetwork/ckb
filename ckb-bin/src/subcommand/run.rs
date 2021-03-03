@@ -28,7 +28,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
         &shared.store().cell_provider(),
-    );
+    )
+    .expect("SYSTEM_CELL cache init once");
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("RayonGlobal-{}", i))

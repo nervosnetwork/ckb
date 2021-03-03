@@ -442,6 +442,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-hash",
  "ckb-jsonrpc-types",
+ "ckb-resource",
  "ckb-shared",
  "ckb-store",
  "ckb-system-scripts",
