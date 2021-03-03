@@ -74,7 +74,6 @@ where
         let block = with(builder);
         node.submit_block(&block);
     }
-    node.wait_for_tx_pool();
 }
 
 pub fn mine_until_bool<P>(node: &Node, predicate: P)
@@ -100,7 +99,6 @@ where
 {
     loop {
         if let Some(t) = until() {
-            node.wait_for_tx_pool();
             return t;
         }
 

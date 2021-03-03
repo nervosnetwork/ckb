@@ -266,9 +266,12 @@ impl Node {
     }
 
     pub fn submit_block(&self, block: &BlockView) -> Byte32 {
-        self.rpc_client()
+        let hash = self
+            .rpc_client()
             .submit_block("".to_owned(), block.data().into())
-            .unwrap()
+            .unwrap();
+        self.wait_for_tx_pool();
+        hash
     }
 
     pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
