@@ -30,6 +30,7 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.41.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.41.0-pre" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.41.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
+ckb-resource = { path = "../resource", version = "= 0.41.0-pre" }
 
 [[bench]]
 name = "bench_main"

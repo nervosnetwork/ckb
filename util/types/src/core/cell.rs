@@ -23,8 +23,10 @@ pub enum ResolvedDep {
     Group((CellMeta, Vec<CellMeta>)),
 }
 
-/// TODO(doc): @quake
-pub static SYSTEM_CELL: OnceCell<HashMap<CellDep, ResolvedDep>> = OnceCell::new();
+/// type alias system cells map
+pub type SystemCellMap = HashMap<CellDep, ResolvedDep>;
+/// system cell memory map cache
+pub static SYSTEM_CELL: OnceCell<SystemCellMap> = OnceCell::new();
 
 /// TODO(doc): @quake
 #[derive(Clone, Eq, PartialEq, Default)]
@@ -730,7 +732,10 @@ fn build_cell_meta_from_out_point<CP: CellProvider>(
 }
 
 /// TODO(doc): @quake
-pub fn setup_system_cell_cache<CP: CellProvider>(genesis: &BlockView, cell_provider: &CP) {
+pub fn setup_system_cell_cache<CP: CellProvider>(
+    genesis: &BlockView,
+    cell_provider: &CP,
+) -> Result<(), SystemCellMap> {
     let system_cell_transaction = &genesis.transactions()[0];
     let secp_cell_transaction = &genesis.transactions()[1];
     let secp_code_dep = CellDep::new_builder()
@@ -789,7 +794,7 @@ pub fn setup_system_cell_cache<CP: CellProvider>(genesis: &BlockView, cell_provi
         ResolvedDep::Group(multi_sign_secp_group_cell),
     );
 
-    SYSTEM_CELL.set(cell_deps).expect("SYSTEM_CELL init once");
+    SYSTEM_CELL.set(cell_deps)
 }
 
 #[cfg(test)]
