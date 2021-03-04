@@ -268,8 +268,9 @@ impl Synchronizer {
             "ckb.messages_bytes",
             item_bytes,
             "direction" => "in",
-            "name" => item_name.to_owned(),
-            "status" => status.tag(),
+            "protocol_id" => SupportProtocols::Sync.protocol_id().value().to_string(),
+            "item_id" => message.item_id().to_string(),
+            "status" => (status.code() as u16).to_string(),
         );
 
         if let Some(ban_time) = status.should_ban() {

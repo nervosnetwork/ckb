@@ -14,17 +14,22 @@ pub(crate) fn send_message<Message: Entity>(
     peer_index: PeerIndex,
     message: &Message,
 ) -> Status {
-    let name = message_name(protocol_id, message);
-    ckb_logger::trace!("nc.send_message {}", name);
-
     if let Err(err) = nc.send_message(protocol_id, peer_index, message.as_bytes()) {
+        let name = message_name(protocol_id, message);
         let error_message = format!("nc.send_message {}, error: {:?}", name, err);
         ckb_logger::error!("{}", error_message);
         return StatusCode::Network.with_context(error_message);
     }
 
     let bytes = message.as_bytes().len() as u64;
-    metrics!(counter, "ckb.messages_bytes", bytes, "direction" => "out", "name" => name);
+    let item_id = item_id(protocol_id, message);
+    metrics!(
+        counter,
+        "ckb.messages_bytes", bytes,
+        "direction" => "out",
+        "protocol_id" => protocol_id.value().to_string(),
+        "item_id" => item_id.to_string(),
+    );
     Status::ok()
 }
 
@@ -56,5 +61,17 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
             .to_owned()
     } else {
         Message::NAME.to_owned()
+    }
+}
+
+// As for Sync protocol and Relay protocol, returns the internal item id;
+// otherwise returns 0.
+fn item_id<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> u32 {
+    if protocol_id == SupportProtocols::Sync.protocol_id() {
+        SyncMessageReader::new_unchecked(message.as_slice()).item_id()
+    } else if protocol_id == SupportProtocols::Relay.protocol_id() {
+        RelayMessageReader::new_unchecked(message.as_slice()).item_id()
+    } else {
+        0
     }
 }

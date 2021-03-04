@@ -29,7 +29,8 @@ use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{
-    bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
+    bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
+    TargetSession,
 };
 use ckb_types::core::BlockView;
 use ckb_types::{
@@ -182,8 +183,9 @@ impl Relayer {
             "ckb.messages_bytes",
             item_bytes,
             "direction" => "in",
-            "name" => item_name.to_owned(),
-            "status" => status.tag(),
+            "protocol_id" => SupportProtocols::Relay.protocol_id().value().to_string(),
+            "item_id" => message.item_id().to_string(),
+            "status" => (status.code() as u16).to_string(),
         );
 
         if let Some(ban_time) = status.should_ban() {

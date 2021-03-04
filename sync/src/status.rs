@@ -169,10 +169,6 @@ impl Status {
     pub fn code(&self) -> StatusCode {
         self.code
     }
-
-    pub(crate) fn tag(&self) -> String {
-        format!("{:?}", self.code)
-    }
 }
 
 impl PartialEq for Status {
