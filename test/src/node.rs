@@ -266,9 +266,12 @@ impl Node {
     }
 
     pub fn submit_block(&self, block: &BlockView) -> Byte32 {
-        self.rpc_client()
+        let hash = self
+            .rpc_client()
             .submit_block("".to_owned(), block.data().into())
-            .unwrap()
+            .unwrap();
+        self.wait_for_tx_pool();
+        hash
     }
 
     pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
@@ -590,5 +593,8 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     });
     if !synced {
         panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
+    }
+    for node in nodes {
+        node.borrow().wait_for_tx_pool();
     }
 }
