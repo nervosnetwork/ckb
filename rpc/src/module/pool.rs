@@ -274,7 +274,7 @@ impl PoolRpc for PoolRpcImpl {
         }
 
         let tx_pool = self.shared.tx_pool_controller();
-        let submit_tx = tx_pool.submit_tx(tx.clone());
+        let submit_tx = tx_pool.submit_local_tx(tx.clone());
 
         if let Err(e) = submit_tx {
             error!("send submit_tx request error {}", e);

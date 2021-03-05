@@ -147,7 +147,7 @@ fn bench(c: &mut Criterion) {
                             let tx_pool = shared.tx_pool_controller();
                             if !txs.is_empty() {
                                 for tx in txs {
-                                    tx_pool.submit_tx(tx).unwrap().expect("submit_tx");
+                                    tx_pool.submit_local_tx(tx).unwrap().expect("submit_tx");
                                 }
                             }
                             let block_template = tx_pool

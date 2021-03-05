@@ -95,7 +95,7 @@ impl<'a> TransactionsProcess<'a> {
                         continue;
                     }
 
-                    match tx_pool.async_submit_tx(tx.clone()).await {
+                    match tx_pool.submit_remote_tx(tx.clone(), declared_cycle).await {
                         Ok(ret) => {
                             if handle_submit_result(nc.as_ref(), &relayer, ret, declared_cycle, tx, peer).await.is_err() {
                                 break;
