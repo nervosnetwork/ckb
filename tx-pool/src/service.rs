@@ -77,7 +77,8 @@ pub(crate) type ChainReorgArgs = (
 
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitTx(Request<TransactionView, SubmitTxResult>),
+    SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
+    SubmitRemoteTx(Request<(TransactionView, Cycle), SubmitTxResult>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
@@ -198,29 +199,36 @@ impl TxPoolController {
     }
 
     /// Submit local tx to tx-pool
-    pub fn submit_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+    pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(tx, responder);
-        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
-            let (_m, e) = handle_try_send_error(e);
-            e
-        })?;
+        sender
+            .try_send(Message::SubmitLocalTx(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         self.handle
             .block_on(response)
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
 
-    /// Async submit local tx to tx-pool
-    pub async fn async_submit_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+    pub async fn submit_remote_tx(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+    ) -> Result<SubmitTxResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
-        let request = Request::call(tx, responder);
-        sender.try_send(Message::SubmitTx(request)).map_err(|e| {
-            let (_m, e) = handle_try_send_error(e);
-            e
-        })?;
+        let request = Request::call((tx, declared_cycles), responder);
+        sender
+            .try_send(Message::SubmitRemoteTx(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response
             .await
             .map_err(handle_recv_error)
@@ -555,11 +563,20 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send block_template_result failed {:?}", e);
             };
         }
-        Message::SubmitTx(Request {
+        Message::SubmitLocalTx(Request {
             responder,
             arguments: tx,
         }) => {
             let result = service.process_tx(tx, None).await;
+            if let Err(e) = responder.send(result.map_err(Into::into)) {
+                error!("responder send submit_tx result failed {:?}", e);
+            };
+        }
+        Message::SubmitRemoteTx(Request {
+            responder,
+            arguments: (tx, declared_cycles),
+        }) => {
+            let result = service.process_tx(tx, Some(declared_cycles)).await;
             if let Err(e) = responder.send(result.map_err(Into::into)) {
                 error!("responder send submit_tx result failed {:?}", e);
             };
