@@ -248,7 +248,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     }
 
     fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), Error> {
-        let calculator = DaoCalculator::new(&self.consensus, self.store);
+        let calculator = DaoCalculator::new(&self.consensus, self.store.as_data_provider());
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
 

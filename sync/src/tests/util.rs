@@ -50,11 +50,12 @@ pub fn generate_blocks(
 pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
     let snapshot = shared.snapshot();
     let parent = snapshot.get_block(parent_hash).unwrap();
-    let parent_epoch = snapshot.get_block_epoch(parent_hash).unwrap();
     let parent_number = parent.header().number();
     let epoch = snapshot
-        .next_epoch_ext(snapshot.consensus(), &parent_epoch, &parent.header())
-        .unwrap_or(parent_epoch);
+        .consensus()
+        .next_epoch_ext(&parent.header(), &snapshot.as_data_provider())
+        .unwrap()
+        .epoch();
     let cellbase = {
         let (_, reward) = snapshot.finalize_block_reward(&parent.header()).unwrap();
         always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
@@ -67,7 +68,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
             snapshot.as_ref(),
         )
         .unwrap();
-        DaoCalculator::new(shared.consensus(), snapshot.as_ref())
+        DaoCalculator::new(shared.consensus(), snapshot.as_data_provider())
             .dao_field(&[resolved_cellbase], &parent.header())
             .unwrap()
     };

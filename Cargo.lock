@@ -450,7 +450,6 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "criterion",
- "faketime",
  "lazy_static",
  "rand 0.7.3",
 ]
@@ -547,6 +546,7 @@ dependencies = [
  "ckb-pow",
  "ckb-rational",
  "ckb-resource",
+ "ckb-traits",
  "ckb-types",
  "serde",
  "toml",

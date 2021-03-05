@@ -889,7 +889,7 @@ mod tests {
             let resolved_cellbase =
                 resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
                     .unwrap();
-            DaoCalculator::new(shared.consensus(), shared.store())
+            DaoCalculator::new(shared.consensus(), shared.store().as_data_provider())
                 .dao_field(&[resolved_cellbase], parent_header)
                 .unwrap()
         };
@@ -916,10 +916,11 @@ mod tests {
         let parent = snapshot
             .get_block_header(&snapshot.get_block_hash(number - 1).unwrap())
             .unwrap();
-        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
         let epoch = snapshot
-            .next_epoch_ext(snapshot.consensus(), &parent_epoch, &parent)
-            .unwrap_or(parent_epoch);
+            .consensus()
+            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let block = gen_block(shared, &parent, &epoch, nonce);
 
@@ -1018,10 +1019,11 @@ mod tests {
 
         for i in 1..block_number {
             let store = shared1.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared1.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared1
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared1, &parent, &epoch, i);
             blocks.push(new_block.clone());
 
@@ -1038,10 +1040,11 @@ mod tests {
         let fork = parent.number();
         for i in 1..=block_number {
             let store = shared2.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared2.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared2
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
@@ -1128,10 +1131,11 @@ mod tests {
             .unwrap();
         for i in 1..block_number {
             let store = shared1.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared1.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared1
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
@@ -1164,10 +1168,11 @@ mod tests {
             .unwrap();
         for i in 1..=block_number {
             let store = shared.snapshot();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared, &parent, &epoch, i + 100);
             blocks.push(new_block.clone());
 

@@ -81,15 +81,11 @@ pub(crate) fn gen_block(
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
 
-    let last_epoch = store
-        .0
-        .get_block_epoch_index(&parent_header.hash())
-        .and_then(|index| store.0.get_epoch_ext(&index))
-        .unwrap();
-    let epoch = store
-        .0
-        .next_epoch_ext(shared.consensus(), &last_epoch, &parent_header)
-        .unwrap_or(last_epoch);
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent_header, &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())

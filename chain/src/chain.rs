@@ -360,18 +360,13 @@ impl ChainService {
 
         db_txn.insert_block(&block)?;
 
-        let parent_header_epoch = txn_snapshot
-            .get_block_epoch(&parent_header.hash())
-            .expect("parent epoch already store");
-
-        let next_epoch_ext = txn_snapshot.next_epoch_ext(
-            self.shared.consensus(),
-            &parent_header_epoch,
-            &parent_header,
-        );
-        let new_epoch = next_epoch_ext.is_some();
-
-        let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
+        let next_block_epoch = self
+            .shared
+            .consensus()
+            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .expect("epoch should be stored");
+        let new_epoch = next_block_epoch.is_head();
+        let epoch = next_block_epoch.epoch();
 
         let ext = BlockExt {
             received_at: unix_time_as_millis(),

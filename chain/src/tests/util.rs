@@ -145,7 +145,7 @@ pub(crate) fn calculate_reward(
     let target_number = consensus.finalize_target(number).unwrap();
     let target_hash = store.0.get_block_hash(target_number).unwrap();
     let target = store.0.get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(consensus, store.store());
+    let calculator = DaoCalculator::new(consensus, store.store().as_data_provider());
     calculator
         .primary_block_reward(&target)
         .unwrap()
@@ -300,15 +300,11 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
 
-        let last_epoch = store
-            .0
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| store.0.get_epoch_ext(&index))
-            .unwrap();
-        let epoch = store
-            .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
-            .unwrap_or(last_epoch);
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
@@ -383,15 +379,11 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
 
-        let last_epoch = store
-            .0
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| store.0.get_epoch_ext(&index))
-            .unwrap();
-        let epoch = store
-            .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
-            .unwrap_or(last_epoch);
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
@@ -411,15 +403,11 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
 
-        let last_epoch = store
-            .0
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| store.0.get_epoch_ext(&index))
-            .unwrap();
-        let epoch = store
-            .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
-            .unwrap_or(last_epoch);
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
@@ -451,15 +439,11 @@ impl<'a> MockChain<'a> {
             ignore_resolve_error,
         );
 
-        let last_epoch = store
-            .0
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| store.0.get_epoch_ext(&index))
-            .unwrap();
-        let epoch = store
-            .0
-            .next_epoch_ext(self.consensus, &last_epoch, &parent)
-            .unwrap_or(last_epoch);
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
@@ -527,6 +511,6 @@ pub fn dao_data(
     } else {
         rtxs.unwrap()
     };
-    let calculator = DaoCalculator::new(consensus, store.store());
+    let calculator = DaoCalculator::new(consensus, store.0.as_data_provider());
     calculator.dao_field(&rtxs, &parent).unwrap()
 }
