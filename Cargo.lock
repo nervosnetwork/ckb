@@ -522,6 +522,7 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
+ "ckb-verification-contextual",
  "ckb-verification-traits",
  "faketime",
  "lazy_static",
@@ -1398,20 +1399,14 @@ dependencies = [
 name = "ckb-verification"
 version = "0.41.0-pre"
 dependencies = [
- "ckb-async-runtime",
- "ckb-chain",
  "ckb-chain-spec",
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
- "ckb-logger",
  "ckb-metrics",
  "ckb-pow",
  "ckb-resource",
- "ckb-reward-calculator",
  "ckb-script",
- "ckb-shared",
- "ckb-store",
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
@@ -1419,6 +1414,28 @@ dependencies = [
  "derive_more",
  "faketime",
  "lru",
+]
+
+[[package]]
+name = "ckb-verification-contextual"
+version = "0.41.0-pre"
+dependencies = [
+ "ckb-async-runtime",
+ "ckb-chain",
+ "ckb-chain-spec",
+ "ckb-dao",
+ "ckb-error",
+ "ckb-logger",
+ "ckb-metrics",
+ "ckb-reward-calculator",
+ "ckb-shared",
+ "ckb-store",
+ "ckb-test-chain-utils",
+ "ckb-traits",
+ "ckb-types",
+ "ckb-verification",
+ "ckb-verification-traits",
+ "faketime",
  "rand 0.7.3",
  "rayon",
  "tokio 0.2.25",

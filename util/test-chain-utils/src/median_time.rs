@@ -1,4 +1,4 @@
-use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{BlockNumber, EpochNumberWithFraction, HeaderView, TransactionInfo},
     packed::Byte32,
@@ -15,9 +15,12 @@ pub struct MockMedianTime {
     timestamps: Vec<u64>,
 }
 
-impl BlockMedianTimeContext for MockMedianTime {
-    fn median_block_count(&self) -> u64 {
-        11
+#[doc(hidden)]
+pub const MOCK_MEDIAN_TIME_COUNT: usize = 11;
+
+impl HeaderProvider for MockMedianTime {
+    fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
     }
 
     fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
@@ -35,12 +38,6 @@ impl BlockMedianTimeContext for MockMedianTime {
             }
         }
         unreachable!()
-    }
-}
-
-impl HeaderProvider for MockMedianTime {
-    fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
-        None
     }
 }
 

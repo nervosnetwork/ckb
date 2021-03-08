@@ -74,6 +74,7 @@ members = [
     "util/snapshot",
     "verification/traits",
     "verification",
+    "verification/contextual",
     "tx-pool",
     "shared/migration-template",
     "shared",

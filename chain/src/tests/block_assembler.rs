@@ -21,7 +21,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification::{BlockVerifier, HeaderVerifier};
 use ckb_verification_traits::{Switch, Verifier};
 use lazy_static::lazy_static;
 use std::sync::Arc;
@@ -76,11 +76,10 @@ fn test_get_block_template() {
     let block = block.as_advanced_builder().build();
     let header = block.header();
 
-    let resolver = HeaderResolverWrapper::new(&header, shared.store());
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
         let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
-        header_verifier.verify(&resolver)
+        header_verifier.verify(&header)
     };
     assert!(header_verify_result.is_ok());
 

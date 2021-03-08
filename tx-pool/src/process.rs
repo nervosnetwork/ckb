@@ -220,7 +220,7 @@ impl TxPoolService {
         }).collect();
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, snapshot.as_data_provider())
+        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
             .dao_field(&rtxs, tip_header)?;
 
         let candidate_number = tip_header.number() + 1;
@@ -654,12 +654,11 @@ fn verify_rtxs(
             } else {
                 ContextualTransactionVerifier::new(
                     &tx,
-                    snapshot,
                     tip_number + 1,
                     epoch,
                     tip_header.hash(),
                     consensus,
-                    snapshot,
+                    &snapshot.as_data_provider(),
                 )
                 .verify(max_tx_verify_cycles, false)
                 .map(|cycles| (tx, cycles))

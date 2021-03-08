@@ -8,7 +8,7 @@ use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{self, cell::CellProvider},
     packed::{self, Block, Header},
@@ -1710,7 +1710,10 @@ impl ChainRpc for ChainRpcImpl {
             return Ok(None);
         }
 
-        let median_time = snapshot.block_median_time(&block_hash);
+        let median_time = snapshot.block_median_time(
+            &block_hash,
+            self.shared.consensus().median_time_block_count(),
+        );
         Ok(Some(median_time.into()))
     }
 }

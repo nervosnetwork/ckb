@@ -145,7 +145,8 @@ pub(crate) fn calculate_reward(
     let target_number = consensus.finalize_target(number).unwrap();
     let target_hash = store.0.get_block_hash(target_number).unwrap();
     let target = store.0.get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(consensus, store.store().as_data_provider());
+    let data_loader = store.store().as_data_provider();
+    let calculator = DaoCalculator::new(consensus, &data_loader);
     calculator
         .primary_block_reward(&target)
         .unwrap()
@@ -511,6 +512,7 @@ pub fn dao_data(
     } else {
         rtxs.unwrap()
     };
-    let calculator = DaoCalculator::new(consensus, store.0.as_data_provider());
+    let data_loader = store.0.as_data_provider();
+    let calculator = DaoCalculator::new(consensus, &data_loader);
     calculator.dao_field(&rtxs, &parent).unwrap()
 }

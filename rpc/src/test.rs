@@ -115,7 +115,8 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let dao = {
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        DaoCalculator::new(shared.consensus(), shared.store().as_data_provider())
+        let data_loader = shared.store().as_data_provider();
+        DaoCalculator::new(shared.consensus(), &data_loader)
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
     };

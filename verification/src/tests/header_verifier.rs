@@ -2,7 +2,7 @@ use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, Ver
 use crate::{BlockVersionError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
-use ckb_test_chain_utils::MockMedianTime;
+use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_types::{constants::BLOCK_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
 use faketime::unix_time_as_millis;
 
@@ -40,7 +40,11 @@ fn test_timestamp() {
         .number(10u64.pack())
         .timestamp(timestamp.pack())
         .build();
-    let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
+    let timestamp_verifier = TimestampVerifier::new(
+        &fake_block_median_time_context,
+        &header,
+        MOCK_MEDIAN_TIME_COUNT,
+    );
 
     assert!(timestamp_verifier.verify().is_ok());
 }
@@ -58,7 +62,11 @@ fn test_timestamp_too_old() {
         .number(10u64.pack())
         .timestamp(timestamp.pack())
         .build();
-    let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
+    let timestamp_verifier = TimestampVerifier::new(
+        &fake_block_median_time_context,
+        &header,
+        MOCK_MEDIAN_TIME_COUNT,
+    );
 
     assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
@@ -82,7 +90,11 @@ fn test_timestamp_too_new() {
         .number(10u64.pack())
         .timestamp(timestamp.pack())
         .build();
-    let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
+    let timestamp_verifier = TimestampVerifier::new(
+        &fake_block_median_time_context,
+        &header,
+        MOCK_MEDIAN_TIME_COUNT,
+    );
     assert_error_eq!(
         timestamp_verifier.verify().unwrap_err(),
         TimestampError::BlockTimeTooNew {

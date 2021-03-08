@@ -500,7 +500,8 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
+    let data_loader = snapshot.as_data_provider();
+    let calculator = DaoCalculator::new(snapshot.consensus(), &data_loader);
     calculator
         .dao_field(&rtxs, &parent)
         .expect("calculator dao_field")
@@ -512,7 +513,8 @@ pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity
     let target_number = shared.consensus().finalize_target(number).unwrap();
     let target_hash = snapshot.get_block_hash(target_number).unwrap();
     let target = snapshot.get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
+    let data_loader = snapshot.as_data_provider();
+    let calculator = DaoCalculator::new(shared.consensus(), &data_loader);
     calculator
         .primary_block_reward(&target)
         .expect("calculate_reward primary_block_reward")

@@ -390,12 +390,11 @@ impl TxPool {
                 let max_cycles = consensus.max_block_cycles();
                 let cache_entry = TransactionVerifier::new(
                     &rtx,
-                    snapshot,
                     tip_number + 1,
                     epoch_number,
                     tip_header.hash(),
                     consensus,
-                    snapshot,
+                    &snapshot.as_data_provider(),
                 )
                 .verify(max_cycles)
                 .map_err(Reject::Verification)?;
@@ -436,7 +435,7 @@ impl TxPool {
         snapshot: &Snapshot,
         rtx: &ResolvedTransaction,
     ) -> Result<Capacity, Error> {
-        DaoCalculator::new(snapshot.consensus(), snapshot.as_data_provider())
+        DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
             .transaction_fee(&rtx)
             .map_err(|err| {
                 error!(

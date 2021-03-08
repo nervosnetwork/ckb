@@ -1,10 +1,10 @@
-use crate::{PowError, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochExt, HeaderView},
     packed::Byte32,
 };
+use ckb_verification::{PowError, UnclesError};
 use std::collections::{HashMap, HashSet};
 
 pub trait UncleProvider {

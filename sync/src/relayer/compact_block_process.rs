@@ -3,10 +3,9 @@ use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::utils::send_message_to;
 use crate::{attempt, Status, StatusCode};
-use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_traits::HeaderProvider;
 use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
@@ -117,8 +116,6 @@ impl<'a> CompactBlockProcess<'a> {
             ));
         }
 
-        let parent = parent.unwrap();
-
         if let Some(peers) = shared
             .state()
             .read_inflight_blocks()
@@ -160,14 +157,12 @@ impl<'a> CompactBlockProcess<'a> {
                             })
                     }
                 };
-                let resolver = shared.new_header_resolver(&header, parent.into_inner());
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
-                    consensus: shared.consensus(),
                 };
                 let header_verifier =
                     HeaderVerifier::new(&median_time_context, &shared.consensus());
-                if let Err(err) = header_verifier.verify(&resolver) {
+                if let Err(err) = header_verifier.verify(&header) {
                     if err
                         .downcast_ref::<HeaderError>()
                         .map(|e| e.is_too_new())
@@ -282,13 +277,6 @@ impl<'a> CompactBlockProcess<'a> {
 
 struct CompactBlockMedianTimeView<'a> {
     fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
-    consensus: &'a Consensus,
-}
-
-impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
-    }
 }
 
 impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {

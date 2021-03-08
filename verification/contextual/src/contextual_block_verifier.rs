@@ -1,10 +1,4 @@
-use crate::cache::{CacheEntry, TxVerifyCache};
-use crate::error::{BlockTransactionsError, EpochError};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
-use crate::{
-    BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier, UnknownParentError,
-};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -13,7 +7,7 @@ use ckb_logger::error_target;
 use ckb_metrics::{metrics, Timer};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
-use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::error::OutPointError,
     core::{
@@ -24,6 +18,12 @@ use ckb_types::{
     packed::{Byte32, CellOutput, Script},
     prelude::*,
 };
+use ckb_verification::cache::{CacheEntry, TxVerifyCache};
+use ckb_verification::{
+    BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
+    TimeRelativeTransactionVerifier, UnknownParentError,
+};
+use ckb_verification::{BlockTransactionsError, EpochError};
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -44,12 +44,6 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
 
     fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
-    }
-}
-
-impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
     }
 }
 
@@ -291,7 +285,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     pub fn verify(&self) -> Result<(), Error> {
         let dao = DaoCalculator::new(
             self.context.consensus,
-            self.context.store.as_data_provider(),
+            &self.context.store.as_data_provider(),
         )
         .dao_field(&self.resolved, self.parent)
         .map_err(|e| {
@@ -402,12 +396,11 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 } else {
                     ContextualTransactionVerifier::new(
                         &tx,
-                        self.context,
                         self.block_number,
                         self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
                         self.context.consensus,
-                        self.context.store,
+                        &self.context.store.as_data_provider(),
                     )
                     .verify(
                         self.context.consensus.max_block_cycles(),
