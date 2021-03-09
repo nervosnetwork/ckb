@@ -22,7 +22,6 @@ use ckb_types::{
     prelude::*,
     H256, U256,
 };
-use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -41,10 +40,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-mod header_map;
+mod cached_hashmap;
 
 use crate::utils::send_message;
-use header_map::HeaderMapLru as HeaderMap;
+
+pub(crate) type HeaderMap = cached_hashmap::RocksDBBackendLruHashMap<Byte32, HeaderView>;
+pub(crate) type BlockStatusMap = cached_hashmap::RocksDBBackendLruHashMap<Byte32, BlockStatus>;
 
 const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 50000;
@@ -1183,7 +1184,7 @@ impl SyncShared {
     /// Generate a global sync state through configuration
     pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
-        P: AsRef<Path>,
+        P: AsRef<Path> + ::std::clone::Clone,
     {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
@@ -1194,9 +1195,14 @@ impl SyncShared {
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
         let header_map = HeaderMap::new(
-            tmpdir,
+            tmpdir.clone(),
             sync_config.header_map.primary_limit,
             sync_config.header_map.backend_close_threshold,
+        );
+        let block_status_map = BlockStatusMap::new(
+            tmpdir,
+            sync_config.block_status_map.primary_limit,
+            sync_config.block_status_map.backend_close_threshold,
         );
 
         let state = SyncState {
@@ -1204,7 +1210,7 @@ impl SyncShared {
             n_protected_outbound_peers: AtomicUsize::new(0),
             shared_best_header,
             header_map,
-            block_status_map: Mutex::new(HashMap::new()),
+            block_status_map,
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
             known_txs: Mutex::new(KnownFilter::default()),
@@ -1464,7 +1470,7 @@ pub struct SyncState {
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
     header_map: HeaderMap,
-    block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
+    block_status_map: BlockStatusMap,
     tx_filter: Mutex<Filter<Byte32>>,
 
     /* Status relevant to peers */
@@ -1643,11 +1649,9 @@ impl SyncState {
 
     pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
-        let mut block_status_map = self.block_status_map.lock();
         blocks.iter().for_each(|block| {
-            block_status_map.remove(&block.hash());
+            self.block_status_map.remove(&block.hash());
         });
-        shrink_to_fit!(block_status_map, SHRINK_THRESHOLD);
         blocks
     }
 
@@ -1656,13 +1660,11 @@ impl SyncState {
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
-        self.block_status_map.lock().insert(block_hash, status);
+        self.block_status_map.insert(block_hash, status);
     }
 
     pub fn remove_block_status(&self, block_hash: &Byte32) {
-        let mut guard = self.block_status_map.lock();
-        guard.remove(block_hash);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        self.block_status_map.remove(block_hash);
     }
 
     pub fn clear_get_block_proposals(
@@ -1983,7 +1985,7 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.state.block_status_map.lock().get(block_hash).cloned() {
+        match self.state.block_status_map.get(block_hash) {
             Some(status) => status,
             None => {
                 let verified = self

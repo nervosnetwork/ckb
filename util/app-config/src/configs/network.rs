@@ -81,6 +81,9 @@ pub struct SyncConfig {
     /// Header map config options.
     #[serde(default)]
     pub header_map: HeaderMapConfig,
+    /// Block status map config options.
+    #[serde(default)]
+    pub block_status_map: BlockStatusMapConfig,
     /// Block hash of assume valid target
     #[serde(skip, default)]
     pub assume_valid_target: Option<H256>,
@@ -105,6 +108,26 @@ impl Default for HeaderMapConfig {
         Self {
             primary_limit: 300_000,
             backend_close_threshold: 20_000,
+        }
+    }
+}
+
+/// Block status map config options.
+///
+/// Block status map stores the block statuses before fully verifying the block.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockStatusMapConfig {
+    /// The maximum size of data in memory
+    pub primary_limit: usize,
+    /// Disable cache if the size of data in memory less than this threshold
+    pub backend_close_threshold: usize,
+}
+
+impl Default for BlockStatusMapConfig {
+    fn default() -> Self {
+        Self {
+            primary_limit: 1_000_000,
+            backend_close_threshold: 50_000,
         }
     }
 }

@@ -1,9 +1,9 @@
-use std::path;
+use std::{convert::TryInto, path};
 
 use ckb_types::{packed::Byte32, prelude::Entity};
 use ckb_util::Mutex;
 
-use crate::types::HeaderView;
+use crate::{block_status::BlockStatus, types::HeaderView};
 
 mod backend;
 mod backend_rocksdb;
@@ -19,7 +19,7 @@ pub(crate) use self::{
     memory::KeyValueMemory,
 };
 
-pub(crate) type HeaderMapLru = HashMapLru<Byte32, HeaderView, RocksDBBackend>;
+pub(crate) type RocksDBBackendLruHashMap<K, V> = HashMapLru<K, V, RocksDBBackend>;
 
 pub(crate) struct HashMapLru<K: Key, V: Value, B: KeyValueBackend<K, V>>(
     Mutex<HashMapLruKernel<K, V, B>>,
@@ -38,6 +38,21 @@ impl Value for HeaderView {
 
     fn to_vec(&self) -> Vec<u8> {
         self.to_vec()
+    }
+}
+
+impl Value for BlockStatus {
+    fn from_slice(slice: &[u8]) -> Self {
+        let bits = u32::from_le_bytes(
+            slice
+                .try_into()
+                .expect("BlockStatus from storage should be right"),
+        );
+        Self::from_bits(bits).expect("BlockStatus from storage should be right")
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        self.bits().to_le_bytes().to_vec()
     }
 }
 
