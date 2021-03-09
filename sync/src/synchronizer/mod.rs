@@ -13,6 +13,7 @@ use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
+use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
@@ -195,7 +196,6 @@ impl BlockFetchCMD {
         ) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -260,12 +260,18 @@ impl Synchronizer {
         message: packed::SyncMessageUnionReader<'r>,
     ) {
         let item_name = message.item_name();
+        let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
-        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
-        if !status.is_ok() {
-            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
-        }
+        metrics!(
+            counter,
+            "ckb.messages_bytes",
+            item_bytes,
+            "direction" => "in",
+            "protocol_id" => SupportProtocols::Sync.protocol_id().value().to_string(),
+            "item_id" => message.item_id().to_string(),
+            "status" => (status.code() as u16).to_string(),
+        );
 
         if let Some(ban_time) = status.should_ban() {
             error!(
@@ -641,10 +647,7 @@ impl Synchronizer {
         let message = packed::SyncMessage::new_builder().set(content).build();
 
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
-        }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
+        let _status = send_message_to(nc, peer, &message);
     }
 }
 
@@ -1833,8 +1836,4 @@ mod tests {
             );
         }
     }
-}
-
-pub(self) fn metrics_counter_send(item_name: &str) {
-    metrics!(counter, "ckb-net.sent", 1, "action" => "sync", "item" => item_name.to_owned());
 }

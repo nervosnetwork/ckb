@@ -1,6 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::{Status, StatusCode};
+use crate::utils::send_message_to;
+use crate::{attempt, Status, StatusCode};
 use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -62,11 +63,7 @@ impl<'a> GetBlocksProcess<'a> {
                 let content = packed::SendBlock::new_builder().block(block.data()).build();
                 let message = packed::SyncMessage::new_builder().set(content).build();
 
-                if let Err(err) = self.nc.send_message_to(self.peer, message.as_bytes()) {
-                    return StatusCode::Network
-                        .with_context(format!("Send SendBlock error: {:?}", err));
-                }
-                crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
+                attempt!(send_message_to(self.nc, self.peer, &message));
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer
