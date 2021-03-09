@@ -5,11 +5,9 @@ use ckb_db::internal::{
     BlockBasedOptions, Options, DB,
 };
 use ckb_logger::{debug, warn};
-use ckb_types::{packed::Byte32, prelude::*};
 use tempfile::TempDir;
 
-use super::KeyValueBackend;
-use crate::types::HeaderView;
+use super::{Key, KeyValueBackend, StorageBackend, Value};
 
 pub(crate) struct RocksDBBackend {
     tmpdir: Option<path::PathBuf>,
@@ -17,7 +15,7 @@ pub(crate) struct RocksDBBackend {
     count: usize,
 }
 
-impl KeyValueBackend for RocksDBBackend {
+impl StorageBackend for RocksDBBackend {
     fn new<P>(tmpdir: Option<P>) -> Self
     where
         P: AsRef<path::Path>,
@@ -62,15 +60,15 @@ impl KeyValueBackend for RocksDBBackend {
                 };
                 if let Ok(db) = DB::open(&opts, cache_dir.path()) {
                     debug!(
-                        "open a key-value database({}) to save header map into disk",
+                        "open a key-value database({}) to save hashmap into disk",
                         cache_dir.path().to_str().unwrap_or("")
                     );
                     self.resource.replace((cache_dir, db));
                 } else {
-                    panic!("failed to open a key-value database to save header map into disk");
+                    panic!("failed to open a key-value database to save hashmap into disk");
                 }
             } else {
-                panic!("failed to create a tempdir to save header map into disk");
+                panic!("failed to create a tempdir to save hashmap into disk");
             }
         }
     }
@@ -90,36 +88,41 @@ impl KeyValueBackend for RocksDBBackend {
             true
         }
     }
+}
 
-    fn contains_key(&self, key: &Byte32) -> bool {
+impl<K, V> KeyValueBackend<K, V> for RocksDBBackend
+where
+    K: Key,
+    V: Value,
+{
+    fn contains_key(&self, key: &K) -> bool {
         if let Some((_, ref db)) = self.resource {
             db.get_pinned(key.as_slice())
-                .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {}", err))
+                .unwrap_or_else(|err| panic!("read hashmap from disk should be ok, but {}", err))
                 .is_some()
         } else {
             false
         }
     }
 
-    fn get(&self, key: &Byte32) -> Option<HeaderView> {
+    fn get(&self, key: &K) -> Option<V> {
         if let Some((_, ref db)) = self.resource {
             db.get_pinned(key.as_slice())
-                .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {}", err))
-                .map(|slice| HeaderView::from_slice_should_be_ok(&slice))
+                .unwrap_or_else(|err| panic!("read hashmap from disk should be ok, but {}", err))
+                .map(|slice| V::from_slice(&slice))
         } else {
             None
         }
     }
 
-    fn insert(&mut self, value: &HeaderView) -> Option<HeaderView> {
+    fn insert(&mut self, key: &K, value: &V) -> Option<V> {
         if let Some((_, ref db)) = self.resource {
-            let key = value.hash();
             let old_value_opt = db
                 .get_pinned(key.as_slice())
-                .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {}", err))
-                .map(|slice| HeaderView::from_slice_should_be_ok(&slice));
+                .unwrap_or_else(|err| panic!("read hashmap from disk should be ok, but {}", err))
+                .map(|slice| V::from_slice(&slice));
             if db.put(key.as_slice(), &value.to_vec()).is_err() {
-                panic!("failed to insert item into header map");
+                panic!("failed to insert item into hashmap");
             }
             if old_value_opt.is_none() {
                 self.count += 1;
@@ -130,13 +133,13 @@ impl KeyValueBackend for RocksDBBackend {
         }
     }
 
-    fn remove(&mut self, key: &Byte32) -> Option<HeaderView> {
+    fn remove(&mut self, key: &K) -> Option<V> {
         let mut do_count = false;
         let value_opt = if let Some((_, ref db)) = self.resource {
             let value_opt = db
                 .get_pinned(key.as_slice())
-                .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {}", err))
-                .map(|slice| HeaderView::from_slice_should_be_ok(&slice));
+                .unwrap_or_else(|err| panic!("read hashmap from disk should be ok, but {}", err))
+                .map(|slice| V::from_slice(&slice));
             if value_opt.is_some() {
                 if db.delete(key.as_slice()).is_ok() {
                     do_count = true;

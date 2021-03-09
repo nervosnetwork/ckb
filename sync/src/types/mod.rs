@@ -44,7 +44,7 @@ use std::time::{Duration, Instant};
 mod header_map;
 
 use crate::utils::send_message;
-pub use header_map::HeaderMapLru as HeaderMap;
+use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 50000;
@@ -1389,7 +1389,9 @@ impl SyncShared {
                 }
             },
         );
-        self.state.header_map.insert(header_view.clone());
+        self.state
+            .header_map
+            .insert(header.hash(), header_view.clone());
         self.state
             .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
         self.state
@@ -1554,7 +1556,7 @@ impl SyncState {
         self.shared_best_header.read()
     }
 
-    pub fn header_map(&self) -> &HeaderMap {
+    pub(crate) fn header_map(&self) -> &HeaderMap {
         &self.header_map
     }
 

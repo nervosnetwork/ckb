@@ -2,28 +2,28 @@ use std::path;
 
 #[cfg(feature = "stats")]
 use ckb_logger::trace;
-use ckb_types::packed::Byte32;
 
-use super::{KeyValueBackend, KeyValueMemory};
-use crate::types::HeaderView;
+use super::{Key, KeyValueBackend, KeyValueMemory, Value};
 
-pub(crate) struct HeaderMapLruKernel<Backend>
+pub(crate) struct HashMapLruKernel<K, V, B>
 where
-    Backend: KeyValueBackend,
+    K: Key,
+    V: Value,
+    B: KeyValueBackend<K, V>,
 {
-    primary: KeyValueMemory<Byte32, HeaderView>,
-    backend: Backend,
+    primary: KeyValueMemory<K, V>,
+    backend: B,
     // Configuration
     primary_limit: usize,
     backend_close_threshold: usize,
     // Statistics
     #[cfg(feature = "stats")]
-    stats: HeaderMapLruKernelStats,
+    stats: HashMapLruKernelStats,
 }
 
 #[cfg(feature = "stats")]
 #[derive(Default)]
-struct HeaderMapLruKernelStats {
+struct HashMapLruKernelStats {
     frequency: usize,
 
     trace_progress: usize,
@@ -38,9 +38,11 @@ struct HeaderMapLruKernelStats {
     backend_delete: usize,
 }
 
-impl<Backend> HeaderMapLruKernel<Backend>
+impl<K, V, B> HashMapLruKernel<K, V, B>
 where
-    Backend: KeyValueBackend,
+    K: Key,
+    V: Value,
+    B: KeyValueBackend<K, V>,
 {
     pub(crate) fn new<P>(
         tmpdir: Option<P>,
@@ -51,7 +53,7 @@ where
         P: AsRef<path::Path>,
     {
         let primary = Default::default();
-        let backend = Backend::new(tmpdir);
+        let backend = B::new(tmpdir);
 
         #[cfg(not(feature = "stats"))]
         {
@@ -70,12 +72,12 @@ where
                 backend,
                 primary_limit,
                 backend_close_threshold,
-                stats: HeaderMapLruKernelStats::new(50_000),
+                stats: HashMapLruKernelStats::new(50_000),
             }
         }
     }
 
-    pub(crate) fn contains_key(&mut self, hash: &Byte32) -> bool {
+    pub(crate) fn contains_key(&mut self, hash: &K) -> bool {
         #[cfg(feature = "stats")]
         {
             self.mut_stats().tick_primary_contain();
@@ -93,7 +95,7 @@ where
         self.backend.contains_key(hash)
     }
 
-    pub(crate) fn get(&mut self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn get(&mut self, hash: &K) -> Option<V> {
         #[cfg(feature = "stats")]
         {
             self.mut_stats().tick_primary_select();
@@ -115,8 +117,8 @@ where
                     self.mut_stats().tick_primary_delete();
                     self.mut_stats().tick_backend_insert();
                 }
-                if let Some((_, view_old)) = self.primary.pop_front() {
-                    self.backend.insert(&view_old);
+                if let Some((hash_old, view_old)) = self.primary.pop_front() {
+                    self.backend.insert(&hash_old, &view_old);
                 }
             } else if self.primary.len() < self.backend_close_threshold {
                 self.backend.try_close();
@@ -125,23 +127,23 @@ where
             {
                 self.mut_stats().tick_primary_insert();
             }
-            self.primary.insert(view.hash(), view.clone());
+            self.primary.insert(hash.clone(), view.clone());
             Some(view)
         } else {
             None
         }
     }
 
-    pub(crate) fn insert(&mut self, view: HeaderView) -> Option<HeaderView> {
+    pub(crate) fn insert(&mut self, hash: K, view: V) -> Option<V> {
         #[cfg(feature = "stats")]
         {
             self.trace();
             self.mut_stats().tick_primary_insert();
         }
-        if let Some(view) = self.primary.insert(view.hash(), view.clone()) {
+        if let Some(view) = self.primary.insert(hash.clone(), view) {
             return Some(view);
         }
-        let view_opt = self.backend.remove(&view.hash());
+        let view_opt = self.backend.remove(&hash);
         if self.primary.len() > self.primary_limit {
             self.backend.open();
             #[cfg(feature = "stats")]
@@ -149,14 +151,14 @@ where
                 self.mut_stats().tick_primary_delete();
                 self.mut_stats().tick_backend_insert();
             }
-            if let Some((_, view_old)) = self.primary.pop_front() {
-                self.backend.insert(&view_old);
+            if let Some((hash_old, view_old)) = self.primary.pop_front() {
+                self.backend.insert(&hash_old, &view_old);
             }
         }
         view_opt
     }
 
-    pub(crate) fn remove(&mut self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn remove(&mut self, hash: &K) -> Option<V> {
         #[cfg(feature = "stats")]
         {
             self.trace();
@@ -185,7 +187,7 @@ where
         let frequency = self.stats().frequency();
         if progress % frequency == 0 {
             trace!(
-                "Header Map Statistics\
+                "HashMap Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
             \n>\t| primary |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
@@ -211,18 +213,18 @@ where
     }
 
     #[cfg(feature = "stats")]
-    fn stats(&self) -> &HeaderMapLruKernelStats {
+    fn stats(&self) -> &HashMapLruKernelStats {
         &self.stats
     }
 
     #[cfg(feature = "stats")]
-    fn mut_stats(&mut self) -> &mut HeaderMapLruKernelStats {
+    fn mut_stats(&mut self) -> &mut HashMapLruKernelStats {
         &mut self.stats
     }
 }
 
 #[cfg(feature = "stats")]
-impl HeaderMapLruKernelStats {
+impl HashMapLruKernelStats {
     fn new(frequency: usize) -> Self {
         let mut ret = Self::default();
         ret.frequency = frequency;
