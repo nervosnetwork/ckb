@@ -18,7 +18,6 @@ use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::convert::Into;
-use std::io::Write;
 use std::thread;
 use std::time;
 
@@ -234,17 +233,12 @@ fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, R
 fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
     let a: Vec<&str> = url.authority_part()?.as_str().split('@').collect();
     if a.len() >= 2 {
-        let auth = a[0];
-        let tmp: Vec<&str> = auth.split(':').collect();
-        let (name, password) = (tmp[0], tmp[1]);
-        let mut header_value = b"Basic ".to_vec();
-        {
-            let mut encoder =
-                base64::write::EncoderWriter::new(&mut header_value, base64::STANDARD);
-            write!(encoder, "{}:", name).unwrap();
-            write!(encoder, "{}", password).unwrap();
+        if a[0].is_empty() {
+            return None;
         }
-        let mut header = HeaderValue::from_bytes(&header_value).unwrap();
+        let mut encoded = "Basic ".to_string();
+        base64::encode_config_buf(a[0], base64::STANDARD, &mut encoded);
+        let mut header = HeaderValue::from_str(&encoded).unwrap();
         header.set_sensitive(true);
         Some(header)
     } else {
