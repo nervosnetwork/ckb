@@ -18,6 +18,7 @@ use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::convert::Into;
+use std::io::Write;
 use std::thread;
 use std::time;
 
@@ -57,6 +58,10 @@ impl Rpc {
                 *req.uri_mut() = req_url;
                 req.headers_mut()
                     .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                if let Some(value) = parse_authorization(&url) {
+                    req.headers_mut()
+                        .append(hyper::header::AUTHORIZATION, value);
+                }
 
                 let request = client
                     .request(req)
@@ -223,5 +228,26 @@ fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, R
             serde_json::from_value::<T>(success.result).map_err(RpcError::Json)
         }
         Output::Failure(failure) => Err(RpcError::Fail(failure.error)),
+    }
+}
+
+fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
+    let a: Vec<&str> = url.authority_part()?.as_str().split('@').collect();
+    if a.len() >= 2 {
+        let auth = a[0];
+        let tmp: Vec<&str> = auth.split(':').collect();
+        let (name, password) = (tmp[0], tmp[1]);
+        let mut header_value = b"Basic ".to_vec();
+        {
+            let mut encoder =
+                base64::write::EncoderWriter::new(&mut header_value, base64::STANDARD);
+            write!(encoder, "{}:", name).unwrap();
+            write!(encoder, "{}", password).unwrap();
+        }
+        let mut header = HeaderValue::from_bytes(&header_value).unwrap();
+        header.set_sensitive(true);
+        Some(header)
+    } else {
+        None
     }
 }

@@ -29,3 +29,4 @@ ckb-error = { path = "../error", version = "= 0.41.0-pre" }
 indicatif = "0.15"
 console = "0.13.0"
 eaglesong = "0.1"
+base64 = "0.13.0"
