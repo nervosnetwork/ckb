@@ -1,5 +1,3 @@
-use std::path;
-
 #[cfg(feature = "stats")]
 use ckb_logger::trace;
 
@@ -24,6 +22,8 @@ where
 #[cfg(feature = "stats")]
 #[derive(Default)]
 struct HashMapLruKernelStats {
+    name: &'static str,
+
     frequency: usize,
 
     trace_progress: usize,
@@ -44,36 +44,29 @@ where
     V: Value,
     B: KeyValueBackend<K, V>,
 {
-    pub(crate) fn new<P>(
-        tmpdir: Option<P>,
+    #[cfg(not(feature = "stats"))]
+    pub(crate) fn new(backend: B, primary_limit: usize, backend_close_threshold: usize) -> Self {
+        Self {
+            primary: Default::default(),
+            backend,
+            primary_limit,
+            backend_close_threshold,
+        }
+    }
+
+    #[cfg(feature = "stats")]
+    pub(crate) fn new(
+        name: &'static str,
+        backend: B,
         primary_limit: usize,
         backend_close_threshold: usize,
-    ) -> Self
-    where
-        P: AsRef<path::Path>,
-    {
-        let primary = Default::default();
-        let backend = B::new(tmpdir);
-
-        #[cfg(not(feature = "stats"))]
-        {
-            Self {
-                primary,
-                backend,
-                primary_limit,
-                backend_close_threshold,
-            }
-        }
-
-        #[cfg(feature = "stats")]
-        {
-            Self {
-                primary,
-                backend,
-                primary_limit,
-                backend_close_threshold,
-                stats: HashMapLruKernelStats::new(50_000),
-            }
+    ) -> Self {
+        Self {
+            primary: Default::default(),
+            backend,
+            primary_limit,
+            backend_close_threshold,
+            stats: HashMapLruKernelStats::new(name, 50_000),
         }
     }
 
@@ -187,12 +180,13 @@ where
         let frequency = self.stats().frequency();
         if progress % frequency == 0 {
             trace!(
-                "HashMap Statistics\
+                "HashMap Statistics for \"{}\"\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
             \n>\t| primary |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             \n>\t| backend |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             ",
+                self.stats().name,
                 self.primary.len(),
                 self.primary_limit,
                 self.stats().primary_contain,
@@ -225,10 +219,12 @@ where
 
 #[cfg(feature = "stats")]
 impl HashMapLruKernelStats {
-    fn new(frequency: usize) -> Self {
-        let mut ret = Self::default();
-        ret.frequency = frequency;
-        ret
+    fn new(name: &'static str, frequency: usize) -> Self {
+        Self {
+            name,
+            frequency,
+            ..Default::default()
+        }
     }
 
     fn frequency(&self) -> usize {

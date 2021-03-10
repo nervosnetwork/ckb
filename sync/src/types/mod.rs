@@ -1184,7 +1184,7 @@ impl SyncShared {
     /// Generate a global sync state through configuration
     pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
     where
-        P: AsRef<Path> + ::std::clone::Clone,
+        P: AsRef<Path>,
     {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
@@ -1194,16 +1194,8 @@ impl SyncShared {
             )
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
-        let header_map = HeaderMap::new(
-            tmpdir.clone(),
-            sync_config.header_map.primary_limit,
-            sync_config.header_map.backend_close_threshold,
-        );
-        let block_status_map = BlockStatusMap::new(
-            tmpdir,
-            sync_config.block_status_map.primary_limit,
-            sync_config.block_status_map.backend_close_threshold,
-        );
+
+        let (header_map, block_status_map) = Self::create_cached_hashmap(tmpdir, &sync_config);
 
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
@@ -1460,6 +1452,46 @@ impl SyncShared {
         parent: core::HeaderView,
     ) -> HeaderResolverWrapper<'a> {
         HeaderResolverWrapper::build(header, Some(parent))
+    }
+
+    fn create_cached_hashmap<P>(
+        tmpdir: Option<P>,
+        sync_config: &SyncConfig,
+    ) -> (HeaderMap, BlockStatusMap)
+    where
+        P: AsRef<Path>,
+    {
+        use cached_hashmap::{RocksDB, RocksDBBackend};
+        let rocksdb = Arc::new(RwLock::new(RocksDB::new(tmpdir)));
+        let header_map_backend = RocksDBBackend::new(Arc::clone(&rocksdb), 1);
+        let block_status_map_backend = RocksDBBackend::new(Arc::clone(&rocksdb), 2);
+        #[cfg(not(feature = "stats"))]
+        let header_map = HeaderMap::new(
+            header_map_backend,
+            sync_config.header_map.primary_limit,
+            sync_config.header_map.backend_close_threshold,
+        );
+        #[cfg(not(feature = "stats"))]
+        let block_status_map = BlockStatusMap::new(
+            block_status_map_backend,
+            sync_config.block_status_map.primary_limit,
+            sync_config.block_status_map.backend_close_threshold,
+        );
+        #[cfg(feature = "stats")]
+        let header_map = HeaderMap::new(
+            "Header",
+            header_map_backend,
+            sync_config.header_map.primary_limit,
+            sync_config.header_map.backend_close_threshold,
+        );
+        #[cfg(feature = "stats")]
+        let block_status_map = BlockStatusMap::new(
+            "Block Status",
+            block_status_map_backend,
+            sync_config.block_status_map.primary_limit,
+            sync_config.block_status_map.backend_close_threshold,
+        );
+        (header_map, block_status_map)
     }
 }
 

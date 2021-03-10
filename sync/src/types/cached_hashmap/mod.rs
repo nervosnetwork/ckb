@@ -1,4 +1,4 @@
-use std::{convert::TryInto, path};
+use std::convert::TryInto;
 
 use ckb_types::{packed::Byte32, prelude::Entity};
 use ckb_util::Mutex;
@@ -13,7 +13,7 @@ mod memory;
 
 pub(crate) use self::{
     backend::{KeyValueBackend, StorageBackend},
-    backend_rocksdb::RocksDBBackend,
+    backend_rocksdb::{RocksDB, RocksDBBackend},
     kernel_lru::HashMapLruKernel,
     keyvalue::{Key, Value},
     memory::KeyValueMemory,
@@ -62,15 +62,20 @@ where
     V: Value,
     B: KeyValueBackend<K, V>,
 {
-    pub(crate) fn new<P>(
-        tmpdir: Option<P>,
+    #[cfg(not(feature = "stats"))]
+    pub(crate) fn new(backend: B, primary_limit: usize, backend_close_threshold: usize) -> Self {
+        let inner = HashMapLruKernel::new(backend, primary_limit, backend_close_threshold);
+        Self(Mutex::new(inner))
+    }
+
+    #[cfg(feature = "stats")]
+    pub(crate) fn new(
+        name: &'static str,
+        backend: B,
         primary_limit: usize,
         backend_close_threshold: usize,
-    ) -> Self
-    where
-        P: AsRef<path::Path>,
-    {
-        let inner = HashMapLruKernel::new(tmpdir, primary_limit, backend_close_threshold);
+    ) -> Self {
+        let inner = HashMapLruKernel::new(name, backend, primary_limit, backend_close_threshold);
         Self(Mutex::new(inner))
     }
 

@@ -1,20 +1,13 @@
-use std::path;
-
 use super::{Key, Value};
 
 pub(crate) trait StorageBackend {
-    fn new<P>(tmpdir: Option<P>) -> Self
-    where
-        P: AsRef<path::Path>;
-
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
     fn is_opened(&self) -> bool;
-    fn open(&mut self);
-    fn try_close(&mut self) -> bool;
+    fn open(&self);
+    fn try_close(&self) -> bool;
 }
 
 pub(crate) trait KeyValueBackend<K: Key, V: Value>: StorageBackend {
