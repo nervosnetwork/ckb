@@ -1094,7 +1094,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
- "ckb-vm-definitions",
+ "ckb-vm-definitions 0.19.3",
  "faster-hex 0.4.1",
  "goblin",
  "proptest",
@@ -1432,20 +1432,26 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.19.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfc2fb181a6653bb13315dc7f60fbe32cd3d697553b24687613da984faf2a2c5"
+version = "0.19.1"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=0a3fd79#0a3fd79fab80145096eeb433cc86ab12d49d820e"
 dependencies = [
  "byteorder",
  "bytes 0.5.6",
  "cc",
- "ckb-vm-definitions",
+ "ckb-vm-definitions 0.19.1",
  "derive_more",
  "goblin",
  "libc",
  "mapr",
+ "rand 0.7.3",
  "scroll",
+ "serde",
 ]
+
+[[package]]
+name = "ckb-vm-definitions"
+version = "0.19.1"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=0a3fd79#0a3fd79fab80145096eeb433cc86ab12d49d820e"
 
 [[package]]
 name = "ckb-vm-definitions"

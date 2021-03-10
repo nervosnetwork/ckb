@@ -3,6 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::core::TransactionView;
 use ckb_vm::{
     instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
+    machine::VERSION0,
     registers::{RA, ZERO},
 };
 use ckb_vm_definitions::instructions as insts;
@@ -105,7 +106,7 @@ impl<'a> IllScriptChecker<'a> {
         }
         let factories = [rvc::factory::<u64>, i::factory::<u64>, m::factory::<u64>];
         for factory in &factories {
-            if let Some(instruction) = factory(i) {
+            if let Some(instruction) = factory(i, VERSION0) {
                 return (Some(instruction), len);
             }
         }
