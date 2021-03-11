@@ -1,4 +1,4 @@
-use ckb_app_config::{ExitCode, MinerArgs, MinerConfig};
+use ckb_app_config::{exit_failure, ExitCode, MinerArgs, MinerConfig};
 use ckb_channel::unbounded;
 use ckb_miner::{Client, Miner};
 use std::thread;
@@ -21,7 +21,7 @@ pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
     thread::Builder::new()
         .name("client".to_string())
         .spawn(move || client.poll_block_template())
-        .expect("Start client failed!");
+        .map_err(|_| exit_failure!("Start client failed!"))?;
 
     miner.run();
     Ok(())

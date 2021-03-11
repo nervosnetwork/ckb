@@ -14,6 +14,15 @@ pub enum ExitCode {
     Failure = 113,
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! exit_failure {
+    ($($token:tt)+) => {{
+        eprintln!($($token)+);
+        ExitCode::Failure
+    }};
+}
+
 impl ExitCode {
     /// Converts into signed 32-bit integer which can be used as the process exit status.
     pub fn into(self) -> i32 {

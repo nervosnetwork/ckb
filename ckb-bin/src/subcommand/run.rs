@@ -1,5 +1,5 @@
 use crate::helper::deadlock_detection;
-use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_app_config::{exit_failure, BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
@@ -77,7 +77,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("RayonGlobal-{}", i))
         .build_global()
-        .expect("Init the global thread pool for rayon failed");
+        .map_err(|_| exit_failure!("Init the global thread pool for rayon failed"))?;
 
     ckb_memory_tracker::track_current_process(
         args.config.memory_tracker.interval,
@@ -105,7 +105,8 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
         args.config.tmp_dir.as_ref(),
     ));
     let network_state = Arc::new(
-        NetworkState::from_config(args.config.network).expect("Init network state failed"),
+        NetworkState::from_config(args.config.network)
+            .map_err(|_| exit_failure!("Init network state failed"))?,
     );
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
@@ -160,7 +161,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
         exit_handler.clone(),
     )
     .start(shared.async_handle())
-    .expect("Start network service failed");
+    .map_err(|_| exit_failure!("Start network service failed"))?;
 
     let builder = ServiceBuilder::new(&args.config.rpc)
         .enable_chain(shared.clone())
@@ -190,7 +191,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     ctrlc::set_handler(move || {
         exit_handler_clone.notify_exit();
     })
-    .expect("Error setting Ctrl-C handler");
+    .map_err(|_| exit_failure!("Error setting Ctrl-C handler"))?;
     exit_handler.wait_for_exit();
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
