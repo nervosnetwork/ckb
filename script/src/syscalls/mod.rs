@@ -193,7 +193,7 @@ mod tests {
     };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
-        memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
+        memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, FLAG_DIRTY},
         registers::{A0, A1, A2, A3, A4, A5, A7},
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
@@ -1102,7 +1102,7 @@ mod tests {
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        let flags = FLAG_EXECUTABLE | FLAG_FREEZED;
+        let flags = FLAG_EXECUTABLE | FLAG_FREEZED | FLAG_DIRTY;
         prop_assert_eq!(
             machine
                 .memory_mut()
@@ -1157,7 +1157,7 @@ mod tests {
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        let flags = FLAG_WRITABLE;
+        let flags = FLAG_WRITABLE | FLAG_DIRTY;
         prop_assert_eq!(
             machine
                 .memory_mut()
