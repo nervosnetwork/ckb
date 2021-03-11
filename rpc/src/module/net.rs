@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
@@ -536,7 +537,58 @@ pub(crate) struct NetRpcImpl {
     pub sync_shared: Arc<SyncShared>,
 }
 
-impl NetRpc for NetRpcImpl {
+impl Pluginable for NetRpcImpl {}
+
+impl NetRpc for Plugin<NetRpcImpl> {
+    fn local_node_info(&self) -> Result<LocalNode> {
+        is_ready!(self, local_node_info())
+    }
+
+    fn get_peers(&self) -> Result<Vec<RemoteNode>> {
+        is_ready!(self, get_peers())
+    }
+
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>> {
+        is_ready!(self, get_banned_addresses())
+    }
+
+    fn clear_banned_addresses(&self) -> Result<()> {
+        is_ready!(self, clear_banned_addresses())
+    }
+
+    fn set_ban(
+        &self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        is_ready!(self, set_ban(address, command, ban_time, absolute, reason))
+    }
+
+    fn sync_state(&self) -> Result<SyncState> {
+        is_ready!(self, sync_state())
+    }
+
+    fn set_network_active(&self, state: bool) -> Result<()> {
+        is_ready!(self, set_network_active(state))
+    }
+
+    fn add_node(&self, peer_id: String, address: String) -> Result<()> {
+        is_ready!(self, add_node(peer_id, address))
+    }
+
+    fn remove_node(&self, peer_id: String) -> Result<()> {
+        is_ready!(self, remove_node(peer_id))
+    }
+
+    fn ping_peers(&self) -> Result<()> {
+        is_ready!(self, ping_peers())
+    }
+}
+
+impl NetRpcImpl {
     fn local_node_info(&self) -> Result<LocalNode> {
         Ok(LocalNode {
             version: self.network_controller.version().to_owned(),

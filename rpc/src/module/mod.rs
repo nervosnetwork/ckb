@@ -110,6 +110,16 @@
 //! JSON, `Status` can be one of "pending", "proposed" or "committed".
 #![allow(deprecated)]
 
+macro_rules! is_ready {
+    ($plugin:ident, $func:ident ( $( $args:ident ),* ) ) => {
+        $plugin
+            .inner()
+            .as_ref()
+            .ok_or_else(crate::error::RPCError::rpc_method_is_not_ready)
+            .and_then(|ref inner| inner.$func( $( $args ),* ))
+    };
+}
+
 mod alert;
 mod chain;
 mod debug;
@@ -142,3 +152,39 @@ pub use self::pool::PoolRpc;
 pub use self::stats::StatsRpc;
 pub use self::subscription::SubscriptionRpc;
 pub use self::test::IntegrationTestRpc;
+
+use ckb_util::{RwLock, RwLockReadGuard};
+use std::sync::Arc;
+
+pub(crate) struct Plugin<T>(Arc<RwLock<Option<T>>>);
+
+pub(crate) trait Pluginable: Sized {
+    fn pluginable(self) -> Plugin<Self> {
+        Plugin(Arc::new(RwLock::new(Some(self))))
+    }
+}
+
+impl<T> Default for Plugin<T> {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(None)))
+    }
+}
+
+impl<T> Plugin<T> {
+    pub(crate) fn inner(&self) -> RwLockReadGuard<Option<T>> {
+        self.0.read()
+    }
+
+    pub(crate) fn clone_arc(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+
+    pub(crate) fn update(&self, inner_opt: Option<T>) {
+        let mut guard = self.0.write();
+        let _obsolete = if let Some(inner) = inner_opt {
+            guard.replace(inner)
+        } else {
+            guard.take()
+        };
+    }
+}

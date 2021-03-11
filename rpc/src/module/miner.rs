@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
@@ -228,7 +229,27 @@ pub(crate) struct MinerRpcImpl {
     pub chain: ChainController,
 }
 
-impl MinerRpc for MinerRpcImpl {
+impl Pluginable for MinerRpcImpl {}
+
+impl MinerRpc for Plugin<MinerRpcImpl> {
+    fn get_block_template(
+        &self,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
+        max_version: Option<Version>,
+    ) -> Result<BlockTemplate> {
+        is_ready!(
+            self,
+            get_block_template(bytes_limit, proposals_limit, max_version)
+        )
+    }
+
+    fn submit_block(&self, work_id: String, block: Block) -> Result<H256> {
+        is_ready!(self, submit_block(work_id, block))
+    }
+}
+
+impl MinerRpcImpl {
     fn get_block_template(
         &self,
         bytes_limit: Option<Uint64>,

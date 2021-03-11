@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
@@ -285,7 +286,38 @@ pub(crate) struct ExperimentRpcImpl {
     pub shared: Shared,
 }
 
-impl ExperimentRpc for ExperimentRpcImpl {
+impl Pluginable for ExperimentRpcImpl {}
+
+impl ExperimentRpc for Plugin<ExperimentRpcImpl> {
+    fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
+        is_ready!(self, compute_transaction_hash(tx))
+    }
+
+    fn compute_script_hash(&self, script: Script) -> Result<H256> {
+        is_ready!(self, compute_script_hash(script))
+    }
+
+    fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
+        is_ready!(self, dry_run_transaction(tx))
+    }
+
+    fn calculate_dao_maximum_withdraw(
+        &self,
+        out_point: OutPoint,
+        withdrawing_header_hash: H256,
+    ) -> Result<Capacity> {
+        is_ready!(
+            self,
+            calculate_dao_maximum_withdraw(out_point, withdrawing_header_hash)
+        )
+    }
+
+    fn estimate_fee_rate(&self, _expect_confirm_blocks: Uint64) -> Result<EstimateResult> {
+        is_ready!(self, estimate_fee_rate(_expect_confirm_blocks))
+    }
+}
+
+impl ExperimentRpcImpl {
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
         let tx: packed::Transaction = tx.into();
         Ok(tx.calc_tx_hash().unpack())

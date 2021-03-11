@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
@@ -39,7 +40,34 @@ pub(crate) struct IntegrationTestRpcImpl {
     pub chain: ChainController,
 }
 
-impl IntegrationTestRpc for IntegrationTestRpcImpl {
+impl Pluginable for IntegrationTestRpcImpl {}
+
+impl IntegrationTestRpc for Plugin<IntegrationTestRpcImpl> {
+    fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
+        is_ready!(self, process_block_without_verify(data, broadcast))
+    }
+
+    fn truncate(&self, target_tip_hash: H256) -> Result<()> {
+        is_ready!(self, truncate(target_tip_hash))
+    }
+
+    fn generate_block(
+        &self,
+        block_assembler_script: Option<Script>,
+        block_assembler_message: Option<JsonBytes>,
+    ) -> Result<H256> {
+        is_ready!(
+            self,
+            generate_block(block_assembler_script, block_assembler_message)
+        )
+    }
+
+    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
+        is_ready!(self, broadcast_transaction(transaction, cycles))
+    }
+}
+
+impl IntegrationTestRpcImpl {
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());

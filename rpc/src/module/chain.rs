@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockReward, BlockView, CellWithStatus, Consensus,
@@ -1243,7 +1244,113 @@ pub(crate) struct ChainRpcImpl {
 const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
 
-impl ChainRpc for ChainRpcImpl {
+impl Pluginable for ChainRpcImpl {}
+
+impl ChainRpc for Plugin<ChainRpcImpl> {
+    fn get_block(
+        &self,
+        block_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+        is_ready!(self, get_block(block_hash, verbosity))
+    }
+
+    fn get_block_by_number(
+        &self,
+        block_number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+        is_ready!(self, get_block_by_number(block_number, verbosity))
+    }
+
+    fn get_header(
+        &self,
+        block_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+        is_ready!(self, get_header(block_hash, verbosity))
+    }
+
+    fn get_header_by_number(
+        &self,
+        block_number: BlockNumber,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+        is_ready!(self, get_header_by_number(block_number, verbosity))
+    }
+
+    fn get_transaction(&self, tx_hash: H256) -> Result<Option<TransactionWithStatus>> {
+        is_ready!(self, get_transaction(tx_hash))
+    }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>> {
+        is_ready!(self, get_block_hash(block_number))
+    }
+
+    fn get_tip_header(
+        &self,
+        verbosity: Option<Uint32>,
+    ) -> Result<ResponseFormat<HeaderView, Header>> {
+        is_ready!(self, get_tip_header(verbosity))
+    }
+
+    fn get_current_epoch(&self) -> Result<EpochView> {
+        is_ready!(self, get_current_epoch())
+    }
+
+    fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>> {
+        is_ready!(self, get_epoch_by_number(epoch_number))
+    }
+
+    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
+        is_ready!(self, get_live_cell(out_point, with_data))
+    }
+
+    fn get_tip_block_number(&self) -> Result<BlockNumber> {
+        is_ready!(self, get_tip_block_number())
+    }
+
+    fn get_cellbase_output_capacity_details(
+        &self,
+        block_hash: H256,
+    ) -> Result<Option<BlockReward>> {
+        is_ready!(self, get_cellbase_output_capacity_details(block_hash))
+    }
+
+    fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>> {
+        is_ready!(self, get_block_economic_state(block_hash))
+    }
+
+    fn get_transaction_proof(
+        &self,
+        tx_hashes: Vec<H256>,
+        block_hash: Option<H256>,
+    ) -> Result<TransactionProof> {
+        is_ready!(self, get_transaction_proof(tx_hashes, block_hash))
+    }
+
+    fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>> {
+        is_ready!(self, verify_transaction_proof(tx_proof))
+    }
+
+    fn get_fork_block(
+        &self,
+        block_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+        is_ready!(self, get_fork_block(block_hash, verbosity))
+    }
+
+    fn get_consensus(&self) -> Result<Consensus> {
+        is_ready!(self, get_consensus())
+    }
+
+    fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {
+        is_ready!(self, get_block_median_time(block_hash))
+    }
+}
+
+impl ChainRpcImpl {
     fn get_block(
         &self,
         block_hash: H256,

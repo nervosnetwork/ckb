@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
@@ -237,7 +238,31 @@ impl PoolRpcImpl {
     }
 }
 
-impl PoolRpc for PoolRpcImpl {
+impl Pluginable for PoolRpcImpl {}
+
+impl PoolRpc for Plugin<PoolRpcImpl> {
+    fn send_transaction(
+        &self,
+        tx: Transaction,
+        outputs_validator: Option<OutputsValidator>,
+    ) -> Result<H256> {
+        is_ready!(self, send_transaction(tx, outputs_validator))
+    }
+
+    fn tx_pool_info(&self) -> Result<TxPoolInfo> {
+        is_ready!(self, tx_pool_info())
+    }
+
+    fn clear_tx_pool(&self) -> Result<()> {
+        is_ready!(self, clear_tx_pool())
+    }
+
+    fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool> {
+        is_ready!(self, get_raw_tx_pool(verbose))
+    }
+}
+
+impl PoolRpcImpl {
     fn send_transaction(
         &self,
         tx: Transaction,

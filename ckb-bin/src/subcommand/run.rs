@@ -10,7 +10,7 @@ use ckb_network::{
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
-use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_rpc::RpcServerController;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
@@ -30,6 +30,13 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
+
+    let mut rpc_controller = RpcServerController::new(
+        &args.config.rpc,
+        args.config.tx_pool.min_fee_rate,
+        miner_enable,
+    );
+    rpc_controller.start_server();
 
     let (shared, table) = {
         let shared_builder = SharedBuilder::new(
@@ -61,6 +68,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
                 ExitCode::Failure
             })?
     };
+    rpc_controller.update_shared(Some(shared.clone()));
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
@@ -98,20 +106,24 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
         "chain genesis hash: {:#x}",
         shared.genesis_hash()
     );
+    rpc_controller.update_chain_controller(Some(chain_controller.clone()));
 
     let sync_shared = Arc::new(SyncShared::with_tmpdir(
         shared.clone(),
         args.config.network.sync.clone(),
         args.config.tmp_dir.as_ref(),
     ));
+    rpc_controller.update_sync_shared(Some(Arc::clone(&sync_shared)));
+
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network)
             .map_err(|_| exit_failure!("Init network state failed"))?,
     );
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+    rpc_controller.update_synchronizer(Some(synchronizer.clone()));
 
     let relayer = Relayer::new(
-        chain_controller.clone(),
+        chain_controller,
         Arc::clone(&sync_shared),
         args.config.tx_pool.min_fee_rate,
         args.config.tx_pool.max_tx_verify_cycles,
@@ -126,11 +138,13 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
     let alert_notifier = Arc::clone(alert_relayer.notifier());
     let alert_verifier = Arc::clone(alert_relayer.verifier());
+    rpc_controller.update_alert_notifier(Some(alert_notifier));
+    rpc_controller.update_alert_verifier(Some(alert_verifier));
 
     let protocols = vec![
         CKBProtocol::new_with_support_protocol(
             SupportProtocols::Sync,
-            Box::new(synchronizer.clone()),
+            Box::new(synchronizer),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new_with_support_protocol(
@@ -163,29 +177,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     .start(shared.async_handle())
     .map_err(|_| exit_failure!("Start network service failed"))?;
 
-    let builder = ServiceBuilder::new(&args.config.rpc)
-        .enable_chain(shared.clone())
-        .enable_pool(
-            shared.clone(),
-            Arc::clone(&sync_shared),
-            args.config.tx_pool.min_fee_rate,
-            args.config.rpc.reject_ill_transactions,
-        )
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            miner_enable,
-        )
-        .enable_net(network_controller.clone(), sync_shared)
-        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
-        .enable_experiment(shared.clone())
-        .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-        .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
-        .enable_debug();
-    let io_handler = builder.build();
-
-    let rpc_server = RpcServer::new(args.config.rpc, io_handler, shared.notify_controller());
+    rpc_controller.update_network_controller(Some(network_controller));
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -195,8 +187,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     exit_handler.wait_for_exit();
 
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
-    drop(rpc_server);
-    drop(network_controller);
+    rpc_controller.stop_server();
 
     Ok(())
 }

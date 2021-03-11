@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use crate::error::RPCError;
 use ckb_jsonrpc_types::Alert;
 use ckb_logger::error;
@@ -90,7 +91,15 @@ impl AlertRpcImpl {
     }
 }
 
-impl AlertRpc for AlertRpcImpl {
+impl Pluginable for AlertRpcImpl {}
+
+impl AlertRpc for Plugin<AlertRpcImpl> {
+    fn send_alert(&self, alert: Alert) -> Result<()> {
+        is_ready!(self, send_alert(alert))
+    }
+}
+
+impl AlertRpcImpl {
     fn send_alert(&self, alert: Alert) -> Result<()> {
         let alert: packed::Alert = alert.into();
         let now_ms = faketime::unix_time_as_millis();

@@ -22,11 +22,11 @@ impl RpcServer {
     ///
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
-    /// * `notify_controller` - Controler emitting notifications.
+    /// * `notify_controller_opt` - Controler emitting notifications or `None`.
     pub fn new(
         config: RpcConfig,
         io_handler: IoHandler,
-        notify_controller: &NotifyController,
+        notify_controller_opt: Option<&NotifyController>,
     ) -> RpcServer {
         let http = jsonrpc_http_server::ServerBuilder::new(io_handler.clone())
             .cors(DomainsValidation::AllowOnly(vec![
@@ -51,11 +51,13 @@ impl RpcServer {
             .tcp_listen_address
             .as_ref()
             .map(|tcp_listen_address| {
-                let subscription_rpc_impl =
-                    SubscriptionRpcImpl::new(notify_controller.clone(), "TcpSubscription");
                 let mut handler = io_handler.clone();
                 if config.subscription_enable() {
-                    handler.extend_with(subscription_rpc_impl.to_delegate());
+                    if let Some(notify_controller) = notify_controller_opt {
+                        let subscription_rpc_impl =
+                            SubscriptionRpcImpl::new(notify_controller.clone(), "TcpSubscription");
+                        handler.extend_with(subscription_rpc_impl.to_delegate());
+                    }
                 }
                 let tcp_server = jsonrpc_tcp_server::ServerBuilder::with_meta_extractor(
                     handler,
@@ -79,11 +81,13 @@ impl RpcServer {
             });
 
         let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
-            let subscription_rpc_impl =
-                SubscriptionRpcImpl::new(notify_controller.clone(), "WsSubscription");
             let mut handler = io_handler.clone();
             if config.subscription_enable() {
-                handler.extend_with(subscription_rpc_impl.to_delegate());
+                if let Some(notify_controller) = notify_controller_opt {
+                    let subscription_rpc_impl =
+                        SubscriptionRpcImpl::new(notify_controller.clone(), "WsSubscription");
+                    handler.extend_with(subscription_rpc_impl.to_delegate());
+                }
             }
             let ws_server = jsonrpc_ws_server::ServerBuilder::with_meta_extractor(
                 handler,

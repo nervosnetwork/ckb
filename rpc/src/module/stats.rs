@@ -1,3 +1,4 @@
+use super::{Plugin, Pluginable};
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, PeerState};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
@@ -96,7 +97,19 @@ pub(crate) struct StatsRpcImpl {
     pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
-impl StatsRpc for StatsRpcImpl {
+impl Pluginable for StatsRpcImpl {}
+
+impl StatsRpc for Plugin<StatsRpcImpl> {
+    fn get_blockchain_info(&self) -> Result<ChainInfo> {
+        is_ready!(self, get_blockchain_info())
+    }
+
+    fn get_peers_state(&self) -> Result<Vec<PeerState>> {
+        is_ready!(self, get_peers_state())
+    }
+}
+
+impl StatsRpcImpl {
     fn get_blockchain_info(&self) -> Result<ChainInfo> {
         let chain = self.synchronizer.shared.consensus().id.clone();
         let (tip_header, median_time) = {

@@ -1,4 +1,4 @@
-use crate::{RpcServer, ServiceBuilder};
+use crate::RpcServerController;
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
@@ -237,7 +237,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     // Start rpc services
     let rpc_config = RpcConfig {
-        listen_address: "127.0.0.01:0".to_owned(),
+        listen_address: "127.0.0.1:60000".to_owned(),
         tcp_listen_address: None,
         ws_listen_address: None,
         max_request_body_size: 20_000_000,
@@ -260,44 +260,25 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         enable_deprecated_rpc: true,
     };
 
-    let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
-        .enable_pool(
-            shared.clone(),
-            Arc::clone(&sync_shared),
-            FeeRate::zero(),
-            true,
-        )
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            true,
-        )
-        .enable_net(network_controller.clone(), sync_shared)
-        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
-        .enable_experiment(shared.clone())
-        .enable_integration_test(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-        )
-        .enable_debug()
-        .enable_alert(alert_verifier, alert_notifier, network_controller);
-    let io_handler = builder.build();
+    let mut rpc_controller = RpcServerController::new(&rpc_config, FeeRate::zero(), true);
+    // start server before set controllers to test update functions
+    rpc_controller.start_server();
+    rpc_controller
+        .update_shared(Some(shared.clone()))
+        .update_chain_controller(Some(chain_controller.clone()))
+        .update_sync_shared(Some(Arc::clone(&sync_shared)))
+        .update_synchronizer(Some(synchronizer))
+        .update_alert_notifier(Some(alert_notifier))
+        .update_alert_verifier(Some(alert_verifier))
+        .update_network_controller(Some(network_controller));
 
-    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
-    let rpc_uri = format!(
-        "http://{}:{}/",
-        rpc_server.http_address().ip(),
-        rpc_server.http_address().port()
-    );
+    let rpc_uri = format!("http://{}/", rpc_config.listen_address);
     let rpc_client = reqwest::blocking::Client::new();
 
     let suite = RpcTestSuite {
         shared,
         chain_controller,
-        rpc_server,
+        rpc_controller,
         rpc_uri,
         rpc_client,
     };
@@ -563,7 +544,7 @@ struct RpcTestSuite {
     rpc_uri: String,
     shared: Shared,
     chain_controller: ChainController,
-    rpc_server: RpcServer,
+    rpc_controller: RpcServerController,
 }
 
 impl RpcTestSuite {

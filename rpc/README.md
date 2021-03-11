@@ -2984,6 +2984,10 @@ CKB groups RPC methods into modules, and a method is enabled only when the modul
 
 Users have to edit the config file to fix the error.
 
+### Error `NotReady`
+
+(-8): The RPC method is not ready.
+
 ### Error `P2PFailedToBroadcast`
 
 (-101): The CKB local node failed to broadcast a message to its peers.

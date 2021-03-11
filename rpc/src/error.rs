@@ -56,6 +56,8 @@ pub enum RPCError {
     ///
     /// Users have to edit the config file to fix the error.
     ConfigError = -7,
+    /// (-8): The RPC method is not ready.
+    NotReady = -8,
     /// (-101): The CKB local node failed to broadcast a message to its peers.
     P2PFailedToBroadcast = -101,
     /// (-200): Internal database error.
@@ -250,6 +252,14 @@ impl RPCError {
             "This RPC method is deprecated, it will be removed in future release. \
             Please check the related information in the CKB release notes and RPC document. \
             You may enable deprecated methods via adding `enable_deprecated_rpc = true` to the `[rpc]` section in ckb.toml.",
+        )
+    }
+
+    /// RPC error which indicates that the method is not ready.
+    pub fn rpc_method_is_not_ready() -> Error {
+        Self::custom(
+            RPCError::NotReady,
+            "This RPC method is not ready. Please try it later.",
         )
     }
 }
