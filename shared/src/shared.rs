@@ -503,7 +503,7 @@ impl Shared {
 
 /// TODO(doc): @quake
 pub struct SharedBuilder {
-    db: RocksDB,
+    db_config: DBConfig,
     ancient_path: Option<PathBuf>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
@@ -520,8 +520,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 
 impl SharedBuilder {
     /// Generates the base SharedBuilder with ancient path and async_handle
-    pub fn new(config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
-        let db = RocksDB::open(config, COLUMNS);
+    pub fn new(db_config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
@@ -529,7 +528,7 @@ impl SharedBuilder {
         migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
 
         SharedBuilder {
-            db,
+            db_config: db_config.clone(),
             ancient_path: ancient,
             consensus: None,
             tx_pool_config: None,
@@ -545,8 +544,13 @@ impl SharedBuilder {
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
         let (handle, stop) = new_global_runtime();
+        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+        let db_config = DBConfig {
+            path: tmp_dir.path().to_path_buf(),
+            ..Default::default()
+        };
         SharedBuilder {
-            db: RocksDB::open_tmp(COLUMNS),
+            db_config,
             ancient_path: None,
             consensus: None,
             tx_pool_config: None,
@@ -565,12 +569,18 @@ impl SharedBuilder {
     ///
     /// Return true if migration is required
     pub fn migration_check(&self) -> bool {
-        self.migrations.check(&self.db)
+        RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)
+            .unwrap_or_else(|err| panic!("{}", err))
+            .map(|db| self.migrations.check(&db))
+            .unwrap_or(false)
     }
 
     /// Check whether database requires expensive migrations.
     pub fn require_expensive_migrations(&self) -> bool {
-        self.migrations.expensive(&self.db)
+        RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)
+            .unwrap_or_else(|err| panic!("{}", err))
+            .map(|db| self.migrations.expensive(&db))
+            .unwrap_or(false)
     }
 
     /// TODO(doc): @quake
@@ -615,7 +625,14 @@ impl SharedBuilder {
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
-        let db = self.migrations.migrate(self.db)?;
+
+        if let Some(migration_db) =
+            RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)?
+        {
+            self.migrations.migrate(migration_db)?;
+        }
+
+        let db = RocksDB::open(&self.db_config, COLUMNS);
         let store = if store_config.freezer_enable && self.ancient_path.is_some() {
             let freezer = Freezer::open(self.ancient_path.expect("exist checked"))?;
             ChainDB::new_with_freezer(db, freezer, store_config)

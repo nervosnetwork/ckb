@@ -32,3 +32,4 @@ ckb-migration-template = { path = "migration-template", version = "= 0.41.0-pre"
 ckb-constant = { path = "../util/constant", version = "= 0.41.0-pre" }
 num_cpus = "1.10"
 faketime = "0.2.0"
+tempfile = "3.0"

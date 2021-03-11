@@ -39,6 +39,7 @@ ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.41.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.41.0-pre" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.41.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.41.0-pre" }
+ckb-db = { path = "../db", version = "= 0.41.0-pre" }
 base64 = "0.13.0"
 tempfile = "3.0"
 rayon = "1.0"
