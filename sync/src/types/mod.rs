@@ -1391,8 +1391,6 @@ impl SyncShared {
         );
         self.state.header_map.insert(header_view.clone());
         self.state
-            .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
-        self.state
             .peers()
             .may_set_best_known_header(peer, header_view.clone());
         self.state.may_set_shared_best_header(header_view);
@@ -1984,15 +1982,19 @@ impl ActiveChain {
         match self.state.block_status_map.lock().get(block_hash).cloned() {
             Some(status) => status,
             None => {
-                let verified = self
-                    .snapshot
-                    .get_block_ext(block_hash)
-                    .map(|block_ext| block_ext.verified);
-                match verified {
-                    None => BlockStatus::UNKNOWN,
-                    Some(None) => BlockStatus::BLOCK_STORED,
-                    Some(Some(true)) => BlockStatus::BLOCK_VALID,
-                    Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                if self.state.header_map.contains_key(block_hash) {
+                    BlockStatus::HEADER_VALID
+                } else {
+                    let verified = self
+                        .snapshot
+                        .get_block_ext(block_hash)
+                        .map(|block_ext| block_ext.verified);
+                    match verified {
+                        None => BlockStatus::UNKNOWN,
+                        Some(None) => BlockStatus::BLOCK_STORED,
+                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                    }
                 }
             }
         }
