@@ -1094,7 +1094,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
- "ckb-vm-definitions 0.19.3",
+ "ckb-vm-definitions",
  "faster-hex 0.4.1",
  "goblin",
  "proptest",
@@ -1438,7 +1438,7 @@ dependencies = [
  "byteorder",
  "bytes 0.5.6",
  "cc",
- "ckb-vm-definitions 0.19.1",
+ "ckb-vm-definitions",
  "derive_more",
  "goblin",
  "libc",
@@ -1452,12 +1452,6 @@ dependencies = [
 name = "ckb-vm-definitions"
 version = "0.19.1"
 source = "git+https://github.com/nervosnetwork/ckb-vm?rev=0a3fd79#0a3fd79fab80145096eeb433cc86ab12d49d820e"
-
-[[package]]
-name = "ckb-vm-definitions"
-version = "0.19.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea76d3867d00736c64876ab0cd304be73691b91990a90ebbf100d36af85fdb05"
 
 [[package]]
 name = "clap"

@@ -28,7 +28,7 @@ serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error", version = "= 0.41.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.41.0-pre" }
 goblin = "0.2"
-ckb-vm-definitions = "0.19.3"
+ckb-vm-definitions = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "0a3fd79" }
 
 [dev-dependencies]
 proptest = "0.9"
