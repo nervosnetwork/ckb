@@ -382,13 +382,22 @@ impl Node {
         let rpc_client = self.rpc_client();
         let mut chain_tip = rpc_client.get_tip_header();
         let mut tx_pool_tip = rpc_client.tx_pool_info();
-        let instant = Instant::now();
+        if chain_tip.hash == tx_pool_tip.tip_hash {
+            return;
+        }
+        let mut instant = Instant::now();
         while instant.elapsed() < Duration::from_secs(10) {
+            sleep(std::time::Duration::from_secs(1));
+            chain_tip = rpc_client.get_tip_header();
+            let prev_tx_pool_tip = tx_pool_tip;
+            tx_pool_tip = rpc_client.tx_pool_info();
             if chain_tip.hash == tx_pool_tip.tip_hash {
                 return;
+            } else if prev_tx_pool_tip.tip_hash != tx_pool_tip.tip_hash
+                && tx_pool_tip.tip_number.value() < chain_tip.inner.number.value()
+            {
+                instant = Instant::now();
             }
-            chain_tip = rpc_client.get_tip_header();
-            tx_pool_tip = rpc_client.tx_pool_info();
         }
         panic!(
             "timeout to wait for tx pool,\n\tchain   tip: {:?}, {:#x},\n\ttx-pool tip: {}, {:#x}",
