@@ -39,7 +39,7 @@ use std::convert::TryFrom;
 #[cfg(has_asm)]
 type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
-type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
+type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
 
 /// This struct leverages CKB VM to verify transaction inputs.
 ///
@@ -409,7 +409,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let core_machine = AsmCoreMachine::new(0, max_cycles);
         #[cfg(not(has_asm))]
         let core_machine =
-            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
+            DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new_with_max_cycles(
                 max_cycles,
             );
         let machine_builder = DefaultMachineBuilder::<CoreMachineType>::new(core_machine)

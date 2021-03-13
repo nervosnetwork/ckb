@@ -1433,7 +1433,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.19.1"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=0a3fd79#0a3fd79fab80145096eeb433cc86ab12d49d820e"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=e329379#e329379deb304fb4585871b364796093c5e538a9"
 dependencies = [
  "byteorder",
  "bytes 0.5.6",
@@ -1451,7 +1451,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.19.1"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=0a3fd79#0a3fd79fab80145096eeb433cc86ab12d49d820e"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=e329379#e329379deb304fb4585871b364796093c5e538a9"
 
 [[package]]
 name = "clap"

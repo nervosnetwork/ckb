@@ -193,7 +193,7 @@ mod tests {
     };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
-        memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, FLAG_DIRTY},
+        memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
@@ -1066,7 +1066,7 @@ mod tests {
     }
 
     fn _test_load_cell_data_as_code(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
 
@@ -1121,7 +1121,7 @@ mod tests {
     }
 
     fn _test_load_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let size_addr: u64 = 100;
         let addr = 4096;
         let addr_size = 4096;
@@ -1193,7 +1193,7 @@ mod tests {
     #[test]
     fn test_load_overflowed_cell_data_as_code() {
         let data = vec![0, 1, 2, 3, 4, 5];
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
 
@@ -1234,7 +1234,7 @@ mod tests {
         as_code: bool,
         data: &[u8],
     ) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 8192;
         let addr_size = 4096;
 
@@ -1300,7 +1300,7 @@ mod tests {
 
     #[test]
     fn test_load_code_unaligned_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 4097;
         let addr_size = 4096;
         let data = [2; 32];
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[test]
     fn test_load_code_slice_out_of_bound_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
         let data = [2; 32];
@@ -1386,7 +1386,7 @@ mod tests {
 
     #[test]
     fn test_load_code_not_enough_space_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
 
