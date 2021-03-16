@@ -4,9 +4,10 @@ use ckb_types::{
     core::{Capacity, Cycle},
     packed::Byte32,
 };
+use moka::future::Cache;
 
 /// TX verification lru cache
-pub type TxVerifyCache = lru::LruCache<Byte32, CacheEntry>;
+pub type TxVerifyCache = Cache<Byte32, CacheEntry>;
 
 /// TX verification lru entry
 #[derive(Clone, Copy, Debug, PartialEq)]

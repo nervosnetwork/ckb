@@ -17,7 +17,7 @@ use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPoolController, TxPoolServiceBuilder};
+use ckb_tx_pool::{error::Reject, TxEntry, TxPoolController, TxPoolServiceBuilder};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::{self, Byte32},
@@ -66,7 +66,7 @@ pub struct Shared {
     pub(crate) store: ChainDB,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
-    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<TxVerifyCache>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
@@ -95,9 +95,7 @@ impl Shared {
 
         let consensus = Arc::new(consensus);
 
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
+        let txs_verify_cache = Arc::new(TxVerifyCache::new(tx_pool_config.max_verify_cache_size));
         let snapshot = Arc::new(Snapshot::new(
             tip_header,
             total_difficulty,
@@ -422,7 +420,7 @@ impl Shared {
     }
 
     /// TODO(doc): @quake
-    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
+    pub fn txs_verify_cache(&self) -> Arc<TxVerifyCache> {
         Arc::clone(&self.txs_verify_cache)
     }
 

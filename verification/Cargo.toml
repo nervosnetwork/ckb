@@ -28,6 +28,7 @@ tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.41.0-pre" }
 ckb-verification-traits = { path = "./traits", version = "= 0.41.0-pre" }
 ckb-metrics = { path = "../util/metrics", version = "= 0.41.0-pre" }
+moka = { version = "0.3", features = ["future"] }
 
 [dev-dependencies]
 ckb-chain = { path = "../chain", version = "= 0.41.0-pre" }

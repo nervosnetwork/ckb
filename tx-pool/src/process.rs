@@ -25,7 +25,8 @@ use ckb_types::{
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
-    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    cache::{CacheEntry, TxVerifyCache},
+    ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier,
 };
 use faketime::unix_time_as_millis;
@@ -380,18 +381,6 @@ impl TxPoolService {
         Ok((tip_hash, snapshot, rtxs, status))
     }
 
-    async fn fetch_txs_verify_cache(
-        &self,
-        txs: impl Iterator<Item = &TransactionView>,
-    ) -> HashMap<Byte32, CacheEntry> {
-        let guard = self.txs_verify_cache.read().await;
-        txs.filter_map(|tx| {
-            let hash = tx.hash();
-            guard.peek(&hash).cloned().map(|value| (hash, value))
-        })
-        .collect()
-    }
-
     async fn submit_txs(
         &self,
         txs: Vec<(ResolvedTransaction, CacheEntry)>,
@@ -469,10 +458,15 @@ impl TxPoolService {
 
         let max_tx_verify_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let (tip_hash, snapshot, rtxs, status) = self.pre_resolve_txs(&txs).await?;
-        let fetched_cache = self.fetch_txs_verify_cache(txs.iter()).await;
 
-        let verified =
-            block_in_place(|| verify_rtxs(&snapshot, rtxs, &fetched_cache, max_tx_verify_cycles))?;
+        let verified = block_in_place(|| {
+            verify_rtxs(
+                &snapshot,
+                rtxs,
+                &self.txs_verify_cache,
+                max_tx_verify_cycles,
+            )
+        })?;
 
         let updated_cache = verified
             .iter()
@@ -484,9 +478,8 @@ impl TxPoolService {
 
         let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
         tokio::spawn(async move {
-            let mut guard = txs_verify_cache.write().await;
             for (k, v) in updated_cache {
-                guard.put(k, v);
+                txs_verify_cache.insert(k, v).await;
             }
         });
         Ok(cycles_vec)
@@ -507,14 +500,12 @@ impl TxPoolService {
         for blk in &attached_blocks {
             attached_txs.extend(blk.transactions().iter().skip(1).cloned())
         }
-        let fetched_cache = self
-            .fetch_txs_verify_cache(detached_txs.difference(&attached_txs))
-            .await;
+
         let mut tx_pool = self.tx_pool.write().await;
         let updated_cache = block_in_place(|| {
             _update_tx_pool_for_reorg(
                 &mut tx_pool,
-                &fetched_cache,
+                &self.txs_verify_cache,
                 detached_blocks,
                 attached_blocks,
                 detached_proposal_id,
@@ -524,9 +515,8 @@ impl TxPoolService {
 
         let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
         tokio::spawn(async move {
-            let mut guard = txs_verify_cache.write().await;
             for (k, v) in updated_cache {
-                guard.put(k, v);
+                txs_verify_cache.insert(k, v).await;
             }
         });
     }
@@ -629,7 +619,7 @@ fn resolve_tx_from_pending_and_proposed<'a>(
 fn verify_rtxs(
     snapshot: &Snapshot,
     txs: Vec<ResolvedTransaction>,
-    txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+    txs_verify_cache: &TxVerifyCache,
     max_tx_verify_cycles: Cycle,
 ) -> Result<Vec<(ResolvedTransaction, CacheEntry)>, Error> {
     let tip_header = snapshot.tip_header();
@@ -650,7 +640,7 @@ fn verify_rtxs(
                     consensus,
                 )
                 .verify()
-                .map(|_| (tx, *cache_entry))
+                .map(|_| (tx, cache_entry))
             } else {
                 ContextualTransactionVerifier::new(
                     &tx,
@@ -670,7 +660,7 @@ fn verify_rtxs(
 
 fn _update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
-    txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+    txs_verify_cache: &TxVerifyCache,
     detached_blocks: VecDeque<BlockView>,
     attached_blocks: VecDeque<BlockView>,
     detached_proposal_id: HashSet<ProposalShortId>,

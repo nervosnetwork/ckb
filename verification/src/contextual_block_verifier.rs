@@ -26,9 +26,8 @@ use ckb_types::{
 };
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::{oneshot, RwLock};
 
 /// Context for context-dependent block verification
 pub struct VerifyContext<'a, CS> {
@@ -337,43 +336,13 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
     }
 
-    fn fetched_cache<K: IntoIterator<Item = Byte32> + Send + 'static>(
-        &self,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
-        keys: K,
-        handle: &Handle,
-    ) -> HashMap<Byte32, CacheEntry> {
-        let (sender, receiver) = oneshot::channel();
-        handle.spawn(async move {
-            let guard = txs_verify_cache.read().await;
-            let ret = keys
-                .into_iter()
-                .filter_map(|hash| guard.peek(&hash).cloned().map(|value| (hash, value)))
-                .collect();
-
-            if let Err(e) = sender.send(ret) {
-                error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
-            };
-        });
-        handle
-            .block_on(receiver)
-            .expect("fetched cache no exception")
-    }
-
     pub fn verify(
         &self,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<TxVerifyCache>,
         handle: &Handle,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let timer = Timer::start();
-        let keys: Vec<Byte32> = self
-            .resolved
-            .iter()
-            .map(|rtx| rtx.transaction.hash())
-            .collect();
-        let fetched_cache = self.fetched_cache(Arc::clone(&txs_verify_cache), keys, handle);
-
         // make verifiers orthogonal
         let ret = self
             .resolved
@@ -381,7 +350,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
-                if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
+                if let Some(cache_entry) = txs_verify_cache.get(&tx_hash) {
                     TimeRelativeTransactionVerifier::new(
                         &tx,
                         self.context,
@@ -398,7 +367,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         }
                         .into()
                     })
-                    .map(|_| (tx_hash, *cache_entry))
+                    .map(|_| (tx_hash, cache_entry))
                 } else {
                     ContextualTransactionVerifier::new(
                         &tx,
@@ -426,15 +395,15 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .collect::<Result<Vec<(Byte32, CacheEntry)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
+
         let cache_entires = ret
             .iter()
             .map(|(_, cache_entry)| cache_entry)
             .cloned()
             .collect();
         handle.spawn(async move {
-            let mut guard = txs_verify_cache.write().await;
             for (k, v) in ret {
-                guard.put(k, v);
+                txs_verify_cache.insert(k, v).await;
             }
         });
 
@@ -507,7 +476,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<TxVerifyCache>,
         handle: &Handle,
         switch: Switch,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {

@@ -22,10 +22,10 @@ use ckb_types::{
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
+use ckb_verification::cache::TxVerifyCache;
 use ckb_verification::{TimeRelativeTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
 use lru::LruCache;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -659,12 +659,12 @@ impl TxPool {
     pub(crate) fn readd_dettached_tx(
         &mut self,
         snapshot: &Snapshot,
-        txs_verify_cache: &HashMap<Byte32, CacheEntry>,
+        txs_verify_cache: &TxVerifyCache,
         tx: TransactionView,
     ) -> Option<(Byte32, CacheEntry)> {
         let mut ret = None;
         let tx_hash = tx.hash();
-        let cache_entry = txs_verify_cache.get(&tx_hash).cloned();
+        let cache_entry = txs_verify_cache.get(&tx_hash);
         let tx_short_id = tx.proposal_short_id();
         let tx_size = tx.data().serialized_size_in_block();
         if snapshot.proposals().contains_proposed(&tx_short_id) {

@@ -385,7 +385,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
     pub(crate) snapshot: Arc<Snapshot>,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<TxVerifyCache>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
 }
@@ -396,7 +396,7 @@ impl TxPoolServiceBuilder {
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<TxVerifyCache>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> TxPoolServiceBuilder {
         TxPoolServiceBuilder {
@@ -480,7 +480,7 @@ pub(crate) struct TxPoolService {
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<TxVerifyCache>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
 }
@@ -491,7 +491,7 @@ impl TxPoolService {
         tx_pool: TxPool,
         consensus: Arc<Consensus>,
         block_assembler: Option<BlockAssembler>,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<TxVerifyCache>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
