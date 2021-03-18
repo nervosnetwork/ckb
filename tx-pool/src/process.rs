@@ -46,6 +46,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cmp, iter};
+use std::{fs::OpenOptions, io::Write as _};
 use tokio::task::block_in_place;
 
 /// A list for plug target for `plug_entry` method

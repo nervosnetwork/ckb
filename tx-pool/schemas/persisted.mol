@@ -1,0 +1,103 @@
+import referenced;
+
+option ProposalShortIdOpt (ProposalShortId);
+
+struct CacheEntry {
+    cycles: Uint64,
+    fee: Uint64,
+}
+
+option CacheEntryOpt (CacheEntry);
+
+table TxEntry {
+    transaction: TransactionView,
+    cycles: Uint64,
+    size: Uint32,
+    fee: Uint64,
+    ancestors_size: Uint32,
+    ancestors_fee: Uint64,
+    ancestors_cycles: Uint64,
+    ancestors_count: Uint32,
+    related_out_points: OutPointVec,
+}
+
+table DefectEntry {
+    transaction: TransactionView,
+    refs_count: Uint32,
+    cache_entry: CacheEntryOpt,
+    size: Uint32,
+    timestamp: Uint64,
+}
+
+table TxLink {
+    parents: ProposalShortIdVec,
+    children: ProposalShortIdVec,
+}
+
+struct AncestorsScoreSortKey {
+    fee: Uint64,
+    vbytes: Uint64,
+    id: ProposalShortId,
+    ancestors_fee: Uint64,
+    ancestors_vbytes: Uint64,
+    ancestors_size: Uint32,
+}
+
+vector AncestorsScoreSortKeyVec <AncestorsScoreSortKey>;
+
+table ProposalShortIdKeyValue {
+    key: ProposalShortId,
+    value: Bytes,
+}
+
+vector ProposalShortIdKeyValueVec <ProposalShortIdKeyValue>;
+
+table SortedTxMap {
+    entries: ProposalShortIdKeyValueVec,
+    sorted_index: AncestorsScoreSortKeyVec,
+    links: ProposalShortIdKeyValueVec,
+    max_ancestors_count: Uint32,
+}
+
+table OutPointKeyValue {
+    key: OutPoint,
+    value: Bytes,
+}
+
+vector OutPointKeyValueVec <OutPointKeyValue>;
+
+table OutPointEdges {
+    inner: OutPointKeyValueVec,
+    outer: OutPointKeyValueVec,
+    deps: OutPointKeyValueVec,
+}
+
+table PendingQueue {
+    inner: SortedTxMap,
+}
+
+table ProposedPool{
+    edges: OutPointEdges,
+    inner: SortedTxMap,
+}
+
+table OrphanPool {
+    vertices: ProposalShortIdKeyValueVec,
+    edges: OutPointKeyValueVec,
+    prune_threshold: Uint32,
+}
+
+table TxPool {
+    version: Uint32,
+    pending: PendingQueue,
+    gap: PendingQueue,
+    proposed: ProposedPool,
+    orphan: OrphanPool,
+    last_txs_updated_at: Uint64,
+    total_tx_size: Uint32,
+    total_tx_cycles: Uint64,
+}
+
+table TxPoolMeta {
+    version: Uint32,
+}

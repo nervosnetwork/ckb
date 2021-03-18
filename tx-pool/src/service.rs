@@ -97,6 +97,7 @@ pub(crate) enum Message {
     ClearPool(Request<Arc<Snapshot>, ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
+    CachePool(Request<(), Result<(), Error>>),
 }
 
 /// Controller to the tx-pool service.
@@ -779,6 +780,12 @@ async fn process(mut service: TxPoolService, message: Message) {
             let ids = tx_pool.get_ids();
             if let Err(e) = responder.send(ids) {
                 error!("responder send get_ids failed {:?}", e)
+            };
+        }
+        Message::CachePool(Request { responder, .. }) => {
+            let result = service.cache_pool().await;
+            if let Err(e) = responder.send(result) {
+                error!("responder send cache_pool failed {:?}", e)
             };
         }
     }

@@ -286,6 +286,8 @@ impl CKBAppConfig {
             .log_dir
             .join(subcommand_name.to_string() + ".log");
 
+        self.tx_pool.adjust(root_dir, &self.data_dir);
+
         if subcommand_name == cli::CMD_RESET_DATA {
             return Ok(self);
         }
