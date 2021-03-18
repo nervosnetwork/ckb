@@ -97,6 +97,7 @@ pub(crate) enum Message {
     ClearPool(Request<Arc<Snapshot>, ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
+    SavePool(Request<(), Result<(), AnyError>>),
 }
 
 /// Controller to the tx-pool service.
@@ -416,6 +417,29 @@ impl TxPoolController {
             .try_send(Command::Continue)
             .map_err(handle_send_cmd_error)
             .map_err(Into::into)
+    }
+
+    fn load_persisted_data(&self, data: persisted::TxPool) -> Result<(), AnyError> {
+        // a trick to commit transactions with the correct order
+        let mut remain_size = data.transactions().len();
+        let mut txs_next_turn = Vec::new();
+        for tx in data.transactions() {
+            let tx_view = tx.into_view();
+            if self.submit_local_tx(tx_view.clone())?.is_err() {
+                txs_next_turn.push(tx_view);
+            }
+        }
+        while !txs_next_turn.is_empty() && remain_size != txs_next_turn.len() {
+            remain_size = txs_next_turn.len();
+            let mut txs_failed = Vec::new();
+            for tx in txs_next_turn {
+                if self.submit_local_tx(tx.clone())?.is_err() {
+                    txs_failed.push(tx);
+                }
+            }
+            txs_next_turn = txs_failed;
+        }
+        Ok(())
     }
 }
 
@@ -779,6 +803,12 @@ async fn process(mut service: TxPoolService, message: Message) {
             let ids = tx_pool.get_ids();
             if let Err(e) = responder.send(ids) {
                 error!("responder send get_ids failed {:?}", e)
+            };
+        }
+        Message::SavePool(Request { responder, .. }) => {
+            let result = service.save_pool().await;
+            if let Err(e) = responder.send(result) {
+                error!("responder send save_pool failed {:?}", e)
             };
         }
     }

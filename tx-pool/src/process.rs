@@ -986,6 +986,13 @@ impl TxPoolService {
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
     }
+
+    pub(crate) async fn save_pool(&self) -> Result<(), AnyError> {
+        let tx_pool = self.tx_pool.read().await;
+        tx_pool
+            .persisted_data()
+            .save_into_file(&tx_pool.config.persisted_data)
+    }
 }
 
 type PreCheckedTx = (

@@ -20,6 +20,7 @@ use ckb_types::{
         Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
 };
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
