@@ -6,7 +6,7 @@ use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{AnyError, Error, InternalErrorKind};
+use ckb_error::{AnyError, Error, InternalErrorKind, OtherError};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
 use ckb_snapshot::Snapshot;
@@ -32,8 +32,9 @@ use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 use std::{cmp, iter};
+use std::{fs::OpenOptions, io::Write as _};
 use tokio::task::block_in_place;
 
 /// A list for plug target for `plug_entry` method
@@ -531,16 +532,43 @@ impl TxPoolService {
         });
     }
 
-    pub(crate) async fn clear_pool(&self, new_snapshot: Arc<Snapshot>) {
+    pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
-        let config = tx_pool.config;
-        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        *tx_pool = TxPool::new(
-            config,
-            new_snapshot,
-            last_txs_updated_at,
-            Arc::clone(&tx_pool.callbacks),
-        );
+        let config = tx_pool.config.clone();
+        *tx_pool = TxPool::new(config, new_snapshot, 0, Arc::clone(&tx_pool.callbacks));
+        self.last_txs_updated_at = Arc::clone(&tx_pool.last_txs_updated_at);
+    }
+
+    pub(crate) async fn cache_pool(&self) -> Result<(), Error> {
+        let tx_pool = self.tx_pool.read().await;
+        let state_data = tx_pool.as_persisted();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tx_pool.config.state_file)
+            .map_err(|err| {
+                let errmsg = format!(
+                    "Failed to open the tx-pool state file [{:?}]: {}",
+                    self.tx_pool_config.state_file, err
+                );
+                OtherError::new(errmsg)
+            })?;
+        file.write_all(state_data.as_slice()).map_err(|err| {
+            let errmsg = format!(
+                "Failed to write the tx-pool state into file [{:?}]: {}",
+                self.tx_pool_config.state_file, err
+            );
+            OtherError::new(errmsg)
+        })?;
+        file.sync_all().map_err(|err| {
+            let errmsg = format!(
+                "Failed to sync the tx-pool state file [{:?}]: {}",
+                self.tx_pool_config.state_file, err
+            );
+            OtherError::new(errmsg)
+        })?;
+        Ok(())
     }
 }
 

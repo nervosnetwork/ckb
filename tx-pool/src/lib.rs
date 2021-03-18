@@ -5,6 +5,7 @@ mod block_assembler;
 mod callback;
 mod component;
 pub mod error;
+mod persisted;
 pub mod pool;
 mod process;
 pub mod service;

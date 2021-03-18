@@ -150,7 +150,7 @@ impl Shared {
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         }));
 
-        let tx_pool_controller = tx_pool_builder.start(&async_handle);
+        let tx_pool_controller = tx_pool_builder.start(&async_handle)?;
 
         let shared = Shared {
             store,

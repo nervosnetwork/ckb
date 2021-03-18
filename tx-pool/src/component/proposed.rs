@@ -84,7 +84,7 @@ impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
 #[derive(Debug, Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
-    inner: SortedTxMap,
+    pub(crate) inner: SortedTxMap,
 }
 
 impl CellProvider for ProposedPool {

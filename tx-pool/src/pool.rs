@@ -5,9 +5,10 @@ use crate::component::orphan::OrphanPool;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
 use crate::error::Reject;
+use crate::persisted;
 use ckb_app_config::TxPoolConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -20,6 +21,7 @@ use ckb_types::{
         Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
 };
 use ckb_verification::cache::CacheEntry;
 use ckb_verification::{TimeRelativeTransactionVerifier, TransactionVerifier};
@@ -94,13 +96,14 @@ impl TxPool {
     pub fn new(
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
-        last_txs_updated_at: Arc<AtomicU64>,
+        last_txs_updated_at: u64,
         callbacks: Arc<Callbacks>,
     ) -> TxPool {
+        let last_txs_updated_at = Arc::new(AtomicU64::new(last_txs_updated_at));
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
         TxPool {
-            config,
+            config: config.clone(),
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
@@ -755,5 +758,65 @@ impl TxPool {
             .collect();
 
         TxPoolEntryInfo { pending, proposed }
+    }
+
+    pub(crate) fn from_persisted(
+        config: TxPoolConfig,
+        snapshot: Arc<Snapshot>,
+        callbacks: Arc<Callbacks>,
+        slice: &[u8],
+    ) -> Result<TxPool, Error> {
+        persisted::TxPoolMetaReader::from_compatible_slice(slice)
+            .map_err(|err| {
+                let errmsg = format!(
+                    "The cache of TxPool is broken, please delete it and restart: {}",
+                    err
+                );
+                InternalErrorKind::Config.other(errmsg)
+            })
+            .and_then(|meta| {
+                let version: u32 = meta.version().unpack();
+                if version != persisted::VERSION {
+                    let errmsg =
+                        format!("The version(={}) of TxPool cache is unsupported", version);
+                    Err(InternalErrorKind::Config.other(errmsg))
+                } else {
+                    Ok(())
+                }
+            })?;
+        let tx_pool = persisted::TxPoolReader::from_slice(slice).map_err(|err| {
+            let errmsg = format!(
+                "The cache of TxPool is broken, please delete it and restart: {}",
+                err
+            );
+            InternalErrorKind::Config.other(errmsg)
+        })?;
+        let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
+        Ok(TxPool {
+            config,
+            pending: tx_pool.pending().unpack(),
+            gap: tx_pool.gap().unpack(),
+            proposed: tx_pool.proposed().unpack(),
+            orphan: tx_pool.orphan().unpack(),
+            committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
+            last_txs_updated_at: Arc::new(AtomicU64::new(tx_pool.last_txs_updated_at().unpack())),
+            total_tx_size: tx_pool.total_tx_size().unpack(),
+            total_tx_cycles: tx_pool.total_tx_cycles().unpack(),
+            snapshot,
+            callbacks,
+        })
+    }
+
+    pub(crate) fn as_persisted(&self) -> persisted::TxPool {
+        persisted::TxPool::new_builder()
+            .version(persisted::VERSION.pack())
+            .pending(self.pending.pack())
+            .gap(self.gap.pack())
+            .proposed(self.proposed.pack())
+            .orphan(self.orphan.pack())
+            .last_txs_updated_at(self.last_txs_updated_at.load(Ordering::SeqCst).pack())
+            .total_tx_size(self.total_tx_size.pack())
+            .total_tx_cycles(self.total_tx_cycles.pack())
+            .build()
     }
 }

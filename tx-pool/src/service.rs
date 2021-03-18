@@ -9,7 +9,7 @@ use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_error::{AnyError, Error};
+use ckb_error::{AnyError, Error, InternalErrorKind, OtherError};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
@@ -26,6 +26,7 @@ use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
+use std::{fs::OpenOptions, io::Read as _};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
@@ -93,6 +94,7 @@ pub(crate) enum Message {
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     /// TODO(doc): @zhangsoledad
     GetAllIds(Request<(), TxPoolIds>),
+    CachePool(Request<(), Result<(), Error>>),
 }
 
 /// Controller to the tx-pool service.
@@ -378,6 +380,22 @@ impl TxPoolController {
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
+
+    /// Caches tx pool state into a file.
+    pub fn persist_tx_pool(&self) -> Result<Result<(), Error>, AnyError> {
+        ckb_logger::info!("Please be patient, TxPool are caching data into disk ...");
+        let mut sender = self.sender.clone();
+        let (responder, response) = oneshot::channel();
+        let request = Request::call((), responder);
+        sender.try_send(Message::CachePool(request)).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e
+        })?;
+        self.handle
+            .block_on(response)
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
 }
 
 /// A builder used to create TxPoolService.
@@ -424,32 +442,67 @@ impl TxPoolServiceBuilder {
         self.callbacks.register_reject(callback);
     }
 
-    fn build_service(self) -> TxPoolService {
-        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
+    fn build_service(self) -> Result<TxPoolService, Error> {
         let consensus = self.snapshot.cloned_consensus();
-        let tx_pool = TxPool::new(
-            self.tx_pool_config,
-            self.snapshot,
-            Arc::clone(&last_txs_updated_at),
-            Arc::new(self.callbacks),
-        );
 
-        TxPoolService::new(
+        let tx_pool = if self.tx_pool_config.state_file.exists() {
+            if !self.tx_pool_config.state_file.is_file() {
+                let errmsg = format!(
+                    "TxPool state file [{:?}] exists but it's not a file.",
+                    self.tx_pool_config.state_file
+                );
+                return Err(InternalErrorKind::Config.other(errmsg).into());
+            }
+            let mut file = OpenOptions::new()
+                .read(true)
+                .open(&self.tx_pool_config.state_file)
+                .map_err(|err| {
+                    let errmsg = format!(
+                        "Failed to open the tx-pool state file [{:?}]: {}",
+                        self.tx_pool_config.state_file, err
+                    );
+                    OtherError::new(errmsg)
+                })?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).map_err(|err| {
+                let errmsg = format!(
+                    "Failed to read the tx-pool state from file [{:?}]: {}",
+                    self.tx_pool_config.state_file, err
+                );
+                OtherError::new(errmsg)
+            })?;
+            TxPool::from_persisted(
+                self.tx_pool_config,
+                self.snapshot,
+                Arc::new(self.callbacks),
+                &buffer,
+            )?
+        } else {
+            TxPool::new(
+                self.tx_pool_config,
+                self.snapshot,
+                0,
+                Arc::new(self.callbacks),
+            )
+        };
+        let last_txs_updated_at = Arc::clone(&tx_pool.last_txs_updated_at);
+
+        Ok(TxPoolService::new(
             tx_pool,
             consensus,
             self.block_assembler,
             self.txs_verify_cache,
             last_txs_updated_at,
             self.snapshot_mgr,
-        )
+        ))
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(self, handle: &Handle) -> TxPoolController {
+    pub fn start(self, handle: &Handle) -> Result<TxPoolController, Error> {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, mut signal_receiver) = oneshot::channel();
 
-        let service = self.build_service();
+        let service = self.build_service()?;
         let handle_clone = handle.clone();
 
         handle.spawn(async move {
@@ -466,11 +519,11 @@ impl TxPoolServiceBuilder {
         });
 
         let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
-        TxPoolController {
+        Ok(TxPoolController {
             sender,
             handle: handle.clone(),
             stop,
-        }
+        })
     }
 }
 
@@ -495,7 +548,7 @@ impl TxPoolService {
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
-        let tx_pool_config = Arc::new(tx_pool.config);
+        let tx_pool_config = Arc::new(tx_pool.config.clone());
         Self {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             consensus,
@@ -513,7 +566,7 @@ impl TxPoolService {
 }
 
 #[allow(clippy::cognitive_complexity)]
-async fn process(service: TxPoolService, message: Message) {
+async fn process(mut service: TxPoolService, message: Message) {
     match message {
         Message::GetTxPoolInfo(Request { responder, .. }) => {
             let info = service.tx_pool.read().await.info();
@@ -681,6 +734,12 @@ async fn process(service: TxPoolService, message: Message) {
             let ids = tx_pool.get_ids();
             if let Err(e) = responder.send(ids) {
                 error!("responder send get_ids failed {:?}", e)
+            };
+        }
+        Message::CachePool(Request { responder, .. }) => {
+            let result = service.cache_pool().await;
+            if let Err(e) = responder.send(result) {
+                error!("responder send cache_pool failed {:?}", e)
             };
         }
     }

@@ -51,7 +51,7 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
         shared_builder
             .consensus(args.consensus.clone())
-            .tx_pool_config(args.config.tx_pool)
+            .tx_pool_config(args.config.tx_pool.clone())
             .notify_config(args.config.notify.clone())
             .store_config(args.config.store)
             .block_assembler_config(block_assembler_config)
@@ -196,6 +196,17 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
     info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
     drop(rpc_server);
     drop(network_controller);
+    shared
+        .tx_pool_controller()
+        .persist_tx_pool()
+        .map_err(|err| {
+            eprintln!("TxPool Error: {}", err);
+            ExitCode::Failure
+        })?
+        .map_err(|err| {
+            eprintln!("TxPool Error: {}", err);
+            ExitCode::Failure
+        })?;
 
     Ok(())
 }

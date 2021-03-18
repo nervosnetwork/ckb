@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PendingQueue {
-    inner: SortedTxMap,
+    pub(crate) inner: SortedTxMap,
 }
 
 impl PendingQueue {
