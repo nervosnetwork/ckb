@@ -20,7 +20,7 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     U256,
 };
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use rand::random;
@@ -160,11 +160,11 @@ fn bench(c: &mut Criterion) {
                                 .build();
                             let block = raw_block.as_builder().header(header).build().into_view();
 
-                            let header_view = block.header();
-                            let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
                             let header_verifier =
                                 HeaderVerifier::new(snapshot, &shared.consensus());
-                            header_verifier.verify(&resolver).expect("header verified");
+                            header_verifier
+                                .verify(&block.header())
+                                .expect("header verified");
 
                             chain.process_block(Arc::new(block)).expect("process_block");
                             i -= 1;

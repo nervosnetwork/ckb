@@ -16,6 +16,7 @@ ckb-shared = { path = "../shared", version = "= 0.41.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.41.0-pre" }
 ckb-store = { path = "../store", version = "= 0.41.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.41.0-pre" }
+ckb-verification-contextual = { path = "../verification/contextual", version = "= 0.41.0-pre" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.41.0-pre" }
 faketime = "0.2.0"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.41.0-pre" }

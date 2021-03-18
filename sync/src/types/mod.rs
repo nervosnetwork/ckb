@@ -16,6 +16,7 @@ use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -26,7 +27,6 @@ use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use ckb_verification::HeaderResolverWrapper;
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
@@ -1423,15 +1423,6 @@ impl SyncShared {
         }
     }
 
-    /// Get header with hash
-    pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
-        self.state
-            .header_map
-            .get(hash)
-            .map(HeaderView::into_inner)
-            .or_else(|| self.store().get_block_header(hash))
-    }
-
     /// Check whether block's parent has been inserted to chain store
     pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
         self.store()
@@ -1443,13 +1434,15 @@ impl SyncShared {
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
         self.store().get_block_epoch(&hash)
     }
+}
 
-    pub(crate) fn new_header_resolver<'a>(
-        &'a self,
-        header: &'a core::HeaderView,
-        parent: core::HeaderView,
-    ) -> HeaderResolverWrapper<'a> {
-        HeaderResolverWrapper::build(header, Some(parent))
+impl HeaderProvider for SyncShared {
+    fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
+        self.state
+            .header_map
+            .get(hash)
+            .map(HeaderView::into_inner)
+            .or_else(|| self.store().get_block_header(hash))
     }
 }
 

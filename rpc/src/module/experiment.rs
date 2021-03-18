@@ -309,7 +309,8 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let out_point: packed::OutPoint = out_point.into();
-        let calculator = DaoCalculator::new(consensus, snapshot.as_data_provider());
+        let data_loader = snapshot.as_data_provider();
+        let calculator = DaoCalculator::new(consensus, &data_loader);
 
         let (tx, deposit_header_hash) = snapshot
             .get_transaction(&out_point.tx_hash())
@@ -382,7 +383,9 @@ impl<'a> DryRunner<'a> {
             Ok(resolved) => {
                 let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, snapshot).verify(max_cycles) {
+                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
+                    .verify(max_cycles)
+                {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: cycles.into(),
                     }),

@@ -1,20 +1,23 @@
-use super::super::contextual_block_verifier::{TwoPhaseCommitVerifier, VerifyContext};
-use crate::CommitError;
+use super::super::contextual_block_verifier::{EpochVerifier, TwoPhaseCommitVerifier};
+use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::{ChainDB, ChainStore};
+use ckb_store::ChainDB;
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, cell::ResolvedTransaction, BlockBuilder, BlockNumber, BlockView, Capacity,
+        EpochExt, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
+    utilities::DIFF_TWO,
 };
+use ckb_verification::{CellbaseError, CommitError, EpochError};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
@@ -72,10 +75,6 @@ fn create_transaction(
         .build()
 }
 
-fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
-    VerifyContext::new(shared.store(), shared.consensus())
-}
-
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
@@ -86,6 +85,10 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
+}
+
+fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
+    VerifyContext::new(shared.store(), shared.consensus())
 }
 
 fn create_cellbase(number: BlockNumber) -> TransactionView {
@@ -127,6 +130,66 @@ fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
         always_success_script.clone(),
         OutPoint::new(tx_hash, 0),
     )
+}
+
+#[test]
+pub fn test_should_have_no_output_in_cellbase_no_finalization_target() {
+    let (_chain, shared) = start_chain(None);
+    let context = dummy_context(&shared);
+
+    let parent = shared.consensus().genesis_block().header();
+    let number = parent.number() + 1;
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(number))
+        .output(Default::default())
+        .output_data(Default::default())
+        .build();
+
+    let cellbase = ResolvedTransaction {
+        transaction: cellbase,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    };
+
+    let ret = RewardVerifier::new(&context, &[cellbase], &parent).verify();
+
+    assert_error_eq!(ret.unwrap_err(), CellbaseError::InvalidRewardTarget,);
+}
+
+#[test]
+fn test_epoch_number() {
+    let block = BlockBuilder::default().epoch(2u64.pack()).build();
+    let mut epoch = EpochExt::default();
+    epoch.set_length(1);
+
+    assert_error_eq!(
+        EpochVerifier::new(&epoch, &block).verify().unwrap_err(),
+        EpochError::NumberMismatch {
+            expected: 1_099_511_627_776,
+            actual: 1_099_511_627_778,
+        },
+    )
+}
+
+#[test]
+fn test_epoch_difficulty() {
+    let mut epoch = EpochExt::default();
+    epoch.set_compact_target(DIFF_TWO);
+    epoch.set_length(1);
+
+    let block = BlockBuilder::default()
+        .epoch(epoch.number_with_fraction(0).pack())
+        .compact_target(0x200c_30c3u32.pack())
+        .build();
+
+    assert_error_eq!(
+        EpochVerifier::new(&epoch, &block).verify().unwrap_err(),
+        EpochError::TargetMismatch {
+            expected: DIFF_TWO,
+            actual: 0x200c_30c3u32,
+        },
+    );
 }
 
 #[test]

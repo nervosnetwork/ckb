@@ -2,7 +2,7 @@ use ckb_jsonrpc_types::{AlertMessage, ChainInfo, PeerState};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_sync::Synchronizer;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::HeaderProvider;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -102,7 +102,10 @@ impl StatsRpc for StatsRpcImpl {
         let (tip_header, median_time) = {
             let snapshot = self.shared.snapshot();
             let tip_header = snapshot.tip_header().clone();
-            let median_time = snapshot.block_median_time(&tip_header.hash());
+            let median_time = snapshot.block_median_time(
+                &tip_header.hash(),
+                self.shared.consensus().median_time_block_count(),
+            );
             (tip_header, median_time)
         };
         let epoch = tip_header.epoch();

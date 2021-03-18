@@ -12,7 +12,7 @@ use ckb_freezer::Freezer;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
-use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_traits::HeaderProvider;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
@@ -196,12 +196,6 @@ impl HeaderChecker for Snapshot {
             }
             None => Err(OutPointError::InvalidHeader(block_hash.clone())),
         }
-    }
-}
-
-impl BlockMedianTimeContext for Snapshot {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
     }
 }
 

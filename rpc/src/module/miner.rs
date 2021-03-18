@@ -5,7 +5,7 @@ use ckb_logger::{debug, error, info};
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::{Error, Result};
@@ -272,9 +272,8 @@ impl MinerRpc for MinerRpcImpl {
 
         // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
-        let resolver = HeaderResolverWrapper::new(&header, snapshot);
-        HeaderVerifier::new(snapshot, &self.shared.consensus())
-            .verify(&resolver)
+        HeaderVerifier::new(snapshot, snapshot.consensus())
+            .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Verify and insert block

@@ -1,12 +1,10 @@
 use crate::{
-    header_verifier::HeaderResolver, transaction_verifier::NonContextualTransactionVerifier,
-    BlockErrorKind, CellbaseError,
+    transaction_verifier::NonContextualTransactionVerifier, BlockErrorKind, CellbaseError,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockView, HeaderView},
+    core::BlockView,
     packed::{CellInput, CellbaseWitness},
     prelude::*,
 };
@@ -183,40 +181,6 @@ impl MerkleRootVerifier {
         }
 
         Ok(())
-    }
-}
-
-/// Context wrapper for Context-dependent HeaderVerifier.
-///
-/// By "context", only mean the previous block headers here.
-pub struct HeaderResolverWrapper<'a> {
-    header: &'a HeaderView,
-    parent: Option<HeaderView>,
-}
-
-impl<'a> HeaderResolverWrapper<'a> {
-    /// Constructs a wrapper from store interface
-    pub fn new<CS>(header: &'a HeaderView, store: &'a CS) -> Self
-    where
-        CS: ChainStore<'a>,
-    {
-        let parent = store.get_block_header(&header.data().raw().parent_hash());
-        HeaderResolverWrapper { parent, header }
-    }
-
-    /// Constructs a wrapper from specified previous header
-    pub fn build(header: &'a HeaderView, parent: Option<HeaderView>) -> Self {
-        HeaderResolverWrapper { parent, header }
-    }
-}
-
-impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
-    fn header(&self) -> &HeaderView {
-        self.header
-    }
-
-    fn parent(&self) -> Option<&HeaderView> {
-        self.parent.as_ref()
     }
 }
 
