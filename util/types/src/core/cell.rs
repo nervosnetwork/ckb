@@ -261,12 +261,17 @@ impl ResolvedTransaction {
             .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
     }
 
-    pub fn check<CC: CellChecker, HC: HeaderChecker>(
+    pub fn check<CC: CellChecker, HC: HeaderChecker, S: BuildHasher>(
         &self,
+        seen_inputs: &mut HashSet<OutPoint, S>,
         cell_checker: &CC,
         header_checker: &HC,
     ) -> Result<(), OutPointError> {
         let check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
+            if seen_inputs.contains(out_point) {
+                return Err(OutPointError::Dead(out_point.clone()));
+            }
+
             match cell_checker.is_live(out_point) {
                 Some(true) => Ok(()),
                 Some(false) => Err(OutPointError::Dead(out_point.clone())),
@@ -320,6 +325,8 @@ impl ResolvedTransaction {
         for block_hash in self.transaction.header_deps_iter() {
             header_checker.check_valid(&block_hash)?;
         }
+
+        seen_inputs.extend(self.resolved_inputs.iter().map(|i| &i.out_point).cloned());
 
         Ok(())
     }

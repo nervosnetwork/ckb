@@ -28,3 +28,4 @@ tokio = { version = "0.2", features = ["sync"] }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.41.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.41.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
+ckb-network = { path = "../network", version = "= 0.41.0-pre" }

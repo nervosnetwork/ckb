@@ -1,11 +1,13 @@
 use crate::{Relayer, SyncShared};
+use ckb_app_config::{NetworkConfig, SyncConfig};
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
-    bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
-    SupportProtocols, TargetSession,
+    bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, DefaultExitHandler, Error,
+    NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
+    TargetSession,
 };
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
@@ -93,6 +95,43 @@ pub(crate) fn new_transaction(
         .build()
 }
 
+pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let config = NetworkConfig {
+        listen_addresses: vec![],
+        public_addresses: vec![],
+        bootnodes: vec![],
+        dns_seeds: vec![],
+        whitelist_peers: vec![],
+        whitelist_only: false,
+        max_peers: 19,
+        max_outbound_peers: 5,
+        path: tmp_dir.path().to_path_buf(),
+        ping_interval_secs: 15,
+        ping_timeout_secs: 20,
+        connect_outbound_interval_secs: 1,
+        discovery_local_address: true,
+        upnp: false,
+        bootnode_mode: true,
+        max_send_buffer: None,
+        sync: SyncConfig::default(),
+        reuse: true,
+    };
+
+    let network_state =
+        Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
+    NetworkService::new(
+        network_state,
+        vec![],
+        vec![],
+        shared.consensus().identify_name(),
+        "test".to_string(),
+        DefaultExitHandler::default(),
+    )
+    .start(shared.async_handle())
+    .expect("Start network service failed")
+}
+
 pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
@@ -104,7 +143,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .build();
     let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
-    let (shared, table) = {
+    let (shared, table, tx_pool_builder) = {
         let genesis = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
             .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
@@ -119,6 +158,10 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .build()
             .unwrap()
     };
+
+    let network = dummy_network(&shared);
+    tx_pool_builder.start(network);
+
     let chain_controller = {
         let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)

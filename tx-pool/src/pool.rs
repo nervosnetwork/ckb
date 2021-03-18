@@ -129,7 +129,7 @@ impl TxPool {
             tip_number: tip_header.number(),
             pending_size: self.pending.size() + self.gap.size(),
             proposed_size: self.proposed.size(),
-            orphan_size: self.orphan.size(),
+            orphan_size: self.orphan.len(),
             total_tx_size: self.total_tx_size,
             total_tx_cycles: self.total_tx_cycles,
             last_txs_updated_at: self.get_last_txs_updated_at(),
@@ -242,13 +242,12 @@ impl TxPool {
             .or_else(|| self.orphan.get_tx(id))
     }
 
-    /// Returns tx exclude conflict corresponding to the id.
+    /// Returns tx exclude conflict corresponding to the id. RPC
     pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<&TransactionView> {
         self.pending
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
     }
 
     pub(crate) fn proposed(&self) -> &ProposedPool {
@@ -348,8 +347,8 @@ impl TxPool {
         let gap_and_proposed_checker = OverlayCellChecker::new(&self.gap, &proposed_checker);
         let pending_and_proposed_checker =
             OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
-
-        rtx.check(&pending_and_proposed_checker, snapshot)
+        let mut seen_inputs = HashSet::new();
+        rtx.check(&mut seen_inputs, &pending_and_proposed_checker, snapshot)
             .map_err(Reject::Resolve)
     }
 
@@ -366,7 +365,9 @@ impl TxPool {
     pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
-        rtx.check(&cell_checker, snapshot).map_err(Reject::Resolve)
+        let mut seen_inputs = HashSet::new();
+        rtx.check(&mut seen_inputs, &cell_checker, snapshot)
+            .map_err(Reject::Resolve)
     }
 
     pub(crate) fn gap_rtx(

@@ -194,6 +194,7 @@ impl TxPoolService {
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
         let mut template_txs = Vec::with_capacity(entries.len());
+        let mut seen_inputs = HashSet::new();
 
         let transactions_checker = TransactionsChecker::new(
             iter::once(&cellbase).chain(entries.iter().map(|entry| entry.transaction())),
@@ -202,13 +203,11 @@ impl TxPoolService {
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
-        // let transactions_provider =
-        //     TransactionsProvider::new(entries_iter.clone().map(|entry| entry.transaction()));
         let overlay_cell_checker = OverlayCellChecker::new(&transactions_checker, snapshot);
 
         let rtxs: Vec<_> = block_in_place(|| {
             entries_iter.enumerate().filter_map(|(index, entry)| {
-                if let Err(err) = entry.rtx.check(&overlay_cell_checker, snapshot) {
+                if let Err(err) = entry.rtx.check(&mut seen_inputs, &overlay_cell_checker, snapshot) {
                     error!(
                         "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
                         tip_header.number(), tip_hash, err
@@ -222,29 +221,6 @@ impl TxPoolService {
                 }
             }).collect()
         });
-
-        // // block: resolve_transaction
-        // let rtxs: Vec<_> = block_in_place(|| {
-        //     entries_iter.enumerate().filter_map(|(index, entry)| {
-        //         resolve_transaction(
-        //             entry.transaction().clone(),
-        //             &mut seen_inputs,
-        //             &overlay_cell_provider,
-        //             snapshot,
-        //         ).map_err(|err| {
-        //             error!(
-        //                 "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
-        //                 tip_header.number(), tip_hash, err
-        //             );
-        //             err
-        //         }).map(|rtx| {
-        //             if index != 0 {
-        //                 template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
-        //             }
-        //             rtx
-        //         }).ok()
-        //     }).collect()
-        // });
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
@@ -438,6 +414,64 @@ impl TxPoolService {
     }
 
     pub(crate) async fn process_tx(
+        &self,
+        tx: TransactionView,
+        max_cycles: Option<Cycle>,
+    ) -> Result<CacheEntry, Reject> {
+        let remote = max_cycles.is_some();
+
+        let ret = self._process_tx(tx, max_cycles).await?;
+
+        // if let Some(hash) = self.orphan.find_by_previous(&tx) {
+        //     process_orphan_tx().await
+        // }
+        Ok(ret)
+    }
+
+    // pub(crate) async fn process_orphan_tx(
+    //     &self,
+    //     tx: &TransactionView,
+    // ) -> Result<CacheEntry, Reject> {
+    //     if let Some(hash) = self.orphan_pool.find_by_previous(&tx) {
+    //         let mut orphan: VecDeque<packed::Byte32> = VecDeque::new();
+    //         orphan.push_back(hash);
+
+    //         while let Some(tx_hash) = orphan.pop_front() {
+    //             if let Some(tx) = self.orphan_pool.get(&tx_hash).await {
+    //                 match self._process_tx(tx.clone()).await {
+    //                     Ok(ret) => match ret {
+    //                         Ok(_) => {
+    //                             orphan_pool.remove_orphan_tx(&tx_hash);
+    //                             broadcast_tx(relayer, tx_hash, peer);
+    //                             if let Some(hash) = self.orphan_pool.find_by_previous(&tx) {
+    //                                 orphan.push_back(hash);
+    //                             }
+    //                         }
+    //                         Err(err) => {
+    //                             if !is_missing_input(&err) {
+    //                                 orphan_pool.remove_orphan_tx(&tx_hash);
+    //                             }
+    //                             if is_malformed(&err) {
+    //                                 ban_malformed(nc, &err, peer);
+    //                                 break;
+    //                             }
+    //                         }
+    //                     },
+    //                     Err(err) => {
+    //                         debug_target!(
+    //                             crate::LOG_TARGET_RELAY,
+    //                             "process_orphan_tx internal error {}",
+    //                             err
+    //                         );
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
         max_cycles: Option<Cycle>,

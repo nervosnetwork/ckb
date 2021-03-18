@@ -9,10 +9,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
@@ -137,7 +134,7 @@ fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
 
 // Setup the running environment
 fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, table, tx_pool_builder) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
@@ -148,6 +145,33 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .build()
         .unwrap();
     let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
+
+    // Start network services
+    let dir = tempfile::tempdir()
+        .expect("create tempdir failed")
+        .path()
+        .to_path_buf();
+    let network_controller = {
+        let mut network_config = NetworkConfig::default();
+        network_config.path = dir;
+        network_config.ping_interval_secs = 1;
+        network_config.ping_timeout_secs = 1;
+        network_config.connect_outbound_interval_secs = 1;
+        let network_state =
+            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
+        NetworkService::new(
+            Arc::clone(&network_state),
+            Vec::new(),
+            Vec::new(),
+            shared.consensus().identify_name(),
+            "0.1.0".to_string(),
+            DefaultExitHandler::default(),
+        )
+        .start(shared.async_handle())
+        .expect("Start network service failed")
+    };
+
+    tx_pool_builder.start(network_controller.clone());
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
@@ -182,30 +206,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             .expect("processing new block should be ok");
     }
 
-    // Start network services
-    let dir = tempfile::tempdir()
-        .expect("create tempdir failed")
-        .path()
-        .to_path_buf();
-    let network_controller = {
-        let mut network_config = NetworkConfig::default();
-        network_config.path = dir;
-        network_config.ping_interval_secs = 1;
-        network_config.ping_timeout_secs = 1;
-        network_config.connect_outbound_interval_secs = 1;
-        let network_state =
-            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-        NetworkService::new(
-            Arc::clone(&network_state),
-            Vec::new(),
-            Vec::new(),
-            shared.consensus().identify_name(),
-            "0.1.0".to_string(),
-            DefaultExitHandler::default(),
-        )
-        .start(shared.async_handle())
-        .expect("Start network service failed")
-    };
     let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));

@@ -1,13 +1,12 @@
-use crate::chain::ChainController;
-use crate::chain::ChainService;
+use crate::chain::{ChainController, ChainService};
+use crate::tests::util::dummy_network;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_shared::shared::Shared;
-use ckb_shared::shared::SharedBuilder;
 use ckb_shared::Snapshot;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::{
@@ -37,10 +36,13 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         hash_type: ScriptHashType::Data,
         message: Default::default(),
     };
-    let (shared, table) = builder
+    let (shared, table, tx_pool_builder) = builder
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
+
+    let network = dummy_network(&shared);
+    tx_pool_builder.start(network);
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);

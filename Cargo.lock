@@ -442,6 +442,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-hash",
  "ckb-jsonrpc-types",
+ "ckb-network",
  "ckb-resource",
  "ckb-shared",
  "ckb-store",
@@ -453,6 +454,7 @@ dependencies = [
  "criterion",
  "lazy_static",
  "rand 0.7.3",
+ "tempfile",
 ]
 
 [[package]]
@@ -511,6 +513,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-metrics",
+ "ckb-network",
  "ckb-proposal-table",
  "ckb-rust-unstable-port",
  "ckb-shared",
@@ -524,6 +527,7 @@ dependencies = [
  "ckb-verification-traits",
  "faketime",
  "lazy_static",
+ "tempfile",
 ]
 
 [[package]]
@@ -736,12 +740,14 @@ dependencies = [
  "ckb-migration-template",
  "ckb-network",
  "ckb-network-alert",
+ "ckb-notify",
  "ckb-proposal-table",
  "ckb-resource",
  "ckb-rpc",
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
+ "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
@@ -1378,6 +1384,7 @@ dependencies = [
  "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-network",
  "ckb-reward-calculator",
  "ckb-snapshot",
  "ckb-stop-handler",

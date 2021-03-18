@@ -1,11 +1,12 @@
 use crate::chain::{ChainController, ChainService};
-use ckb_app_config::BlockAssemblerConfig;
+use ckb_app_config::{BlockAssemblerConfig, NetworkConfig, SyncConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
 use ckb_shared::shared::Shared;
-use ckb_shared::shared::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 pub use ckb_test_chain_utils::MockStore;
 use ckb_test_chain_utils::{
@@ -26,6 +27,7 @@ use ckb_types::{
     H256, U256,
 };
 use std::collections::HashSet;
+use std::sync::Arc;
 
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
@@ -117,11 +119,13 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         message: Default::default(),
     };
 
-    let (shared, table) = builder
+    let (shared, table, tx_pool_builder) = builder
         .consensus(consensus)
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
+    let network = dummy_network(&shared);
+    tx_pool_builder.start(network);
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
@@ -267,6 +271,43 @@ pub(crate) fn create_transaction_with_out_point(
                 .build(),
         )
         .build()
+}
+
+pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let config = NetworkConfig {
+        listen_addresses: vec![],
+        public_addresses: vec![],
+        bootnodes: vec![],
+        dns_seeds: vec![],
+        whitelist_peers: vec![],
+        whitelist_only: false,
+        max_peers: 19,
+        max_outbound_peers: 5,
+        path: tmp_dir.path().to_path_buf(),
+        ping_interval_secs: 15,
+        ping_timeout_secs: 20,
+        connect_outbound_interval_secs: 1,
+        discovery_local_address: true,
+        upnp: false,
+        bootnode_mode: true,
+        max_send_buffer: None,
+        sync: SyncConfig::default(),
+        reuse: true,
+    };
+
+    let network_state =
+        Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
+    NetworkService::new(
+        network_state,
+        vec![],
+        vec![],
+        shared.consensus().identify_name(),
+        "test".to_string(),
+        DefaultExitHandler::default(),
+    )
+    .start(shared.async_handle())
+    .expect("Start network service failed")
 }
 
 #[derive(Clone)]
