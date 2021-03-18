@@ -20,7 +20,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let exit_handler = DefaultExitHandler::default();
 
     launcher.migrate_guard()?;
-    let (shared, table) = launcher.build_shared(block_assembler_config)?;
+    let (shared, table, tx_pool_builder) = launcher.build_shared(block_assembler_config)?;
 
     // spawn freezer background process
     let _freezer = shared.spawn_freeze();
@@ -48,6 +48,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let (network_controller, rpc_server) =
         launcher.start_network_and_rpc(&shared, chain_controller, &exit_handler, miner_enable);
 
+    tx_pool_builder.start(network_controller);
+
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
         exit_handler_clone.notify_exit();
@@ -57,7 +59,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     info!("Finishing work, please wait...");
     drop(rpc_server);
-    drop(network_controller);
 
     Ok(())
 }

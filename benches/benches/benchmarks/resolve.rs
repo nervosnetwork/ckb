@@ -5,10 +5,7 @@ use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
@@ -86,7 +83,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let mut tx_pool_config = TxPoolConfig::default();
     tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
 
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, table, _) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .block_assembler_config(Some(block_assembler_config()))
         .tx_pool_config(tx_pool_config)
@@ -164,8 +161,9 @@ fn bench(c: &mut Criterion) {
                         .collect();
 
                     while i > 0 {
+                        let mut seen_inputs = HashSet::new();
                         for rtx in &rtxs {
-                            rtx.check(&provider, snapshot).unwrap();
+                            rtx.check(&mut seen_inputs, &provider, snapshot).unwrap();
                         }
                         i -= 1;
                     }

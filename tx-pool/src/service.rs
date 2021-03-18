@@ -12,6 +12,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
+use ckb_network::NetworkController;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
@@ -406,6 +407,9 @@ pub struct TxPoolServiceBuilder {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
+    pub(crate) receiver: mpsc::Receiver<Message>,
+    pub(crate) signal_receiver: oneshot::Receiver<()>,
+    pub(crate) handle: Handle,
 }
 
 impl TxPoolServiceBuilder {
@@ -416,15 +420,30 @@ impl TxPoolServiceBuilder {
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
-    ) -> TxPoolServiceBuilder {
-        TxPoolServiceBuilder {
+        handle: &Handle,
+    ) -> (TxPoolServiceBuilder, TxPoolController) {
+        let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (signal_sender, signal_receiver) = oneshot::channel();
+
+        let builder = TxPoolServiceBuilder {
             tx_pool_config,
             snapshot,
             block_assembler: block_assembler_config.map(BlockAssembler::new),
             txs_verify_cache,
             snapshot_mgr,
             callbacks: Callbacks::new(),
-        }
+            receiver,
+            signal_receiver,
+            handle: handle.clone(),
+        };
+
+        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
+        let controller = TxPoolController {
+            sender,
+            handle: handle.clone(),
+            stop,
+        };
+        (builder, controller)
     }
 
     /// Register new pending callback
@@ -447,7 +466,8 @@ impl TxPoolServiceBuilder {
         self.callbacks.register_reject(callback);
     }
 
-    fn build_service(self) -> TxPoolService {
+    /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
+    pub fn start(self, network: NetworkController) {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = self.snapshot.cloned_consensus();
         let tx_pool = TxPool::new(
@@ -456,7 +476,7 @@ impl TxPoolServiceBuilder {
             Arc::clone(&last_txs_updated_at),
         );
 
-        TxPoolService::new(
+        let service = TxPoolService::new(
             tx_pool,
             consensus,
             self.block_assembler,
@@ -464,18 +484,13 @@ impl TxPoolServiceBuilder {
             last_txs_updated_at,
             self.snapshot_mgr,
             Arc::new(self.callbacks),
-        )
-    }
+            network,
+        );
+        let mut receiver = self.receiver;
+        let mut signal_receiver = self.signal_receiver;
+        let handle_clone = self.handle.clone();
 
-    /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(self, handle: &Handle) -> TxPoolController {
-        let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (signal_sender, mut signal_receiver) = oneshot::channel();
-
-        let service = self.build_service();
-        let handle_clone = handle.clone();
-
-        handle.spawn(async move {
+        self.handle.spawn(async move {
             loop {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
@@ -487,13 +502,6 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
-
-        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
-        TxPoolController {
-            sender,
-            handle: handle.clone(),
-            stop,
-        }
     }
 }
 
@@ -507,6 +515,7 @@ pub(crate) struct TxPoolService {
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
     snapshot_mgr: Arc<SnapshotMgr>,
+    network: NetworkController,
 }
 
 impl TxPoolService {
@@ -519,6 +528,7 @@ impl TxPoolService {
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
         callbacks: Arc<Callbacks>,
+        network: NetworkController,
     ) -> Self {
         let tx_pool_config = Arc::new(tx_pool.config);
         Self {
@@ -530,6 +540,7 @@ impl TxPoolService {
             last_txs_updated_at,
             snapshot_mgr,
             callbacks,
+            network,
         }
     }
 

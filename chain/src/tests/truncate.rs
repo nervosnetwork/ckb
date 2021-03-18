@@ -1,7 +1,7 @@
 use crate::chain::ChainService;
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_shared::shared::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 fn test_truncate() {
     let builder = SharedBuilder::with_temp_db();
 
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
+    let (shared, table, _) = builder.consensus(Consensus::default()).build().unwrap();
     let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared

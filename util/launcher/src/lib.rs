@@ -15,7 +15,6 @@ use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::COLUMNS;
 use ckb_error::Error;
-use ckb_freezer::Freezer;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
@@ -26,9 +25,10 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
-use ckb_shared::shared::Shared;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_tx_pool::TxPoolServiceBuilder;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
@@ -240,29 +240,20 @@ impl Launcher {
     pub fn build_shared(
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<(Shared, ProposalTable), ExitCode> {
-        let db = RocksDB::open(&self.args.config.db, COLUMNS);
-        let store = if self.args.config.store.freezer_enable {
-            let freezer = Freezer::open(self.args.config.ancient.clone()).map_err(|err| {
-                eprintln!("Freezer open error: {:?}", err);
-                ExitCode::Failure
-            })?;
-            ChainDB::new_with_freezer(db, freezer, self.args.config.store)
-        } else {
-            ChainDB::new(db, self.args.config.store)
-        };
-
-        let (shared, table) = Shared::init(
-            store,
-            self.args.consensus.clone(),
-            self.args.config.tx_pool,
-            self.args.config.notify.clone(),
-            block_assembler_config,
+    ) -> Result<(Shared, ProposalTable, TxPoolServiceBuilder), ExitCode> {
+        let (shared, table, tx_pool_builder) = SharedBuilder::new(
+            &self.args.config.db,
+            Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
-            None,
         )
+        .consensus(self.args.consensus.clone())
+        .tx_pool_config(self.args.config.tx_pool)
+        .notify_config(self.args.config.notify.clone())
+        .store_config(self.args.config.store)
+        .block_assembler_config(block_assembler_config)
+        .build()
         .map_err(|err| {
-            eprintln!("Shared init error: {:?}", err);
+            eprintln!("Build shared error: {:?}", err);
             ExitCode::Failure
         })?;
 
@@ -270,7 +261,7 @@ impl Launcher {
         self.verify_genesis(&shared)?;
         self.check_spec(&shared)?;
 
-        Ok((shared, table))
+        Ok((shared, table, tx_pool_builder))
     }
 
     /// Check whether the data already exists in the database before starting

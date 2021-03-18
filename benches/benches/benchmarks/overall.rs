@@ -1,13 +1,12 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
+use ckb_app_config::{NetworkConfig, SyncConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
@@ -44,6 +43,43 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         args,
         message: Default::default(),
     }
+}
+
+fn dummy_network(shared: &Shared) -> NetworkController {
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let config = NetworkConfig {
+        listen_addresses: vec![],
+        public_addresses: vec![],
+        bootnodes: vec![],
+        dns_seeds: vec![],
+        whitelist_peers: vec![],
+        whitelist_only: false,
+        max_peers: 19,
+        max_outbound_peers: 5,
+        path: tmp_dir.path().to_path_buf(),
+        ping_interval_secs: 15,
+        ping_timeout_secs: 20,
+        connect_outbound_interval_secs: 1,
+        discovery_local_address: true,
+        upnp: false,
+        bootnode_mode: true,
+        max_send_buffer: None,
+        sync: SyncConfig::default(),
+        reuse: true,
+    };
+
+    let network_state =
+        Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
+    NetworkService::new(
+        network_state,
+        vec![],
+        vec![],
+        shared.consensus().identify_name(),
+        "test".to_string(),
+        DefaultExitHandler::default(),
+    )
+    .start(shared.async_handle())
+    .expect("Start network service failed")
 }
 
 pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
@@ -85,12 +121,16 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let mut tx_pool_config = TxPoolConfig::default();
     tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
 
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, table, tx_pool_builder) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .block_assembler_config(Some(block_assembler_config()))
         .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
+
+    let network = dummy_network(&shared);
+    tx_pool_builder.start(network);
+
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
 

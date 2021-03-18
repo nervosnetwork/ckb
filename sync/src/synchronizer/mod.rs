@@ -806,10 +806,7 @@ mod tests {
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
-    use ckb_shared::{
-        shared::{Shared, SharedBuilder},
-        Snapshot,
-    };
+    use ckb_shared::{Shared, SharedBuilder, Snapshot};
     use ckb_store::ChainStore;
     use ckb_types::{
         core::{
@@ -838,7 +835,7 @@ mod tests {
         let consensus = consensus.unwrap_or_else(Default::default);
         builder = builder.consensus(consensus);
 
-        let (shared, table) = builder.build().unwrap();
+        let (shared, table, _) = builder.build().unwrap();
 
         let chain_service = ChainService::new(shared.clone(), table);
         let chain_controller = chain_service.start::<&str>(None);
