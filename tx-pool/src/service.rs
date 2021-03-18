@@ -513,7 +513,7 @@ impl TxPoolService {
 }
 
 #[allow(clippy::cognitive_complexity)]
-async fn process(service: TxPoolService, message: Message) {
+async fn process(mut service: TxPoolService, message: Message) {
     match message {
         Message::GetTxPoolInfo(Request { responder, .. }) => {
             let info = service.tx_pool.read().await.info();
