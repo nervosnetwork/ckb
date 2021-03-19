@@ -531,14 +531,14 @@ impl TxPoolService {
         });
     }
 
-    pub(crate) async fn clear_pool(&self, new_snapshot: Arc<Snapshot>) {
+    pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
         let config = tx_pool.config;
-        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
+        self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(
             config,
             new_snapshot,
-            last_txs_updated_at,
+            Arc::clone(&self.last_txs_updated_at),
             Arc::clone(&tx_pool.callbacks),
         );
     }
