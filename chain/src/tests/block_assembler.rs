@@ -36,15 +36,15 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         hash_type: ScriptHashType::Data,
         message: Default::default(),
     };
-    let (shared, table, tx_pool_builder) = builder
+    let (shared, mut pack) = builder
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
 
     let network = dummy_network(&shared);
-    tx_pool_builder.start(network);
+    pack.take_tx_pool_builder().start(network);
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }

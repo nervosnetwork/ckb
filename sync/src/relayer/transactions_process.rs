@@ -169,9 +169,7 @@ async fn handle_submit_error(
 }
 
 fn broadcast_tx(relayer: &Relayer, tx_hash: packed::Byte32, peer: PeerIndex) {
-    let mut map = relayer.shared().state().tx_hashes();
-    let set = map.entry(peer).or_insert_with(LinkedHashSet::default);
-    set.insert(tx_hash);
+    relayer.shared().shared().relay_tx(peer, tx_hash);
 }
 
 async fn handle_submit_result(

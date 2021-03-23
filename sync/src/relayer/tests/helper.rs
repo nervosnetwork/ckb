@@ -143,7 +143,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .build();
     let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
-    let (shared, table, tx_pool_builder) = {
+    let (shared, mut pack) = {
         let genesis = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
             .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
@@ -160,10 +160,10 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     };
 
     let network = dummy_network(&shared);
-    tx_pool_builder.start(network);
+    pack.take_tx_pool_builder().start(network);
 
     let chain_controller = {
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
         chain_service.start::<&str>(None)
     };
 
@@ -195,7 +195,11 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .expect("processing block should be ok");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(shared, Default::default()));
+    let sync_shared = Arc::new(SyncShared::new(
+        shared,
+        Default::default(),
+        pack.take_relay_tx_receiver(),
+    ));
     (
         Relayer::new(
             chain_controller,

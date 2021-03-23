@@ -20,7 +20,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let exit_handler = DefaultExitHandler::default();
 
     launcher.migrate_guard()?;
-    let (shared, table, tx_pool_builder) = launcher.build_shared(block_assembler_config)?;
+    let (shared, mut pack) = launcher.build_shared(block_assembler_config)?;
 
     // spawn freezer background process
     let _freezer = shared.spawn_freeze();
@@ -43,11 +43,17 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.check_assume_valid_target(&shared);
 
-    let chain_controller = launcher.start_chain_service(&shared, table);
+    let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
-    let (network_controller, rpc_server) =
-        launcher.start_network_and_rpc(&shared, chain_controller, &exit_handler, miner_enable);
+    let (network_controller, rpc_server) = launcher.start_network_and_rpc(
+        &shared,
+        chain_controller,
+        &exit_handler,
+        miner_enable,
+        pack.take_relay_tx_receiver(),
+    );
 
+    let tx_pool_builder = pack.take_tx_pool_builder();
     tx_pool_builder.start(network_controller);
 
     let exit_handler_clone = exit_handler.clone();

@@ -215,7 +215,6 @@ pub trait PoolRpc {
 }
 
 pub(crate) struct PoolRpcImpl {
-    sync_shared: Arc<SyncShared>,
     shared: Shared,
     min_fee_rate: core::FeeRate,
     reject_ill_transactions: bool,
@@ -224,12 +223,10 @@ pub(crate) struct PoolRpcImpl {
 impl PoolRpcImpl {
     pub fn new(
         shared: Shared,
-        sync_shared: Arc<SyncShared>,
         min_fee_rate: core::FeeRate,
         reject_ill_transactions: bool,
     ) -> PoolRpcImpl {
         PoolRpcImpl {
-            sync_shared,
             shared,
             min_fee_rate,
             reject_ill_transactions,
@@ -284,12 +281,7 @@ impl PoolRpc for PoolRpcImpl {
         let broadcast = |tx_hash: packed::Byte32| {
             // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
             let peer_index = PeerIndex::new(usize::max_value());
-            self.sync_shared
-                .state()
-                .tx_hashes()
-                .entry(peer_index)
-                .or_default()
-                .insert(tx_hash);
+            self.shared.relay_tx(peer_index, tx_hash);
         };
         let tx_hash = tx.hash();
         match submit_tx.unwrap() {

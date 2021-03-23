@@ -121,7 +121,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let mut tx_pool_config = TxPoolConfig::default();
     tx_pool_config.min_fee_rate = FeeRate::from_u64(0);
 
-    let (shared, table, tx_pool_builder) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .block_assembler_config(Some(block_assembler_config()))
         .tx_pool_config(tx_pool_config)
@@ -129,9 +129,9 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .unwrap();
 
     let network = dummy_network(&shared);
-    tx_pool_builder.start(network);
+    pack.take_tx_pool_builder().start(network);
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let chain_controller = chain_service.start(Some("ChainService"));
 
     (shared, chain_controller)

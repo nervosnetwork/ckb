@@ -9,8 +9,8 @@ use std::sync::Arc;
 #[test]
 fn test_get_block_body_after_inserting() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table, _) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())

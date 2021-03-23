@@ -74,11 +74,11 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table, _) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -292,11 +292,11 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table, _) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
         chains.push((chain_service.start::<&str>(None), shared));
     }

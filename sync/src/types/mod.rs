@@ -4,6 +4,7 @@ use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -1174,12 +1175,21 @@ pub struct SyncShared {
 
 impl SyncShared {
     /// only use on test
-    pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
+    pub fn new(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
 
     /// Generate a global sync state through configuration
-    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
+    pub fn with_tmpdir<P>(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tmpdir: Option<P>,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1213,7 +1223,7 @@ impl SyncShared {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
-            tx_hashes: Mutex::new(HashMap::default()),
+            tx_relay_receiver: tx_relay_receiver,
             assume_valid_target: Mutex::new(sync_config.assume_valid_target),
             min_chain_work: sync_config.min_chain_work,
         };
@@ -1470,7 +1480,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
+    tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1526,13 +1536,17 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
-        self.tx_hashes.lock()
-    }
+    // pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
+    //     self.tx_hashes.lock()
+    // }
 
-    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
-        let mut map = self.tx_hashes.lock();
-        mem::take(&mut *map)
+    // pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
+    //     let mut map = self.tx_hashes.lock();
+    //     mem::take(&mut *map)
+    // }
+
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(PeerIndex, Byte32)> {
+        self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
