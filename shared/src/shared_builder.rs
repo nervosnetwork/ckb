@@ -1,8 +1,10 @@
 use crate::shared::Shared;
+use crate::PeerIndex;
 use crate::{Snapshot, SnapshotMgr};
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::Error;
@@ -14,6 +16,7 @@ use ckb_store::ChainDB;
 use ckb_tx_pool::{
     error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolController, TxPoolServiceBuilder,
 };
+use ckb_types::packed::Byte32;
 use ckb_verification::cache::TxVerifyCache;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -103,7 +106,7 @@ impl SharedBuilder {
     }
 
     /// TODO(doc): @quake
-    pub fn build(self) -> Result<(Shared, ProposalTable, TxPoolServiceBuilder), Error> {
+    pub fn build(self) -> Result<(Shared, SharedPackage), Error> {
         let SharedBuilder {
             db,
             ancient_path,
@@ -143,6 +146,7 @@ impl SharedBuilder {
             &async_handle,
         );
 
+        let (sender, receiver) = ckb_channel::unbounded();
         let shared = Shared {
             store,
             consensus,
@@ -153,9 +157,38 @@ impl SharedBuilder {
             async_handle,
             async_stop,
             ibd_finished: Arc::new(AtomicBool::new(false)),
+            relay_tx_sender: sender,
         };
 
-        Ok((shared, table, tx_pool_builder))
+        let pack = SharedPackage {
+            table: Some(table),
+            tx_pool_builder: Some(tx_pool_builder),
+            relay_tx_receiver: Some(receiver),
+        };
+
+        Ok((shared, pack))
+    }
+}
+
+pub struct SharedPackage {
+    table: Option<ProposalTable>,
+    tx_pool_builder: Option<TxPoolServiceBuilder>,
+    relay_tx_receiver: Option<Receiver<(PeerIndex, Byte32)>>,
+}
+
+impl SharedPackage {
+    pub fn take_proposal_table(&mut self) -> ProposalTable {
+        self.table.take().expect("take proposal_table")
+    }
+
+    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
+        self.tx_pool_builder.take().expect("take tx_pool_builder")
+    }
+
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(PeerIndex, Byte32)> {
+        self.relay_tx_receiver
+            .take()
+            .expect("take relay_tx_receiver")
     }
 }
 

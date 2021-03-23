@@ -51,13 +51,11 @@ impl<'a> ServiceBuilder<'a> {
     pub fn enable_pool(
         mut self,
         shared: Shared,
-        sync_shared: Arc<SyncShared>,
         min_fee_rate: FeeRate,
         reject_ill_transactions: bool,
     ) -> Self {
         let rpc_methods =
-            PoolRpcImpl::new(shared, sync_shared, min_fee_rate, reject_ill_transactions)
-                .to_delegate();
+            PoolRpcImpl::new(shared, min_fee_rate, reject_ill_transactions).to_delegate();
         if self.config.pool_enable() {
             self.add_methods(rpc_methods);
         } else {

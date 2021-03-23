@@ -1,9 +1,11 @@
 //! TODO(doc): @quake
+use crate::PeerIndex;
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
+use ckb_channel::Sender;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
@@ -68,6 +70,7 @@ pub struct Shared {
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
+    pub(crate) relay_tx_sender: Sender<(PeerIndex, Byte32)>,
 }
 
 impl Shared {
@@ -424,6 +427,12 @@ impl Shared {
         } else {
             self.ibd_finished.store(true, Ordering::Relaxed);
             false
+        }
+    }
+
+    pub fn relay_tx(&self, peer: PeerIndex, hash: Byte32) {
+        if let Err(e) = self.relay_tx_sender.send((peer, hash)) {
+            ckb_logger::error!("relay_tx error {}", e);
         }
     }
 }

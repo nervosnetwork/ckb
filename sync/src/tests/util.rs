@@ -14,16 +14,16 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
-    let (shared, table, _) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
     let chain_controller = {
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);
-    let sync_shared = SyncShared::new(shared, Default::default());
+    let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
     (sync_shared, chain_controller)
 }
 

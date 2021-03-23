@@ -134,7 +134,7 @@ fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
 
 // Setup the running environment
 fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
-    let (shared, table, tx_pool_builder) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
@@ -144,7 +144,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         }))
         .build()
         .unwrap();
-    let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
+    let chain_controller =
+        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
 
     // Start network services
     let dir = tempfile::tempdir()
@@ -171,7 +172,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .expect("Start network service failed")
     };
 
-    tx_pool_builder.start(network_controller.clone());
+    pack.take_tx_pool_builder()
+        .start(network_controller.clone());
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
@@ -206,7 +208,11 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             .expect("processing new block should be ok");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
+    let sync_shared = Arc::new(SyncShared::new(
+        shared.clone(),
+        Default::default(),
+        pack.take_relay_tx_receiver(),
+    ));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
@@ -263,12 +269,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(
-            shared.clone(),
-            Arc::clone(&sync_shared),
-            FeeRate::zero(),
-            true,
-        )
+        .enable_pool(shared.clone(), FeeRate::zero(), true)
         .enable_miner(
             shared.clone(),
             network_controller.clone(),

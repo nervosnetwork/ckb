@@ -10,8 +10,8 @@ use std::sync::Arc;
 fn test_truncate() {
     let builder = SharedBuilder::with_temp_db();
 
-    let (shared, table, _) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     let genesis = shared
         .store()

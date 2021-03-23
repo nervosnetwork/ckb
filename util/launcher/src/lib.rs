@@ -11,6 +11,7 @@ use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
+use ckb_channel::Receiver;
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::COLUMNS;
@@ -18,18 +19,18 @@ use ckb_error::Error;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
-    CKBProtocol, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
+    CKBProtocol, DefaultExitHandler, NetworkController, NetworkService, NetworkState, PeerIndex,
     SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder, SharedPackage};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::TxPoolServiceBuilder;
-use ckb_types::prelude::*;
+use ckb_types::{packed::Byte32, prelude::*};
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::path::PathBuf;
@@ -240,8 +241,8 @@ impl Launcher {
     pub fn build_shared(
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<(Shared, ProposalTable, TxPoolServiceBuilder), ExitCode> {
-        let (shared, table, tx_pool_builder) = SharedBuilder::new(
+    ) -> Result<(Shared, SharedPackage), ExitCode> {
+        let (shared, pack) = SharedBuilder::new(
             &self.args.config.db,
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
@@ -261,7 +262,7 @@ impl Launcher {
         self.verify_genesis(&shared)?;
         self.check_spec(&shared)?;
 
-        Ok((shared, table, tx_pool_builder))
+        Ok((shared, pack))
     }
 
     /// Check whether the data already exists in the database before starting
@@ -288,11 +289,13 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
+        relay_tx_receiver: Receiver<(PeerIndex, Byte32)>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
             self.args.config.network.sync.clone(),
             self.args.config.tmp_dir.as_ref(),
+            relay_tx_receiver,
         ));
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
@@ -357,7 +360,6 @@ impl Launcher {
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
-                Arc::clone(&sync_shared),
                 self.args.config.tx_pool.min_fee_rate,
                 self.args.config.rpc.reject_ill_transactions,
             )

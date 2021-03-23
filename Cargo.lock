@@ -730,6 +730,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-build-info",
  "ckb-chain",
+ "ckb-channel",
  "ckb-db",
  "ckb-db-migration",
  "ckb-db-schema",
@@ -1252,6 +1253,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "faketime",
+ "tentacle",
 ]
 
 [[package]]

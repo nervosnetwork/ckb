@@ -576,36 +576,31 @@ impl Relayer {
 
     /// Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
+        const BUFFER_SIZE: usize = 42;
+
         let connected_peers = nc.connected_peers();
         if connected_peers.is_empty() {
             return;
         }
+
+        let tx_hashes = self
+            .shared
+            .state()
+            .take_relay_tx_hashes(MAX_RELAY_TXS_NUM_PER_BATCH);
         let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
-            let peer_tx_hashes = self.shared.state().take_tx_hashes();
             let mut known_txs = self.shared.state().known_txs();
-
-            for (peer_index, tx_hashes) in peer_tx_hashes.into_iter() {
-                for tx_hash in tx_hashes {
-                    for &peer in connected_peers
-                        .iter()
-                        .filter(|&target_peer| {
-                            known_txs.insert(*target_peer, tx_hash.clone())
-                                && (peer_index != *target_peer)
-                        })
-                        .take(MAX_RELAY_PEERS)
-                    {
+            for (origin_peer, hash) in &tx_hashes {
+                for target in &connected_peers {
+                    if known_txs.insert(*target, hash.clone()) && (origin_peer != target) {
                         let hashes = selected
-                            .entry(peer)
-                            .or_insert_with(|| Vec::with_capacity(MAX_RELAY_TXS_NUM_PER_BATCH));
-                        if hashes.len() < MAX_RELAY_TXS_NUM_PER_BATCH {
-                            hashes.push(tx_hash.clone());
-                        }
+                            .entry(*target)
+                            .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                        hashes.push(hash.clone());
                     }
                 }
             }
-        };
-
+        }
         for (peer, hashes) in selected {
             let content = packed::RelayTransactionHashes::new_builder()
                 .tx_hashes(hashes.pack())

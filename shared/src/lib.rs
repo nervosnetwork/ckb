@@ -5,5 +5,9 @@ pub mod shared;
 pub mod shared_builder;
 
 pub use ckb_snapshot::{Snapshot, SnapshotMgr};
+use p2p::SessionId;
 pub use shared::Shared;
-pub use shared_builder::SharedBuilder;
+pub use shared_builder::{SharedBuilder, SharedPackage};
+
+/// Alias session id
+pub(crate) type PeerIndex = SessionId;

@@ -56,16 +56,16 @@ fn test_insert_invalid_block() {
 fn test_insert_parent_unknown_block() {
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let (shared, table, _) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
         let chain_controller = {
-            let chain_service = ChainService::new(shared.clone(), table);
+            let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
             chain_service.start::<&str>(None)
         };
         (
-            SyncShared::new(shared, Default::default()),
+            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
             chain_controller,
         )
     };
