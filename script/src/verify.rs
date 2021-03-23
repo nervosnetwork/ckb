@@ -24,9 +24,12 @@ use ckb_types::{
 };
 #[cfg(has_asm)]
 use ckb_vm::{
-    machine::asm::{AsmCoreMachine, AsmMachine},
+    machine::{
+        asm::{AsmCoreMachine, AsmMachine},
+        VERSION0,
+    },
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
-    Syscalls,
+    Syscalls, ISA_B, ISA_IMC,
 };
 #[cfg(not(has_asm))]
 use ckb_vm::{
@@ -406,12 +409,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         #[cfg(has_asm)]
-        let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
+        let core_machine = AsmCoreMachine::new(ISA_IMC | ISA_B, VERSION0, max_cycles);
         #[cfg(not(has_asm))]
-        let core_machine =
-            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
-                max_cycles,
-            );
+        let core_machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new(
+            ISA_IMC | ISA_B,
+            VERSION0,
+            max_cycles,
+        );
         let machine_builder = DefaultMachineBuilder::<CoreMachineType>::new(core_machine)
             .instruction_cycle_func(self.cost_model());
         let machine_builder = self

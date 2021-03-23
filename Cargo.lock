@@ -1137,7 +1137,7 @@ dependencies = [
  "ckb-vm",
  "ckb-vm-definitions",
  "faster-hex 0.4.1",
- "goblin",
+ "goblin 0.2.3",
  "proptest",
  "serde",
  "tiny-keccak",
@@ -1491,26 +1491,39 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
+<<<<<<< HEAD
 version = "0.19.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f4b7a3a2f19771d379884030417094c55986ccbc0d5caaaa651f7421ead4bb4"
+=======
+version = "0.19.1"
+source = "git+https://github.com/mohanson/ckb-vm?branch=instruction_design#fbd9af94342da2fe42839f965dbab1851aa87fb4"
+>>>>>>> Bump ckb-vm
 dependencies = [
  "byteorder",
  "bytes 1.0.1",
  "cc",
  "ckb-vm-definitions",
  "derive_more",
- "goblin",
+ "goblin 0.2.3",
+ "goblin 0.3.4",
  "libc",
  "mapr",
+ "rand 0.7.3",
  "scroll",
+ "serde",
 ]
 
 [[package]]
 name = "ckb-vm-definitions"
+<<<<<<< HEAD
 version = "0.19.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5dd4b68248ffd8283d693a477f9594d195ceac25f6aa7f98e99d1b8f43f9b3e"
+=======
+version = "0.19.1"
+source = "git+https://github.com/mohanson/ckb-vm?branch=instruction_design#fbd9af94342da2fe42839f965dbab1851aa87fb4"
+>>>>>>> Bump ckb-vm
 
 [[package]]
 name = "clap"
@@ -2303,6 +2316,17 @@ name = "goblin"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d20fd25aa456527ce4f544271ae4fea65d2eda4a6561ea56f39fb3ee4f7e3884"
+dependencies = [
+ "log",
+ "plain",
+ "scroll",
+]
+
+[[package]]
+name = "goblin"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "669cdc3826f69a51d3f8fc3f86de81c2378110254f678b8407977736122057a4"
 dependencies = [
  "log",
  "plain",

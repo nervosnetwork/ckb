@@ -21,14 +21,14 @@ ckb-traits = { path = "../traits", version = "= 0.43.0-pre" }
 byteorder = "1.3.1"
 ckb-types = {path = "../util/types", version = "= 0.43.0-pre"}
 ckb-hash = {path = "../util/hash", version = "= 0.43.0-pre"}
-ckb-vm = { version = "0.19.4", default-features = false }
+ckb-vm-definitions = { git = "https://github.com/mohanson/ckb-vm", branch="instruction_design" }
+ckb-vm = { git = "https://github.com/mohanson/ckb-vm", branch="instruction_design", default-features = false }
 faster-hex = "0.4"
 ckb-logger = { path = "../util/logger", version = "= 0.43.0-pre", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.43.0-pre" }
 goblin = "0.2"
-ckb-vm-definitions = "0.19.4"
 
 [dev-dependencies]
 proptest = "0.9"
