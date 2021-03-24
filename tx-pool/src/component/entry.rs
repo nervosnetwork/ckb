@@ -4,43 +4,9 @@ use ckb_types::{
     core::{cell::ResolvedTransaction, tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
-use ckb_verification::cache::CacheEntry;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
-
-/// An defect entry (conflict or orphan) in the transaction pool.
-#[derive(Debug, Clone)]
-pub struct DefectEntry {
-    /// Transaction
-    pub transaction: TransactionView,
-    /// refs count
-    pub refs_count: usize,
-    /// Cycles and fee
-    pub cache_entry: Option<CacheEntry>,
-    /// tx size
-    pub size: usize,
-    // timestamp
-    pub timestamp: u64,
-}
-
-impl DefectEntry {
-    /// Create new transaction pool entry
-    pub fn new(
-        tx: TransactionView,
-        refs_count: usize,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-    ) -> DefectEntry {
-        DefectEntry {
-            transaction: tx,
-            refs_count,
-            cache_entry,
-            size,
-            timestamp: faketime::unix_time().as_secs(),
-        }
-    }
-}
 
 /// An entry in the transaction pool.
 #[derive(Debug, Clone, Eq)]
@@ -80,19 +46,23 @@ impl TxEntry {
         }
     }
 
+    /// Create dummy entry from tx, skip resolve
     pub fn dummy_resolve(tx: TransactionView, cycles: Cycle, fee: Capacity, size: usize) -> Self {
         let rtx = ResolvedTransaction::dummy_resolve(tx);
         TxEntry::new(rtx, cycles, fee, size)
     }
 
+    /// Return related dep out_points
     pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
         self.rtx.related_dep_out_points()
     }
 
+    /// Return reference of transaction
     pub fn transaction(&self) -> &TransactionView {
         &self.rtx.transaction
     }
 
+    /// Return proposal_short_id of transaction
     pub fn proposal_short_id(&self) -> ProposalShortId {
         self.transaction().proposal_short_id()
     }

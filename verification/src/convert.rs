@@ -1,7 +1,7 @@
 use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, BlockVersionError, CellbaseError,
     CommitError, EpochError, HeaderError, HeaderErrorKind, InvalidParentError, NumberError,
-    PowError, TimestampError, TransactionError, UnclesError, UnknownParentError,
+    PowError, TimestampError, UnclesError, UnknownParentError,
 };
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, ErrorKind,

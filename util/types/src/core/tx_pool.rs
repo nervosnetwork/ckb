@@ -60,6 +60,7 @@ fn is_malformed_from_verification(error: &Error) -> bool {
 }
 
 impl Reject {
+    /// Returns true if the reject reason is malformed tx.
     pub fn is_malformed_tx(&self) -> bool {
         match self {
             Reject::Malformed(_) => true,

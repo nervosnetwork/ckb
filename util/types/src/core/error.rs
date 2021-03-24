@@ -42,13 +42,20 @@ impl From<OutPointError> for Error {
     }
 }
 
+/// Enum represent transaction relate error source
 #[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum TransactionErrorSource {
+    /// cell deps
     CellDeps,
+    /// header deps
     HeaderDeps,
+    /// inputs
     Inputs,
+    /// outputs
     Outputs,
+    /// outputs data
     OutputsData,
+    /// witnesses
     Witnesses,
 }
 
@@ -181,5 +188,12 @@ impl TransactionError {
             | TransactionError::CellbaseImmaturity { .. }
             | TransactionError::MismatchedVersion { .. } => false,
         }
+    }
+}
+
+impl OutPointError {
+    /// Returns true if the error is an unknown out_point.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, OutPointError::Unknown(_))
     }
 }

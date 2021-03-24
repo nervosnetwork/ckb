@@ -136,7 +136,7 @@ impl Relayer {
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
                 if reader.check_data() {
-                    TransactionsProcess::new(reader, self, nc, peer).execute()
+                    TransactionsProcess::new(reader, self, peer).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed
                         .with_context("RelayTransactions is invalid")

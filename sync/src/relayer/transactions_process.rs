@@ -1,27 +1,16 @@
 use crate::relayer::Relayer;
-use crate::{Status, StatusCode};
-use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
+use crate::Status;
 use ckb_logger::{debug_target, error};
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{tx_pool::Reject, Cycle, TransactionView},
+    core::{Cycle, TransactionView},
     packed,
     prelude::*,
 };
-use ckb_util::LinkedHashSet;
-use ckb_verification::cache::CacheEntry;
-use ckb_verification::TransactionError;
-#[cfg(feature = "with_sentry")]
-use sentry::{capture_message, with_scope, Level};
-use std::sync::Arc;
-use std::time::Duration;
-
-const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionsProcess<'a> {
     message: packed::RelayTransactionsReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -29,13 +18,11 @@ impl<'a> TransactionsProcess<'a> {
     pub fn new(
         message: packed::RelayTransactionsReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         TransactionsProcess {
             message,
             relayer,
-            nc,
             peer,
         }
     }
@@ -79,7 +66,6 @@ impl<'a> TransactionsProcess<'a> {
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
         let relayer = self.relayer.clone();
-        let nc = Arc::clone(&self.nc);
         let peer = self.peer;
         self.relayer.shared.shared().async_handle().spawn(
             async move {
@@ -95,116 +81,13 @@ impl<'a> TransactionsProcess<'a> {
                         continue;
                     }
 
-                    match tx_pool.submit_remote_tx(tx.clone(), declared_cycle).await {
-                        Ok(ret) => {
-                            if handle_submit_result(nc.as_ref(), &relayer, ret, declared_cycle, tx, peer).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            error!("TxPool submit_tx error: {:?}", err);
-                        }
-                    };
+                    if let Err(e) = tx_pool.submit_remote_tx(tx.clone(), declared_cycle, peer).await {
+                        error!("submit_tx error {}", e);
+                    }
                 }
             }
         );
 
         Status::ok()
-    }
-}
-
-fn is_malformed(error: &Error) -> bool {
-    match error.kind() {
-        ErrorKind::SubmitTransaction => error
-            .downcast_ref::<Reject>()
-            .expect("error kind checked")
-            .is_malformed_tx(),
-        _ => false,
-    }
-}
-
-#[allow(unused_variables)]
-fn ban_malformed(nc: &(dyn CKBProtocolContext + Sync), error: &Error, peer: PeerIndex) {
-    #[cfg(feature = "with_sentry")]
-    with_scope(
-        |scope| scope.set_fingerprint(Some(&["ckb-sync", "relay-invalid-tx"])),
-        || {
-            capture_message(
-                &format!(
-                    "Ban peer {} for {} seconds, reason: \
-                     relay invalid tx, error: {:?}",
-                    peer,
-                    DEFAULT_BAN_TIME.as_secs(),
-                    error
-                ),
-                Level::Info,
-            )
-        },
-    );
-    nc.ban_peer(
-        peer,
-        DEFAULT_BAN_TIME,
-        String::from("send us an invalid transaction"),
-    );
-}
-
-async fn handle_submit_error(
-    nc: &(dyn CKBProtocolContext + Sync),
-    relayer: &Relayer,
-    error: &Error,
-    tx: TransactionView,
-    peer: PeerIndex,
-) -> Result<(), ()> {
-    error!(
-        "received tx {} submit error: {} peer: {}",
-        tx.hash(),
-        error,
-        peer
-    );
-    if is_malformed(error) {
-        ban_malformed(nc, error, peer);
-        return Err(());
-    }
-    Ok(())
-}
-
-fn broadcast_tx(relayer: &Relayer, tx_hash: packed::Byte32, peer: PeerIndex) {
-    relayer.shared().shared().relay_tx(peer, tx_hash);
-}
-
-async fn handle_submit_result(
-    nc: &(dyn CKBProtocolContext + Sync),
-    relayer: &Relayer,
-    ret: Result<CacheEntry, Error>,
-    declared_cycle: Cycle,
-    tx: TransactionView,
-    peer: PeerIndex,
-) -> Result<(), ()> {
-    let tx_hash = tx.hash();
-    match ret {
-        Ok(verified) => {
-            if declared_cycle == verified.cycles {
-                broadcast_tx(relayer, tx_hash, peer);
-                Ok(())
-            } else {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "peer {} relay wrong cycles tx_hash: {} verified cycles {} declared cycles {}",
-                    peer,
-                    tx_hash,
-                    verified.cycles,
-                    declared_cycle,
-                );
-
-                nc.ban_peer(
-                    peer,
-                    DEFAULT_BAN_TIME,
-                    String::from("send us a transaction with wrong cycles"),
-                );
-
-                Err(())
-            }
-        }
-        Err(err) => handle_submit_error(nc, relayer, &err, tx, peer).await,
     }
 }

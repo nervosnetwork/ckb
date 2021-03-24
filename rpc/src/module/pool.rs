@@ -5,7 +5,6 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
-use ckb_sync::SyncShared;
 use ckb_tx_pool::error::Reject;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};

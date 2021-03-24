@@ -2,9 +2,9 @@ use ckb_logger::trace;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::TransactionView,
-    packed::{self, OutPoint, ProposalShortId},
+    packed::{OutPoint, ProposalShortId},
 };
-use ckb_util::{shrink_to_fit, RwLock};
+use ckb_util::shrink_to_fit;
 use std::collections::HashMap;
 
 const SHRINK_THRESHOLD: usize = 100;
@@ -46,10 +46,12 @@ impl OrphanPool {
         self.entries.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.entries.contains_key(id)
     }
@@ -59,8 +61,8 @@ impl OrphanPool {
         shrink_to_fit!(self.by_out_point, SHRINK_THRESHOLD);
     }
 
-    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.entries.get(id).map(|entry| &entry.tx)
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&Entry> {
+        self.entries.get(id)
     }
 
     pub fn remove_orphan_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
