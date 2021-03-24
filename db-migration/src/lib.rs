@@ -1,5 +1,5 @@
 //! TODO(doc): @quake
-use ckb_db::RocksDB;
+use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::MIGRATION_VERSION_KEY;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
@@ -35,7 +35,7 @@ impl Migrations {
     /// Check whether database requires migration
     ///
     /// Return true if migration is required
-    pub fn check(&self, db: &RocksDB) -> bool {
+    pub fn check(&self, db: &ReadOnlyDB) -> bool {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -54,7 +54,7 @@ impl Migrations {
     }
 
     /// Check if the migrations will consume a lot of time.
-    pub fn expensive(&self, db: &RocksDB) -> bool {
+    pub fn expensive(&self, db: &ReadOnlyDB) -> bool {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")

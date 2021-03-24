@@ -7,7 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
-use ckb_db::{Direction, IteratorMode, RocksDB};
+use ckb_db::{Direction, IteratorMode, ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::COLUMN_BLOCK_BODY;
 use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
@@ -569,7 +569,7 @@ impl SharedBuilder {
     ///
     /// Return true if migration is required
     pub fn migration_check(&self) -> bool {
-        RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)
+        ReadOnlyDB::open(&self.db_config.path)
             .unwrap_or_else(|err| panic!("{}", err))
             .map(|db| self.migrations.check(&db))
             .unwrap_or(false)
@@ -577,7 +577,7 @@ impl SharedBuilder {
 
     /// Check whether database requires expensive migrations.
     pub fn require_expensive_migrations(&self) -> bool {
-        RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)
+        ReadOnlyDB::open(&self.db_config.path)
             .unwrap_or_else(|err| panic!("{}", err))
             .map(|db| self.migrations.expensive(&db))
             .unwrap_or(false)
