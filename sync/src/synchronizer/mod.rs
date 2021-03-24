@@ -576,10 +576,15 @@ impl Synchronizer {
         };
 
         for peer in disconnect_list.iter() {
+            // It is not forbidden to evict protected nodes:
+            // - First of all, this node is not designated by the user for protection,
+            //   but is connected randomly. It does not represent the will of the user
+            // - Secondly, in the synchronization phase, the nodes with zero download tasks are
+            //   retained, apart from reducing the download efficiency, there is no benefit.
             if self
                 .peers()
                 .get_flag(*peer)
-                .map(|flag| flag.is_whitelist || flag.is_protect)
+                .map(|flag| flag.is_whitelist)
                 .unwrap_or(false)
             {
                 continue;
