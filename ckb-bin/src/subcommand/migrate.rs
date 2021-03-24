@@ -41,7 +41,7 @@ pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> 
         }
     }
 
-    let (_shared, _table) = builder.build().map_err(|err| {
+    let (_shared, _table) = builder.consensus(args.consensus).build().map_err(|err| {
         eprintln!("Run error: {:?}", err);
         ExitCode::Failure
     })?;
