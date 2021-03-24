@@ -176,6 +176,8 @@ pub struct PeerIDArgs {
 pub struct MigrateArgs {
     /// The parsed `ckb.toml.`
     pub config: Box<CKBAppConfig>,
+    /// Loaded consensus.
+    pub consensus: Consensus,
     /// Check whether it is required to do migration instead of really perform the migration.
     pub check: bool,
     /// Do migration without interactive prompt.
