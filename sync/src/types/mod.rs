@@ -7,8 +7,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE,
-    SUSPEND_SYNC_TIME,
+    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
+    POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
@@ -565,6 +565,7 @@ pub struct InflightBlocks {
     pub(crate) restart_number: BlockNumber,
     time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
+    pub(crate) protect_num: usize,
 }
 
 impl Default for InflightBlocks {
@@ -577,6 +578,7 @@ impl Default for InflightBlocks {
             restart_number: 0,
             time_analyzer: TimeAnalyzer::default(),
             adjustment: true,
+            protect_num: MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
         }
     }
 }
@@ -683,6 +685,16 @@ impl InflightBlocks {
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
         let mut disconnect_list = HashSet::new();
+        // Since statistics are currently disturbed by the processing block time, when the number
+        // of transactions increases, the node will be accidentally evicted.
+        //
+        // Especially on machines with poor CPU performance, the node connection will be frequently
+        // disconnected due to statistics.
+        //
+        // In order to protect the decentralization of the network and ensure the survival of low-performance
+        // nodes, the penalty mechanism will be closed when the number of download nodes is less than the number of protected nodes
+        let should_punish = self.download_schedulers.len() > self.protect_num;
+        let adjustment = self.adjustment;
 
         let trace = &mut self.trace_number;
         let download_schedulers = &mut self.download_schedulers;
@@ -702,7 +714,9 @@ impl InflightBlocks {
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
                 if let Some(set) = download_schedulers.get_mut(&value.peer) {
                     set.hashes.remove(key);
-                    set.punish(2);
+                    if should_punish {
+                        set.punish(2);
+                    }
                 };
                 if !trace.is_empty() {
                     trace.remove(&key);
@@ -742,13 +756,17 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        d.punish(1);
+                        if should_punish {
+                            d.punish(1);
+                        }
                         d.hashes.remove(key);
                     };
                 } else if let Some(v) = compact_inflight.remove(&key.hash) {
-                    for peer in v {
-                        if let Some(d) = download_schedulers.get_mut(&peer) {
-                            d.punish(1);
+                    if should_punish && adjustment {
+                        for peer in v {
+                            if let Some(d) = download_schedulers.get_mut(&peer) {
+                                d.punish(1);
+                            }
                         }
                     }
                 }
@@ -817,6 +835,7 @@ impl InflightBlocks {
     }
 
     pub fn remove_by_block(&mut self, block: BlockNumberAndHash) -> bool {
+        let should_punish = self.download_schedulers.len() > self.protect_num;
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
@@ -835,8 +854,16 @@ impl InflightBlocks {
                         match time_analyzer.push_time(elapsed) {
                             TimeQuantile::MinToFast => set.increase(2),
                             TimeQuantile::FastToNormal => set.increase(1),
-                            TimeQuantile::NormalToUpper => set.decrease(1),
-                            TimeQuantile::UpperToMax => set.decrease(2),
+                            TimeQuantile::NormalToUpper => {
+                                if should_punish {
+                                    set.decrease(1)
+                                }
+                            }
+                            TimeQuantile::UpperToMax => {
+                                if should_punish {
+                                    set.decrease(2)
+                                }
+                            }
                         }
                     }
                     if !trace.is_empty() {
