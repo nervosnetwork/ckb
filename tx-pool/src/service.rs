@@ -3,6 +3,7 @@
 use crate::block_assembler::BlockAssembler;
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::component::entry::TxEntry;
+use crate::component::orphan::OrphanPool;
 use crate::error::{handle_recv_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
@@ -12,7 +13,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
-use ckb_network::NetworkController;
+use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
@@ -20,7 +21,7 @@ use ckb_types::{
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
-    packed::ProposalShortId,
+    packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use faketime::unix_time_as_millis;
@@ -79,7 +80,7 @@ pub(crate) type ChainReorgArgs = (
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
-    SubmitRemoteTx(Request<(TransactionView, Cycle), SubmitTxResult>),
+    SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), SubmitTxResult>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
@@ -216,14 +217,16 @@ impl TxPoolController {
             .map_err(Into::into)
     }
 
+    /// Submit remote tx with declared cycles and origin to tx-pool
     pub async fn submit_remote_tx(
         &self,
         tx: TransactionView,
         declared_cycles: Cycle,
+        peer: PeerIndex,
     ) -> Result<SubmitTxResult, AnyError> {
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
-        let request = Request::call((tx, declared_cycles), responder);
+        let request = Request::call((tx, declared_cycles, peer), responder);
         sender
             .try_send(Message::SubmitRemoteTx(request))
             .map_err(|e| {
@@ -410,6 +413,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) signal_receiver: oneshot::Receiver<()>,
     pub(crate) handle: Handle,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
 }
 
 impl TxPoolServiceBuilder {
@@ -421,6 +425,7 @@ impl TxPoolServiceBuilder {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
+        tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, signal_receiver) = oneshot::channel();
@@ -435,6 +440,7 @@ impl TxPoolServiceBuilder {
             receiver,
             signal_receiver,
             handle: handle.clone(),
+            tx_relay_sender,
         };
 
         let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
@@ -476,16 +482,20 @@ impl TxPoolServiceBuilder {
             Arc::clone(&last_txs_updated_at),
         );
 
-        let service = TxPoolService::new(
-            tx_pool,
-            consensus,
-            self.block_assembler,
-            self.txs_verify_cache,
-            last_txs_updated_at,
-            self.snapshot_mgr,
-            Arc::new(self.callbacks),
+        let service = TxPoolService {
+            tx_pool_config: Arc::new(tx_pool.config),
+            tx_pool: Arc::new(RwLock::new(tx_pool)),
+            orphan: Arc::new(RwLock::new(OrphanPool::new())),
+            block_assembler: self.block_assembler,
+            txs_verify_cache: self.txs_verify_cache,
+            snapshot_mgr: self.snapshot_mgr,
+            callbacks: Arc::new(self.callbacks),
+            tx_relay_sender: self.tx_relay_sender,
             network,
-        );
+            consensus,
+            last_txs_updated_at,
+        };
+
         let mut receiver = self.receiver;
         let mut signal_receiver = self.signal_receiver;
         let handle_clone = self.handle.clone();
@@ -508,42 +518,19 @@ impl TxPoolServiceBuilder {
 #[derive(Clone)]
 pub(crate) struct TxPoolService {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
+    pub(crate) orphan: Arc<RwLock<OrphanPool>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
-    snapshot_mgr: Arc<SnapshotMgr>,
-    network: NetworkController,
+    pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
+    pub(crate) network: NetworkController,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
 }
 
 impl TxPoolService {
-    /// Creates a new TxPoolService.
-    pub fn new(
-        tx_pool: TxPool,
-        consensus: Arc<Consensus>,
-        block_assembler: Option<BlockAssembler>,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
-        last_txs_updated_at: Arc<AtomicU64>,
-        snapshot_mgr: Arc<SnapshotMgr>,
-        callbacks: Arc<Callbacks>,
-        network: NetworkController,
-    ) -> Self {
-        let tx_pool_config = Arc::new(tx_pool.config);
-        Self {
-            tx_pool: Arc::new(RwLock::new(tx_pool)),
-            consensus,
-            tx_pool_config,
-            block_assembler,
-            txs_verify_cache,
-            last_txs_updated_at,
-            snapshot_mgr,
-            callbacks,
-            network,
-        }
-    }
-
     pub(crate) fn snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot_mgr.load())
     }
@@ -585,9 +572,9 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::SubmitRemoteTx(Request {
             responder,
-            arguments: (tx, declared_cycles),
+            arguments: (tx, declared_cycles, peer),
         }) => {
-            let result = service.process_tx(tx, Some(declared_cycles)).await;
+            let result = service.process_tx(tx, Some((declared_cycles, peer))).await;
             if let Err(e) = responder.send(result.map_err(Into::into)) {
                 error!("responder send submit_tx result failed {:?}", e);
             };

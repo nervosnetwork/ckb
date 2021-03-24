@@ -1,14 +1,11 @@
 //! Top-level Pool type, methods, and tests
-use super::component::{DefectEntry, TxEntry};
+use super::component::TxEntry;
 use crate::callback::Callbacks;
-use crate::component::orphan::OrphanPool;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
 use crate::error::Reject;
 use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
-use ckb_dao::DaoCalculator;
-use ckb_error::Error;
 use ckb_logger::{debug, error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -16,17 +13,14 @@ use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
-        error::OutPointError,
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
-        Capacity, Cycle, TransactionView,
+        Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_verification::cache::CacheEntry;
-use ckb_verification::{TimeRelativeTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
 use lru::LruCache;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -42,8 +36,6 @@ pub struct TxPool {
     pub(crate) gap: PendingQueue,
     /// Tx pool that finely for commit
     pub(crate) proposed: ProposedPool,
-    /// Orphans in the pool
-    pub(crate) orphan: OrphanPool,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     /// last txs updated timestamp, used by getblocktemplate
@@ -102,7 +94,6 @@ impl TxPool {
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
-            orphan: OrphanPool::new(),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
             total_tx_size: 0,
@@ -129,7 +120,7 @@ impl TxPool {
             tip_number: tip_header.number(),
             pending_size: self.pending.size() + self.gap.size(),
             proposed_size: self.proposed.size(),
-            orphan_size: self.orphan.len(),
+            orphan_size: 0,
             total_tx_size: self.total_tx_size,
             total_tx_cycles: self.total_tx_cycles,
             last_txs_updated_at: self.get_last_txs_updated_at(),
@@ -208,9 +199,7 @@ impl TxPool {
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id)
-            || self.proposed.contains_key(id)
-            || self.orphan.contains_key(id)
+        self.pending.contains_key(id) || self.proposed.contains_key(id)
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -239,7 +228,6 @@ impl TxPool {
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
     }
 
     /// Returns tx exclude conflict corresponding to the id. RPC
@@ -262,7 +250,6 @@ impl TxPool {
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.pending.get_tx(id))
-            .or_else(|| self.orphan.get_tx(id))
     }
 
     pub(crate) fn remove_committed_txs<'a>(
@@ -313,10 +300,6 @@ impl TxPool {
                 }
             }
         }
-    }
-
-    fn contains_proposed(&self, short_id: &ProposalShortId) -> bool {
-        self.snapshot().proposals().contains_proposed(short_id)
     }
 
     pub(crate) fn resolve_tx_from_pending_and_proposed(

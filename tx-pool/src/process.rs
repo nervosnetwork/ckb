@@ -2,25 +2,27 @@ use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCach
 use crate::callback::Callbacks;
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
+use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
 use crate::util::{
     check_tx_cycle_limit, check_tx_fee, check_tx_size_limit, check_txid_collision,
-    non_contextual_verify, verify_rtx,
+    is_missing_input, non_contextual_verify, verify_rtx,
 };
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{AnyError, Error, InternalErrorKind};
+use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, error, info};
+use ckb_logger::{debug, error, info, warn};
+use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
-            get_related_dep_out_points, resolve_transaction, OverlayCellChecker,
-            OverlayCellProvider, ResolvedTransaction, TransactionsChecker,
+            get_related_dep_out_points, OverlayCellChecker, ResolvedTransaction,
+            TransactionsChecker,
         },
         BlockView, Capacity, Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView,
         Version,
@@ -29,15 +31,13 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{
-    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier,
-};
+use ckb_verification::cache::CacheEntry;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
+use std::time::Duration;
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
@@ -416,60 +416,140 @@ impl TxPoolService {
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
-        max_cycles: Option<Cycle>,
+        remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<CacheEntry, Reject> {
-        let remote = max_cycles.is_some();
+        let ret = self._process_tx(tx.clone(), remote.map(|r| r.0)).await;
 
-        let ret = self._process_tx(tx, max_cycles).await?;
+        self.after_process(tx, remote, &ret).await;
 
-        // if let Some(hash) = self.orphan.find_by_previous(&tx) {
-        //     process_orphan_tx().await
-        // }
-        Ok(ret)
+        ret
     }
 
-    // pub(crate) async fn process_orphan_tx(
-    //     &self,
-    //     tx: &TransactionView,
-    // ) -> Result<CacheEntry, Reject> {
-    //     if let Some(hash) = self.orphan_pool.find_by_previous(&tx) {
-    //         let mut orphan: VecDeque<packed::Byte32> = VecDeque::new();
-    //         orphan.push_back(hash);
+    pub(crate) async fn after_process(
+        &self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+        ret: &Result<CacheEntry, Reject>,
+    ) {
+        let tx_hash = tx.hash();
+        let is_remote = remote.is_some();
 
-    //         while let Some(tx_hash) = orphan.pop_front() {
-    //             if let Some(tx) = self.orphan_pool.get(&tx_hash).await {
-    //                 match self._process_tx(tx.clone()).await {
-    //                     Ok(ret) => match ret {
-    //                         Ok(_) => {
-    //                             orphan_pool.remove_orphan_tx(&tx_hash);
-    //                             broadcast_tx(relayer, tx_hash, peer);
-    //                             if let Some(hash) = self.orphan_pool.find_by_previous(&tx) {
-    //                                 orphan.push_back(hash);
-    //                             }
-    //                         }
-    //                         Err(err) => {
-    //                             if !is_missing_input(&err) {
-    //                                 orphan_pool.remove_orphan_tx(&tx_hash);
-    //                             }
-    //                             if is_malformed(&err) {
-    //                                 ban_malformed(nc, &err, peer);
-    //                                 break;
-    //                             }
-    //                         }
-    //                     },
-    //                     Err(err) => {
-    //                         debug_target!(
-    //                             crate::LOG_TARGET_RELAY,
-    //                             "process_orphan_tx internal error {}",
-    //                             err
-    //                         );
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+        if is_remote {
+            let (declared_cycle, peer) = remote.unwrap();
+            match ret {
+                Ok(verified) => {
+                    if declared_cycle == verified.cycles {
+                        self.broadcast_tx(peer, tx_hash);
+                        self.process_orphan_tx(&tx).await;
+                    } else {
+                        warn!(
+                            "peer {} declared cycles {} mismatch actual {} tx_hash: {}",
+                            peer, declared_cycle, verified.cycles, tx_hash
+                        );
+                        self.ban_malformed(
+                            peer,
+                            format!(
+                                "peer {} declared cycles {} mismatch actual {} tx_hash: {}",
+                                peer, declared_cycle, verified.cycles, tx_hash
+                            ),
+                        );
+                    }
+                }
+                Err(reject) => {
+                    if is_missing_input(&reject) && self.all_inputs_is_unknown(&tx) {
+                        self.add_orphan(tx, peer).await;
+                    } else if reject.is_malformed_tx() {
+                        self.ban_malformed(peer, format!("reject {}", reject));
+                    }
+                }
+            }
+        } else if ret.is_ok() {
+            self.process_orphan_tx(&tx).await;
+        }
+    }
+
+    pub(crate) async fn add_orphan(&self, tx: TransactionView, peer: PeerIndex) {
+        self.orphan.write().await.add_orphan_tx(tx, peer)
+    }
+
+    pub(crate) async fn find_orphan_by_previous(
+        &self,
+        tx: &TransactionView,
+    ) -> Option<OrphanEntry> {
+        let orphan = self.orphan.read().await;
+        if let Some(id) = orphan.find_by_previous(tx) {
+            return orphan.get(&id).cloned();
+        }
+        None
+    }
+
+    pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
+        self.orphan.write().await.remove_orphan_tx(id);
+    }
+
+    pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
+        let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
+        orphan_queue.push_back(tx.clone());
+
+        while let Some(previous) = orphan_queue.pop_front() {
+            if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
+                match self._process_tx(orphan.tx.clone(), None).await {
+                    Ok(_) => {
+                        self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                        self.broadcast_tx(orphan.peer, orphan.tx.hash());
+                        orphan_queue.push_back(orphan.tx);
+                    }
+                    Err(reject) => {
+                        if !is_missing_input(&reject) {
+                            self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                        }
+                        if reject.is_malformed_tx() {
+                            self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn all_inputs_is_unknown(&self, tx: &TransactionView) -> bool {
+        let snapshot = self.snapshot();
+        !tx.input_pts_iter()
+            .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
+    }
+
+    pub(crate) fn broadcast_tx(&self, origin: PeerIndex, tx_hash: Byte32) {
+        if let Err(e) = self.tx_relay_sender.send((origin, tx_hash)) {
+            error!("tx-pool broadcast_tx internal error {}", e);
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn ban_malformed(&self, peer: PeerIndex, reason: String) {
+        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
+
+        #[cfg(feature = "with_sentry")]
+        use sentry::{capture_message, with_scope, Level};
+
+        #[cfg(feature = "with_sentry")]
+        with_scope(
+            |scope| scope.set_fingerprint(Some(&["ckb-tx-pool", "receive-invalid-remote-tx"])),
+            || {
+                capture_message(
+                    &format!(
+                        "Ban peer {} for {} seconds, reason: \
+                        {}",
+                        peer,
+                        DEFAULT_BAN_TIME.as_secs(),
+                        reason
+                    ),
+                    Level::Info,
+                )
+            },
+        );
+        self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
+    }
 
     pub(crate) async fn _process_tx(
         &self,
@@ -524,16 +604,23 @@ impl TxPoolService {
 
         let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
 
-        let mut tx_pool = self.tx_pool.write().await;
-        _update_tx_pool_for_reorg(
-            &mut tx_pool,
-            attached,
-            detached_proposal_id,
-            snapshot,
-            &self.callbacks,
-        );
+        {
+            let mut tx_pool = self.tx_pool.write().await;
+            _update_tx_pool_for_reorg(
+                &mut tx_pool,
+                &attached,
+                detached_proposal_id,
+                snapshot,
+                &self.callbacks,
+            );
 
-        self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache)
+            self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache)
+        }
+
+        {
+            let mut orphan = self.orphan.write().await;
+            orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+        }
     }
 
     fn readd_dettached_tx(
@@ -553,7 +640,9 @@ impl TxPoolService {
                         verify_rtx(tx_pool.snapshot(), &rtx, verify_cache, max_cycles)
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
-                        _submit_entry(tx_pool, status, entry, &self.callbacks);
+                        if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
+                            debug!("readd_dettached_tx submit_entry error {}", e);
+                        }
                     }
                 }
             }
@@ -643,7 +732,7 @@ fn _submit_entry(
 
 fn _update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
-    attached: LinkedHashSet<TransactionView>,
+    attached: &LinkedHashSet<TransactionView>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,

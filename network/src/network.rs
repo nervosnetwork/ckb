@@ -1237,6 +1237,12 @@ impl NetworkController {
         })
     }
 
+    /// Ban an peer through peer index
+    pub fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
+        self.network_state
+            .ban_session(&self.p2p_control, peer_index, duration, reason);
+    }
+
     fn try_broadcast(
         &self,
         quick: bool,

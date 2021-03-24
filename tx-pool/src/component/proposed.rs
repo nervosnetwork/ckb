@@ -4,9 +4,7 @@ use crate::error::Reject;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{
-            CellChecker, CellMeta, CellMetaBuilder, CellProvider, CellStatus, ResolvedTransaction,
-        },
+        cell::{CellChecker, CellMetaBuilder, CellProvider, CellStatus},
         error::OutPointError,
         TransactionView,
     },
@@ -330,8 +328,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::get_related_dep_out_points, Capacity, Cycle, DepType, TransactionBuilder,
-            TransactionView,
+            cell::{get_related_dep_out_points, CellMeta, ResolvedTransaction},
+            Capacity, Cycle, DepType, TransactionBuilder, TransactionView,
         },
         h256,
         packed::{Byte32, CellDep, CellInput, CellOutput},
@@ -403,7 +401,7 @@ mod tests {
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx2.clone(), |_| None),
+            dummy_resolve(tx2, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
@@ -437,7 +435,7 @@ mod tests {
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx2.clone(), |_| None),
+            dummy_resolve(tx2, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
@@ -477,28 +475,28 @@ mod tests {
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx2.clone(), |_| None),
+            dummy_resolve(tx2, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx3.clone(), |_| None),
+            dummy_resolve(tx3, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx4.clone(), |_| None),
+            dummy_resolve(tx4, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
         ))
         .unwrap();
         pool.add_entry(TxEntry::new(
-            dummy_resolve(tx5.clone(), |_| None),
+            dummy_resolve(tx5, |_| None),
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,

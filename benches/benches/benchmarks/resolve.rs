@@ -2,7 +2,6 @@ use crate::benchmarks::util::create_2out_transaction;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
-use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -70,7 +69,8 @@ fn block_assembler_config() -> BlockAssemblerConfig {
 pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let secp_script = script();
 
-    let mut spec = ChainSpec::load_from(&Resource::bundled(format!("specs/mainnet.toml"))).unwrap();
+    let mut spec =
+        ChainSpec::load_from(&Resource::bundled("specs/mainnet.toml".to_string())).unwrap();
     spec.genesis.issued_cells = (0..txs_size)
         .map(|_| IssuedCell {
             capacity: capacity_bytes!(100_000),
@@ -93,7 +93,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let chain_controller = chain_service.start(Some("ChainService"));
 
     // FIXME: global cache !!!
-    setup_system_cell_cache(
+    let _ret = setup_system_cell_cache(
         shared.consensus().genesis_block(),
         &shared.store().cell_provider(),
     );

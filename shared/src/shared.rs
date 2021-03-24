@@ -430,6 +430,7 @@ impl Shared {
         }
     }
 
+    /// Send tx id to relay channel
     pub fn relay_tx(&self, peer: PeerIndex, hash: Byte32) {
         if let Err(e) = self.relay_tx_sender.send((peer, hash)) {
             ckb_logger::error!("relay_tx error {}", e);

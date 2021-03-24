@@ -1,6 +1,10 @@
+//! Shared factory
+//!
+//! which can be used in order to configure the properties of a new shared.
+
 use crate::shared::Shared;
 use crate::PeerIndex;
-use crate::{Snapshot, SnapshotMgr};
+use crate::SnapshotMgr;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
@@ -13,15 +17,14 @@ use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
-use ckb_tx_pool::{
-    error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolController, TxPoolServiceBuilder,
-};
+use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::TxVerifyCache;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+/// Shared builder for construct new shared.
 pub struct SharedBuilder {
     db: RocksDB,
     ancient_path: Option<PathBuf>,
@@ -136,17 +139,20 @@ impl SharedBuilder {
         let snapshot = Arc::new(snapshot);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
-        let (tx_pool_builder, tx_pool_controller) = build_tx_pool(
+        let (sender, receiver) = ckb_channel::unbounded();
+
+        let (mut tx_pool_builder, tx_pool_controller) = TxPoolServiceBuilder::new(
             tx_pool_config,
-            block_assembler_config,
-            notify_controller.clone(),
-            Arc::clone(&txs_verify_cache),
             Arc::clone(&snapshot),
+            block_assembler_config,
+            Arc::clone(&txs_verify_cache),
             Arc::clone(&snapshot_mgr),
             &async_handle,
+            sender.clone(),
         );
 
-        let (sender, receiver) = ckb_channel::unbounded();
+        register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
+
         let shared = Shared {
             store,
             consensus,
@@ -170,6 +176,8 @@ impl SharedBuilder {
     }
 }
 
+/// SharedBuilder build returning the shared/package halves
+/// The package structs used for init other component
 pub struct SharedPackage {
     table: Option<ProposalTable>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
@@ -177,14 +185,17 @@ pub struct SharedPackage {
 }
 
 impl SharedPackage {
+    /// Takes the roposal_table out of the package, leaving a None in its place.
     pub fn take_proposal_table(&mut self) -> ProposalTable {
         self.table.take().expect("take proposal_table")
     }
 
+    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
     pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
         self.tx_pool_builder.take().expect("take tx_pool_builder")
     }
 
+    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
     pub fn take_relay_tx_receiver(&mut self) -> Receiver<(PeerIndex, Byte32)> {
         self.relay_tx_receiver
             .take()
@@ -210,24 +221,7 @@ fn build_store(
     Ok(store)
 }
 
-fn build_tx_pool(
-    tx_pool_config: TxPoolConfig,
-    block_assembler_config: Option<BlockAssemblerConfig>,
-    notify: NotifyController,
-    txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
-    snapshot: Arc<Snapshot>,
-    snapshot_mgr: Arc<SnapshotMgr>,
-    handle: &Handle,
-) -> (TxPoolServiceBuilder, TxPoolController) {
-    let (mut tx_pool_builder, tx_pool_controller) = TxPoolServiceBuilder::new(
-        tx_pool_config,
-        snapshot,
-        block_assembler_config,
-        txs_verify_cache,
-        snapshot_mgr,
-        handle,
-    );
-
+fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
     tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: TxEntry| {
         // update statics
@@ -266,7 +260,7 @@ fn build_tx_pool(
         tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
     }));
 
-    let notify_reject = notify.clone();
+    let notify_reject = notify;
     tx_pool_builder.register_reject(Box::new(
         move |tx_pool: &mut TxPool, entry: TxEntry, reject: Reject| {
             // update statics
@@ -282,5 +276,4 @@ fn build_tx_pool(
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },
     ));
-    (tx_pool_builder, tx_pool_controller)
 }

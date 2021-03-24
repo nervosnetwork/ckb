@@ -29,7 +29,6 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::{Shared, SharedBuilder, SharedPackage};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
-use ckb_tx_pool::TxPoolServiceBuilder;
 use ckb_types::{packed::Byte32, prelude::*};
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;

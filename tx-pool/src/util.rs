@@ -1,9 +1,7 @@
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::TxPoolService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
-use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
@@ -33,7 +31,7 @@ pub(crate) fn check_tx_size_limit(tx_pool: &TxPool, tx_size: usize) -> Result<()
 
 pub(crate) fn check_tx_cycle_limit(tx_pool: &TxPool, cycles: Cycle) -> Result<(), Reject> {
     if tx_pool.reach_cycles_limit(cycles) {
-        return Err(Reject::Full("cycles".to_owned(), tx_pool.config.max_cycles).into());
+        return Err(Reject::Full("cycles".to_owned(), tx_pool.config.max_cycles));
     }
     Ok(())
 }
@@ -50,11 +48,10 @@ pub(crate) fn check_tx_fee(
     let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
-        return Err(Reject::LowFeeRate(
-            tx_pool.config.min_fee_rate,
-            min_fee.as_u64(),
-            fee.as_u64(),
-        ));
+        let reject =
+            Reject::LowFeeRate(tx_pool.config.min_fee_rate, min_fee.as_u64(), fee.as_u64());
+        ckb_logger::debug!("reject tx {}", reject);
+        return Err(reject);
     }
     Ok(fee)
 }
@@ -85,7 +82,6 @@ pub(crate) fn verify_rtx(
     let epoch = tip_header.epoch();
     let consensus = snapshot.consensus();
 
-    let tx_hash = rtx.transaction.hash();
     if let Some(cached) = cache_entry {
         TimeRelativeTransactionVerifier::new(
             &rtx,
@@ -112,4 +108,8 @@ pub(crate) fn verify_rtx(
             .map_err(Reject::Verification)
         })
     }
+}
+
+pub(crate) fn is_missing_input(reject: &Reject) -> bool {
+    matches!(reject, Reject::Resolve(out_point_err) if out_point_err.is_unknown())
 }

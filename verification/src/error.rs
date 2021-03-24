@@ -1,8 +1,5 @@
 use ckb_error::{def_error_base_on_kind, prelude::*, Error};
-use ckb_types::{
-    core::{Capacity, Version},
-    packed::{Byte32, OutPoint},
-};
+use ckb_types::{core::Version, packed::Byte32};
 use derive_more::Display;
 
 pub use ckb_types::core::error::{TransactionError, TransactionErrorSource};

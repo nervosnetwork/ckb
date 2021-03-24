@@ -192,7 +192,7 @@ impl CellStatus {
         self == &CellStatus::Dead
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the status is a Unknown value.
     pub fn is_unknown(&self) -> bool {
         self == &CellStatus::Unknown
     }
@@ -261,6 +261,7 @@ impl ResolvedTransaction {
             .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
     }
 
+    /// Check if all inputs and deps are still valid
     pub fn check<CC: CellChecker, HC: HeaderChecker, S: BuildHasher>(
         &self,
         seen_inputs: &mut HashSet<OutPoint, S>,
@@ -332,10 +333,13 @@ impl ResolvedTransaction {
     }
 }
 
+/// Trait for check cell status
 pub trait CellChecker {
+    /// Returns true if the cell is live corresponding to specified out_point.
     fn is_live(&self, out_point: &OutPoint) -> Option<bool>;
 }
 
+/// Overlay cell checker wrapper
 pub struct OverlayCellChecker<'a, A, B> {
     overlay: &'a A,
     cell_checker: &'a B,
@@ -346,7 +350,7 @@ where
     A: CellChecker,
     B: CellChecker,
 {
-    /// TODO(doc): @quake
+    /// Construct new OverlayCellChecker
     pub fn new(overlay: &'a A, cell_checker: &'a B) -> Self {
         Self {
             overlay,
@@ -483,12 +487,14 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+/// Cell checker for txs chain
 #[derive(Default)]
 pub struct TransactionsChecker {
     inner: HashMap<Byte32, CellOutputVec>,
 }
 
 impl TransactionsChecker {
+    /// Construct new TransactionsChecker
     pub fn new<'a>(txs: impl Iterator<Item = &'a TransactionView>) -> Self {
         let inner = txs.map(|tx| (tx.hash(), tx.outputs())).collect();
         Self { inner }

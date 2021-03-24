@@ -24,10 +24,7 @@ use ckb_types::{
     prelude::*,
     H256, U256,
 };
-use ckb_util::shrink_to_fit;
-use ckb_util::LinkedHashSet;
-use ckb_util::{Mutex, MutexGuard};
-use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
@@ -1223,7 +1220,7 @@ impl SyncShared {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
-            tx_relay_receiver: tx_relay_receiver,
+            tx_relay_receiver,
             assume_valid_target: Mutex::new(sync_config.assume_valid_target),
             min_chain_work: sync_config.min_chain_work,
         };
