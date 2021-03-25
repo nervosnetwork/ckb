@@ -97,12 +97,14 @@ impl Setup {
 
     /// `migrate` subcommand has one `flags` arg, trigger this arg with "--check"
     pub fn migrate<'m>(self, matches: &ArgMatches<'m>) -> Result<MigrateArgs, ExitCode> {
+        let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
         let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
         let force = matches.is_present(cli::ARG_FORCE);
 
         Ok(MigrateArgs {
             config,
+            consensus,
             check,
             force,
         })

@@ -8,12 +8,14 @@ use std::{fmt, result};
 
 pub mod db;
 pub mod iter;
+pub mod read_only_db;
 pub mod snapshot;
 pub mod transaction;
 pub mod write_batch;
 
 pub use crate::db::RocksDB;
 pub use crate::iter::DBIterator;
+pub use crate::read_only_db::ReadOnlyDB;
 pub use crate::snapshot::RocksDBSnapshot;
 pub use crate::transaction::{RocksDBTransaction, RocksDBTransactionSnapshot};
 pub use crate::write_batch::RocksDBWriteBatch;
