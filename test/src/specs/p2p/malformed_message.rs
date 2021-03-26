@@ -1,5 +1,5 @@
 use crate::util::mining::out_ibd_mode;
-use crate::utils::wait_until;
+use crate::utils::{sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_logger::info;
 use ckb_network::{bytes::Bytes, SupportProtocols};
@@ -75,6 +75,9 @@ impl Spec for MalformedMessageWithWhitelist {
             config.network.whitelist_peers = vec![net.p2p_address().parse().unwrap()]
         });
         node0.start();
+        // FIXME
+        // currrently, we have no idea how to fix autobind_reuse
+        sleep(5);
         net.connect(&node0);
 
         let rpc_client = node0.rpc_client();
