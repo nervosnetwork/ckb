@@ -1,5 +1,5 @@
 //! TODO(doc): @quake
-use crate::{migrations, Snapshot, SnapshotMgr};
+use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_global_runtime, Handle};
@@ -7,8 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
-use ckb_db::{Direction, IteratorMode, ReadOnlyDB, RocksDB};
-use ckb_db_migration::{DefaultMigration, Migrations};
+use ckb_db::{Direction, IteratorMode, RocksDB};
 use ckb_db_schema::COLUMN_BLOCK_BODY;
 use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
@@ -503,39 +502,29 @@ impl Shared {
 
 /// TODO(doc): @quake
 pub struct SharedBuilder {
-    db_config: DBConfig,
+    db: RocksDB,
     ancient_path: Option<PathBuf>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
-    migrations: Migrations,
     async_handle: Handle,
     // async stop handle, only test will be assigned
     async_stop: Option<StopHandler<()>>,
 }
 
-const INIT_DB_VERSION: &str = "20191127135521";
-
 impl SharedBuilder {
     /// Generates the base SharedBuilder with ancient path and async_handle
-    pub fn new(db_config: &DBConfig, ancient: Option<PathBuf>, async_handle: Handle) -> Self {
-        let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
-        migrations.add_migration(Box::new(migrations::CellMigration));
-        migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
-
+    pub fn new(db_config: &DBConfig, async_handle: Handle) -> Self {
         SharedBuilder {
-            db_config: db_config.clone(),
-            ancient_path: ancient,
+            db: RocksDB::open(db_config, COLUMNS),
+            ancient_path: None,
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            migrations,
             async_handle,
             async_stop: None,
         }
@@ -544,20 +533,14 @@ impl SharedBuilder {
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
         let (handle, stop) = new_global_runtime();
-        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-        let db_config = DBConfig {
-            path: tmp_dir.path().to_path_buf(),
-            ..Default::default()
-        };
         SharedBuilder {
-            db_config,
+            db: RocksDB::open_tmp(COLUMNS),
             ancient_path: None,
             consensus: None,
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            migrations: Migrations::default(),
             async_handle: handle,
             async_stop: Some(stop),
         }
@@ -565,24 +548,6 @@ impl SharedBuilder {
 }
 
 impl SharedBuilder {
-    /// Check whether database requires migration
-    ///
-    /// Return true if migration is required
-    pub fn migration_check(&self) -> bool {
-        ReadOnlyDB::open(&self.db_config.path)
-            .unwrap_or_else(|err| panic!("{}", err))
-            .map(|db| self.migrations.check(&db))
-            .unwrap_or(false)
-    }
-
-    /// Check whether database requires expensive migrations.
-    pub fn require_expensive_migrations(&self) -> bool {
-        ReadOnlyDB::open(&self.db_config.path)
-            .unwrap_or_else(|err| panic!("{}", err))
-            .map(|db| self.migrations.expensive(&db))
-            .unwrap_or(false)
-    }
-
     /// TODO(doc): @quake
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
@@ -626,18 +591,11 @@ impl SharedBuilder {
         let notify_config = self.notify_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
 
-        if let Some(migration_db) =
-            RocksDB::prepare_for_bulk_load_open(&self.db_config.path, COLUMNS)?
-        {
-            self.migrations.migrate(migration_db)?;
-        }
-
-        let db = RocksDB::open(&self.db_config, COLUMNS);
         let store = if store_config.freezer_enable && self.ancient_path.is_some() {
             let freezer = Freezer::open(self.ancient_path.expect("exist checked"))?;
-            ChainDB::new_with_freezer(db, freezer, store_config)
+            ChainDB::new_with_freezer(self.db, freezer, store_config)
         } else {
-            ChainDB::new(db, store_config)
+            ChainDB::new(self.db, store_config)
         };
 
         Shared::init(

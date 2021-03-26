@@ -470,22 +470,19 @@ dependencies = [
  "ckb-db",
  "ckb-instrument",
  "ckb-jsonrpc-types",
+ "ckb-launcher",
  "ckb-logger",
  "ckb-logger-service",
  "ckb-memory-tracker",
  "ckb-metrics-service",
  "ckb-miner",
  "ckb-network",
- "ckb-network-alert",
  "ckb-resource",
- "ckb-rpc",
  "ckb-sentry",
  "ckb-shared",
  "ckb-store",
- "ckb-sync",
  "ckb-types",
  "ckb-util",
- "ckb-verification",
  "ckb-verification-traits",
  "clap",
  "ctrlc",
@@ -718,6 +715,36 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ckb-launcher"
+version = "0.41.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-build-info",
+ "ckb-chain",
+ "ckb-db",
+ "ckb-db-migration",
+ "ckb-db-schema",
+ "ckb-error",
+ "ckb-freezer",
+ "ckb-jsonrpc-types",
+ "ckb-logger",
+ "ckb-migration-template",
+ "ckb-network",
+ "ckb-network-alert",
+ "ckb-proposal-table",
+ "ckb-resource",
+ "ckb-rpc",
+ "ckb-shared",
+ "ckb-store",
+ "ckb-sync",
+ "ckb-types",
+ "ckb-verification",
+ "ckb-verification-traits",
+ "num_cpus",
 ]
 
 [[package]]
@@ -1205,12 +1232,10 @@ dependencies = [
  "ckb-channel",
  "ckb-constant",
  "ckb-db",
- "ckb-db-migration",
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
  "ckb-logger",
- "ckb-migration-template",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -1220,8 +1245,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "faketime",
- "num_cpus",
- "tempfile",
 ]
 
 [[package]]

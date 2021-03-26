@@ -18,7 +18,7 @@ struct Statics {
 
 impl Statics {
     pub fn build(args: StatsArgs, async_handle: Handle) -> Result<Self, ExitCode> {
-        let (shared, _) = SharedBuilder::new(&args.config.db, None, async_handle)
+        let (shared, _) = SharedBuilder::new(&args.config.db, async_handle)
             .consensus(args.consensus)
             .build()
             .map_err(|err| {

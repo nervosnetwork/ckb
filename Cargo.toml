@@ -76,12 +76,13 @@ members = [
     "verification",
     "verification/contextual",
     "tx-pool",
-    "shared/migration-template",
     "shared",
     "chain",
     "sync",
     "util/instrument",
     "rpc",
+    "util/launcher/migration-template",
+    "util/launcher",
     "ckb-bin"
 ]
 
