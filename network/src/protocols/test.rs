@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ckb_app_config::{NetworkConfig, SyncConfig};
+use ckb_app_config::NetworkConfig;
 use futures::StreamExt;
 use p2p::{
     builder::ServiceBuilder,
@@ -97,12 +97,6 @@ impl Node {
 
 fn net_service_start(name: String) -> Node {
     let config = NetworkConfig {
-        listen_addresses: vec![],
-        public_addresses: vec![],
-        bootnodes: vec![],
-        dns_seeds: vec![],
-        whitelist_peers: vec![],
-        whitelist_only: false,
         max_peers: 19,
         max_outbound_peers: 5,
         path: tempdir()
@@ -113,10 +107,9 @@ fn net_service_start(name: String) -> Node {
         ping_timeout_secs: 20,
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
-        upnp: false,
         bootnode_mode: true,
-        max_send_buffer: None,
-        sync: SyncConfig::default(),
+        reuse: true,
+        ..Default::default()
     };
 
     let network_state =

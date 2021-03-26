@@ -872,66 +872,68 @@ impl<T: ExitHandler> NetworkService<T> {
 
         #[cfg(target_os = "linux")]
         let p2p_service = {
-            let iter = config.listen_addresses.iter();
+            if config.reuse {
+                let iter = config.listen_addresses.iter();
 
-            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-            enum TransportType {
-                Ws,
-                Tcp,
-            }
-
-            fn find_type(addr: &Multiaddr) -> TransportType {
-                let mut iter = addr.iter();
-
-                iter.find_map(|proto| {
-                    if let multiaddr::Protocol::Ws = proto {
-                        Some(TransportType::Ws)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(TransportType::Tcp)
-            }
-
-            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-            enum BindType {
-                None,
-                Ws,
-                Tcp,
-                Both,
-            }
-            impl BindType {
-                fn transform(&mut self, other: TransportType) {
-                    match (&self, other) {
-                        (BindType::None, TransportType::Ws) => *self = BindType::Ws,
-                        (BindType::None, TransportType::Tcp) => *self = BindType::Tcp,
-                        (BindType::Ws, TransportType::Tcp) => *self = BindType::Both,
-                        (BindType::Tcp, TransportType::Ws) => *self = BindType::Both,
-                        _ => (),
-                    }
+                #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+                enum TransportType {
+                    Ws,
+                    Tcp,
                 }
 
-                fn is_ready(&self) -> bool {
-                    // should change to Both if ckb enable ws
-                    matches!(self, BindType::Tcp)
-                }
-            }
+                fn find_type(addr: &Multiaddr) -> TransportType {
+                    let mut iter = addr.iter();
 
-            let mut init = BindType::None;
-            for addr in iter {
-                if init.is_ready() {
-                    break;
-                }
-                match find_type(addr) {
-                    // wait ckb enable ws support
-                    TransportType::Ws => (),
-                    TransportType::Tcp => {
-                        // only bind once
-                        if matches!(init, BindType::Tcp) {
-                            continue;
+                    iter.find_map(|proto| {
+                        if let multiaddr::Protocol::Ws = proto {
+                            Some(TransportType::Ws)
+                        } else {
+                            None
                         }
-                        service_builder = service_builder.tcp_bind(addr.clone());
-                        init.transform(TransportType::Tcp)
+                    })
+                    .unwrap_or(TransportType::Tcp)
+                }
+
+                #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+                enum BindType {
+                    None,
+                    Ws,
+                    Tcp,
+                    Both,
+                }
+                impl BindType {
+                    fn transform(&mut self, other: TransportType) {
+                        match (&self, other) {
+                            (BindType::None, TransportType::Ws) => *self = BindType::Ws,
+                            (BindType::None, TransportType::Tcp) => *self = BindType::Tcp,
+                            (BindType::Ws, TransportType::Tcp) => *self = BindType::Both,
+                            (BindType::Tcp, TransportType::Ws) => *self = BindType::Both,
+                            _ => (),
+                        }
+                    }
+
+                    fn is_ready(&self) -> bool {
+                        // should change to Both if ckb enable ws
+                        matches!(self, BindType::Tcp)
+                    }
+                }
+
+                let mut init = BindType::None;
+                for addr in iter {
+                    if init.is_ready() {
+                        break;
+                    }
+                    match find_type(addr) {
+                        // wait ckb enable ws support
+                        TransportType::Ws => (),
+                        TransportType::Tcp => {
+                            // only bind once
+                            if matches!(init, BindType::Tcp) {
+                                continue;
+                            }
+                            service_builder = service_builder.tcp_bind(addr.clone());
+                            init.transform(TransportType::Tcp)
+                        }
                     }
                 }
             }

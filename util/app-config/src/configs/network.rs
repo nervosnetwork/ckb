@@ -70,6 +70,9 @@ pub struct Config {
     pub bootnode_mode: bool,
     /// Max send buffer size in bytes.
     pub max_send_buffer: Option<usize>,
+    /// Network use reuse port or not
+    #[serde(default = "default_reuse")]
+    pub reuse: bool,
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
@@ -298,4 +301,10 @@ impl Config {
     pub fn dns_seeding_service_enabled(&self) -> bool {
         !self.dns_seeds.is_empty()
     }
+}
+
+/// By default, using reuse port can make any outbound connection of the node become a potential
+/// listen address, which will help the robustness of our network
+const fn default_reuse() -> bool {
+    true
 }
