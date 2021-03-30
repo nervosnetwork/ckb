@@ -298,7 +298,6 @@ jsonrpc!(pub struct Inner {
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
     pub fn get_blockchain_info(&self) -> ChainInfo;
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
-    pub fn get_peers_state(&self) -> Vec<PeerState>;
     pub fn compute_transaction_hash(&self, tx: Transaction) -> H256;
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;

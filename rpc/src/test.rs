@@ -655,12 +655,11 @@ where
 // * Use replace_rpc_response to skip the response matching assertions.
 // * Fix timestamp related fields.
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
-    use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, PeerState, RemoteNode, Uint64};
+    use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, RemoteNode, Uint64};
 
     match example.request.method.as_str() {
         "local_node_info" => replace_rpc_response::<LocalNode>(example, response),
         "get_peers" => replace_rpc_response::<Vec<RemoteNode>>(example, response),
-        "get_peers_state" => replace_rpc_response::<Vec<PeerState>>(example, response),
         "get_banned_addresses" => replace_rpc_response::<Vec<BannedAddr>>(example, response),
         "calculate_dao_maximum_withdraw" => replace_rpc_response::<Capacity>(example, response),
         "subscribe" => replace_rpc_response::<Uint64>(example, response),
