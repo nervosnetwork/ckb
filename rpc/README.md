@@ -78,7 +78,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
-        * [Method `get_peers_state`](#method-get_peers_state)
     * [Module Subscription](#module-subscription)
         * [Method `subscribe`](#method-subscribe)
         * [Method `unsubscribe`](#method-unsubscribe)
@@ -126,7 +125,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
     * [Type `NodeAddress`](#type-nodeaddress)
     * [Type `OutPoint`](#type-outpoint)
     * [Type `OutputsValidator`](#type-outputsvalidator)
-    * [Type `PeerState`](#type-peerstate)
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `PoolTransactionReject`](#type-pooltransactionreject)
@@ -2716,46 +2714,6 @@ Response
 }
 ```
 
-#### Method `get_peers_state`
-* `get_peers_state()`
-* result: `Array<` [`PeerState`](#type-peerstate) `>`
-
-👎 Deprecated since 0.12.0:
-Please use RPC [`get_peers`](#method-get_peers) instead
-
-
-
-Return state info of peers
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_peers_state",
-  "params": []
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": [
-    {
-      "blocks_in_flight": "0x56",
-      "last_updated": "0x16a95af332d",
-      "peer": "0x1"
-    }
-  ]
-}
-```
-
 ### Module Subscription
 
 RPC Module Subscription that CKB node will push new messages to subscribers.
@@ -4063,21 +4021,6 @@ Transaction output validators that prevent common mistakes.
 
 *   "default": The default validator which restricts the lock script and type script usage.
 *   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
-
-
-### Type `PeerState`
-
-Peer (remote node) state.
-
-#### Fields
-
-`PeerState` is a JSON object with the following fields.
-
-*   `peer`: [`Uint32`](#type-uint32) - Peer session id.
-
-*   `last_updated`: [`Timestamp`](#type-timestamp) - last updated timestamp.
-
-*   `blocks_in_flight`: [`Uint32`](#type-uint32) - blocks count has request but not receive response yet.
 
 
 ### Type `PeerSyncState`
