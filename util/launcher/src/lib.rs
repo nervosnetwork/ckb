@@ -329,7 +329,7 @@ impl Launcher {
         let protocols = vec![
             CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Sync,
-                Box::new(synchronizer.clone()),
+                Box::new(synchronizer),
                 Arc::clone(&network_state),
             ),
             CKBProtocol::new_with_support_protocol(
@@ -377,7 +377,7 @@ impl Launcher {
                 miner_enable,
             )
             .enable_net(network_controller.clone(), sync_shared)
-            .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
+            .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
             .enable_experiment(shared.clone())
             .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
             .enable_alert(alert_verifier, alert_notifier, network_controller.clone())

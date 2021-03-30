@@ -13,7 +13,6 @@ use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_sync::Synchronizer;
 use ckb_types::core::FeeRate;
 use ckb_util::Mutex;
 use jsonrpc_core::RemoteProcedure;
@@ -111,12 +110,10 @@ impl<'a> ServiceBuilder<'a> {
     pub fn enable_stats(
         mut self,
         shared: Shared,
-        synchronizer: Synchronizer,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
     ) -> Self {
         let rpc_methods = StatsRpcImpl {
             shared,
-            synchronizer,
             alert_notifier,
         }
         .to_delegate();

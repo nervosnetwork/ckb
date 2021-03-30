@@ -1,7 +1,6 @@
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
-use ckb_sync::Synchronizer;
 use ckb_traits::HeaderProvider;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
@@ -55,13 +54,12 @@ pub trait StatsRpc {
 
 pub(crate) struct StatsRpcImpl {
     pub shared: Shared,
-    pub synchronizer: Synchronizer,
     pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
 impl StatsRpc for StatsRpcImpl {
     fn get_blockchain_info(&self) -> Result<ChainInfo> {
-        let chain = self.synchronizer.shared.consensus().id.clone();
+        let chain = self.shared.consensus().id.clone();
         let (tip_header, median_time) = {
             let snapshot = self.shared.snapshot();
             let tip_header = snapshot.tip_header().clone();
@@ -73,11 +71,7 @@ impl StatsRpc for StatsRpcImpl {
         };
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty();
-        let is_initial_block_download = self
-            .synchronizer
-            .shared
-            .active_chain()
-            .is_initial_block_download();
+        let is_initial_block_download = self.shared.is_initial_block_download();
         let alerts: Vec<AlertMessage> = {
             let now = faketime::unix_time_as_millis();
             let mut notifier = self.alert_notifier.lock();

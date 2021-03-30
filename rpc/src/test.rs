@@ -14,7 +14,7 @@ use ckb_shared::{
     Snapshot,
 };
 use ckb_store::ChainStore;
-use ckb_sync::{SyncShared, Synchronizer};
+use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
@@ -207,7 +207,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .expect("Start network service failed")
     };
     let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
-    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
     let (alert_notifier, alert_verifier) = {
@@ -276,7 +275,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             true,
         )
         .enable_net(network_controller.clone(), sync_shared)
-        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
+        .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(
             shared.clone(),

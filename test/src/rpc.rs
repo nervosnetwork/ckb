@@ -7,8 +7,8 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
     BlockView, Capacity, CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView,
-    EstimateResult, HeaderView, JsonBytes, LocalNode, OutPoint, PeerState, RemoteNode, Script,
-    Timestamp, Transaction, TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
+    EstimateResult, HeaderView, JsonBytes, LocalNode, OutPoint, RemoteNode, Script, Timestamp,
+    Transaction, TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
