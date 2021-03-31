@@ -35,6 +35,7 @@ use p2p::{
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,
     utils::extract_peer_id,
+    utils::{is_reachable, multiaddr_to_socketaddr},
     yamux::config::Config as YamuxConfig,
     SessionId,
 };
@@ -424,19 +425,38 @@ impl NetworkState {
     /// this method is intent to check observed addr by dial to self
     pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        let public_addrs = { self.public_addrs.read().clone() };
-        for addr in pending_observed_addrs
-            .drain()
-            .chain(public_addrs.into_iter())
-        {
+        if pending_observed_addrs.is_empty() {
+            let addrs = self.public_addrs.write();
+            if addrs.is_empty() {
+                return;
+            }
+            // random get addr
+            let index = rand::random::<usize>() % addrs.len();
+            let addr = addrs.iter().nth(index).unwrap();
             trace!("try dial observed addr: {:?}", addr);
             if let Err(err) = self.dial_inner(
                 p2p_control,
-                addr,
+                addr.clone(),
                 TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 true,
             ) {
-                debug!("try_dial_observed_addrs error {}", err);
+                trace!("try_dial_observed_addrs fail {} on public address", err)
+            }
+        } else {
+            let addr = { pending_observed_addrs.iter().next().unwrap().clone() };
+            trace!("try dial observed addr: {:?}", addr);
+            match self.dial_inner(
+                p2p_control,
+                addr.clone(),
+                TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+                true,
+            ) {
+                Err(err) => {
+                    trace!("try_dial_observed_addrs fail {} on pending observed", err);
+                }
+                Ok(()) => {
+                    pending_observed_addrs.remove(&addr);
+                }
             }
         }
     }
@@ -444,10 +464,7 @@ impl NetworkState {
     /// add observed address for identify protocol
     pub(crate) fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        for addr in iter {
-            trace!("pending observed addr: {:?}", addr,);
-            pending_observed_addrs.insert(addr);
-        }
+        pending_observed_addrs.extend(iter)
     }
 
     /// Network message processing controller, default is true, if false, discard any received messages
@@ -543,7 +560,12 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 )) = error
                 {
                     debug!("dial observed address success: {:?}", address);
-                    public_addrs.insert(addr);
+                    if let Some(ip) = multiaddr_to_socketaddr(&addr) {
+                        if is_reachable(ip.ip()) {
+                            public_addrs.insert(addr);
+                        }
+                    }
+                    return;
                 } else {
                     public_addrs.remove(&addr);
                 }
