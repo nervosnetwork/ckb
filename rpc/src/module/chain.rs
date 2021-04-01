@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockNumber, BlockReward, BlockView, CellWithStatus, Consensus,
-    EpochNumber, EpochView, HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
-    Timestamp, TransactionProof, TransactionWithStatus, Uint32,
+    BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
+    HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, Timestamp,
+    TransactionProof, TransactionWithStatus, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -814,63 +814,6 @@ pub trait ChainRpc {
     #[rpc(name = "get_epoch_by_number")]
     fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>>;
 
-    /// Returns each component of the created CKB in the block's cellbase.
-    ///
-    /// This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
-    ///
-    /// CKB delays CKB creation for miners. The output cells in the cellbase of block N are for the
-    /// miner creating block `N - 1 - ProposalWindow.farthest`.
-    ///
-    /// In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for
-    /// miner creating block 89.
-    ///
-    /// ## Params
-    ///
-    /// * `block_hash` - Specifies the block hash which cellbase outputs should be analyzed.
-    ///
-    /// ## Returns
-    ///
-    /// If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
-    /// its block number is N, return the block rewards analysis for block `N - 1 - ProposalWindow.farthest`.
-    ///
-    /// ## Examples
-    ///
-    /// Request
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "method": "get_cellbase_output_capacity_details",
-    ///   "params": [
-    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// Response
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": {
-    ///     "primary": "0x18ce922bca",
-    ///     "proposal_reward": "0x0",
-    ///     "secondary": "0x17b93605",
-    ///     "total": "0x18e64b61cf",
-    ///     "tx_fee": "0x0"
-    ///   }
-    /// }
-    /// ```
-    #[deprecated(
-        since = "0.36.0",
-        note = "Please use the RPC method [`get_block_economic_state`](#tymethod.get_block_economic_state) instead"
-    )]
-    #[rpc(name = "deprecated.get_cellbase_output_capacity_details")]
-    fn get_cellbase_output_capacity_details(&self, block_hash: H256)
-        -> Result<Option<BlockReward>>;
-
     /// Returns increased issuance, miner reward, and the total transaction fee of a block.
     ///
     /// This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
@@ -1456,34 +1399,6 @@ impl ChainRpc for ChainRpcImpl {
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
         Ok(self.shared.snapshot().tip_header().number().into())
-    }
-
-    fn get_cellbase_output_capacity_details(
-        &self,
-        block_hash: H256,
-    ) -> Result<Option<BlockReward>> {
-        let snapshot = self.shared.snapshot();
-
-        if !snapshot.is_main_chain(&block_hash.pack()) {
-            return Ok(None);
-        }
-
-        Ok(snapshot
-            .get_block_header(&block_hash.pack())
-            .and_then(|header| {
-                snapshot
-                    .get_block_header(&header.data().raw().parent_hash())
-                    .and_then(|parent| {
-                        if parent.number() < snapshot.consensus().finalization_delay_length() {
-                            None
-                        } else {
-                            RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
-                                .block_reward_to_finalize(&parent)
-                                .map(|r| r.1.into())
-                                .ok()
-                        }
-                    })
-            }))
     }
 
     fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>> {

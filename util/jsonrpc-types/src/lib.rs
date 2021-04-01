@@ -21,16 +21,16 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockEconomicState, BlockIssuance, BlockReward, BlockView, CellDep, CellInput,
-    CellOutput, Consensus, DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward,
-    OutPoint, ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof,
-    TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
+    Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
+    DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow,
+    Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
+    TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
-pub use self::experiment::{DryRunResult, EstimateResult};
+pub use self::experiment::DryRunResult;
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
 pub use self::net::{
@@ -47,7 +47,7 @@ pub use self::uints::{Uint128, Uint32, Uint64};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
-    FeeRate, Timestamp, Version,
+    Timestamp, Version,
 };
 pub use serde::{Deserialize, Serialize};
 
