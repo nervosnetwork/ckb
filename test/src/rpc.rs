@@ -5,10 +5,10 @@ mod error;
 
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
-    Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockReward, BlockTemplate,
-    BlockView, Capacity, CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView,
-    EstimateResult, HeaderView, JsonBytes, LocalNode, OutPoint, RemoteNode, Script, Timestamp,
-    Transaction, TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
+    Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
+    CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, EstimateResult,
+    HeaderView, JsonBytes, LocalNode, OutPoint, RemoteNode, Script, Timestamp, Transaction,
+    TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -244,12 +244,6 @@ impl RpcClient {
             .into()
     }
 
-    pub fn get_cellbase_output_capacity_details(&self, hash: Byte32) -> Option<BlockReward> {
-        self.inner()
-            .get_cellbase_output_capacity_details(hash.unpack())
-            .expect("rpc call get_cellbase_output_capacity_details")
-    }
-
     pub fn get_block_economic_state(&self, hash: Byte32) -> Option<BlockEconomicState> {
         self.inner()
             .get_block_economic_state(hash.unpack())
@@ -312,7 +306,6 @@ jsonrpc!(pub struct Inner {
     pub fn generate_block(&self, block_assembler_script: Option<Script>, block_assembler_message: Option<JsonBytes>) -> H256;
 
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;
-    pub fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Option<BlockReward>;
     pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
