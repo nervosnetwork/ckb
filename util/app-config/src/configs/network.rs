@@ -71,6 +71,9 @@ pub struct Config {
     /// `bootnodes`.
     #[serde(default)]
     pub bootnode_mode: bool,
+    /// Supported protocols list
+    #[serde(default = "default_support_all_protocols")]
+    pub support_protocols: Vec<SupportProtocol>,
     /// Max send buffer size in bytes.
     pub max_send_buffer: Option<usize>,
     /// Network use reuse port or not
@@ -115,6 +118,34 @@ impl Default for HeaderMapConfig {
             backend_close_threshold: 20_000,
         }
     }
+}
+
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum SupportProtocol {
+    Ping,
+    Discovery,
+    Identify,
+    Feeler,
+    DisconnectMessage,
+    Sync,
+    Relay,
+    Time,
+    Alert,
+}
+
+fn default_support_all_protocols() -> Vec<SupportProtocol> {
+    vec![
+        SupportProtocol::Ping,
+        SupportProtocol::Discovery,
+        SupportProtocol::Identify,
+        SupportProtocol::Feeler,
+        SupportProtocol::DisconnectMessage,
+        SupportProtocol::Sync,
+        SupportProtocol::Relay,
+        SupportProtocol::Time,
+        SupportProtocol::Alert,
+    ]
 }
 
 pub(crate) fn generate_random_key() -> [u8; 32] {
