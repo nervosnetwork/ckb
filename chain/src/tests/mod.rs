@@ -2,6 +2,7 @@ mod basic;
 mod block_assembler;
 mod cell;
 mod delay_verify;
+mod dep_cell;
 mod find_fork;
 mod load_input_cell_data;
 mod load_input_data_hash_cell;
