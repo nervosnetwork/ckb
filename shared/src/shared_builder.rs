@@ -223,13 +223,13 @@ fn build_store(
 
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
-    tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: TxEntry| {
+    tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         // update statics
         tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
 
         // notify
         let notify_tx_entry = PoolTransactionEntry {
-            transaction: entry.rtx.transaction,
+            transaction: entry.rtx.transaction.clone(),
             cycles: entry.cycles,
             size: entry.size,
             fee: entry.fee,
@@ -239,7 +239,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
 
     let notify_proposed = notify.clone();
     tx_pool_builder.register_proposed(Box::new(
-        move |tx_pool: &mut TxPool, entry: TxEntry, new: bool| {
+        move |tx_pool: &mut TxPool, entry: &TxEntry, new: bool| {
             // update statics
             if new {
                 tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
@@ -247,7 +247,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
 
             // notify
             let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.rtx.transaction,
+                transaction: entry.rtx.transaction.clone(),
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
@@ -256,19 +256,19 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         },
     ));
 
-    tx_pool_builder.register_committed(Box::new(move |tx_pool: &mut TxPool, entry: TxEntry| {
+    tx_pool_builder.register_committed(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
     }));
 
     let notify_reject = notify;
     tx_pool_builder.register_reject(Box::new(
-        move |tx_pool: &mut TxPool, entry: TxEntry, reject: Reject| {
+        move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
             // update statics
             tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
 
             // notify
             let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.rtx.transaction,
+                transaction: entry.rtx.transaction.clone(),
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,

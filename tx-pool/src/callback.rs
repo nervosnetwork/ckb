@@ -3,11 +3,11 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 
 /// Callback boxed fn pointer wrapper
-pub type Callback = Box<dyn Fn(&mut TxPool, TxEntry) + Sync + Send>;
+pub type Callback = Box<dyn Fn(&mut TxPool, &TxEntry) + Sync + Send>;
 /// Proposed Callback boxed fn pointer wrapper
-pub type ProposedCallback = Box<dyn Fn(&mut TxPool, TxEntry, bool) + Sync + Send>;
+pub type ProposedCallback = Box<dyn Fn(&mut TxPool, &TxEntry, bool) + Sync + Send>;
 /// Reject Callback boxed fn pointer wrapper
-pub type RejectCallback = Box<dyn Fn(&mut TxPool, TxEntry, Reject) + Sync + Send>;
+pub type RejectCallback = Box<dyn Fn(&mut TxPool, &TxEntry, Reject) + Sync + Send>;
 
 /// Struct hold callbacks
 pub struct Callbacks {
@@ -55,28 +55,28 @@ impl Callbacks {
     }
 
     /// Call on after pending
-    pub fn call_pending(&self, tx_pool: &mut TxPool, entry: TxEntry) {
+    pub fn call_pending(&self, tx_pool: &mut TxPool, entry: &TxEntry) {
         if let Some(call) = &self.pending {
             call(tx_pool, entry)
         }
     }
 
     /// Call on after proposed
-    pub fn call_proposed(&self, tx_pool: &mut TxPool, entry: TxEntry, new: bool) {
+    pub fn call_proposed(&self, tx_pool: &mut TxPool, entry: &TxEntry, new: bool) {
         if let Some(call) = &self.proposed {
             call(tx_pool, entry, new)
         }
     }
 
     /// Call on after proposed
-    pub fn call_committed(&self, tx_pool: &mut TxPool, entry: TxEntry) {
+    pub fn call_committed(&self, tx_pool: &mut TxPool, entry: &TxEntry) {
         if let Some(call) = &self.committed {
             call(tx_pool, entry)
         }
     }
 
     /// Call on after reject
-    pub fn call_reject(&self, tx_pool: &mut TxPool, entry: TxEntry, reject: Reject) {
+    pub fn call_reject(&self, tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject) {
         if let Some(call) = &self.reject {
             call(tx_pool, entry, reject)
         }

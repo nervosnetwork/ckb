@@ -27,8 +27,6 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
-    // /// related out points (cell deps includes cell group itself)
-    // pub related_out_points: Vec<OutPoint>,
 }
 
 impl TxEntry {

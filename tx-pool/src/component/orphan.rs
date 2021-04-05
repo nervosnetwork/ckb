@@ -81,8 +81,7 @@ impl OrphanPool {
         self.shrink_to_fit();
     }
 
-    pub fn limit_size(&mut self) -> u64 {
-        let mut evicted = 0u64;
+    pub fn limit_size(&mut self) -> usize {
         let now = faketime::unix_time().as_secs();
         let expires: Vec<_> = self
             .entries
@@ -96,15 +95,17 @@ impl OrphanPool {
             })
             .cloned()
             .collect();
+
+        let mut evicted = expires.len();
+
         for id in expires {
-            evicted += 1;
             self.remove_orphan_tx(&id);
         }
 
         while self.len() > DEFAULT_MAX_ORPHAN_TRANSACTIONS {
             evicted += 1;
             // Evict a random orphan:
-            let id = self.entries.keys().cloned().next().expect("bound checked");
+            let id = self.entries.keys().next().cloned().expect("bound checked");
             self.remove_orphan_tx(&id);
         }
 

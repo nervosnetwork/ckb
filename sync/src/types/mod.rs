@@ -1533,15 +1533,6 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    // pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
-    //     self.tx_hashes.lock()
-    // }
-
-    // pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
-    //     let mut map = self.tx_hashes.lock();
-    //     mem::take(&mut *map)
-    // }
-
     pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(PeerIndex, Byte32)> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }

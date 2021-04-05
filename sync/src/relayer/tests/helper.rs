@@ -1,5 +1,5 @@
 use crate::{Relayer, SyncShared};
-use ckb_app_config::{NetworkConfig, SyncConfig};
+use ckb_app_config::NetworkConfig;
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
@@ -98,12 +98,6 @@ pub(crate) fn new_transaction(
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     let config = NetworkConfig {
-        listen_addresses: vec![],
-        public_addresses: vec![],
-        bootnodes: vec![],
-        dns_seeds: vec![],
-        whitelist_peers: vec![],
-        whitelist_only: false,
         max_peers: 19,
         max_outbound_peers: 5,
         path: tmp_dir.path().to_path_buf(),
@@ -111,11 +105,9 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
         ping_timeout_secs: 20,
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
-        upnp: false,
         bootnode_mode: true,
-        max_send_buffer: None,
-        sync: SyncConfig::default(),
         reuse: true,
+        ..Default::default()
     };
 
     let network_state =

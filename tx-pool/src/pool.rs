@@ -203,22 +203,19 @@ impl TxPool {
     }
 
     /// Returns tx with cycles corresponding to the id.
-    pub fn get_tx_with_cycles(
-        &self,
-        id: &ProposalShortId,
-    ) -> Option<(&TransactionView, Option<Cycle>)> {
+    pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(TransactionView, Cycle)> {
         self.pending
             .get(id)
-            .map(|entry| (entry.transaction(), Some(entry.cycles)))
+            .map(|entry| (entry.transaction().clone(), entry.cycles))
             .or_else(|| {
                 self.gap
                     .get(id)
-                    .map(|entry| (entry.transaction(), Some(entry.cycles)))
+                    .map(|entry| (entry.transaction().clone(), entry.cycles))
             })
             .or_else(|| {
                 self.proposed
                     .get(id)
-                    .map(|entry| (entry.transaction(), Some(entry.cycles)))
+                    .map(|entry| (entry.transaction().clone(), entry.cycles))
             })
     }
 
@@ -262,17 +259,17 @@ impl TxPool {
             trace!("committed {}", hash);
             // try remove committed tx from proposed
             if let Some(entry) = self.proposed.remove_committed_tx(tx, &related_out_points) {
-                callbacks.call_committed(self, entry)
+                callbacks.call_committed(self, &entry)
             } else {
                 // if committed tx is not in proposed, it may conflict
                 let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
 
                 for (entry, reject) in input_conflict {
-                    callbacks.call_reject(self, entry, reject);
+                    callbacks.call_reject(self, &entry, reject);
                 }
 
                 for (entry, reject) in deps_consumed {
-                    callbacks.call_reject(self, entry, reject);
+                    callbacks.call_reject(self, &entry, reject);
                 }
             }
 
@@ -290,13 +287,13 @@ impl TxPool {
             for entry in self.gap.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired gap to pending error {}", err);
-                    callbacks.call_reject(self, entry, err.clone());
+                    callbacks.call_reject(self, &entry, err.clone());
                 }
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
                 if let Err(err) = self.add_pending(entry.clone()) {
                     debug!("move expired proposed to pending error {}", err);
-                    callbacks.call_reject(self, entry, err.clone());
+                    callbacks.call_reject(self, &entry, err.clone());
                 }
             }
         }

@@ -525,7 +525,6 @@ impl TxPoolService {
         }
     }
 
-    #[allow(unused_variables)]
     fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
@@ -716,15 +715,15 @@ fn _submit_entry(
     match status {
         TxStatus::Fresh => {
             tx_pool.add_pending(entry.clone())?;
-            callbacks.call_pending(tx_pool, entry);
+            callbacks.call_pending(tx_pool, &entry);
         }
         TxStatus::Gap => {
             tx_pool.add_gap(entry.clone())?;
-            callbacks.call_pending(tx_pool, entry);
+            callbacks.call_pending(tx_pool, &entry);
         }
         TxStatus::Proposed => {
             tx_pool.add_proposed(entry.clone())?;
-            callbacks.call_proposed(tx_pool, entry, true);
+            callbacks.call_proposed(tx_pool, &entry, true);
         }
     }
     Ok(())
@@ -803,9 +802,9 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = entry.transaction().hash();
         if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
             debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, entry, e.clone());
+            callbacks.call_reject(tx_pool, &entry, e.clone());
         } else {
-            callbacks.call_proposed(tx_pool, entry, false);
+            callbacks.call_proposed(tx_pool, &entry, false);
         }
     }
 
@@ -814,7 +813,7 @@ fn _update_tx_pool_for_reorg(
         let tx_hash = entry.transaction().hash();
         if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, entry, e.clone());
+            callbacks.call_reject(tx_pool, &entry, e.clone());
         }
     }
 }

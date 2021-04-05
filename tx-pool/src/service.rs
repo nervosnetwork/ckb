@@ -638,9 +638,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 .filter_map(|short_id| {
                     tx_pool
                         .get_tx_with_cycles(&short_id)
-                        .and_then(|(tx, cycles)| {
-                            cycles.map(|cycles| (short_id, (tx.clone(), cycles)))
-                        })
+                        .map(|(tx, cycles)| (short_id, (tx, cycles)))
                 })
                 .collect();
             if let Err(e) = responder.send(txs) {
