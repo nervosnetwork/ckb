@@ -1,7 +1,12 @@
 //! Tx-pool shared type define.
-use crate::core::{error::OutPointError, Capacity, Cycle, FeeRate};
+use crate::core::{
+    error::{OutPointError, TransactionError},
+    Capacity, Cycle, FeeRate,
+};
 use crate::packed::Byte32;
-use ckb_error::{impl_error_conversion_with_kind, prelude::*, Error, ErrorKind};
+use ckb_error::{
+    impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
+};
 use std::collections::HashMap;
 
 /// TX reject message
@@ -34,6 +39,35 @@ pub enum Reject {
     /// Verification failed
     #[error("Verification failed {0}")]
     Verification(Error),
+}
+
+fn is_malformed_from_verification(error: &Error) -> bool {
+    match error.kind() {
+        ErrorKind::Transaction => error
+            .downcast_ref::<TransactionError>()
+            .expect("error kind checked")
+            .is_malformed_tx(),
+        ErrorKind::Script => true,
+        ErrorKind::Internal => {
+            error
+                .downcast_ref::<InternalError>()
+                .expect("error kind checked")
+                .kind()
+                == InternalErrorKind::CapacityOverflow
+        }
+        _ => false,
+    }
+}
+
+impl Reject {
+    /// Returns true if the reject reason is malformed tx.
+    pub fn is_malformed_tx(&self) -> bool {
+        match self {
+            Reject::Malformed(_) => true,
+            Reject::Verification(err) => is_malformed_from_verification(err),
+            _ => false,
+        }
+    }
 }
 
 impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);

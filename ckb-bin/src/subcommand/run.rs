@@ -20,7 +20,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let exit_handler = DefaultExitHandler::default();
 
     launcher.migrate_guard()?;
-    let (shared, table) = launcher.build_shared(block_assembler_config)?;
+    let (shared, mut pack) = launcher.build_shared(block_assembler_config)?;
 
     // spawn freezer background process
     let _freezer = shared.spawn_freeze();
@@ -28,7 +28,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
         &shared.store().cell_provider(),
-    );
+    )
+    .expect("SYSTEM_CELL cache init once");
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("RayonGlobal-{}", i))
@@ -42,10 +43,18 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.check_assume_valid_target(&shared);
 
-    let chain_controller = launcher.start_chain_service(&shared, table);
+    let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
-    let (network_controller, rpc_server) =
-        launcher.start_network_and_rpc(&shared, chain_controller, &exit_handler, miner_enable);
+    let (network_controller, rpc_server) = launcher.start_network_and_rpc(
+        &shared,
+        chain_controller,
+        &exit_handler,
+        miner_enable,
+        pack.take_relay_tx_receiver(),
+    );
+
+    let tx_pool_builder = pack.take_tx_pool_builder();
+    tx_pool_builder.start(network_controller);
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -56,7 +65,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     info!("Finishing work, please wait...");
     drop(rpc_server);
-    drop(network_controller);
 
     Ok(())
 }

@@ -4,6 +4,7 @@ use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -23,23 +24,18 @@ use ckb_types::{
     prelude::*,
     H256, U256,
 };
-use ckb_util::shrink_to_fit;
-use ckb_util::LinkedHashSet;
-use ckb_util::{Mutex, MutexGuard};
-use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
-use std::cmp;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
-use std::fmt;
 use std::hash::Hash;
-use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, fmt, iter, mem};
 
 mod header_map;
 
@@ -1176,12 +1172,21 @@ pub struct SyncShared {
 
 impl SyncShared {
     /// only use on test
-    pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
+    pub fn new(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
 
     /// Generate a global sync state through configuration
-    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
+    pub fn with_tmpdir<P>(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tmpdir: Option<P>,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1215,7 +1220,7 @@ impl SyncShared {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
-            tx_hashes: Mutex::new(HashMap::default()),
+            tx_relay_receiver,
             assume_valid_target: Mutex::new(sync_config.assume_valid_target),
             min_chain_work: sync_config.min_chain_work,
         };
@@ -1472,7 +1477,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
+    tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1528,13 +1533,8 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
-        self.tx_hashes.lock()
-    }
-
-    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
-        let mut map = self.tx_hashes.lock();
-        mem::take(&mut *map)
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(PeerIndex, Byte32)> {
+        self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
@@ -1576,14 +1576,17 @@ impl SyncState {
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
-        self.mark_as_known_txs(vec![hash]);
+        self.mark_as_known_txs(iter::once(hash));
     }
 
-    pub fn mark_as_known_txs(&self, hashes: Vec<Byte32>) {
+    // maybe someday we can use
+    // where T: Iterator<Item=Byte32>,
+    // for<'a> &'a T: Iterator<Item=&'a Byte32>,
+    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.iter() {
-                inflight_transactions.pop(hash);
+            for hash in hashes.clone() {
+                inflight_transactions.pop(&hash);
             }
         }
 

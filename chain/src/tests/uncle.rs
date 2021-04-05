@@ -1,7 +1,7 @@
 use crate::chain::ChainService;
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_shared::shared::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -9,8 +9,8 @@ use std::sync::Arc;
 #[test]
 fn test_get_block_body_after_inserting() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())

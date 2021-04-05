@@ -7,4 +7,5 @@ criterion_main! {
     benchmarks::always_success::process_block,
     benchmarks::secp_2in2out::process_block,
     benchmarks::overall::overall,
+    benchmarks::resolve::resolve,
 }

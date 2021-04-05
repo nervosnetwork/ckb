@@ -442,6 +442,8 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-hash",
  "ckb-jsonrpc-types",
+ "ckb-network",
+ "ckb-resource",
  "ckb-shared",
  "ckb-store",
  "ckb-system-scripts",
@@ -452,6 +454,7 @@ dependencies = [
  "criterion",
  "lazy_static",
  "rand 0.7.3",
+ "tempfile",
 ]
 
 [[package]]
@@ -510,6 +513,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-metrics",
+ "ckb-network",
  "ckb-proposal-table",
  "ckb-rust-unstable-port",
  "ckb-shared",
@@ -523,6 +527,7 @@ dependencies = [
  "ckb-verification-traits",
  "faketime",
  "lazy_static",
+ "tempfile",
 ]
 
 [[package]]
@@ -725,11 +730,11 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-build-info",
  "ckb-chain",
+ "ckb-channel",
  "ckb-db",
  "ckb-db-migration",
  "ckb-db-schema",
  "ckb-error",
- "ckb-freezer",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-migration-template",
@@ -1245,6 +1250,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "faketime",
+ "tentacle",
 ]
 
 [[package]]
@@ -1373,11 +1379,14 @@ dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-dao",
  "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-network",
  "ckb-reward-calculator",
+ "ckb-sentry",
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
@@ -1401,6 +1410,7 @@ dependencies = [
  "ckb-hash",
  "ckb-occupied-capacity",
  "ckb-rational",
+ "derive_more",
  "merkle-cbt",
  "molecule",
  "numext-fixed-uint",

@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
 use ckb_chain::chain::ChainService;
-use ckb_shared::shared::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity};
@@ -56,16 +56,16 @@ fn test_insert_invalid_block() {
 fn test_insert_parent_unknown_block() {
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let (shared, table) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
         let chain_controller = {
-            let chain_service = ChainService::new(shared.clone(), table);
+            let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
             chain_service.start::<&str>(None)
         };
         (
-            SyncShared::new(shared, Default::default()),
+            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
             chain_controller,
         )
     };

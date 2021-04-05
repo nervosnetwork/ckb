@@ -23,6 +23,7 @@ use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Mutex;
+use tokio::task::block_in_place;
 
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
@@ -112,16 +113,16 @@ impl BlockAssembler {
     }
 
     pub(crate) fn transform_tx(
-        tx: &TxEntry,
+        entry: &TxEntry,
         required: bool,
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash().unpack(),
+            hash: entry.transaction().hash().unpack(),
             required,
-            cycles: Some(tx.cycles.into()),
+            cycles: Some(entry.cycles.into()),
             depends: depends.map(|deps| deps.into_iter().map(|x| u64::from(x).into()).collect()),
-            data: tx.transaction.data().into(),
+            data: entry.transaction().data().into(),
         }
     }
 
@@ -165,8 +166,9 @@ impl BlockAssembler {
         let candidate_number = tip.number() + 1;
 
         let tx = {
-            let (target_lock, block_reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
-                .block_reward_to_finalize(tip)?;
+            let (target_lock, block_reward) = block_in_place(|| {
+                RewardCalculator::new(snapshot.consensus(), snapshot).block_reward_to_finalize(tip)
+            })?;
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
                 .capacity(block_reward.total.pack())

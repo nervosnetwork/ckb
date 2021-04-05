@@ -1,22 +1,21 @@
 //! TODO(doc): @quake
+use crate::PeerIndex;
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
-use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
-use ckb_async_runtime::{new_global_runtime, Handle};
+use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
+use ckb_channel::Sender;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
-use ckb_db::{Direction, IteratorMode, RocksDB};
-use ckb_db_schema::COLUMN_BLOCK_BODY;
-use ckb_db_schema::{COLUMNS, COLUMN_NUMBER_HASH};
+use ckb_db::{Direction, IteratorMode};
+use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_freezer::Freezer;
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
+use ckb_notify::NotifyController;
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPoolController, TxPoolServiceBuilder};
+use ckb_tx_pool::{TokioRwLock, TxPoolController};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
     packed::{self, Byte32},
@@ -28,7 +27,6 @@ use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -72,19 +70,14 @@ pub struct Shared {
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
+    pub(crate) relay_tx_sender: Sender<(PeerIndex, Byte32)>,
 }
 
 impl Shared {
-    /// TODO(doc): @quake
-    pub fn init(
-        store: ChainDB,
-        consensus: Consensus,
-        tx_pool_config: TxPoolConfig,
-        notify_config: NotifyConfig,
-        block_assembler_config: Option<BlockAssemblerConfig>,
-        async_handle: Handle,
-        async_stop: Option<StopHandler<()>>,
-    ) -> Result<(Self, ProposalTable), Error> {
+    pub(crate) fn init_snapshot(
+        store: &ChainDB,
+        consensus: Arc<Consensus>,
+    ) -> Result<(Snapshot, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
@@ -92,78 +85,16 @@ impl Shared {
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
 
-        let consensus = Arc::new(consensus);
-
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
-        let snapshot = Arc::new(Snapshot::new(
+        let snapshot = Snapshot::new(
             tip_header,
             total_difficulty,
             epoch,
             store.get_snapshot(),
             proposal_view,
-            Arc::clone(&consensus),
-        ));
-        let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
-        let notify_controller = NotifyService::new(notify_config).start(Some("NotifyService"));
-
-        let mut tx_pool_builder = TxPoolServiceBuilder::new(
-            tx_pool_config,
-            Arc::clone(&snapshot),
-            block_assembler_config,
-            Arc::clone(&txs_verify_cache),
-            Arc::clone(&snapshot_mgr),
+            consensus,
         );
 
-        let notify_pending = notify_controller.clone();
-        tx_pool_builder.register_pending(Box::new(move |entry: TxEntry| {
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-            };
-            notify_pending.notify_new_transaction(notify_tx_entry);
-        }));
-
-        let notify_proposed = notify_controller.clone();
-        tx_pool_builder.register_proposed(Box::new(move |entry: TxEntry| {
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-            };
-            notify_proposed.notify_proposed_transaction(notify_tx_entry);
-        }));
-
-        let notify_reject = notify_controller.clone();
-        tx_pool_builder.register_reject(Box::new(move |entry: TxEntry, reject: Reject| {
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.transaction,
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-            };
-            notify_reject.notify_reject_transaction(notify_tx_entry, reject);
-        }));
-
-        let tx_pool_controller = tx_pool_builder.start(&async_handle);
-
-        let shared = Shared {
-            store,
-            consensus,
-            txs_verify_cache,
-            snapshot_mgr,
-            tx_pool_controller,
-            notify_controller,
-            async_handle,
-            async_stop,
-            ibd_finished: Arc::new(AtomicBool::new(false)),
-        };
-
-        Ok((shared, proposal_table))
+        Ok((snapshot, proposal_table))
     }
 
     pub(crate) fn init_proposal_table(
@@ -498,114 +429,11 @@ impl Shared {
             false
         }
     }
-}
 
-/// TODO(doc): @quake
-pub struct SharedBuilder {
-    db: RocksDB,
-    ancient_path: Option<PathBuf>,
-    consensus: Option<Consensus>,
-    tx_pool_config: Option<TxPoolConfig>,
-    store_config: Option<StoreConfig>,
-    block_assembler_config: Option<BlockAssemblerConfig>,
-    notify_config: Option<NotifyConfig>,
-    async_handle: Handle,
-    // async stop handle, only test will be assigned
-    async_stop: Option<StopHandler<()>>,
-}
-
-impl SharedBuilder {
-    /// Generates the base SharedBuilder with ancient path and async_handle
-    pub fn new(db_config: &DBConfig, async_handle: Handle) -> Self {
-        SharedBuilder {
-            db: RocksDB::open(db_config, COLUMNS),
-            ancient_path: None,
-            consensus: None,
-            tx_pool_config: None,
-            notify_config: None,
-            store_config: None,
-            block_assembler_config: None,
-            async_handle,
-            async_stop: None,
+    /// Send tx id to relay channel
+    pub fn relay_tx(&self, peer: PeerIndex, hash: Byte32) {
+        if let Err(e) = self.relay_tx_sender.send((peer, hash)) {
+            ckb_logger::error!("relay_tx error {}", e);
         }
-    }
-
-    /// Generates the SharedBuilder with temp db
-    pub fn with_temp_db() -> Self {
-        let (handle, stop) = new_global_runtime();
-        SharedBuilder {
-            db: RocksDB::open_tmp(COLUMNS),
-            ancient_path: None,
-            consensus: None,
-            tx_pool_config: None,
-            notify_config: None,
-            store_config: None,
-            block_assembler_config: None,
-            async_handle: handle,
-            async_stop: Some(stop),
-        }
-    }
-}
-
-impl SharedBuilder {
-    /// TODO(doc): @quake
-    pub fn consensus(mut self, value: Consensus) -> Self {
-        self.consensus = Some(value);
-        self
-    }
-
-    /// TODO(doc): @quake
-    pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
-        self.tx_pool_config = Some(config);
-        self
-    }
-
-    /// TODO(doc): @quake
-    pub fn notify_config(mut self, config: NotifyConfig) -> Self {
-        self.notify_config = Some(config);
-        self
-    }
-
-    /// TODO(doc): @quake
-    pub fn store_config(mut self, config: StoreConfig) -> Self {
-        self.store_config = Some(config);
-        self
-    }
-
-    /// TODO(doc): @quake
-    pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
-        self.block_assembler_config = config;
-        self
-    }
-
-    /// specifies the async_handle for the shared
-    pub fn async_handle(mut self, async_handle: Handle) -> Self {
-        self.async_handle = async_handle;
-        self
-    }
-
-    /// TODO(doc): @quake
-    pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
-        let consensus = self.consensus.unwrap_or_else(Consensus::default);
-        let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        let notify_config = self.notify_config.unwrap_or_else(Default::default);
-        let store_config = self.store_config.unwrap_or_else(Default::default);
-
-        let store = if store_config.freezer_enable && self.ancient_path.is_some() {
-            let freezer = Freezer::open(self.ancient_path.expect("exist checked"))?;
-            ChainDB::new_with_freezer(self.db, freezer, store_config)
-        } else {
-            ChainDB::new(self.db, store_config)
-        };
-
-        Shared::init(
-            store,
-            consensus,
-            tx_pool_config,
-            notify_config,
-            self.block_assembler_config,
-            self.async_handle,
-            self.async_stop,
-        )
     }
 }

@@ -86,16 +86,16 @@ fn test_load_input_data_hash_cell() {
     let tx1 = create_load_input_data_hash_transaction(&tx0, 0);
 
     let tx_pool = shared.tx_pool_controller();
-    let ret = tx_pool.submit_txs(vec![tx0.clone()]).unwrap();
+    let ret = tx_pool.submit_local_tx(tx0.clone()).unwrap();
     assert!(ret.is_err());
     //ValidationFailure(2) missing item
     assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
 
-    let entry0 = vec![TxEntry::new(tx0, 0, Capacity::shannons(0), 100, vec![])];
+    let entry0 = vec![TxEntry::dummy_resolve(tx0, 0, Capacity::shannons(0), 100)];
     tx_pool.plug_entry(entry0, PlugTarget::Proposed).unwrap();
 
     // Ensure tx which calls syscall load_cell_data_hash will got reject even previous tx is already in tx-pool
-    let ret = tx_pool.submit_txs(vec![tx1]).unwrap();
+    let ret = tx_pool.submit_local_tx(tx1).unwrap();
     assert!(ret.is_err());
     assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
 }
