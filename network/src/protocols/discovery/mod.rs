@@ -4,14 +4,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ckb_logger::{debug, error, trace, warn};
+use ckb_logger::{debug, trace, warn};
 use ckb_types::bytes::BytesMut;
 use p2p::{
     bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{is_reachable, multiaddr_to_socketaddr},
     SessionId,
 };
 use rand::seq::SliceRandom;
@@ -336,16 +336,14 @@ impl AddressManager for DiscoveryAddressManager {
 
         for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
             trace!("Add discovered address:{:?}", addr);
-            if let Some(peer_id) = extract_peer_id(&addr) {
-                self.network_state.with_peer_store_mut(|peer_store| {
-                    if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
-                        debug!(
-                            "Failed to add discoved address to peer_store {:?} {:?}",
-                            err, peer_id
-                        );
-                    }
-                });
-            }
+            self.network_state.with_peer_store_mut(|peer_store| {
+                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                    debug!(
+                        "Failed to add discoved address to peer_store {:?} {:?}",
+                        err, addr
+                    );
+                }
+            });
         }
     }
 
@@ -364,13 +362,7 @@ impl AddressManager for DiscoveryAddressManager {
                 if !self.is_valid_addr(&paddr.addr) {
                     return None;
                 }
-                match paddr.multiaddr() {
-                    Ok(addr) => Some(addr),
-                    Err(err) => {
-                        error!("return discovery addresses error: {:?}", err);
-                        None
-                    }
-                }
+                Some(paddr.addr)
             })
             .collect();
         trace!("discovery send random addrs: {:?}", addrs);

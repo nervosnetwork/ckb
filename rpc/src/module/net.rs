@@ -3,12 +3,12 @@ use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
 };
-use ckb_network::{MultiaddrExt, NetworkController};
+use ckb_network::{extract_peer_id, NetworkController};
 use ckb_sync::SyncShared;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
@@ -571,29 +571,24 @@ impl NetRpc for NetRpcImpl {
             .connected_peers()
             .iter()
             .map(|(peer_index, peer)| {
-                let peer_id = peer.peer_id.clone();
                 let mut addresses = vec![&peer.connected_addr];
                 addresses.extend(peer.listened_addrs.iter());
 
-                let mut node_addresses = HashMap::with_capacity(addresses.len());
-                for address in addresses {
-                    if let Ok(ip_port) = address.extract_ip_addr() {
-                        let p2p_address = address.attach_p2p(&peer_id).expect("always ok");
+                let node_addresses = addresses
+                    .iter()
+                    .map(|addr| {
                         let score = self
                             .network_controller
-                            .addr_info(&ip_port)
+                            .addr_info(addr)
                             .map(|addr_info| addr_info.score)
                             .unwrap_or(1);
                         let non_negative_score = if score > 0 { score as u64 } else { 0 };
-                        node_addresses.insert(
-                            ip_port,
-                            NodeAddress {
-                                address: p2p_address.to_string(),
-                                score: non_negative_score.into(),
-                            },
-                        );
-                    }
-                }
+                        NodeAddress {
+                            address: addr.to_string(),
+                            score: non_negative_score.into(),
+                        }
+                    })
+                    .collect();
 
                 let inflight_blocks = self.sync_shared.state().read_inflight_blocks();
                 RemoteNode {
@@ -603,8 +598,10 @@ impl NetRpc for NetRpcImpl {
                         .as_ref()
                         .map(|info| info.client_version.clone())
                         .unwrap_or_else(|| "unknown".to_string()),
-                    node_id: peer_id.to_base58(),
-                    addresses: node_addresses.values().cloned().collect(),
+                    node_id: extract_peer_id(&peer.connected_addr)
+                        .map(|peer_id| peer_id.to_base58())
+                        .unwrap_or_default(),
+                    addresses: node_addresses,
                     connected_duration: peer.connected_time.elapsed().as_secs().into(),
                     last_ping_duration: peer
                         .ping_rtt
@@ -743,8 +740,9 @@ impl NetRpc for NetRpcImpl {
 
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
         self.network_controller.add_node(
-            &peer_id.parse().expect("invalid peer_id"),
-            address.parse().expect("invalid address"),
+            format!("{}/p2p/{}", address, peer_id)
+                .parse()
+                .expect("invalid address"),
         );
         Ok(())
     }

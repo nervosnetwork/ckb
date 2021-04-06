@@ -6,8 +6,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
 use ckb_logger::info;
 use ckb_network::{
-    bytes::Bytes, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, DefaultExitHandler,
-    NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId, SupportProtocols,
+    bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext, CKBProtocolHandler,
+    DefaultExitHandler, NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
+    SupportProtocols,
 };
 use ckb_stop_handler::StopHandler;
 use ckb_util::Mutex;
@@ -110,10 +111,8 @@ impl Net {
     }
 
     pub fn connect(&mut self, node: &Node) {
-        self.controller().add_node(
-            &node.node_id().parse().unwrap(),
-            node.p2p_address().parse().unwrap(),
-        );
+        self.controller()
+            .add_node(node.p2p_address().parse().unwrap());
 
         let mut n_protocols_connected = 0;
         while let Ok(connected) = self.register_rx.recv_timeout(Duration::from_secs(60)) {
@@ -131,10 +130,8 @@ impl Net {
     }
 
     pub fn connect_uncheck(&self, node: &Node) {
-        self.controller().add_node(
-            &node.node_id().parse().unwrap(),
-            node.p2p_address().parse().unwrap(),
-        );
+        self.controller()
+            .add_node(node.p2p_address().parse().unwrap());
     }
 
     pub fn send(&self, node: &Node, protocol: SupportProtocols, data: Bytes) {
@@ -219,7 +216,9 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         _version: &str,
     ) {
         let peer = nc.get_peer(peer_index).unwrap();
-        let node_id = peer.peer_id.to_base58();
+        let node_id = extract_peer_id(&peer.connected_addr)
+            .map(|peer_id| peer_id.to_base58())
+            .unwrap_or_default();
         let (sender, receiver) = unbounded();
         let mut senders = self.senders.lock();
         if !senders.contains_key(&peer_index) {

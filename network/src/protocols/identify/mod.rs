@@ -7,7 +7,7 @@ use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
-    secio::{PeerId, PublicKey},
+    secio::PeerId,
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
     utils::{is_reachable, multiaddr_to_socketaddr},
@@ -75,7 +75,7 @@ pub trait Callback: Clone + Send {
     /// Get local listen addresses
     fn local_listen_addrs(&mut self) -> Vec<Multiaddr>;
     /// Add remote peer's listen addresses
-    fn add_remote_listen_addrs(&mut self, peer: &PeerId, addrs: Vec<Multiaddr>);
+    fn add_remote_listen_addrs(&mut self, id: SessionId, addrs: Vec<Multiaddr>);
     /// Add our address observed by remote peer
     fn add_observed_addr(
         &mut self,
@@ -148,7 +148,7 @@ impl<T: Callback> IdentifyProtocol<T> {
                 })
                 .collect::<Vec<_>>();
             self.callback
-                .add_remote_listen_addrs(&info.peer_id, reachable_addrs);
+                .add_remote_listen_addrs(session.id, reachable_addrs);
             MisbehaveResult::Continue
         }
     }
@@ -419,15 +419,9 @@ impl Callback for IdentifyCallback {
                 };
 
                 if context.session.ty.is_outbound() {
-                    let peer_id = context
-                        .session
-                        .remote_pubkey
-                        .as_ref()
-                        .map(PublicKey::peer_id)
-                        .expect("Secio must enabled");
                     if self
                         .network_state
-                        .with_peer_registry(|reg| reg.is_feeler(&peer_id))
+                        .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
                     {
                         let _ = context.open_protocols(
                             context.session.id,
@@ -460,24 +454,21 @@ impl Callback for IdentifyCallback {
         self.listen_addrs()
     }
 
-    fn add_remote_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
+    fn add_remote_listen_addrs(&mut self, id: SessionId, addrs: Vec<Multiaddr>) {
         trace!(
-            "got remote listen addrs from peer_id={:?}, addrs={:?}",
-            peer_id,
+            "got remote listen addrs from session={:?}, addrs={:?}",
+            id,
             addrs,
         );
         self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(peer) = reg
-                .get_key_by_peer_id(peer_id)
-                .and_then(|session_id| reg.get_peer_mut(session_id))
-            {
+            if let Some(peer) = reg.get_peer_mut(id) {
                 peer.listened_addrs = addrs.clone();
             }
         });
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
-                    debug!("Failed to add addrs to peer_store {:?} {:?}", err, peer_id);
+                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                    debug!("Failed to add addrs to peer_store {:?} {:?}", err, addr);
                 }
             }
         })
