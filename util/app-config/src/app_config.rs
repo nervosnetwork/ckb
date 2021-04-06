@@ -238,6 +238,7 @@ impl CKBAppConfig {
             self.data_dir.join("ancient")
         }))?;
 
+        self.tx_pool.path = self.data_dir.join("tx_pool");
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
@@ -255,6 +256,8 @@ impl CKBAppConfig {
         self.data_dir = mkdir(self.data_dir)?;
         self.db.path = mkdir(self.db.path)?;
         self.network.path = mkdir(self.network.path)?;
+        self.tx_pool.path = mkdir(self.tx_pool.path)?;
+        mkdir(self.tx_pool.path.join("reject"))?;
         if let Some(tmp_dir) = self.tmp_dir {
             self.tmp_dir = Some(mkdir(tmp_dir)?);
         }

@@ -1395,6 +1395,8 @@ dependencies = [
  "ckb-verification",
  "faketime",
  "lru",
+ "serde",
+ "serde_json",
  "tokio 0.2.25",
 ]
 

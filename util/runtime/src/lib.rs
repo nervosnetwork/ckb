@@ -43,6 +43,17 @@ impl Handle {
         self.inner.spawn(future)
     }
 
+    /// Spawns a future onto the runtime blocking pool.
+    ///
+    /// This spawns the given future onto the runtime's executor
+    pub fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.inner.spawn_blocking(f)
+    }
+
     /// Run a future to completion on the Tokio runtime from a synchronous context.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.inner.block_on(future)

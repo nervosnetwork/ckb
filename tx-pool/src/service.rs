@@ -431,12 +431,12 @@ impl TxPoolServiceBuilder {
         let (signal_sender, signal_receiver) = oneshot::channel();
 
         let builder = TxPoolServiceBuilder {
+            callbacks: Callbacks::new(handle.clone(), tx_pool_config.path.clone()),
             tx_pool_config,
             snapshot,
             block_assembler: block_assembler_config.map(BlockAssembler::new),
             txs_verify_cache,
             snapshot_mgr,
-            callbacks: Callbacks::new(),
             receiver,
             signal_receiver,
             handle: handle.clone(),
@@ -483,7 +483,7 @@ impl TxPoolServiceBuilder {
         );
 
         let service = TxPoolService {
-            tx_pool_config: Arc::new(tx_pool.config),
+            tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
