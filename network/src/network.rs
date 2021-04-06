@@ -813,7 +813,12 @@ impl<T: ExitHandler> NetworkService<T> {
             discovery_local_address: config.discovery_local_address,
         };
         let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr)))
+            ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
+                addr_mgr,
+                config
+                    .discovery_announce_check_interval_secs
+                    .map(Duration::from_secs),
+            )))
         });
 
         // Identify protocol

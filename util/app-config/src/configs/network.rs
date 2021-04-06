@@ -33,6 +33,9 @@ pub struct Config {
     /// Whether to probe and store local addresses.
     #[serde(default)]
     pub discovery_local_address: bool,
+    /// The interval between discovery announce message checking.
+    #[serde(default)]
+    pub discovery_announce_check_interval_secs: Option<u64>,
     /// Interval between pings in seconds.
     ///
     /// A node pings peer regularly to see whether the connection is alive.

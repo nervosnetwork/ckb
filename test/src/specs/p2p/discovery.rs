@@ -26,5 +26,6 @@ impl Spec for Discovery {
         // enable outbound peer service to connect discovered peers
         config.network.connect_outbound_interval_secs = 1;
         config.network.discovery_local_address = true;
+        config.network.discovery_announce_check_interval_secs = Some(1);
     }
 }
