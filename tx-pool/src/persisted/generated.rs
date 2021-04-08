@@ -6,4 +6,4 @@
 
 extern crate molecule;
 
-include!(concat!(env!("OUT_DIR"), "/", "cache", ".rs"));
+include!(concat!(env!("OUT_DIR"), "/", "persisted", ".rs"));

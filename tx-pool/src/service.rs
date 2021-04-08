@@ -1,17 +1,17 @@
 //! Tx-pool background service
 
 use crate::block_assembler::BlockAssembler;
-use crate::cache::{TxPoolCacheMetaReader, TxPoolCacheReader};
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::component::entry::TxEntry;
 use crate::component::orphan::OrphanPool;
 use crate::error::{handle_recv_error, handle_try_send_error};
+use crate::persisted;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_error::{AnyError, Error, InternalErrorKind, OtherError};
+use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_network::{NetworkController, PeerIndex};
@@ -23,14 +23,12 @@ use ckb_types::{
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
-    prelude::*,
 };
 use ckb_verification::cache::{CacheEntry, TxVerifyCache};
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
-use std::{fs::OpenOptions, io::Read as _};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
@@ -98,7 +96,7 @@ pub(crate) enum Message {
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     /// TODO(doc): @zhangsoledad
     GetAllIds(Request<(), TxPoolIds>),
-    CachePool(Request<(), Result<(), AnyError>>),
+    SavePool(Request<(), Result<(), AnyError>>),
 }
 
 /// Controller to the tx-pool service.
@@ -405,17 +403,40 @@ impl TxPoolController {
             .map_err(Into::into)
     }
 
-    /// Caches tx pool into disk.
-    pub fn cache_pool(&self) -> Result<(), AnyError> {
-        ckb_logger::info!("Please be patient, TxPool are caching data into disk ...");
+    /// Saves tx pool into disk.
+    pub fn save_pool(&self) -> Result<(), AnyError> {
+        ckb_logger::info!("Please be patient, TxPool are saving data into disk ...");
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
-        sender.try_send(Message::CachePool(request)).map_err(|e| {
+        sender.try_send(Message::SavePool(request)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
             e
         })?;
         self.handle.block_on(response).map_err(handle_recv_error)?
+    }
+
+    fn load_persisted_data(&self, data: persisted::TxPool) -> Result<(), AnyError> {
+        // a trick to commit transactions with the correct order
+        let mut remain_size = data.transactions().len();
+        let mut txs_next_turn = Vec::new();
+        for tx in data.transactions() {
+            let tx_view = tx.into_view();
+            if self.submit_local_tx(tx_view.clone())?.is_err() {
+                txs_next_turn.push(tx_view);
+            }
+        }
+        while !txs_next_turn.is_empty() && remain_size != txs_next_turn.len() {
+            remain_size = txs_next_turn.len();
+            let mut txs_failed = Vec::new();
+            for tx in txs_next_turn {
+                if self.submit_local_tx(tx.clone())?.is_err() {
+                    txs_failed.push(tx);
+                }
+            }
+            txs_next_turn = txs_failed;
+        }
+        Ok(())
     }
 }
 
@@ -502,63 +523,7 @@ impl TxPoolServiceBuilder {
             Arc::clone(&last_txs_updated_at),
         );
 
-        let pool_cache = if tx_pool.config.cache_file.exists() {
-            if !tx_pool.config.cache_file.is_file() {
-                let errmsg = format!(
-                    "TxPool cache file [{:?}] exists but it's not a file.",
-                    tx_pool.config.cache_file
-                );
-                return Err(InternalErrorKind::Config.other(errmsg).into());
-            }
-            let mut file = OpenOptions::new()
-                .read(true)
-                .open(&tx_pool.config.cache_file)
-                .map_err(|err| {
-                    let errmsg = format!(
-                        "Failed to open the tx-pool cache file [{:?}]: {}",
-                        tx_pool.config.cache_file, err
-                    );
-                    OtherError::new(errmsg)
-                })?;
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer).map_err(|err| {
-                let errmsg = format!(
-                    "Failed to read the tx-pool state cache file [{:?}]: {}",
-                    tx_pool.config.cache_file, err
-                );
-                OtherError::new(errmsg)
-            })?;
-            TxPoolCacheMetaReader::from_compatible_slice(&buffer)
-                .map_err(|err| {
-                    let errmsg = format!(
-                        "The cache of TxPool is broken, please delete it and restart: {}",
-                        err
-                    );
-                    InternalErrorKind::Config.other(errmsg)
-                })
-                .and_then(|meta| {
-                    let version: u32 = meta.version().unpack();
-                    if version != crate::cache::VERSION {
-                        let errmsg =
-                            format!("The version(={}) of TxPool cache is unsupported", version);
-                        Err(InternalErrorKind::Config.other(errmsg))
-                    } else {
-                        Ok(())
-                    }
-                })?;
-            let pool_cache = TxPoolCacheReader::from_slice(&buffer)
-                .map_err(|err| {
-                    let errmsg = format!(
-                        "The cache of TxPool is broken, please delete it and restart: {}",
-                        err
-                    );
-                    InternalErrorKind::Config.other(errmsg)
-                })?
-                .to_entity();
-            Some(pool_cache)
-        } else {
-            None
-        };
+        let persisted_data_opt = persisted::TxPool::load_from_file(&tx_pool.config.persisted_data)?;
 
         let service = TxPoolService {
             tx_pool_config: Arc::clone(&tx_pool.config),
@@ -591,34 +556,9 @@ impl TxPoolServiceBuilder {
             }
         });
 
-        if let Some(pool_cache) = pool_cache {
-            // a trick to commit transactions with the correct order
-            let mut remain_size = pool_cache.transactions().len();
-            let mut txs_next_turn = Vec::new();
-            for tx in pool_cache.transactions() {
-                let tx_view = tx.into_view();
-                if self
-                    .tx_pool_controller
-                    .submit_local_tx(tx_view.clone())?
-                    .is_err()
-                {
-                    txs_next_turn.push(tx_view);
-                }
-            }
-            while !txs_next_turn.is_empty() && remain_size != txs_next_turn.len() {
-                remain_size = txs_next_turn.len();
-                let mut txs_failed = Vec::new();
-                for tx in txs_next_turn {
-                    if self
-                        .tx_pool_controller
-                        .submit_local_tx(tx.clone())?
-                        .is_err()
-                    {
-                        txs_failed.push(tx);
-                    }
-                }
-                txs_next_turn = txs_failed;
-            }
+        if let Some(persisted_data) = persisted_data_opt {
+            self.tx_pool_controller
+                .load_persisted_data(persisted_data)?;
         }
 
         Ok(())
@@ -824,10 +764,10 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send get_ids failed {:?}", e)
             };
         }
-        Message::CachePool(Request { responder, .. }) => {
-            let result = service.cache_pool().await;
+        Message::SavePool(Request { responder, .. }) => {
+            let result = service.save_pool().await;
             if let Err(e) = responder.send(result) {
-                error!("responder send cache_pool failed {:?}", e)
+                error!("responder send save_pool failed {:?}", e)
             };
         }
     }

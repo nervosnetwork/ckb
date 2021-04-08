@@ -1,5 +1,4 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
-use crate::cache::TxPoolCache;
 use crate::callback::Callbacks;
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
@@ -13,7 +12,7 @@ use crate::util::{
 };
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::{AnyError, InternalErrorKind, OtherError};
+use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info, warn};
 use ckb_network::PeerIndex;
@@ -28,7 +27,7 @@ use ckb_types::{
         BlockView, Capacity, Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView,
         Version,
     },
-    packed::{Byte32, CellbaseWitness, OutPoint, ProposalShortId, Script, TransactionVec},
+    packed::{Byte32, CellbaseWitness, OutPoint, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -40,7 +39,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cmp, iter};
-use std::{fs::OpenOptions, io::Write as _};
 use tokio::task::block_in_place;
 
 /// A list for plug target for `plug_entry` method
@@ -657,44 +655,11 @@ impl TxPoolService {
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
     }
 
-    pub(crate) async fn cache_pool(&self) -> Result<(), AnyError> {
+    pub(crate) async fn save_pool(&self) -> Result<(), AnyError> {
         let tx_pool = self.tx_pool.read().await;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&tx_pool.config.cache_file)
-            .map_err(|err| {
-                let errmsg = format!(
-                    "Failed to open the tx-pool cache file [{:?}]: {}",
-                    self.tx_pool_config.cache_file, err
-                );
-                OtherError::new(errmsg)
-            })?;
-        let pool_cache = {
-            let txs = TransactionVec::new_builder()
-                .extend(tx_pool.get_all_transactions().map(TransactionView::data))
-                .build();
-            TxPoolCache::new_builder()
-                .version(crate::cache::VERSION.pack())
-                .transactions(txs)
-                .build()
-        };
-        file.write_all(pool_cache.as_slice()).map_err(|err| {
-            let errmsg = format!(
-                "Failed to write the tx-pool cache into file [{:?}]: {}",
-                self.tx_pool_config.cache_file, err
-            );
-            OtherError::new(errmsg)
-        })?;
-        file.sync_all().map_err(|err| {
-            let errmsg = format!(
-                "Failed to sync the tx-pool cache file [{:?}]: {}",
-                self.tx_pool_config.cache_file, err
-            );
-            OtherError::new(errmsg)
-        })?;
-        Ok(())
+        tx_pool
+            .persisted_data()
+            .save_into_file(&tx_pool.config.persisted_data)
     }
 }
 

@@ -128,11 +128,11 @@ impl TxLink {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
-    pub(crate) entries: HashMap<ProposalShortId, TxEntry>,
-    pub(crate) sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    entries: HashMap<ProposalShortId, TxEntry>,
+    sorted_index: BTreeSet<AncestorsScoreSortKey>,
     /// A map track transaction ancestors and descendants
-    pub(crate) links: HashMap<ProposalShortId, TxLink>,
-    pub(crate) max_ancestors_count: usize,
+    links: HashMap<ProposalShortId, TxLink>,
+    max_ancestors_count: usize,
 }
 
 impl SortedTxMap {

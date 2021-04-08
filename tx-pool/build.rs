@@ -14,5 +14,5 @@ fn compile_schema(schema: &str) {
 }
 
 fn main() {
-    compile_schema("schemas/cache.mol");
+    compile_schema("schemas/persisted.mol");
 }

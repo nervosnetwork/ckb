@@ -69,7 +69,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     info!("Finishing work, please wait...");
     drop(rpc_server);
 
-    shared.tx_pool_controller().cache_pool().map_err(|err| {
+    shared.tx_pool_controller().save_pool().map_err(|err| {
         eprintln!("TxPool Error: {}", err);
         ExitCode::Failure
     })?;

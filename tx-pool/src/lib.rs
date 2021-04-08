@@ -2,10 +2,10 @@
 //! design for CKB [Two-Step-Transaction-Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#Two-Step-Transaction-Confirmation) mechanism
 
 mod block_assembler;
-mod cache;
 mod callback;
 mod component;
 pub mod error;
+mod persisted;
 pub mod pool;
 mod process;
 pub mod service;

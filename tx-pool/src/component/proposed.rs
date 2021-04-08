@@ -93,7 +93,7 @@ impl Edges {
 #[derive(Debug, Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges,
-    pub(crate) inner: SortedTxMap,
+    inner: SortedTxMap,
 }
 
 impl CellProvider for ProposedPool {
