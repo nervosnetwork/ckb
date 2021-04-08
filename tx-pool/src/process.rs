@@ -46,7 +46,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cmp, iter};
-use std::{fs::OpenOptions, io::Write as _};
 use tokio::task::block_in_place;
 
 /// A list for plug target for `plug_entry` method
@@ -986,6 +985,13 @@ impl TxPoolService {
         let config = tx_pool.config;
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
+    }
+
+    pub(crate) async fn save_pool(&self) -> Result<(), AnyError> {
+        let tx_pool = self.tx_pool.read().await;
+        tx_pool
+            .persisted_data()
+            .save_into_file(&tx_pool.config.persisted_data)
     }
 }
 

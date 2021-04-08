@@ -19,11 +19,11 @@ pub struct TxPoolConfig {
     pub max_tx_verify_cycles: Cycle,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
-    /// The file to cache the tx pool state when tx pool have been shutdown.
+    /// The file to persist the tx pool on the disk when tx pool have been shutdown.
     ///
     /// By default, it is a file inside the data directory.
     #[serde(default)]
-    pub state_file: PathBuf,
+    pub persisted_data: PathBuf,
 }
 
 impl Default for TxPoolConfig {
@@ -34,7 +34,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
-            state_file: Default::default(),
+            persisted_data: Default::default(),
         }
     }
 }
@@ -68,15 +68,15 @@ const fn default_use_binary_version_as_message_prefix() -> bool {
 impl TxPoolConfig {
     /// Canonicalizes paths in the config options.
     ///
-    /// If `self.state_file` is not set, set it to `data_dir / tx_pool.state`.
+    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool.dat`.
     ///
     /// If `self.path` is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
-        if self.state_file.to_str().is_none() || self.state_file.to_str() == Some("") {
-            self.state_file = data_dir.as_ref().to_path_buf().join("tx_pool.state");
-        } else if self.state_file.is_relative() {
-            self.state_file = root_dir.to_path_buf().join(&self.state_file)
+        if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
+            self.persisted_data = data_dir.as_ref().to_path_buf().join("tx_pool.dat");
+        } else if self.persisted_data.is_relative() {
+            self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
         }
     }
 }
