@@ -1,5 +1,4 @@
-use crate::peer_store::types::MultiaddrExt;
-use p2p::multiaddr::Multiaddr;
+use crate::{multiaddr::Multiaddr, multiaddr_to_socketaddr};
 use std::net::IpAddr;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -12,7 +11,8 @@ pub enum Group {
 
 impl From<&Multiaddr> for Group {
     fn from(multiaddr: &Multiaddr) -> Group {
-        if let Ok(ip_addr) = multiaddr.extract_ip_addr().map(|ip_port| ip_port.ip) {
+        if let Some(socket_addr) = multiaddr_to_socketaddr(multiaddr) {
+            let ip_addr = socket_addr.ip();
             if ip_addr.is_loopback() {
                 return Group::LocalNetwork;
             }

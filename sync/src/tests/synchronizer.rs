@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_network::SupportProtocols;
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
@@ -101,12 +101,12 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .genesis_block(block.clone())
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .build();
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .build()
         .unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
@@ -169,7 +169,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .expect("process block should be OK");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
+    let sync_shared = Arc::new(SyncShared::new(
+        shared.clone(),
+        Default::default(),
+        pack.take_relay_tx_receiver(),
+    ));
     let synchronizer = Synchronizer::new(chain_controller, sync_shared);
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;

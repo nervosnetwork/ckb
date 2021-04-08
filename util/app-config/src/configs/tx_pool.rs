@@ -36,7 +36,7 @@ pub struct TxPoolConfig {
     ///
     /// By default, it is a file inside the data directory.
     #[serde(default)]
-    pub state_file: PathBuf,
+    pub cache_file: PathBuf,
 }
 
 impl Default for TxPoolConfig {
@@ -50,7 +50,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
-            state_file: Default::default(),
+            cache_file: Default::default(),
         }
     }
 }
@@ -73,15 +73,15 @@ pub struct BlockAssemblerConfig {
 impl TxPoolConfig {
     /// Canonicalizes paths in the config options.
     ///
-    /// If `self.state_file` is not set, set it to `data_dir / tx_pool.state`.
+    /// If `self.cache_file` is not set, set it to `data_dir / tx_pool.state`.
     ///
     /// If `self.path` is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
-        if self.state_file.to_str().is_none() || self.state_file.to_str() == Some("") {
-            self.state_file = data_dir.as_ref().to_path_buf().join("tx_pool.state");
-        } else if self.state_file.is_relative() {
-            self.state_file = root_dir.to_path_buf().join(&self.state_file)
+        if self.cache_file.to_str().is_none() || self.cache_file.to_str() == Some("") {
+            self.cache_file = data_dir.as_ref().to_path_buf().join("tx_pool.state");
+        } else if self.cache_file.is_relative() {
+            self.cache_file = root_dir.to_path_buf().join(&self.cache_file)
         }
     }
 }

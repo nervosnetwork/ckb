@@ -10,7 +10,6 @@ use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use setup_guard::SetupGuard;
 
-pub(crate) const LOG_TARGET_MAIN: &str = "main";
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
@@ -59,7 +58,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?, handle),
         (cli::CMD_STATS, Some(matches)) => subcommand::stats(setup.stats(&matches)?, handle),
         (cli::CMD_RESET_DATA, Some(matches)) => subcommand::reset_data(setup.reset_data(&matches)?),
-        (cli::CMD_MIGRATE, Some(matches)) => subcommand::migrate(setup.migrate(&matches)?, handle),
+        (cli::CMD_MIGRATE, Some(matches)) => subcommand::migrate(setup.migrate(&matches)?),
         (cli::CMD_DB_REPAIR, Some(matches)) => subcommand::db_repair(setup.db_repair(&matches)?),
         _ => unreachable!(),
     }

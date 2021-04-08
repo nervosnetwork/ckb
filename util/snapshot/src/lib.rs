@@ -16,7 +16,7 @@ use ckb_traits::HeaderProvider;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
-        cell::{CellProvider, CellStatus, HeaderChecker},
+        cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
         BlockNumber, BlockReward, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint, Script},
@@ -178,6 +178,12 @@ impl<'a> ChainStore<'a> for Snapshot {
 impl CellProvider for Snapshot {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         self.store.cell_provider().cell(out_point, with_data)
+    }
+}
+
+impl CellChecker for Snapshot {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.store.cell_provider().is_live(out_point)
     }
 }
 

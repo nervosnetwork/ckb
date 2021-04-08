@@ -60,7 +60,7 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-        if let Err(err) = tx_pool.notify_txs(asked_txs, None) {
+        if let Err(err) = tx_pool.notify_txs(asked_txs) {
             warn_target!(
                 crate::LOG_TARGET_RELAY,
                 "BlockProposal notify_txs error: {:?}",

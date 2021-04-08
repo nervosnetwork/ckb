@@ -1,0 +1,16 @@
+[package]
+name = "ckb-migration-template"
+version = "0.41.0-pre"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+description = "Provide proc-macros to setup migration."
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = { version = "1.0", features = ["full", "printing"] }

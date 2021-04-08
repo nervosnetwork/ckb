@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Build script for crate `ckb-tx-pool`.
 
 use molecule_codegen::{Compiler, Language};
 
@@ -14,5 +14,5 @@ fn compile_schema(schema: &str) {
 }
 
 fn main() {
-    compile_schema("schemas/persisted.mol");
+    compile_schema("schemas/cache.mol");
 }

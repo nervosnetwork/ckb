@@ -51,8 +51,7 @@ impl OutboundPeerService {
             paddrs.truncate(count as usize);
             for paddr in &mut paddrs {
                 // mark addr as tried
-                let key = paddr.ip_port();
-                if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&key) {
+                if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {
                     paddr.mark_tried(now_ms);
                 }
             }
@@ -66,29 +65,19 @@ impl OutboundPeerService {
         );
 
         for paddr in attempt_peers {
-            let AddrInfo { peer_id, addr, .. } = paddr;
+            let AddrInfo { addr, .. } = paddr;
             if is_feeler {
-                self.network_state
-                    .dial_feeler(&self.p2p_control, &peer_id, addr);
+                self.network_state.dial_feeler(&self.p2p_control, addr);
             } else {
-                self.network_state
-                    .dial_identify(&self.p2p_control, &peer_id, addr);
+                self.network_state.dial_identify(&self.p2p_control, addr);
             }
         }
     }
 
     fn try_dial_whitelist(&self) {
         // This will never panic because network start has already been checked
-        for (peer_id, addr) in self
-            .network_state
-            .config
-            .whitelist_peers()
-            .expect("address must be correct")
-        {
-            if self.network_state.query_session_id(&peer_id).is_none() {
-                self.network_state
-                    .dial_identify(&self.p2p_control, &peer_id, addr);
-            }
+        for addr in self.network_state.config.whitelist_peers() {
+            self.network_state.dial_identify(&self.p2p_control, addr);
         }
     }
 

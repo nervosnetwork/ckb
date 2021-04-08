@@ -9,12 +9,9 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
-use ckb_sync::{SyncShared, Synchronizer};
+use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
@@ -137,7 +134,7 @@ fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
 
 // Setup the running environment
 fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
@@ -147,7 +144,37 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         }))
         .build()
         .unwrap();
-    let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
+    let chain_controller =
+        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
+
+    // Start network services
+    let dir = tempfile::tempdir()
+        .expect("create tempdir failed")
+        .path()
+        .to_path_buf();
+    let network_controller = {
+        let mut network_config = NetworkConfig::default();
+        network_config.path = dir;
+        network_config.ping_interval_secs = 1;
+        network_config.ping_timeout_secs = 1;
+        network_config.connect_outbound_interval_secs = 1;
+        let network_state =
+            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
+        NetworkService::new(
+            Arc::clone(&network_state),
+            Vec::new(),
+            Vec::new(),
+            shared.consensus().identify_name(),
+            "0.1.0".to_string(),
+            DefaultExitHandler::default(),
+        )
+        .start(shared.async_handle())
+        .expect("Start network service failed")
+    };
+
+    pack.take_tx_pool_builder()
+        .start(network_controller.clone())
+        .unwrap();
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
@@ -182,32 +209,11 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             .expect("processing new block should be ok");
     }
 
-    // Start network services
-    let dir = tempfile::tempdir()
-        .expect("create tempdir failed")
-        .path()
-        .to_path_buf();
-    let network_controller = {
-        let mut network_config = NetworkConfig::default();
-        network_config.path = dir;
-        network_config.ping_interval_secs = 1;
-        network_config.ping_timeout_secs = 1;
-        network_config.connect_outbound_interval_secs = 1;
-        let network_state =
-            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-        NetworkService::new(
-            Arc::clone(&network_state),
-            Vec::new(),
-            Vec::new(),
-            shared.consensus().identify_name(),
-            "0.1.0".to_string(),
-            DefaultExitHandler::default(),
-        )
-        .start(shared.async_handle())
-        .expect("Start network service failed")
-    };
-    let sync_shared = Arc::new(SyncShared::new(shared.clone(), Default::default()));
-    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+    let sync_shared = Arc::new(SyncShared::new(
+        shared.clone(),
+        Default::default(),
+        pack.take_relay_tx_receiver(),
+    ));
 
     let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
     let (alert_notifier, alert_verifier) = {
@@ -263,12 +269,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(
-            shared.clone(),
-            Arc::clone(&sync_shared),
-            FeeRate::zero(),
-            true,
-        )
+        .enable_pool(shared.clone(), FeeRate::zero(), true)
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
@@ -276,7 +277,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             true,
         )
         .enable_net(network_controller.clone(), sync_shared)
-        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
+        .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(
             shared.clone(),
@@ -655,12 +656,11 @@ where
 // * Use replace_rpc_response to skip the response matching assertions.
 // * Fix timestamp related fields.
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
-    use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, PeerState, RemoteNode, Uint64};
+    use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, RemoteNode, Uint64};
 
     match example.request.method.as_str() {
         "local_node_info" => replace_rpc_response::<LocalNode>(example, response),
         "get_peers" => replace_rpc_response::<Vec<RemoteNode>>(example, response),
-        "get_peers_state" => replace_rpc_response::<Vec<PeerState>>(example, response),
         "get_banned_addresses" => replace_rpc_response::<Vec<BannedAddr>>(example, response),
         "calculate_dao_maximum_withdraw" => replace_rpc_response::<Capacity>(example, response),
         "subscribe" => replace_rpc_response::<Uint64>(example, response),

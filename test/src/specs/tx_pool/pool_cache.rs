@@ -1,5 +1,6 @@
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
+use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_logger::info;
 
 pub struct PoolCache;
@@ -40,7 +41,7 @@ impl Spec for PoolCache {
 
         node0.wait_for_tx_pool();
 
-        let tx_pool_info_original = node0.get_tip_tx_pool_info();
+        let tx_pool_info_original = normalize_tx_pool_info(node0.get_tip_tx_pool_info());
 
         info!("Stop node0 gracefully");
         node0.stop_gracefully();
@@ -48,7 +49,7 @@ impl Spec for PoolCache {
         info!("Start node0");
         node0.start();
 
-        let tx_pool_info_reloaded = node0.get_tip_tx_pool_info();
+        let tx_pool_info_reloaded = normalize_tx_pool_info(node0.get_tip_tx_pool_info());
         info!("TxPool should be same as before");
         assert_eq!(tx_pool_info_original, tx_pool_info_reloaded);
 
@@ -56,6 +57,10 @@ impl Spec for PoolCache {
         node0.assert_tx_pool_size(txs_hash2.len() as u64, txs_hash1.len() as u64);
         assert!(tx_pool_info_reloaded.total_tx_size.value() > 0);
         assert!(tx_pool_info_reloaded.total_tx_cycles.value() > 0);
-        assert!(tx_pool_info_reloaded.last_txs_updated_at.value() > 0);
     }
+}
+
+fn normalize_tx_pool_info(mut info: TxPoolInfo) -> TxPoolInfo {
+    info.last_txs_updated_at = Default::default();
+    info
 }

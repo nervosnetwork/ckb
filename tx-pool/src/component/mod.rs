@@ -6,14 +6,7 @@ pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
 
-pub use self::entry::{DefectEntry, TxEntry};
-pub(crate) use self::{
-    container::{AncestorsScoreSortKey, SortedTxMap, TxLink},
-    orphan::OrphanPool,
-    pending::PendingQueue,
-    proposed::{Edges, ProposedPool},
-};
-pub(crate) use ckb_verification::cache::CacheEntry;
+pub use self::entry::TxEntry;
 
 /// Equal to MAX_BLOCK_BYTES / MAX_BLOCK_CYCLES, see ckb-chain-spec.
 /// The precision is set so that the difference between MAX_BLOCK_CYCLES * DEFAULT_BYTES_PER_CYCLES

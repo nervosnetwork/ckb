@@ -1,0 +1,10 @@
+import referenced;
+
+table TxPoolCache {
+    version: Uint32,
+    transactions: TransactionVec,
+}
+
+table TxPoolCacheMeta {
+    version: Uint32,
+}

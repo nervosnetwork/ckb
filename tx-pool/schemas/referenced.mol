@@ -11,11 +11,10 @@ vector BytesVec <Bytes>;
 
 array ProposalShortId [byte; 10];
 
-vector ProposalShortIdVec <ProposalShortId>;
-vector OutPointVec <OutPoint>;
 vector CellDepVec <CellDep>;
 vector CellInputVec <CellInput>;
 vector CellOutputVec <CellOutput>;
+vector TransactionVec <Transaction>;
 
 option ScriptOpt (Script);
 
@@ -58,10 +57,4 @@ table RawTransaction {
 table Transaction {
     raw:            RawTransaction,
     witnesses:      BytesVec,
-}
-
-table TransactionView {
-    hash:               Byte32,
-    witness_hash:       Byte32,
-    data:               Transaction,
 }

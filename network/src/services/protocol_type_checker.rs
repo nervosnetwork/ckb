@@ -89,7 +89,7 @@ impl ProtocolTypeCheckerService {
                 if let Err(err) = self.opened_protocol_type(peer) {
                     debug!(
                         "close peer {:?} due to open protocols error: {}",
-                        peer.peer_id, err
+                        peer.connected_addr, err
                     );
                     if let Err(err) = disconnect_with_message(
                         &self.p2p_control,

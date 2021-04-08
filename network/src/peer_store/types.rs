@@ -1,30 +1,13 @@
 //! Type used on peer store
-use crate::{
-    errors::{AddrError, Error},
-    peer_store::{
-        peer_id_serde, PeerId, Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES,
-        ADDR_TIMEOUT_MS,
-    },
-};
+use crate::peer_store::{Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS};
 use ipnetwork::IpNetwork;
-use p2p::multiaddr::{self, Multiaddr, Protocol};
+use p2p::multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, net::IpAddr};
-
-/// Ip and port
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IpPort {
-    /// Ip address
-    pub ip: IpAddr,
-    /// Port
-    pub port: u16,
-}
+use std::net::IpAddr;
 
 /// Peer info
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
-    /// Peer id
-    pub peer_id: PeerId,
     /// Address
     pub connected_addr: Multiaddr,
     /// Session type
@@ -36,13 +19,11 @@ pub struct PeerInfo {
 impl PeerInfo {
     /// Init
     pub fn new(
-        peer_id: PeerId,
         connected_addr: Multiaddr,
         session_type: SessionType,
         last_connected_at_ms: u64,
     ) -> Self {
         PeerInfo {
-            peer_id,
             connected_addr,
             session_type,
             last_connected_at_ms,
@@ -53,11 +34,6 @@ impl PeerInfo {
 /// Address info
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AddrInfo {
-    /// Peer id
-    #[serde(with = "peer_id_serde")]
-    pub peer_id: PeerId,
-    /// Ip and port
-    pub ip_port: IpPort,
     /// Multiaddr
     pub addr: Multiaddr,
     /// Score about this addr
@@ -74,16 +50,8 @@ pub struct AddrInfo {
 
 impl AddrInfo {
     /// Init
-    pub fn new(
-        peer_id: PeerId,
-        ip_port: IpPort,
-        addr: Multiaddr,
-        last_connected_at_ms: u64,
-        score: Score,
-    ) -> Self {
+    pub fn new(addr: Multiaddr, last_connected_at_ms: u64, score: Score) -> Self {
         AddrInfo {
-            peer_id,
-            ip_port,
             addr,
             score,
             last_connected_at_ms,
@@ -91,11 +59,6 @@ impl AddrInfo {
             attempts_count: 0,
             random_id_pos: 0,
         }
-    }
-
-    /// Get ip and port
-    pub fn ip_port(&self) -> IpPort {
-        self.ip_port
     }
 
     /// Whether already connected
@@ -139,11 +102,6 @@ impl AddrInfo {
         // reset attempts
         self.attempts_count = 0;
     }
-
-    /// Get multiaddr
-    pub fn multiaddr(&self) -> Result<Multiaddr, Error> {
-        self.addr.attach_p2p(&self.peer_id)
-    }
 }
 
 /// Banned addr info
@@ -176,50 +134,5 @@ pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
     match ip {
         IpAddr::V4(ipv4) => IpNetwork::V4(ipv4.into()),
         IpAddr::V6(ipv6) => IpNetwork::V6(ipv6.into()),
-    }
-}
-
-/// Some util patch to multiaddr
-pub trait MultiaddrExt {
-    /// Extract IP from multiaddr,
-    fn extract_ip_addr(&self) -> Result<IpPort, Error>;
-    /// Remove peer id
-    fn exclude_p2p(&self) -> Multiaddr;
-    /// Attach peer id
-    fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error>;
-}
-
-impl MultiaddrExt for Multiaddr {
-    fn extract_ip_addr(&self) -> Result<IpPort, Error> {
-        let mut ip = None;
-        let mut port = None;
-        for component in self {
-            match component {
-                Protocol::IP4(ipv4) => ip = Some(IpAddr::V4(ipv4)),
-                Protocol::IP6(ipv6) => ip = Some(IpAddr::V6(ipv6)),
-                Protocol::TCP(tcp_port) => port = Some(tcp_port),
-                _ => (),
-            }
-        }
-        Ok(IpPort {
-            ip: ip.ok_or(AddrError::MissingIP)?,
-            port: port.ok_or(AddrError::MissingPort)?,
-        })
-    }
-
-    fn exclude_p2p(&self) -> Multiaddr {
-        self.iter()
-            .filter_map(|proto| match proto {
-                Protocol::P2P(_) => None,
-                value => Some(value),
-            })
-            .collect::<Multiaddr>()
-    }
-
-    fn attach_p2p(&self, peer_id: &PeerId) -> Result<Multiaddr, Error> {
-        let mut addr = self.exclude_p2p();
-        let peer_id_hash = Cow::Owned(peer_id.clone().into_bytes());
-        addr.push(multiaddr::Protocol::P2P(peer_id_hash));
-        Ok(addr)
     }
 }

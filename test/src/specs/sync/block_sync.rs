@@ -8,7 +8,7 @@ use crate::utils::{
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_logger::info;
-use ckb_network::{bytes::Bytes, SupportProtocols};
+use ckb_network::{bytes::Bytes, extract_peer_id, SupportProtocols};
 use ckb_types::{
     core::BlockView,
     packed::{self, Byte32, SyncMessage},
@@ -179,7 +179,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let ctrl = net.controller();
         let peers_num = ctrl.connected_peers().len();
         let peer = ctrl.connected_peers()[peers_num - 1].clone();
-        ctrl.remove_node(&peer.1.peer_id);
+        ctrl.remove_node(&extract_peer_id(&peer.1.connected_addr).unwrap());
         let ret = wait_until(5, || {
             node.rpc_client().get_peers().is_empty() && ctrl.connected_peers().is_empty()
         });

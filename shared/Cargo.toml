@@ -21,15 +21,12 @@ ckb-tx-pool = { path = "../tx-pool", version = "= 0.41.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.41.0-pre" }
 ckb-notify = { path = "../notify", version = "= 0.41.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
-ckb-db-migration = { path = "../db-migration", version = "= 0.41.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.41.0-pre" }
 ckb-freezer = { path = "../freezer", version = "= 0.41.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.41.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.41.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.41.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.41.0-pre" }
-ckb-migration-template = { path = "migration-template", version = "= 0.41.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.41.0-pre" }
-num_cpus = "1.10"
+p2p = { version="0.3.8", package="tentacle", features = ["molc"] }
 faketime = "0.2.0"
-tempfile = "3.0"

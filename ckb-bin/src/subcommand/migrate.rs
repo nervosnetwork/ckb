@@ -1,25 +1,24 @@
 use ckb_app_config::{ExitCode, MigrateArgs};
-use ckb_async_runtime::Handle;
-use ckb_shared::shared::SharedBuilder;
+use ckb_launcher::DatabaseMigration;
 
 use crate::helper::prompt;
 
-pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> {
-    let builder = SharedBuilder::new(&args.config.db, None, async_handle);
+pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
+    let migration = DatabaseMigration::new(&args.config.db.path);
 
     if args.check {
-        if builder.migration_check() {
+        if migration.migration_check() {
             return Ok(());
         } else {
             return Err(ExitCode::Cli);
         }
     }
 
-    if !builder.migration_check() {
+    if !migration.migration_check() {
         return Ok(());
     }
 
-    if builder.require_expensive_migrations() && !args.force {
+    if migration.require_expensive_migrations() && !args.force {
         if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
             let input = prompt("\
             \n\
@@ -41,9 +40,10 @@ pub fn migrate(args: MigrateArgs, async_handle: Handle) -> Result<(), ExitCode> 
         }
     }
 
-    let (_shared, _table) = builder.build().map_err(|err| {
+    migration.migrate().map_err(|err| {
         eprintln!("Run error: {:?}", err);
         ExitCode::Failure
     })?;
+
     Ok(())
 }
