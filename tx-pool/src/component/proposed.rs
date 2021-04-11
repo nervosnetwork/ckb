@@ -303,12 +303,18 @@ impl ProposedPool {
     where
         F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
     {
-        let mut iter = self.inner.keys_sorted_by_fee().map(|key| {
+        let keys = self.inner.sorted_keys();
+        let mut iter = keys.iter().map(|key| {
             self.inner
                 .get(&key.id)
                 .expect("proposed pool must be consistent")
         });
         func(&mut iter)
+    }
+
+    /// find all deps from pool
+    pub fn get_deps(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        self.inner.get_deps(&tx_short_id)
     }
 
     /// find all ancestors from pool

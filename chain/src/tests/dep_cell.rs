@@ -152,6 +152,8 @@ fn test_package_txs_with_deps() {
     }
 
     // submit txs
+    println!("tx1 id {}", tx1.proposal_short_id());
+    println!("tx2 id {}", tx2.proposal_short_id());
     let ret1 = tx_pool.submit_local_tx(tx1).unwrap();
     assert!(ret1.is_ok(), "submit {:?}", ret1);
     let ret2 = tx_pool.submit_local_tx(tx2.clone()).unwrap();

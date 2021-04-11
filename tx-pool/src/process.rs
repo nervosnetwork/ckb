@@ -163,6 +163,11 @@ impl TxPoolService {
             max_block_cycles,
             guard.config.min_fee_rate,
         );
+
+        for entry in &entries {
+            println!("id {}", entry.proposal_short_id());
+        }
+
         if !entries.is_empty() {
             info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
@@ -762,14 +767,13 @@ fn _update_tx_pool_for_reorg(
     // pending ---> gap ----> proposed
     // try move gap to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.gap.size());
-    for key in tx_pool.gap.keys_sorted_by_fee_and_relation() {
-        if snapshot.proposals().contains_proposed(&key.id) {
-            let entry = tx_pool.gap.get(&key.id).expect("exists");
+    for (id, entry) in tx_pool.gap.iter() {
+        if snapshot.proposals().contains_proposed(id) {
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.clone(),
             ));
-            removed.push(key.id.clone());
+            removed.push(id.clone());
         }
     }
     removed.into_iter().for_each(|id| {
@@ -778,20 +782,19 @@ fn _update_tx_pool_for_reorg(
 
     // try move pending to proposed
     let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.pending.size());
-    for key in tx_pool.pending.keys_sorted_by_fee_and_relation() {
-        let entry = tx_pool.pending.get(&key.id).expect("exists");
-        if snapshot.proposals().contains_proposed(&key.id) {
+    for (id, entry) in tx_pool.pending.iter() {
+        if snapshot.proposals().contains_proposed(id) {
             entries.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.clone(),
             ));
-            removed.push(key.id.clone());
-        } else if snapshot.proposals().contains_gap(&key.id) {
+            removed.push(id.clone());
+        } else if snapshot.proposals().contains_gap(id) {
             gaps.push((
                 Some(CacheEntry::new(entry.cycles, entry.fee)),
                 entry.clone(),
             ));
-            removed.push(key.id.clone());
+            removed.push(id.clone());
         }
     }
     removed.into_iter().for_each(|id| {

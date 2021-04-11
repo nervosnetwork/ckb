@@ -61,12 +61,14 @@ impl Ord for AncestorsScoreSortKey {
 #[derive(Default, Debug, Clone)]
 pub struct TxLink {
     pub parents: HashSet<ProposalShortId>,
+    pub deps: HashSet<ProposalShortId>,
     pub children: HashSet<ProposalShortId>,
 }
 
 #[derive(Clone, Copy)]
 enum Relation {
     Parents,
+    Deps,
     Children,
 }
 
@@ -74,6 +76,7 @@ impl TxLink {
     fn get_direct_ids(&self, r: Relation) -> &HashSet<ProposalShortId> {
         match r {
             Relation::Parents => &self.parents,
+            Relation::Deps => &self.deps,
             Relation::Children => &self.children,
         }
     }
@@ -111,6 +114,13 @@ impl TxLink {
         relative_txs
     }
 
+    pub fn get_deps(
+        links: &HashMap<ProposalShortId, TxLink>,
+        tx_short_id: &ProposalShortId,
+    ) -> HashSet<ProposalShortId> {
+        TxLink::get_relative_ids(links, tx_short_id, Relation::Deps)
+    }
+
     pub fn get_ancestors(
         links: &HashMap<ProposalShortId, TxLink>,
         tx_short_id: &ProposalShortId,
@@ -129,7 +139,7 @@ impl TxLink {
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
     entries: HashMap<ProposalShortId, TxEntry>,
-    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    // sorted_index: BTreeSet<AncestorsScoreSortKey>,
     /// A map track transaction ancestors and descendants
     links: HashMap<ProposalShortId, TxLink>,
     max_ancestors_count: usize,
@@ -139,7 +149,7 @@ impl SortedTxMap {
     pub fn new(max_ancestors_count: usize) -> Self {
         SortedTxMap {
             entries: Default::default(),
-            sorted_index: Default::default(),
+            // sorted_index: Default::default(),
             links: Default::default(),
             max_ancestors_count,
         }
@@ -169,9 +179,8 @@ impl SortedTxMap {
         let short_id = entry.proposal_short_id();
 
         // find in pool parents
-        let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
-            entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
-        );
+        let mut parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.transaction().inputs().len());
         for input in entry.transaction().inputs() {
             let parent_hash = &input.previous_output().tx_hash();
             let id = ProposalShortId::from_tx_hash(&(parent_hash));
@@ -179,14 +188,18 @@ impl SortedTxMap {
                 parents.insert(id);
             }
         }
+
+        let mut deps: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.transaction().cell_deps().len());
         for cell_dep in entry.transaction().cell_deps() {
             let id = ProposalShortId::from_tx_hash(&(cell_dep.out_point().tx_hash()));
             if self.links.contains_key(&id) {
-                parents.insert(id);
+                deps.insert(id);
             }
         }
         // update ancestor_fields
         self.update_ancestors_stat_for_entry(&mut entry, &parents);
+        self.update_ancestors_stat_for_entry(&mut entry, &deps);
 
         if entry.ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
@@ -207,16 +220,25 @@ impl SortedTxMap {
                 .children
                 .insert(short_id.clone());
         }
+
+        for dep_id in &deps {
+            self.links
+                .get_mut(dep_id)
+                .expect("exists")
+                .children
+                .insert(short_id.clone());
+        }
         // insert links
         self.links.insert(
             short_id.clone(),
             TxLink {
                 parents,
+                deps,
                 children: Default::default(),
             },
         );
-        self.sorted_index
-            .insert(AncestorsScoreSortKey::from(&entry));
+        // self.sorted_index
+        //     .insert(AncestorsScoreSortKey::from(&entry));
         self.entries.insert(short_id, entry);
         Ok(removed_entry)
     }
@@ -236,10 +258,10 @@ impl SortedTxMap {
         queue.push_back(id.clone());
         while let Some(id) = queue.pop_front() {
             if let Some(entry) = self.entries.remove(&id) {
-                let deleted = self
-                    .sorted_index
-                    .remove(&AncestorsScoreSortKey::from(&entry));
-                debug_assert!(deleted, "pending pool inconsistent");
+                // let deleted = self
+                //     .sorted_index
+                //     .remove(&AncestorsScoreSortKey::from(&entry));
+                // debug_assert!(deleted, "pending pool inconsistent");
                 if let Some(link) = self.links.remove(&id) {
                     queue.extend(link.children);
                 }
@@ -259,30 +281,30 @@ impl SortedTxMap {
 
     pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove(&id).map(|entry| {
-            let deleted = self
-                .sorted_index
-                .remove(&AncestorsScoreSortKey::from(&entry));
-            debug_assert!(deleted, "pending pool inconsistent");
+            // let deleted = self
+            //     .sorted_index
+            //     .remove(&AncestorsScoreSortKey::from(&entry));
+            // debug_assert!(deleted, "pending pool inconsistent");
             // update descendants entries
             for desc_id in self.get_descendants(&id) {
-                if let Some(key) = self
-                    .entries
-                    .get(&desc_id)
-                    .map(|entry| entry.as_sorted_key())
-                {
-                    self.sorted_index.remove(&key);
-                }
+                // if let Some(key) = self
+                //     .entries
+                //     .get(&desc_id)
+                //     .map(|entry| entry.as_sorted_key())
+                // {
+                //     self.sorted_index.remove(&key);
+                // }
                 if let Some(desc_entry) = self.entries.get_mut(&desc_id) {
                     // remove entry
                     desc_entry.sub_entry_weight(&entry);
                 }
-                if let Some(key) = self
-                    .entries
-                    .get(&desc_id)
-                    .map(|entry| entry.as_sorted_key())
-                {
-                    self.sorted_index.insert(key);
-                }
+                // if let Some(key) = self
+                //     .entries
+                //     .get(&desc_id)
+                //     .map(|entry| entry.as_sorted_key())
+                // {
+                //     self.sorted_index.insert(key);
+                // }
             }
             // update links
             if let Some(link) = self.links.remove(&id) {
@@ -301,6 +323,11 @@ impl SortedTxMap {
         })
     }
 
+    /// find all deps from pool
+    pub fn get_deps(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        TxLink::get_deps(&self.links, tx_short_id)
+    }
+
     /// find all ancestors from pool
     pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
         TxLink::get_ancestors(&self.links, tx_short_id)
@@ -312,21 +339,28 @@ impl SortedTxMap {
     }
 
     /// return keys sorted by tx fee rate
-    pub fn keys_sorted_by_fee(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
-        self.sorted_index.iter().rev()
-    }
-
-    /// return keys sorted by tx fee rate and transaction relation
-    pub fn keys_sorted_by_fee_and_relation(&self) -> Vec<&AncestorsScoreSortKey> {
-        let mut keys: Vec<_> = self.keys_sorted_by_fee().collect();
-        keys.sort_by_key(|k| {
-            self.entries
-                .get(&k.id)
-                .expect("entries should consistent with sorted_index")
-                .ancestors_count
-        });
+    pub fn sorted_keys(&self) -> Vec<AncestorsScoreSortKey> {
+        let mut keys: Vec<_> = self.iter().map(|(_, entry)| entry.as_sorted_key()).collect();
+        keys.sort_unstable();
         keys
     }
+
+    // return keys sorted by tx fee rate
+    // pub fn keys_sorted_by_fee(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+    //     self.iter().map(|entry| entry.as_sorted_key())
+    // }
+
+    // return keys sorted by tx fee rate and transaction relation
+    // pub fn keys_sorted_by_fee_and_relation(&self) -> Vec<&AncestorsScoreSortKey> {
+    //     let mut keys: Vec<_> = self.keys_sorted_by_fee().collect();
+    //     keys.sort_by_key(|k| {
+    //         self.entries
+    //             .get(&k.id)
+    //             .expect("entries should consistent with sorted_index")
+    //             .ancestors_count
+    //     });
+    //     keys
+    // }
 }
 
 #[cfg(test)]
@@ -462,9 +496,9 @@ mod tests {
             tx2.transaction().witness_hash()
         );
         // check consistency
-        for key in map.keys_sorted_by_fee() {
-            map.get(&key.id).expect("should consistent");
-        }
+        // for key in map.keys_sorted_by_fee() {
+        //     map.get(&key.id).expect("should consistent");
+        // }
     }
 
     #[test]

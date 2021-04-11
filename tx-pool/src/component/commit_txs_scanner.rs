@@ -86,6 +86,44 @@ impl<'a> CommitTxsScanner<'a> {
                     }
                 };
                 debug_assert!(!self.fetched_txs.contains(&tx_entry.proposal_short_id()));
+
+                let deps = self
+                    .proposed_pool
+                    .get_deps(&tx_entry.proposal_short_id())
+                    .into_iter()
+                    .filter_map(|short_id| {
+                        if self.fetched_txs.contains(&short_id) {
+                            None
+                        } else {
+                            self.modified_entries.get(&short_id).or_else(|| {
+                                let entry = self
+                                    .proposed_pool
+                                    .get(&short_id)
+                                    .expect("pool should be consistent");
+                                Some(entry)
+                            })
+                        }
+                    })
+                    .cloned()
+                    .collect::<HashSet<TxEntry>>();
+
+                self.update_modified_entries(&deps);
+                // sort acestors by ancestors_count,
+                // if A is an ancestor of B, B.ancestors_count must large than A
+                let mut deps = deps.into_iter().collect::<Vec<_>>();
+                deps.sort_unstable_by_key(|entry| entry.ancestors_count);
+                // insert ancestors
+                for entry in deps {
+                    let short_id = entry.proposal_short_id();
+                    // try remove from modified
+                    self.modified_entries.remove(&short_id);
+                    let is_inserted = self.fetched_txs.insert(short_id);
+                    debug_assert!(is_inserted, "package duplicate txs");
+                    cycles = cycles.saturating_add(entry.cycles);
+                    size = size.saturating_add(entry.size);
+                    self.entries.push(entry);
+                }
+
                 // prepare to package tx with ancestors
                 let mut ancestors = self
                     .proposed_pool
@@ -107,21 +145,21 @@ impl<'a> CommitTxsScanner<'a> {
                     .cloned()
                     .collect::<HashSet<TxEntry>>();
                 ancestors.insert(tx_entry.to_owned());
-                debug_assert_eq!(
-                    tx_entry.ancestors_cycles,
-                    ancestors.iter().map(|entry| entry.cycles).sum::<u64>(),
-                    "proposed tx pool ancestors cycles inconsistent"
-                );
-                debug_assert_eq!(
-                    tx_entry.ancestors_size,
-                    ancestors.iter().map(|entry| entry.size).sum::<usize>(),
-                    "proposed tx pool ancestors size inconsistent"
-                );
-                debug_assert_eq!(
-                    tx_entry.ancestors_count,
-                    ancestors.len(),
-                    "proposed tx pool ancestors count inconsistent"
-                );
+                // debug_assert_eq!(
+                //     tx_entry.ancestors_cycles,
+                //     ancestors.iter().map(|entry| entry.cycles).sum::<u64>(),
+                //     "proposed tx pool ancestors cycles inconsistent"
+                // );
+                // debug_assert_eq!(
+                //     tx_entry.ancestors_size,
+                //     ancestors.iter().map(|entry| entry.size).sum::<usize>(),
+                //     "proposed tx pool ancestors size inconsistent"
+                // );
+                // debug_assert_eq!(
+                //     tx_entry.ancestors_count,
+                //     ancestors.len(),
+                //     "proposed tx pool ancestors count inconsistent"
+                // );
                 // update all descendants and insert into modified
                 self.update_modified_entries(&ancestors);
                 // sort acestors by ancestors_count,
