@@ -1,29 +1,70 @@
-use crate::component::{
-    entry::{TxEntry, TxModifiedEntries},
-    proposed::ProposedPool,
-};
-use ckb_types::{
-    core::{Cycle, FeeRate},
-    packed::ProposalShortId,
-};
-use std::cmp::max;
-use std::collections::HashSet;
+use crate::component::{container::AncestorsScoreSortKey, entry::TxEntry, proposed::ProposedPool};
+use ckb_types::{core::Cycle, packed::ProposalShortId};
+use ckb_util::LinkedHashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-/// node will give up to package more txs after MAX_CONSECUTIVE_FAILED
-const MAX_CONSECUTIVE_FAILED: usize = 500;
+// A template data struct used to store modified entries when package txs
+pub struct TxModifiedEntries {
+    entries: HashMap<ProposalShortId, TxEntry>,
+    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+}
+
+impl Default for TxModifiedEntries {
+    fn default() -> Self {
+        TxModifiedEntries {
+            entries: HashMap::default(),
+            sorted_index: BTreeSet::default(),
+        }
+    }
+}
+
+impl TxModifiedEntries {
+    pub fn next_best_entry(&self) -> Option<&TxEntry> {
+        self.sorted_index
+            .iter()
+            .max()
+            .map(|key| self.entries.get(&key.id).expect("consistent"))
+    }
+
+    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
+        self.entries.get(id)
+    }
+
+    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    pub fn insert(&mut self, entry: TxEntry) {
+        let key = AncestorsScoreSortKey::from(&entry);
+        let short_id = entry.proposal_short_id();
+        self.entries.insert(short_id, entry);
+        self.sorted_index.insert(key);
+    }
+
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
+        self.entries.remove(id).map(|entry| {
+            self.sorted_index.remove(&(&entry).into());
+            entry
+        })
+    }
+}
+
+// Limit the number of attempts to add transactions to the block when it is
+// close to full; this is just a simple heuristic to finish quickly if the
+// mempool has a lot of entries.
+const MAX_CONSECUTIVE_FAILURES: usize = 500;
 
 /// find txs to package into commitment
 pub struct CommitTxsScanner<'a> {
     proposed_pool: &'a ProposedPool,
     entries: Vec<TxEntry>,
-    // modified entries, after put a tx into block,
-    // the scores of descendants txs should be updated,
-    // these modified entries is stored in modified_entries.
-    // in each loop,
-    // we pick tx from modified_entries and pool to find the best tx to package
+    // modified_entries will store sorted packages after they are modified
+    // because some of their txs are already in the block
     modified_entries: TxModifiedEntries,
     // txs that packaged in block
     fetched_txs: HashSet<ProposalShortId>,
+    // Keep track of entries that failed inclusion, to avoid duplicate work
+    failed_txs: HashSet<ProposalShortId>,
 }
 
 impl<'a> CommitTxsScanner<'a> {
@@ -33,180 +74,149 @@ impl<'a> CommitTxsScanner<'a> {
             entries: Vec::new(),
             modified_entries: TxModifiedEntries::default(),
             fetched_txs: HashSet::default(),
+            failed_txs: HashSet::default(),
         }
     }
+
     /// find txs to commit, return TxEntry vector, total_size and total_cycles.
     pub fn txs_to_commit(
         mut self,
         size_limit: usize,
         cycles_limit: Cycle,
-        min_fee_rate: FeeRate,
     ) -> (Vec<TxEntry>, usize, Cycle) {
         let mut size: usize = 0;
         let mut cycles: Cycle = 0;
-        self.proposed_pool.with_sorted_by_score_iter(|iter| {
-            let mut candidate_pool_tx = None;
-            let mut candidate_modified_tx = None;
-            loop {
-                // 1. choose best tx from pool and modified entries
-                // 2. compare the two txs, package the better one
-                // 3. update modified entries
-                Self::next_candidate_tx(
-                    &mut candidate_pool_tx,
-                    iter,
-                    size_limit,
-                    cycles_limit,
-                    size,
-                    cycles,
-                    |entry| {
-                        let tx_id = entry.proposal_short_id();
-                        !self.fetched_txs.contains(&tx_id)
-                            && !self.modified_entries.contains_key(&tx_id)
-                            && entry.ancestors_fee >= min_fee_rate.fee(entry.ancestors_size)
-                    },
-                );
-                self.modified_entries.with_sorted_by_score_iter(|iter| {
-                    Self::next_candidate_tx(
-                        &mut candidate_modified_tx,
-                        iter,
-                        size_limit,
-                        cycles_limit,
-                        size,
-                        cycles,
-                        |entry| entry.ancestors_fee >= min_fee_rate.fee(entry.ancestors_size),
-                    );
-                });
-                // take tx with higher scores
-                let tx_entry = match max(&mut candidate_pool_tx, &mut candidate_modified_tx).take()
-                {
-                    Some(entry) => entry,
-                    None => {
-                        // can't find any satisfied tx
-                        break;
-                    }
-                };
-                debug_assert!(!self.fetched_txs.contains(&tx_entry.proposal_short_id()));
-                // prepare to package tx with ancestors
-                let mut ancestors = self
-                    .proposed_pool
-                    .get_ancestors(&tx_entry.proposal_short_id())
-                    .into_iter()
-                    .filter_map(|short_id| {
-                        if self.fetched_txs.contains(&short_id) {
-                            None
-                        } else {
-                            self.modified_entries.get(&short_id).or_else(|| {
-                                let entry = self
-                                    .proposed_pool
-                                    .get(&short_id)
-                                    .expect("pool should be consistent");
-                                Some(entry)
-                            })
-                        }
-                    })
-                    .cloned()
-                    .collect::<HashSet<TxEntry>>();
-                ancestors.insert(tx_entry.to_owned());
-                debug_assert_eq!(
-                    tx_entry.ancestors_cycles,
-                    ancestors.iter().map(|entry| entry.cycles).sum::<u64>(),
-                    "proposed tx pool ancestors cycles inconsistent"
-                );
-                debug_assert_eq!(
-                    tx_entry.ancestors_size,
-                    ancestors.iter().map(|entry| entry.size).sum::<usize>(),
-                    "proposed tx pool ancestors size inconsistent"
-                );
-                debug_assert_eq!(
-                    tx_entry.ancestors_count,
-                    ancestors.len(),
-                    "proposed tx pool ancestors count inconsistent"
-                );
-                // update all descendants and insert into modified
-                self.update_modified_entries(&ancestors);
-                // sort acestors by ancestors_count,
-                // if A is an ancestor of B, B.ancestors_count must large than A
-                let mut ancestors = ancestors.into_iter().collect::<Vec<_>>();
-                ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
-                // insert ancestors
-                for entry in ancestors {
-                    let short_id = entry.proposal_short_id();
-                    // try remove from modified
-                    self.modified_entries.remove(&short_id);
-                    let is_inserted = self.fetched_txs.insert(short_id);
-                    debug_assert!(is_inserted, "package duplicate txs");
-                    cycles = cycles.saturating_add(entry.cycles);
-                    size = size.saturating_add(entry.size);
-                    self.entries.push(entry);
+        let mut consecutive_failed = 0;
+
+        let mut iter = self.proposed_pool.score_sorted_iter().peekable();
+        loop {
+            let mut using_modified = false;
+
+            if let Some(entry) = iter.peek() {
+                if self.skip_proposed_entry(&entry.proposal_short_id()) {
+                    iter.next();
+                    continue;
                 }
             }
-        });
-        (self.entries, size, cycles)
-    }
 
-    /// update weight for all descendants of packaged txs
-    fn update_modified_entries(&mut self, new_fetched_txs: &HashSet<TxEntry>) {
-        for ptx in new_fetched_txs {
-            let ptx_id = ptx.proposal_short_id();
-            if self.fetched_txs.contains(&ptx_id) {
-                continue;
-            }
-            let descendants = self.proposed_pool.get_descendants(&ptx_id);
-            for id in descendants {
-                let mut tx = self.modified_entries.remove(&id).unwrap_or_else(|| {
-                    self.proposed_pool
-                        .get(&id)
-                        .map(ToOwned::to_owned)
-                        .expect("pool consistent")
-                });
-                tx.sub_entry_weight(&ptx);
-                self.modified_entries.insert(tx);
-            }
-        }
-    }
+            // First try to find a new transaction in `proposed_pool` to evaluate.
+            let tx_entry: TxEntry = match (iter.peek(), self.modified_entries.next_best_entry()) {
+                (Some(entry), Some(best_modified)) => {
+                    if &best_modified > entry {
+                        using_modified = true;
+                        best_modified.clone()
+                    } else {
+                        // worse than `proposed_pool`
+                        iter.next().cloned().expect("peek guard")
+                    }
+                }
+                (Some(_), None) => {
+                    // Either no entry in `modified_entries`
+                    iter.next().cloned().expect("peek guarded")
+                }
+                (None, Some(best_modified)) => {
+                    // We're out of entries in `proposed`; use the entry from `modified_entries`
+                    using_modified = true;
+                    best_modified.clone()
+                }
+                (None, None) => {
+                    break;
+                }
+            };
 
-    /// find next fetchable candidate tx from iterator then place it into entry
-    /// the tx should satisfy the size and cycles limits and pass the is_satisfied
-    fn next_candidate_tx<F: Fn(&TxEntry) -> bool>(
-        entry: &mut Option<TxEntry>,
-        iter: &mut dyn Iterator<Item = &TxEntry>,
-        size_limit: usize,
-        cycles_limit: Cycle,
-        size: usize,
-        cycles: Cycle,
-        is_satisfied: F,
-    ) {
-        let is_satisfy_limit = |entry: &TxEntry| -> bool {
-            let next_cycles = cycles.saturating_add(entry.ancestors_cycles);
-            let next_size = size.saturating_add(entry.ancestors_size);
-            next_cycles <= cycles_limit && next_size <= size_limit
-        };
-        // return entry if it's exists and satisfy the requirements
-        if let Some(tx_entry) = entry {
-            if is_satisfied(&tx_entry) && is_satisfy_limit(&tx_entry) {
-                return;
-            }
-        }
-        let mut consecutive_failed = 0;
-        for tx_entry in iter {
-            if !is_satisfied(&tx_entry) {
-                continue;
-            }
+            let short_id = tx_entry.proposal_short_id();
+            let next_size = size.saturating_add(tx_entry.ancestors_size);
+            let next_cycles = cycles.saturating_add(tx_entry.ancestors_cycles);
 
-            if !is_satisfy_limit(&tx_entry) {
+            if next_cycles > cycles_limit || next_size > size_limit {
                 consecutive_failed += 1;
-                // give up if failed too many times
-                if consecutive_failed > MAX_CONSECUTIVE_FAILED {
+                if using_modified {
+                    self.modified_entries.remove(&short_id);
+                    self.failed_txs.insert(short_id.clone());
+                }
+                if consecutive_failed > MAX_CONSECUTIVE_FAILURES {
                     break;
                 }
                 continue;
             }
 
-            // find new tx entry
-            entry.replace(tx_entry.to_owned());
-            return;
+            let only_unconfirmed = |short_id| {
+                if self.fetched_txs.contains(short_id) {
+                    None
+                } else {
+                    let entry = self.retrieve_entry(short_id);
+                    debug_assert!(entry.is_some(), "pool should be consistent");
+                    entry
+                }
+            };
+
+            // prepare to package tx with ancestors
+            let ancestors_ids = self.proposed_pool.get_ancestors(&short_id);
+            let mut ancestors = ancestors_ids
+                .iter()
+                .filter_map(only_unconfirmed)
+                .cloned()
+                .collect::<Vec<TxEntry>>();
+
+            // sort acestors by ancestors_count,
+            // if A is an ancestor of B, B.ancestors_count must large than A
+            ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
+            ancestors.push(tx_entry.to_owned());
+
+            let ancestors: LinkedHashMap<ProposalShortId, TxEntry> = ancestors
+                .into_iter()
+                .map(|entry| (entry.proposal_short_id(), entry))
+                .collect();
+
+            for (short_id, entry) in &ancestors {
+                let is_inserted = self.fetched_txs.insert(short_id.clone());
+                debug_assert!(is_inserted, "package duplicate txs");
+                cycles = cycles.saturating_add(entry.cycles);
+                size = size.saturating_add(entry.size);
+                self.entries.push(entry.to_owned());
+                // try remove from modified
+                self.modified_entries.remove(short_id);
+            }
+
+            self.update_modified_entries(&ancestors);
         }
-        // set entry to None if iter is end or consecutive failed
-        entry.take();
+        (self.entries, size, cycles)
+    }
+
+    fn retrieve_entry(&self, short_id: &ProposalShortId) -> Option<&TxEntry> {
+        self.modified_entries
+            .get(short_id)
+            .or_else(|| self.proposed_pool.get(short_id))
+    }
+
+    // Skip entries in `proposed` that are already in a block or are present
+    // in `modified_entries` (which implies that the mapTx ancestor state is
+    // stale due to ancestor inclusion in the block)
+    // Also skip transactions that we've already failed to add.
+    fn skip_proposed_entry(&self, short_id: &ProposalShortId) -> bool {
+        self.fetched_txs.contains(&short_id)
+            || self.modified_entries.contains_key(&short_id)
+            || self.failed_txs.contains(&short_id)
+    }
+
+    /// Add descendants of given transactions to `modified_entries` with ancestor
+    /// state updated assuming given transactions are inBlock.
+    fn update_modified_entries(&mut self, already_added: &LinkedHashMap<ProposalShortId, TxEntry>) {
+        for (id, entry) in already_added {
+            let descendants = self.proposed_pool.get_descendants(&id);
+            for desc_id in descendants
+                .iter()
+                .filter(|id| !already_added.contains_key(id))
+            {
+                let mut desc = self.modified_entries.remove(&desc_id).unwrap_or_else(|| {
+                    self.proposed_pool
+                        .get(&desc_id)
+                        .map(ToOwned::to_owned)
+                        .expect("pool consistent")
+                });
+                desc.sub_entry_weight(&entry);
+                self.modified_entries.insert(desc);
+            }
+        }
     }
 }

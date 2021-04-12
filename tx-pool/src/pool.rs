@@ -6,7 +6,7 @@ use crate::component::proposed::ProposedPool;
 use crate::error::Reject;
 use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
-use ckb_logger::{debug, error, trace};
+use ckb_logger::{error, trace};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
@@ -91,8 +91,8 @@ impl TxPool {
 
         TxPool {
             config,
-            pending: PendingQueue::new(config.max_ancestors_count),
-            gap: PendingQueue::new(config.max_ancestors_count),
+            pending: PendingQueue::new(),
+            gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
@@ -166,25 +166,25 @@ impl TxPool {
 
     /// Add tx to pending pool
     /// If did have this value present, false is returned.
-    pub fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub fn add_pending(&mut self, entry: TxEntry) -> bool {
         if self.gap.contains_key(&entry.proposal_short_id()) {
-            return Ok(false);
+            return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        self.pending.add_entry(entry).map(|entry| entry.is_none())
+        self.pending.add_entry(entry).is_none()
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
-    pub fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub fn add_gap(&mut self, entry: TxEntry) -> bool {
         trace!("add_gap {}", entry.transaction().hash());
-        self.gap.add_entry(entry).map(|entry| entry.is_none())
+        self.gap.add_entry(entry).is_none()
     }
 
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
         self.touch_last_txs_updated_at();
-        self.proposed.add_entry(entry).map(|entry| entry.is_none())
+        self.proposed.add_entry(entry)
     }
 
     pub(crate) fn touch_last_txs_updated_at(&self) {
@@ -278,23 +278,13 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_expired<'a>(
-        &mut self,
-        ids: impl Iterator<Item = &'a ProposalShortId>,
-        callbacks: &Callbacks,
-    ) {
+    pub(crate) fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
-            for entry in self.gap.remove_entry_and_descendants(id) {
-                if let Err(err) = self.add_pending(entry.clone()) {
-                    debug!("move expired gap to pending error {}", err);
-                    callbacks.call_reject(self, &entry, err.clone());
-                }
+            if let Some(entry) = self.gap.remove_entry(id) {
+                self.add_pending(entry);
             }
             for entry in self.proposed.remove_entry_and_descendants(id) {
-                if let Err(err) = self.add_pending(entry.clone()) {
-                    debug!("move expired proposed to pending error {}", err);
-                    callbacks.call_reject(self, &entry, err.clone());
-                }
+                self.add_pending(entry);
             }
         }
     }
@@ -363,7 +353,7 @@ impl TxPool {
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
-        if self.add_gap(entry)? {
+        if self.add_gap(entry) {
             Ok(verified)
         } else {
             Err(Reject::Duplicated(tx_hash))
@@ -396,12 +386,10 @@ impl TxPool {
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
     ) -> HashSet<ProposalShortId> {
-        let min_fee_rate = self.config.min_fee_rate;
         let mut proposals = HashSet::with_capacity(limit);
         self.pending
-            .fill_proposals(limit, min_fee_rate, exclusion, &mut proposals);
-        self.gap
-            .fill_proposals(limit, min_fee_rate, exclusion, &mut proposals);
+            .fill_proposals(limit, exclusion, &mut proposals);
+        self.gap.fill_proposals(limit, exclusion, &mut proposals);
         proposals
     }
 

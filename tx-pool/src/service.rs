@@ -675,9 +675,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        if let Err(err) = tx_pool.add_pending(entry) {
-                            error!("plug entry error {}", err);
-                        }
+                        tx_pool.add_pending(entry);
                     }
                 }
                 PlugTarget::Proposed => {

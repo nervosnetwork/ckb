@@ -103,6 +103,20 @@ impl<T: Hash + Eq> LinkedHashSet<T, DefaultBuildHasher> {
             map: LinkedHashMap::default(),
         }
     }
+
+    /// Creates an empty linked hash map with the given initial capacity.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use ckb_util::LinkedHashSet;
+    /// let set: LinkedHashSet<i32> = LinkedHashSet::with_capacity(42);
+    /// ```
+    pub fn with_capacity(capacity: usize) -> LinkedHashSet<T, DefaultBuildHasher> {
+        LinkedHashSet {
+            map: LinkedHashMap::with_capacity_and_hasher(capacity, Default::default()),
+        }
+    }
 }
 
 impl<T, S> LinkedHashSet<T, S>

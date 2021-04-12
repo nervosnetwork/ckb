@@ -497,6 +497,11 @@ impl TransactionsChecker {
         let inner = txs.map(|tx| (tx.hash(), tx.outputs())).collect();
         Self { inner }
     }
+
+    /// append new transaction
+    pub fn insert(&mut self, tx: &TransactionView) {
+        self.inner.insert(tx.hash(), tx.outputs());
+    }
 }
 
 impl CellChecker for TransactionsChecker {
