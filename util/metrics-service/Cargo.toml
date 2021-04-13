@@ -1,6 +1,6 @@
 [package]
 name = "ckb-metrics-service"
-version = "0.41.0-pre"
+version = "0.41.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -9,8 +9,8 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-metrics-config = { path = "../metrics-config", version = "= 0.41.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.41.0-pre" }
-ckb-util = { path = "..", version = "= 0.41.0-pre" }
+ckb-metrics-config = { path = "../metrics-config", version = "= 0.41.0" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.41.0" }
+ckb-util = { path = "..", version = "= 0.41.0" }
 metrics-runtime = { package = "ckb-metrics-runtime", version = "0.13.1" }
 metrics-core = "0.5.2"

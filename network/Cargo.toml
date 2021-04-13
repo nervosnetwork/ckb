@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.41.0-pre"
+version = "0.41.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,10 +11,10 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 rand = "0.7"
 serde = { version = "1.0", features = ["derive"] }
-ckb-util = { path = "../util", version = "= 0.41.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.41.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.41.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
+ckb-util = { path = "../util", version = "= 0.41.0" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.41.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.41.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.41.0" }
 tokio = { version = "0.2.11", features = ["sync", "macros"] }
 tokio-util = { version = "0.3.0", features = ["codec"] }
 futures = "0.3"
@@ -24,15 +24,15 @@ lazy_static = { version = "1.3.0", optional = true }
 bs58 = { version = "0.3.0", optional = true }
 sentry = { package = "ckb-sentry", version = "0.21.0", optional = true }
 faster-hex = { version = "0.4", optional = true }
-ckb-hash = {path = "../util/hash", version = "= 0.41.0-pre"}
+ckb-hash = {path = "../util/hash", version = "= 0.41.0"}
 secp256k1 = {version = "0.19", features = ["recovery"], optional = true }
 trust-dns-resolver = { version = "0.19", optional = true }
 snap = "1"
-ckb-types = { path = "../util/types", version = "= 0.41.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.41.0" }
 ipnetwork = "0.14"
 serde_json = "1.0"
 bloom-filters = "0.1"
-ckb-spawn = { path = "../util/spawn", version = "= 0.41.0-pre" }
+ckb-spawn = { path = "../util/spawn", version = "= 0.41.0" }
 
 [features]
 with_sentry = ["sentry"]

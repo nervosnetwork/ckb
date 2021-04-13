@@ -1,6 +1,6 @@
 [package]
 name = "ckb-fee-estimator"
-version = "0.41.0-pre"
+version = "0.41.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -11,6 +11,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.41.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.41.0-pre" }
+ckb-types = { path = "../types", version = "= 0.41.0" }
+ckb-logger = { path = "../logger", version = "= 0.41.0" }
 serde = { version = "1.0", features = ["derive"] }
