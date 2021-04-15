@@ -1,4 +1,7 @@
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::{
+    check,
+    mining::{mine, mine_until_out_bootstrap_period},
+};
 use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp,
@@ -6,7 +9,7 @@ use crate::utils::{
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
 use ckb_logger::info;
-use ckb_types::core::BlockNumber;
+use ckb_types::core::{BlockNumber, TransactionView};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -32,7 +35,8 @@ impl Spec for ValidSince {
 impl ValidSince {
     pub fn test_since_relative_block_number(&self, node: &Node) {
         mine_until_out_bootstrap_period(node);
-        let relative: BlockNumber = 5;
+        let started_tip_number = node.get_tip_block_number();
+        let relative: BlockNumber = 10;
         let since = since_from_relative_block_number(relative);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
@@ -40,7 +44,7 @@ impl ValidSince {
         };
 
         // Failed to send transaction since SinceImmaturity
-        for _ in 1..relative {
+        for _ in 1..=(relative - 3) {
             assert_send_transaction_fail(
                 node,
                 &transaction,
@@ -56,11 +60,13 @@ impl ValidSince {
                 .is_ok(),
             "transaction is ok, tip is equal to relative since block number",
         );
+
+        Self::check_committing_process(node, &transaction, started_tip_number + relative);
     }
 
     pub fn test_since_absolute_block_number(&self, node: &Node) {
         mine_until_out_bootstrap_period(node);
-        let absolute: BlockNumber = node.rpc_client().get_tip_block_number() + 5;
+        let absolute: BlockNumber = node.rpc_client().get_tip_block_number() + 10;
         let since = since_from_absolute_block_number(absolute);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
@@ -69,7 +75,7 @@ impl ValidSince {
 
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
-        for _ in tip_number + 1..absolute {
+        for _ in tip_number + 1..=(absolute - 3) {
             assert_send_transaction_fail(
                 node,
                 &transaction,
@@ -85,6 +91,8 @@ impl ValidSince {
                 .is_ok(),
             "transaction is ok, tip is equal to absolute since block number",
         );
+
+        Self::check_committing_process(node, &transaction, absolute);
     }
 
     pub fn test_since_relative_median_time(&self, node: &Node) {
@@ -254,5 +262,29 @@ impl ValidSince {
         node.assert_tx_pool_size(0, 1);
         mine(&node, 1);
         node.assert_tx_pool_size(0, 0);
+    }
+
+    fn check_committing_process(
+        node: &Node,
+        transaction: &TransactionView,
+        committed_at: BlockNumber,
+    ) {
+        // Pending
+        node.assert_tx_pool_size(1, 0);
+        assert!(check::is_transaction_pending(node, transaction));
+        // Gap
+        mine(&node, 1);
+        node.assert_tx_pool_size(1, 0);
+        assert!(check::is_transaction_pending(node, transaction));
+        // Proposed
+        mine(&node, 1);
+        node.assert_tx_pool_size(0, 1);
+        assert!(check::is_transaction_proposed(node, transaction));
+        // Committed
+        mine(&node, 1);
+        node.assert_tx_pool_size(0, 0);
+        assert!(check::is_transaction_committed(node, transaction));
+
+        assert_eq!(node.get_tip_block_number(), committed_at);
     }
 }

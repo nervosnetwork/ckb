@@ -1,6 +1,6 @@
 use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, OutputsDataVerifier,
-    Since, SinceVerifier, SizeVerifier, VersionVerifier,
+    Since, SinceVerifier, SizeVerifier, TransactionVerificationPhase, VersionVerifier,
 };
 use crate::error::TransactionErrorSource;
 use crate::TransactionError;
@@ -397,8 +397,9 @@ fn verify_since<'a, DL: HeaderProvider>(
         data_loader,
         block_number,
         EpochNumberWithFraction::new(epoch_number, 0, 10),
-        11,
         parent_hash.as_ref().to_owned(),
+        TransactionVerificationPhase::Committed,
+        11,
     )
     .verify()
 }
@@ -504,8 +505,9 @@ fn test_fraction_epoch_since_verify() {
         &median_time_context,
         block_number,
         EpochNumberWithFraction::new(16, 1, 10),
-        MOCK_MEDIAN_TIME_COUNT,
         parent_hash.as_ref().to_owned(),
+        TransactionVerificationPhase::Committed,
+        MOCK_MEDIAN_TIME_COUNT,
     )
     .verify();
     assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
@@ -515,8 +517,9 @@ fn test_fraction_epoch_since_verify() {
         &median_time_context,
         block_number,
         EpochNumberWithFraction::new(16, 5, 10),
-        MOCK_MEDIAN_TIME_COUNT,
         parent_hash.as_ref().to_owned(),
+        TransactionVerificationPhase::Committed,
+        MOCK_MEDIAN_TIME_COUNT,
     )
     .verify();
     assert!(result.is_ok());

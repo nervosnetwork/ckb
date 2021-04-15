@@ -22,7 +22,8 @@ pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
     ContextualTransactionVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since,
-    SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
+    SinceMetric, TimeRelativeTransactionVerifier, TransactionVerificationPhase,
+    TransactionVerifier,
 };
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the

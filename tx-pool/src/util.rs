@@ -7,7 +7,7 @@ use ckb_store::ChainStore;
 use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
 use ckb_verification::{
     cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier,
+    TimeRelativeTransactionVerifier, TransactionVerificationPhase,
 };
 use tokio::task::block_in_place;
 
@@ -74,6 +74,7 @@ pub(crate) fn non_contextual_verify(
 pub(crate) fn verify_rtx(
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,
+    tx_phase: TransactionVerificationPhase,
     cache_entry: Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
 ) -> Result<CacheEntry, Reject> {
@@ -86,9 +87,10 @@ pub(crate) fn verify_rtx(
         TimeRelativeTransactionVerifier::new(
             &rtx,
             snapshot,
-            tip_number + 1,
+            tip_number,
             epoch,
             tip_header.hash(),
+            tx_phase,
             consensus,
         )
         .verify()
@@ -98,9 +100,10 @@ pub(crate) fn verify_rtx(
         block_in_place(|| {
             ContextualTransactionVerifier::new(
                 &rtx,
-                tip_number + 1,
+                tip_number,
                 epoch,
                 tip_header.hash(),
+                tx_phase,
                 consensus,
                 &snapshot.as_data_provider(),
             )

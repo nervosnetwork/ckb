@@ -23,7 +23,7 @@ use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, UnknownParentError,
 };
-use ckb_verification::{BlockTransactionsError, EpochError};
+use ckb_verification::{BlockTransactionsError, EpochError, TransactionVerificationPhase};
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -375,6 +375,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
+                let tx_phase = TransactionVerificationPhase::Committed;
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
                     TimeRelativeTransactionVerifier::new(
                         &tx,
@@ -382,6 +383,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.block_number,
                         self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
+                        tx_phase,
                         self.context.consensus,
                     )
                     .verify()
@@ -399,6 +401,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.block_number,
                         self.epoch_number_with_fraction,
                         self.parent_hash.clone(),
+                        tx_phase,
                         self.context.consensus,
                         &self.context.store.as_data_provider(),
                     )

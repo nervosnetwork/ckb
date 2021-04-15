@@ -10,8 +10,8 @@ use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView,
-        Version,
+        BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ScriptHashType,
+        TransactionView, Version,
     },
     packed::Byte32,
     prelude::*,
@@ -19,6 +19,59 @@ use ckb_types::{
 use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
+
+/// The phase that transactions are in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionVerificationPhase {
+    /// The transaction has just been submitted.
+    ///
+    /// So the transaction will be:
+    /// - proposed after the `tip_number + 1` block.
+    /// - committed after the `tip_number + 1 + 2` block.
+    Submitted,
+    /// The transaction has already been proposed and in Gap.
+    ///
+    /// So the transaction will be committed after the `tip_number + 2` block.
+    Gap,
+    /// The transaction has already been proposed.
+    ///
+    /// So the transaction will be committed after the `tip_number + 1` block.
+    Proposed,
+    /// The transaction is commit.
+    ///
+    /// So the transaction will be committed in current block.
+    Committed,
+}
+
+impl TransactionVerificationPhase {
+    /// Convert tip block number to earliest committed block number.
+    pub fn earliest_committed_block(self, tip_block_number: BlockNumber) -> BlockNumber {
+        match self {
+            Self::Submitted => tip_block_number + 3,
+            Self::Gap => tip_block_number + 2,
+            Self::Proposed => tip_block_number + 1,
+            Self::Committed => tip_block_number,
+        }
+    }
+
+    /// Convert tip epoch number to earliest committed epoch number.
+    pub fn earliest_committed_epoch(self, tip_epoch: EpochNumberWithFraction) -> EpochNumber {
+        let number = tip_epoch.number();
+        let length = tip_epoch.length();
+        let index = tip_epoch.index();
+        let index_added = match self {
+            Self::Submitted => 3,
+            Self::Gap => 2,
+            Self::Proposed => 1,
+            Self::Committed => 0,
+        };
+        if index + index_added >= length {
+            number + 1
+        } else {
+            number
+        }
+    }
+}
 
 /// The time-related TX verification
 ///
@@ -38,6 +91,7 @@ impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
         block_number: BlockNumber,
         epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
+        tx_phase: TransactionVerificationPhase,
         consensus: &'a Consensus,
     ) -> Self {
         TimeRelativeTransactionVerifier {
@@ -51,8 +105,9 @@ impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
                 data_loader,
                 block_number,
                 epoch_number_with_fraction,
-                consensus.median_time_block_count(),
                 parent_hash,
+                tx_phase,
+                consensus.median_time_block_count(),
             ),
         }
     }
@@ -132,6 +187,7 @@ where
         block_number: BlockNumber,
         epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
+        tx_phase: TransactionVerificationPhase,
         consensus: &'a Consensus,
         data_loader: &'a DL,
     ) -> Self {
@@ -148,8 +204,9 @@ where
                 data_loader,
                 block_number,
                 epoch_number_with_fraction,
-                consensus.median_time_block_count(),
                 parent_hash,
+                tx_phase,
+                consensus.median_time_block_count(),
             ),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
@@ -192,6 +249,7 @@ impl<'a, DL: HeaderProvider + CellDataProvider + EpochProvider> TransactionVerif
         block_number: BlockNumber,
         epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
+        tx_phase: TransactionVerificationPhase,
         consensus: &'a Consensus,
         data_loader: &'a DL,
     ) -> Self {
@@ -202,6 +260,7 @@ impl<'a, DL: HeaderProvider + CellDataProvider + EpochProvider> TransactionVerif
                 block_number,
                 epoch_number_with_fraction,
                 parent_hash,
+                tx_phase,
                 consensus,
                 data_loader,
             ),
@@ -592,6 +651,7 @@ pub struct SinceVerifier<'a, DL> {
     block_number: BlockNumber,
     epoch_number_with_fraction: EpochNumberWithFraction,
     parent_hash: Byte32,
+    tx_phase: TransactionVerificationPhase,
     median_block_count: usize,
     median_timestamps_cache: RefCell<LruCache<Byte32, u64>>,
 }
@@ -602,8 +662,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         data_loader: &'a DL,
         block_number: BlockNumber,
         epoch_number_with_fraction: EpochNumberWithFraction,
-        median_block_count: usize,
         parent_hash: Byte32,
+        tx_phase: TransactionVerificationPhase,
+        median_block_count: usize,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         SinceVerifier {
@@ -612,6 +673,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
             block_number,
             epoch_number_with_fraction,
             parent_hash,
+            tx_phase,
             median_block_count,
             median_timestamps_cache,
         }
@@ -640,7 +702,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         if since.is_absolute() {
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.block_number < block_number {
+                    if self.tx_phase.earliest_committed_block(self.block_number) < block_number {
                         return Err((TransactionError::Immature { index }).into());
                     }
                 }
@@ -676,7 +738,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
             }?;
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.block_number < info.block_number + block_number {
+                    if self.tx_phase.earliest_committed_block(self.block_number)
+                        < info.block_number + block_number
+                    {
                         return Err((TransactionError::Immature { index }).into());
                     }
                 }
