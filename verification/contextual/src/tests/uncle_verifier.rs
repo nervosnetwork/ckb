@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -59,15 +61,9 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
     faketime::enable(&faketime_file);
 
-    let consensus = Consensus {
-        max_block_proposals_limit: 3,
-        genesis_epoch_ext: {
-            let mut ext = EpochExt::default();
-            ext.set_length(10);
-            ext
-        },
-        ..Default::default()
-    };
+    let mut consensus = Consensus::default();
+    consensus.max_block_proposals_limit = 3;
+    consensus.genesis_epoch_ext.set_length(10);
 
     let (chain_controller, shared) = start_chain(Some(consensus));
 
@@ -547,15 +543,9 @@ fn test_ok() {
 fn test_uncle_with_uncle_descendant() {
     let (_, chain1, chain2) = prepare();
 
-    let consensus = Consensus {
-        max_block_proposals_limit: 3,
-        genesis_epoch_ext: {
-            let mut ext = EpochExt::default();
-            ext.set_length(10);
-            ext
-        },
-        ..Default::default()
-    };
+    let mut consensus = Consensus::default();
+    consensus.max_block_proposals_limit = 3;
+    consensus.genesis_epoch_ext.set_length(10);
     let (controller, shared) = start_chain(Some(consensus));
 
     for block in &chain2 {
