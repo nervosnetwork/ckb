@@ -302,13 +302,13 @@ impl ProposedPool {
     }
 
     /// find all ancestors from pool
-    pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.get_ancestors(&tx_short_id)
+    pub fn calc_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        self.inner.calc_ancestors(&tx_short_id)
     }
 
     /// find all descendants from pool
-    pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.get_descendants(&tx_short_id)
+    pub fn calc_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        self.inner.calc_descendants(&tx_short_id)
     }
 }
 
@@ -679,7 +679,7 @@ mod tests {
         ))
         .unwrap();
 
-        let ancestors = pool.get_ancestors(&tx4.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx4.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]
             .into_iter()
             .collect();
@@ -703,7 +703,7 @@ mod tests {
         );
         assert_eq!(entry.ancestors_count, ancestors.len() + 1);
 
-        let ancestors = pool.get_ancestors(&tx3.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx3.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id()].into_iter().collect();
         assert_eq!(ancestors, expect_result);
         let entry = pool.get(&tx3.proposal_short_id()).expect("exists");
@@ -725,7 +725,7 @@ mod tests {
         );
         assert_eq!(entry.ancestors_count, ancestors.len() + 1);
 
-        let ancestors = pool.get_ancestors(&tx1.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx1.proposal_short_id());
         assert_eq!(ancestors, Default::default());
         let entry = pool.get(&tx1.proposal_short_id()).expect("exists");
         assert_eq!(entry.ancestors_cycles, cycles);

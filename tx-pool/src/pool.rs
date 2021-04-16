@@ -283,7 +283,9 @@ impl TxPool {
             if let Some(entry) = self.gap.remove_entry(id) {
                 self.add_pending(entry);
             }
-            for entry in self.proposed.remove_entry_and_descendants(id) {
+            let mut entries = self.proposed.remove_entry_and_descendants(id);
+            entries.sort_unstable_by_key(|entry| entry.ancestors_count);
+            for entry in entries {
                 self.add_pending(entry);
             }
         }

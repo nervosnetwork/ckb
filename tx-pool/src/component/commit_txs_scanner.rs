@@ -151,7 +151,7 @@ impl<'a> CommitTxsScanner<'a> {
             };
 
             // prepare to package tx with ancestors
-            let ancestors_ids = self.proposed_pool.get_ancestors(&short_id);
+            let ancestors_ids = self.proposed_pool.calc_ancestors(&short_id);
             let mut ancestors = ancestors_ids
                 .iter()
                 .filter_map(only_unconfirmed)
@@ -203,7 +203,7 @@ impl<'a> CommitTxsScanner<'a> {
     /// state updated assuming given transactions are inBlock.
     fn update_modified_entries(&mut self, already_added: &LinkedHashMap<ProposalShortId, TxEntry>) {
         for (id, entry) in already_added {
-            let descendants = self.proposed_pool.get_descendants(&id);
+            let descendants = self.proposed_pool.calc_descendants(&id);
             for desc_id in descendants
                 .iter()
                 .filter(|id| !already_added.contains_key(id))
