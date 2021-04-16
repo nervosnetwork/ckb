@@ -55,6 +55,7 @@ CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
 def camel_to_snake(name):
     return CAMEL_TO_SNAKE_PATTERN.sub('_', name).lower()
 
+
 def snake_to_camel(name):
     return name.title().replace('_', '')
 
@@ -235,11 +236,13 @@ class RPCVar():
             self.children.append(RPCVar())
 
     def handle_starttag(self, tag, attrs):
-        if tag != 'a':
+        attrs_dict = dict(attrs)
+
+        if tag != 'a' or ('title' in attrs_dict and attrs_dict['title'] == 'goto source code'):
             return
 
         if self.ty is None:
-            self.ty = dict(attrs)['href']
+            self.ty = attrs_dict['href']
             if self.ty.startswith('#'):
                 self.ty = None
                 return
@@ -285,7 +288,8 @@ class RPCVar():
                     elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
                         self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
                     elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
-                        self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(self.children[0].ty, self.children[1].ty)
+                        self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(
+                            self.children[0].ty, self.children[1].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                         molecule_name = self.children[1].ty.split(
                             '`](')[0][2:]
@@ -335,10 +339,11 @@ class RPCMethod():
 
     def handle_starttag(self, tag, attrs):
         if self.rpc_var_parser is not None:
-            if tag == 'div' and (attrs == [("class", "docblock")] or attrs == [("class", 'stability')]):
+            if tag == 'div' and (attrs == [("class", "docblock")] or attrs == [("class", "stab deprecated")]):
                 self.rpc_var_parser = None
                 self.doc_parser = MarkdownParser(title_level=4)
-                if attrs == [("class", "stability")]:
+                if attrs == [("class", "stab deprecated")]:
+                    self.doc_parser.append("\n")
                     self.parsing_stability = True
                 return
 
@@ -520,11 +525,13 @@ class EnumSchema(HTMLParser):
 
     # PoolTransactionReject
     def write_pool_transaction_reject(self, file):
-        file.write('`{}` is a JSON object with following fields.\n\n'.format(self.name))
+        file.write(
+            '`{}` is a JSON object with following fields.\n\n'.format(self.name))
 
         file.write('*   `type`: `"{}"` - Reject type.\n'.format(
             '" | "'.join(snake_to_camel(v[0]) for v in self.variants)))
-        file.write('*   `description`: `string` - Detailed description about why the transaction is rejected.\n\n')
+        file.write(
+            '*   `description`: `string` - Detailed description about why the transaction is rejected.\n\n')
         file.write('Different reject types:\n\n')
 
         for (name, v) in self.variants:
@@ -680,7 +687,7 @@ class RPCDoc(object):
 }
 ```
 """)
-            ]
+        ]
 
     def collect(self):
         for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
