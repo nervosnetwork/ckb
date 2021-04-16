@@ -285,7 +285,8 @@ impl TxPool {
             }
             let mut entries = self.proposed.remove_entry_and_descendants(id);
             entries.sort_unstable_by_key(|entry| entry.ancestors_count);
-            for entry in entries {
+            for mut entry in entries {
+                entry.reset_ancestors_state();
                 self.add_pending(entry);
             }
         }

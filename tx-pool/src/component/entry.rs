@@ -92,6 +92,14 @@ impl TxEntry {
         );
     }
 
+    /// Reset ancestor state by remove
+    pub fn reset_ancestors_state(&mut self) {
+        self.ancestors_count = 1;
+        self.ancestors_size = self.size;
+        self.ancestors_cycles = self.cycles;
+        self.ancestors_fee = self.fee;
+    }
+
     /// Converts entry to a `TxEntryInfo`.
     pub fn to_info(&self) -> TxEntryInfo {
         TxEntryInfo {
