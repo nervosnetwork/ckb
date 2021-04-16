@@ -38,7 +38,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
 
 """
 
