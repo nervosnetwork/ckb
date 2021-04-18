@@ -30,12 +30,11 @@ use p2p::{
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
-    multiaddr::{self, Multiaddr},
+    multiaddr::{self, Multiaddr, Protocol},
     secio::{self, error::SecioError, PeerId},
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,
-    utils::extract_peer_id,
-    utils::{is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     yamux::config::Config as YamuxConfig,
     SessionId,
 };
@@ -44,6 +43,7 @@ use rand::prelude::IteratorRandom;
 use sentry::{capture_message, with_scope, Level};
 use std::sync::mpsc;
 use std::{
+    borrow::Cow,
     cmp::max,
     collections::{HashMap, HashSet},
     pin::Pin,
@@ -88,12 +88,23 @@ impl NetworkState {
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
+        let local_peer_id = local_private_key.peer_id();
         // set max score to public addresses
         let public_addrs: HashSet<Multiaddr> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
+            .filter_map(|mut addr| {
+                multiaddr_to_socketaddr(&addr)
+                    .filter(|addr| is_reachable(addr.ip()))
+                    .and({
+                        if extract_peer_id(&addr).is_none() {
+                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                        }
+                        Some(addr)
+                    })
+            })
             .collect();
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
@@ -116,8 +127,8 @@ impl NetworkState {
             public_addrs: RwLock::new(public_addrs),
             listened_addrs: RwLock::new(Vec::new()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
-            local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.public_key().peer_id(),
+            local_private_key,
+            local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
         })
