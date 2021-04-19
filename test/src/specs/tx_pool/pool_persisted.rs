@@ -2,9 +2,9 @@ use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
 use ckb_logger::info;
 
-pub struct PoolCache;
+pub struct PoolPersisted;
 
-impl Spec for PoolCache {
+impl Spec for PoolPersisted {
     crate::setup!(num_nodes: 1);
 
     fn run(&self, nodes: &mut Vec<Node>) {
