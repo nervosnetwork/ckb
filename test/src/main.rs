@@ -381,7 +381,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
         #[cfg(target_os = "linux")]
-        Box::new(PoolCache),
+        Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
         // TODO failed on poor CI server

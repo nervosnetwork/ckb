@@ -10,7 +10,7 @@ mod generated;
 
 pub(crate) use generated::*;
 
-/// The version of the cache data.
+/// The version of the persisted tx-pool data.
 pub(crate) const VERSION: u32 = 1;
 
 impl TxPool {
