@@ -65,6 +65,7 @@ impl Reject {
         match self {
             Reject::Malformed(_) => true,
             Reject::Verification(err) => is_malformed_from_verification(err),
+            Reject::Resolve(OutPointError::OverMaxDepExpansionLimit { ban }) => *ban,
             _ => false,
         }
     }

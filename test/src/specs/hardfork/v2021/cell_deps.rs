@@ -20,15 +20,16 @@ use ckb_types::{
 use std::fmt;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2021_START_EPOCH: u64 = 10;
+const CKB2021_START_EPOCH: u64 = 12;
 
 // In `CheckCellDepsTestRunner::create_celldep_set()`:
 // - Deploy 6 scripts.
 // - Deploy 4 transactions as code cell deps.
 // - Deploy 5 transactions as dep-group cell deps with 1 out point.
 // - Deploy 4 transactions as dep-group cell deps with 2 out points.
+// - Deploy 1 transactions as dep-group cell deps with 2048 out points.
 // Each spends 1 input.
-const CELL_DEPS_COST_COUNT: usize = 19;
+const CELL_DEPS_COST_COUNT: usize = 20;
 // All test cases will truncate blocks after running, so we only require 1 transaction.
 const TEST_CASES_COUNT: usize = 1;
 const INITIAL_INPUTS_COUNT: usize = CELL_DEPS_COST_COUNT + TEST_CASES_COUNT;
@@ -49,6 +50,8 @@ enum ExpectedResult {
     MultipleMatchesInputLock,
     MultipleMatchesInputType,
     MultipleMatchesOutputType,
+    OverMaxDepExpansionLimitNotBan,
+    OverMaxDepExpansionLimitBan,
 }
 
 // Use aliases to make the test cases matrix more readable.
@@ -58,6 +61,8 @@ const DUP: ExpectedResult = ER::DuplicateCellDeps;
 const MMIL: ExpectedResult = ER::MultipleMatchesInputLock;
 const MMIT: ExpectedResult = ER::MultipleMatchesInputType;
 const MMOT: ExpectedResult = ER::MultipleMatchesOutputType;
+const MDEL_NOTBAN: ExpectedResult = ER::OverMaxDepExpansionLimitNotBan;
+const MDEL_BAN: ExpectedResult = ER::OverMaxDepExpansionLimitBan;
 
 // Use identifiers with same length to align the test cases matrix, to make it more readable.
 #[derive(Debug, Clone, Copy)]
@@ -101,6 +106,7 @@ type ST = ScriptType;
 //  - group_ax1_ax2:      cell dep: dep group, point: [code_ax1, code_ax2].
 //  - group_ax1_ay0:      cell dep: dep group, point: [code_ax1, code_ay0].
 //  - group_ax1_bx0:      cell dep: dep group, point: [code_ax1, code_bx0].
+//  - group_ay0_2048:     cell dep: dep group, point: [code_ay0; 2048].
 struct CellDepSet {
     default_script: NewScript,
     code_ax1: packed::CellDep,
@@ -116,6 +122,7 @@ struct CellDepSet {
     group_ax1_ax2: packed::CellDep,
     group_ax1_ay0: packed::CellDep,
     group_ax1_bx0: packed::CellDep,
+    group_ay0_2048: packed::CellDep,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -166,6 +173,7 @@ impl Spec for CheckCellDeps {
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
             switch.rfc_0029 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0038 = Some(CKB2021_START_EPOCH);
         }
     }
 }
@@ -307,6 +315,16 @@ impl ExpectedResult {
                  Verification failed Script(TransactionScriptError \
                  { source: Outputs[0].Type, cause: MultipleMatches })",
             ),
+            Self::OverMaxDepExpansionLimitNotBan => Some(
+                "{\"code\":-301,\"message\":\"TransactionFailedToResolve: \
+                 Resolve failed OverMaxDepExpansionLimit\",\
+                 \"data\":\"Resolve(OverMaxDepExpansionLimit { ban: false })\"}",
+            ),
+            Self::OverMaxDepExpansionLimitBan => Some(
+                "{\"code\":-301,\"message\":\"TransactionFailedToResolve: \
+                 Resolve failed OverMaxDepExpansionLimit\",\
+                 \"data\":\"Resolve(OverMaxDepExpansionLimit { ban: true })\"}",
+            ),
         }
     }
 }
@@ -444,19 +462,20 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let code_ax2 = Self::convert_tx_to_code_cellep(&code_ax2_tx);
         let code_ay0 = Self::convert_tx_to_code_cellep(&code_ay0_tx);
         let code_bx0 = Self::convert_tx_to_code_cellep(&code_bx0_tx);
-        let group_ax1a = Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, None);
-        let group_ax1b = Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, None);
-        let group_ax2 = Self::create_depgroup_celldep(node, inputs, &code_ax2_tx, None);
-        let group_ay0 = Self::create_depgroup_celldep(node, inputs, &code_ay0_tx, None);
-        let group_bx0 = Self::create_depgroup_celldep(node, inputs, &code_bx0_tx, None);
+        let group_ax1a = Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx]);
+        let group_ax1b = Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx]);
+        let group_ax2 = Self::create_depgroup_celldep(node, inputs, &[&code_ax2_tx]);
+        let group_ay0 = Self::create_depgroup_celldep(node, inputs, &[&code_ay0_tx]);
+        let group_bx0 = Self::create_depgroup_celldep(node, inputs, &[&code_bx0_tx]);
         let group_ax1_ax1 =
-            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ax1_tx));
+            Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx, &code_ax1_tx]);
         let group_ax1_ax2 =
-            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ax2_tx));
+            Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx, &code_ax2_tx]);
         let group_ax1_ay0 =
-            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ay0_tx));
+            Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx, &code_ay0_tx]);
         let group_ax1_bx0 =
-            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_bx0_tx));
+            Self::create_depgroup_celldep(node, inputs, &[&code_ax1_tx, &code_bx0_tx]);
+        let group_ay0_2048 = Self::create_depgroup_celldep(node, inputs, &[&code_ay0_tx; 2048]);
         CellDepSet {
             default_script,
             code_ax1,
@@ -472,6 +491,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             group_ax1_ax2,
             group_ax1_ay0,
             group_ax1_bx0,
+            group_ay0_2048,
         }
     }
 
@@ -506,19 +526,15 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     fn create_depgroup_celldep(
         node: &Node,
         inputs: &mut impl Iterator<Item = packed::CellInput>,
-        dep_tx: &TransactionView,
-        dep_tx_opt: Option<&TransactionView>,
+        dep_txs: &[&TransactionView],
     ) -> packed::CellDep {
-        let dep_op = packed::OutPoint::new(dep_tx.hash(), 0);
-        let dep_data = if let Some(dep_tx_2) = dep_tx_opt {
-            let dep_op_2 = packed::OutPoint::new(dep_tx_2.hash(), 0);
-            vec![dep_op, dep_op_2]
-        } else {
-            vec![dep_op]
-        }
-        .pack()
-        .as_bytes()
-        .pack();
+        let dep_data = dep_txs
+            .iter()
+            .map(|tx| packed::OutPoint::new(tx.hash(), 0))
+            .collect::<Vec<_>>()
+            .pack()
+            .as_bytes()
+            .pack();
         let dep_output = packed::CellOutput::new_builder()
             .build_exact_capacity(core::Capacity::bytes(dep_data.len()).unwrap())
             .unwrap();
@@ -1002,6 +1018,11 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, MMOT);
         //
         self.test_diff_data_same_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
+
+        // Category: dep expansion count is 2048.
+        self.test_dep_expansion_count_2048(PASS);
+        // Category: dep expansion count is 2049.
+        self.test_dep_expansion_count_2049(MDEL_NOTBAN);
     }
 
     fn run_v2021_tests(&self) {
@@ -1241,6 +1262,11 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, MMOT);
         //
         self.test_diff_data_same_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
+
+        // Category: dep expansion count is 2048.
+        self.test_dep_expansion_count_2048(PASS);
+        // Category: dep expansion count is 2049.
+        self.test_dep_expansion_count_2049(MDEL_BAN);
     }
 
     fn test_single_code_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
@@ -1354,6 +1380,20 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     fn test_diff_data_same_type_for_hybrid_type_v2(&self, ct: CT, ht: HT, st: ST, er: ER) {
         self.intro(ct, ht, st, er, "diff data same type for hybrid-type deps 2");
         let deps = &[&self.deps.code_bx0, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_dep_expansion_count_2048(&self, er: ER) {
+        let (ct, ht, st) = (CT::In, HT::Data, ST::Lock);
+        self.intro(ct, ht, st, er, "dep expansion count is 2048");
+        let deps = &[&self.deps.group_ay0_2048];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_dep_expansion_count_2049(&self, er: ER) {
+        let (ct, ht, st) = (CT::In, HT::Data, ST::Lock);
+        self.intro(ct, ht, st, er, "dep expansion count is 2049");
+        let deps = &[&self.deps.code_bx0, &self.deps.group_ay0_2048];
         self.test_result(ct, ht, st, er, deps);
     }
 }

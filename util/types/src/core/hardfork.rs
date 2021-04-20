@@ -100,6 +100,7 @@ pub struct HardForkSwitch {
     rfc_0031: EpochNumber,
     rfc_0032: EpochNumber,
     rfc_0036: EpochNumber,
+    rfc_0038: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -141,6 +142,11 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC 0036](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0036-remove-header-deps-immature-rule/0036-remove-header-deps-immature-rule.md)
     pub rfc_0036: Option<EpochNumber>,
+    // TODO ckb2021 update the description and the rfc link
+    /// Disallow over the max dep expansion limit.
+    ///
+    /// Ref: CKB RFC 0038
+    pub rfc_0038: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -158,6 +164,7 @@ impl HardForkSwitch {
             .rfc_0031(self.rfc_0031())
             .rfc_0032(self.rfc_0032())
             .rfc_0036(self.rfc_0036())
+            .rfc_0038(self.rfc_0038())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
@@ -170,6 +177,7 @@ impl HardForkSwitch {
             .disable_rfc_0031()
             .disable_rfc_0032()
             .disable_rfc_0036()
+            .disable_rfc_0038()
             .build()
             .unwrap()
     }
@@ -229,6 +237,13 @@ define_methods!(
     disable_rfc_0036,
     "RFC PR 0036"
 );
+define_methods!(
+    rfc_0038,
+    disallow_over_max_dep_expansion_limit,
+    is_disallow_over_max_dep_expansion_limit_enabled,
+    disable_rfc_0038,
+    "RFC PR 0038"
+);
 
 impl HardForkSwitchBuilder {
     /// Build a new [`HardForkSwitch`].
@@ -251,6 +266,7 @@ impl HardForkSwitchBuilder {
         let rfc_0031 = try_find!(rfc_0031);
         let rfc_0032 = try_find!(rfc_0032);
         let rfc_0036 = try_find!(rfc_0036);
+        let rfc_0038 = try_find!(rfc_0038);
 
         Ok(HardForkSwitch {
             rfc_0028,
@@ -259,6 +275,7 @@ impl HardForkSwitchBuilder {
             rfc_0031,
             rfc_0032,
             rfc_0036,
+            rfc_0038,
         })
     }
 }

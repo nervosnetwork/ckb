@@ -727,11 +727,11 @@ impl ChainService {
 
                     let transactions = b.transactions();
                     let resolve_opts = {
-                        let consensus = self.shared.consensus();
-                        let hardfork_switch = consensus.hardfork_switch();
-                        let flag = hardfork_switch
-                            .is_remove_header_deps_immature_rule_enabled(b.epoch().number());
-                        ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+                        let hardfork_switch = self.shared.consensus().hardfork_switch();
+                        let epoch_number = b.epoch().number();
+                        ResolveOptions::new()
+                            .apply_current_features(hardfork_switch, epoch_number)
+                            .set_for_block_verification(true)
                     };
 
                     let resolved = {

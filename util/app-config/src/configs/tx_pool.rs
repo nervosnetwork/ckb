@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 // The default values are set in the legacy version.
 /// Transaction pool configuration
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_mem_size> mb
     pub max_mem_size: usize,
@@ -24,19 +24,6 @@ pub struct TxPoolConfig {
     /// By default, it is a file inside the data directory.
     #[serde(default)]
     pub persisted_data: PathBuf,
-}
-
-impl Default for TxPoolConfig {
-    fn default() -> Self {
-        TxPoolConfig {
-            max_mem_size: 20_000_000, // 20mb
-            max_cycles: 200_000_000_000,
-            min_fee_rate: DEFAULT_MIN_FEE_RATE,
-            max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
-            max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
-            persisted_data: Default::default(),
-        }
-    }
 }
 
 /// Block assembler config options.
@@ -68,13 +55,16 @@ const fn default_use_binary_version_as_message_prefix() -> bool {
 impl TxPoolConfig {
     /// Canonicalizes paths in the config options.
     ///
-    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool.dat`.
+    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool_persisted_data`.
     ///
     /// If `self.path` is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
         if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
-            self.persisted_data = data_dir.as_ref().to_path_buf().join("tx_pool.dat");
+            self.persisted_data = data_dir
+                .as_ref()
+                .to_path_buf()
+                .join("tx_pool_persisted_data");
         } else if self.persisted_data.is_relative() {
             self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
         }

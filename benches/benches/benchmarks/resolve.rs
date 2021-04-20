@@ -145,7 +145,7 @@ fn bench(c: &mut Criterion) {
         )
     });
 
-    let resolve_opts = ResolveOptions::empty().set_skip_immature_header_deps_check(false);
+    let resolve_opts = ResolveOptions::new();
     group.bench_with_input(
         BenchmarkId::new("check_resolve", SIZE),
         &SIZE,
