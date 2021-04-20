@@ -50,12 +50,16 @@ impl Spec for PoolPersisted {
 
         let tx_pool_info_reloaded = node0.get_tip_tx_pool_info();
         info!("TxPool should be same as before");
-        assert_eq!(tx_pool_info_original, tx_pool_info_reloaded);
+        assert_eq!(
+            tx_pool_info_original.total_tx_size,
+            tx_pool_info_reloaded.total_tx_size
+        );
+        assert_eq!(
+            tx_pool_info_original.total_tx_cycles,
+            tx_pool_info_reloaded.total_tx_cycles
+        );
 
         info!("Check the specific values of TxPool state");
         node0.assert_tx_pool_size(txs_hash2.len() as u64, txs_hash1.len() as u64);
-        assert!(tx_pool_info_reloaded.total_tx_size.value() > 0);
-        assert!(tx_pool_info_reloaded.total_tx_cycles.value() > 0);
-        assert!(tx_pool_info_reloaded.last_txs_updated_at.value() > 0);
     }
 }

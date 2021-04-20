@@ -127,7 +127,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         .build()
         .unwrap();
     let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    pack.take_tx_pool_builder().start(network).unwrap();
 
     let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let chain_controller = chain_service.start::<&str>(None);

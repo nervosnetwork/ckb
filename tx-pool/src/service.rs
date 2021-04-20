@@ -14,6 +14,7 @@ use ckb_channel::oneshot;
 use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
+use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
@@ -97,7 +98,7 @@ pub(crate) enum Message {
     ClearPool(Request<Arc<Snapshot>, ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
-    SavePool(Request<(), Result<(), AnyError>>),
+    SavePool(Request<(), ()>),
 }
 
 /// Controller to the tx-pool service.
@@ -419,25 +420,46 @@ impl TxPoolController {
             .map_err(Into::into)
     }
 
-    fn load_persisted_data(&self, data: persisted::TxPool) -> Result<(), AnyError> {
-        // a trick to commit transactions with the correct order
-        let mut remain_size = data.transactions().len();
-        let mut txs_next_turn = Vec::new();
-        for tx in data.transactions() {
-            let tx_view = tx.into_view();
-            if self.submit_local_tx(tx_view.clone())?.is_err() {
-                txs_next_turn.push(tx_view);
-            }
-        }
-        while !txs_next_turn.is_empty() && remain_size != txs_next_turn.len() {
-            remain_size = txs_next_turn.len();
-            let mut txs_failed = Vec::new();
-            for tx in txs_next_turn {
-                if self.submit_local_tx(tx.clone())?.is_err() {
-                    txs_failed.push(tx);
+    /// saves tx pool into disk.
+    pub fn save_pool(&self) -> Result<(), AnyError> {
+        info!("Please be patient, tx-pool are saving data into disk ...");
+        let (responder, response) = oneshot::channel();
+        let request = Request::call((), responder);
+        self.sender
+            .try_send(Message::SavePool(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    fn load_persisted_data(&self, mut txs: Vec<TransactionView>) -> Result<(), AnyError> {
+        if !txs.is_empty() {
+            info!("Loading persisted tx-pool data, total {} txs", txs.len());
+            // a trick to commit transactions with the correct order
+            loop {
+                let mut failed_txs = Vec::new();
+                for tx in txs.iter() {
+                    if self.submit_local_tx(tx.clone())?.is_err() {
+                        failed_txs.push(tx.clone());
+                    }
                 }
+                // return when all success or all failed
+                if failed_txs.is_empty() {
+                    info!("Persisted tx-pool data is loaded");
+                    break;
+                } else if txs.len() == failed_txs.len() {
+                    info!(
+                        "Persisted tx-pool data is loaded, {} stale txs are ignored ()",
+                        failed_txs.len()
+                    );
+                    break;
+                }
+                txs = failed_txs;
             }
-            txs_next_turn = txs_failed;
         }
         Ok(())
     }
@@ -446,6 +468,7 @@ impl TxPoolController {
 /// A builder used to create TxPoolService.
 pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
+    pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) snapshot: Arc<Snapshot>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
@@ -479,8 +502,21 @@ impl TxPoolServiceBuilder {
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
+        let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
+        let chunk_stop = StopHandler::new(SignalSender::Crossbeam(chunk_tx.clone()), None);
+        let controller = TxPoolController {
+            sender,
+            reorg_sender,
+            handle: handle.clone(),
+            chunk_stop,
+            chunk_tx,
+            stop,
+            started: Arc::clone(&started),
+        };
+
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
+            tx_pool_controller: controller.clone(),
             snapshot,
             block_assembler: block_assembler_config.map(BlockAssembler::new),
             txs_verify_cache,
@@ -493,20 +529,9 @@ impl TxPoolServiceBuilder {
             tx_relay_sender,
             chunk_rx,
             chunk,
-            started: Arc::clone(&started),
-        };
-
-        let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
-        let chunk_stop = StopHandler::new(SignalSender::Crossbeam(chunk_tx.clone()), None);
-        let controller = TxPoolController {
-            sender,
-            reorg_sender,
-            handle: handle.clone(),
-            chunk_stop,
-            chunk_tx,
-            stop,
             started,
         };
+
         (builder, controller)
     }
 
@@ -531,7 +556,7 @@ impl TxPoolServiceBuilder {
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(self, network: NetworkController) {
+    pub fn start(self, network: NetworkController) -> Result<(), AnyError> {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = self.snapshot.cloned_consensus();
         let tx_pool = TxPool::new(
@@ -540,8 +565,10 @@ impl TxPoolServiceBuilder {
             Arc::clone(&last_txs_updated_at),
         );
 
+        let txs = tx_pool.load_from_file()?;
+
         let service = TxPoolService {
-            tx_pool_config: Arc::new(tx_pool.config),
+            tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
@@ -606,7 +633,9 @@ impl TxPoolServiceBuilder {
             }
         });
 
+        self.tx_pool_controller.load_persisted_data(txs)?;
         self.started.store(true, Ordering::Relaxed);
+        Ok(())
     }
 }
 
@@ -806,8 +835,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
         }
         Message::SavePool(Request { responder, .. }) => {
-            let result = service.save_pool().await;
-            if let Err(e) = responder.send(result) {
+            service.save_pool().await;
+            if let Err(e) = responder.send(()) {
                 error!("responder send save_pool failed {:?}", e)
             };
         }

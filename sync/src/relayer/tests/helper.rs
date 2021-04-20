@@ -153,7 +153,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     };
 
     let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    pack.take_tx_pool_builder().start(network).unwrap();
 
     let chain_controller = {
         let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());

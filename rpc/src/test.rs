@@ -179,7 +179,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     };
 
     pack.take_tx_pool_builder()
-        .start(network_controller.clone());
+        .start(network_controller.clone())
+        .unwrap();
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
