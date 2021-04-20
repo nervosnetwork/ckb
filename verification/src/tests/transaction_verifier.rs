@@ -4,7 +4,7 @@ use super::super::transaction_verifier::{
 };
 use crate::error::TransactionErrorSource;
 use crate::TransactionError;
-use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_DAO};
+use ckb_chain_spec::{build_genesis_type_id_script, consensus::ProposalWindow, OUTPUT_INDEX_DAO};
 use ckb_error::{assert_error_eq, Error};
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_traits::HeaderProvider;
@@ -395,6 +395,7 @@ fn verify_since<'a, DL: HeaderProvider>(
     SinceVerifier::new(
         rtx,
         data_loader,
+        ProposalWindow(2, 10),
         block_number,
         EpochNumberWithFraction::new(epoch_number, 0, 10),
         parent_hash.as_ref().to_owned(),
@@ -503,6 +504,7 @@ fn test_fraction_epoch_since_verify() {
     let result = SinceVerifier::new(
         &rtx,
         &median_time_context,
+        ProposalWindow(2, 10),
         block_number,
         EpochNumberWithFraction::new(16, 1, 10),
         parent_hash.as_ref().to_owned(),
@@ -515,6 +517,7 @@ fn test_fraction_epoch_since_verify() {
     let result = SinceVerifier::new(
         &rtx,
         &median_time_context,
+        ProposalWindow(2, 10),
         block_number,
         EpochNumberWithFraction::new(16, 5, 10),
         parent_hash.as_ref().to_owned(),

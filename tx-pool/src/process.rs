@@ -60,8 +60,8 @@ impl From<TxStatus> for TransactionVerificationPhase {
     fn from(status: TxStatus) -> Self {
         match status {
             TxStatus::Fresh => Self::Submitted,
-            TxStatus::Gap => Self::Gap,
-            TxStatus::Proposed => Self::Proposed,
+            TxStatus::Gap => Self::Proposed(0),
+            TxStatus::Proposed => Self::Proposed(1),
         }
     }
 }

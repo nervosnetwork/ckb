@@ -1,7 +1,7 @@
 use crate::cache::CacheEntry;
 use crate::error::TransactionErrorSource;
 use crate::TransactionError;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_metrics::{metrics, Timer};
@@ -26,17 +26,15 @@ pub enum TransactionVerificationPhase {
     /// The transaction has just been submitted.
     ///
     /// So the transaction will be:
-    /// - proposed after the `tip_number + 1` block.
-    /// - committed after the `tip_number + 1 + 2` block.
+    /// - proposed after (or in) the `tip_number + 1` block.
+    /// - committed after (or in) `tip_number + 1 + proposal_windows.closest()` block.
     Submitted,
-    /// The transaction has already been proposed and in Gap.
+    /// The transaction has already been proposed before several blocks.
     ///
-    /// So the transaction will be committed after the `tip_number + 2` block.
-    Gap,
-    /// The transaction has already been proposed.
-    ///
-    /// So the transaction will be committed after the `tip_number + 1` block.
-    Proposed,
+    /// Assume that the inner block number is `N`.
+    /// So the transaction is proposed in the `tip_number - N` block.
+    /// Then it will be committed after (or in) the `tip_number - N + proposal_windows.closest()` block.
+    Proposed(BlockNumber),
     /// The transaction is commit.
     ///
     /// So the transaction will be committed in current block.
@@ -45,26 +43,37 @@ pub enum TransactionVerificationPhase {
 
 impl TransactionVerificationPhase {
     /// Convert tip block number to earliest committed block number.
-    pub fn earliest_committed_block(self, tip_block_number: BlockNumber) -> BlockNumber {
+    pub fn earliest_committed_block(
+        self,
+        proposal_windows: ProposalWindow,
+        tip_block_number: BlockNumber,
+    ) -> BlockNumber {
         match self {
-            Self::Submitted => tip_block_number + 3,
-            Self::Gap => tip_block_number + 2,
-            Self::Proposed => tip_block_number + 1,
+            Self::Submitted => tip_block_number + 1 + proposal_windows.closest(),
+            Self::Proposed(already_proposed) => {
+                tip_block_number.saturating_sub(already_proposed) + proposal_windows.closest()
+            }
             Self::Committed => tip_block_number,
         }
     }
 
     /// Convert tip epoch number to earliest committed epoch number.
-    pub fn earliest_committed_epoch(self, tip_epoch: EpochNumberWithFraction) -> EpochNumber {
+    pub fn earliest_committed_epoch(
+        self,
+        proposal_windows: ProposalWindow,
+        tip_epoch: EpochNumberWithFraction,
+    ) -> EpochNumber {
         let number = tip_epoch.number();
         let length = tip_epoch.length();
         let index = tip_epoch.index();
         let index_added = match self {
-            Self::Submitted => 3,
-            Self::Gap => 2,
-            Self::Proposed => 1,
+            Self::Submitted => 1 + proposal_windows.closest(),
+            Self::Proposed(already_proposed) => {
+                proposal_windows.closest().saturating_sub(already_proposed)
+            }
             Self::Committed => 0,
         };
+        // Hard-code: we assume that the most range between submit and commit is two epochs.
         if index + index_added >= length {
             number + 1
         } else {
@@ -103,6 +112,7 @@ impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
             since: SinceVerifier::new(
                 rtx,
                 data_loader,
+                consensus.tx_proposal_window(),
                 block_number,
                 epoch_number_with_fraction,
                 parent_hash,
@@ -202,6 +212,7 @@ where
             since: SinceVerifier::new(
                 rtx,
                 data_loader,
+                consensus.tx_proposal_window(),
                 block_number,
                 epoch_number_with_fraction,
                 parent_hash,
@@ -648,6 +659,7 @@ impl Since {
 pub struct SinceVerifier<'a, DL> {
     rtx: &'a ResolvedTransaction,
     data_loader: &'a DL,
+    proposal_windows: ProposalWindow,
     block_number: BlockNumber,
     epoch_number_with_fraction: EpochNumberWithFraction,
     parent_hash: Byte32,
@@ -657,9 +669,11 @@ pub struct SinceVerifier<'a, DL> {
 }
 
 impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
         data_loader: &'a DL,
+        proposal_windows: ProposalWindow,
         block_number: BlockNumber,
         epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
@@ -670,6 +684,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         SinceVerifier {
             rtx,
             data_loader,
+            proposal_windows,
             block_number,
             epoch_number_with_fraction,
             parent_hash,
@@ -702,7 +717,11 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         if since.is_absolute() {
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.tx_phase.earliest_committed_block(self.block_number) < block_number {
+                    if self
+                        .tx_phase
+                        .earliest_committed_block(self.proposal_windows, self.block_number)
+                        < block_number
+                    {
                         return Err((TransactionError::Immature { index }).into());
                     }
                 }
@@ -738,7 +757,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
             }?;
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.tx_phase.earliest_committed_block(self.block_number)
+                    if self
+                        .tx_phase
+                        .earliest_committed_block(self.proposal_windows, self.block_number)
                         < info.block_number + block_number
                     {
                         return Err((TransactionError::Immature { index }).into());

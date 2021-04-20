@@ -359,7 +359,7 @@ impl TxPool {
         self.check_rtx_from_pending_and_proposed(&rtx)?;
         let snapshot = self.snapshot();
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let tx_phase = TransactionVerificationPhase::Gap;
+        let tx_phase = TransactionVerificationPhase::Proposed(0);
         let verified = verify_rtx(snapshot, &rtx, tx_phase, cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
@@ -380,7 +380,7 @@ impl TxPool {
         self.check_rtx_from_proposed(&rtx)?;
         let snapshot = self.snapshot();
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let tx_phase = TransactionVerificationPhase::Proposed;
+        let tx_phase = TransactionVerificationPhase::Proposed(1);
         let verified = verify_rtx(snapshot, &rtx, tx_phase, cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
