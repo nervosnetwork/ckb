@@ -31,10 +31,6 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.41.0-pre" }
 ckb-network = { path = "../network", version = "= 0.41.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.41.0-pre" }
 sentry = { package = "ckb-sentry", version = "0.21.0", optional = true }
-molecule = "=0.6.0"
-
-[build-dependencies]
-molecule-codegen = "=0.6.0"
 
 [features]
 default = []

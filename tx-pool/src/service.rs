@@ -5,7 +5,6 @@ use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::component::entry::TxEntry;
 use crate::component::orphan::OrphanPool;
 use crate::error::{handle_recv_error, handle_try_send_error};
-use crate::persisted;
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -14,6 +13,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
+use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -405,7 +405,7 @@ impl TxPoolController {
 
     /// Saves tx pool into disk.
     pub fn save_pool(&self) -> Result<(), AnyError> {
-        ckb_logger::info!("Please be patient, TxPool are saving data into disk ...");
+        info!("Please be patient, tx-pool are saving data into disk ...");
         let mut sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
@@ -416,25 +416,25 @@ impl TxPoolController {
         self.handle.block_on(response).map_err(handle_recv_error)?
     }
 
-    fn load_persisted_data(&self, data: persisted::TxPool) -> Result<(), AnyError> {
+    fn load_persisted_data(&self, mut txs: Vec<TransactionView>) -> Result<(), AnyError> {
+        info!("Loading persisted tx-pool data, total txs: {}", txs.len());
         // a trick to commit transactions with the correct order
-        let mut remain_size = data.transactions().len();
-        let mut txs_next_turn = Vec::new();
-        for tx in data.transactions() {
-            let tx_view = tx.into_view();
-            if self.submit_local_tx(tx_view.clone())?.is_err() {
-                txs_next_turn.push(tx_view);
-            }
-        }
-        while !txs_next_turn.is_empty() && remain_size != txs_next_turn.len() {
-            remain_size = txs_next_turn.len();
-            let mut txs_failed = Vec::new();
-            for tx in txs_next_turn {
+        loop {
+            let mut failed_txs = Vec::new();
+            for tx in txs.iter() {
                 if self.submit_local_tx(tx.clone())?.is_err() {
-                    txs_failed.push(tx);
+                    failed_txs.push(tx.clone());
                 }
             }
-            txs_next_turn = txs_failed;
+            // return when all success or all failed
+            if failed_txs.is_empty() || txs.len() == failed_txs.len() {
+                info!(
+                    "Persisted tx-pool data is loaded and {} txs are failed to load",
+                    failed_txs.len()
+                );
+                break;
+            }
+            txs = failed_txs;
         }
         Ok(())
     }
@@ -518,15 +518,15 @@ impl TxPoolServiceBuilder {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = self.snapshot.cloned_consensus();
         let tx_pool = TxPool::new(
-            Arc::new(self.tx_pool_config),
+            self.tx_pool_config,
             self.snapshot,
             Arc::clone(&last_txs_updated_at),
         );
 
-        let persisted_data_opt = persisted::TxPool::load_from_file(&tx_pool.config.persisted_data)?;
+        let txs = tx_pool.load_from_file()?;
 
         let service = TxPoolService {
-            tx_pool_config: Arc::clone(&tx_pool.config),
+            tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
@@ -556,10 +556,7 @@ impl TxPoolServiceBuilder {
             }
         });
 
-        if let Some(persisted_data) = persisted_data_opt {
-            self.tx_pool_controller
-                .load_persisted_data(persisted_data)?;
-        }
+        self.tx_pool_controller.load_persisted_data(txs)?;
 
         Ok(())
     }

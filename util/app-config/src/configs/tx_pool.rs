@@ -73,13 +73,16 @@ pub struct BlockAssemblerConfig {
 impl TxPoolConfig {
     /// Canonicalizes paths in the config options.
     ///
-    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool.dat`.
+    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool_persisted_data`.
     ///
     /// If `self.path` is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
         if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
-            self.persisted_data = data_dir.as_ref().to_path_buf().join("tx_pool.dat");
+            self.persisted_data = data_dir
+                .as_ref()
+                .to_path_buf()
+                .join("tx_pool_persisted_data");
         } else if self.persisted_data.is_relative() {
             self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
         }

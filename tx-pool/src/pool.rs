@@ -29,7 +29,7 @@ use std::sync::{
 
 /// Tx-pool implementation
 pub struct TxPool {
-    pub(crate) config: Arc<TxPoolConfig>,
+    pub(crate) config: TxPoolConfig,
     /// The short id that has not been proposed
     pub(crate) pending: PendingQueue,
     /// The proposal gap
@@ -83,14 +83,13 @@ pub struct TxPoolInfo {
 impl TxPool {
     /// Create new TxPool
     pub fn new(
-        config: Arc<TxPoolConfig>,
+        config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
         TxPool {
-            config: Arc::clone(&config),
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
@@ -99,6 +98,7 @@ impl TxPool {
             total_tx_size: 0,
             total_tx_cycles: 0,
             snapshot,
+            config,
         }
     }
 
