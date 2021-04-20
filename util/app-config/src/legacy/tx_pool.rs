@@ -2,6 +2,7 @@ use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::Deserialize;
+use std::path::PathBuf;
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
@@ -22,6 +23,8 @@ pub(crate) struct TxPoolConfig {
     min_fee_rate: FeeRate,
     max_tx_verify_cycles: Cycle,
     max_ancestors_count: usize,
+    #[serde(default)]
+    persisted_data: PathBuf,
 }
 
 impl Default for crate::TxPoolConfig {
@@ -41,6 +44,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
+            persisted_data: Default::default(),
         }
     }
 }
@@ -56,6 +60,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             max_tx_verify_cycles,
             max_ancestors_count,
+            persisted_data,
         } = input;
         Self {
             max_mem_size,
@@ -63,6 +68,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             max_tx_verify_cycles,
             max_ancestors_count,
+            persisted_data,
         }
     }
 }

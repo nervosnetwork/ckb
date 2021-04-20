@@ -982,16 +982,16 @@ impl TxPoolService {
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
-        let config = tx_pool.config;
+        let config = tx_pool.config.clone();
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
     }
 
-    pub(crate) async fn save_pool(&self) -> Result<(), AnyError> {
-        let tx_pool = self.tx_pool.read().await;
-        tx_pool
-            .persisted_data()
-            .save_into_file(&tx_pool.config.persisted_data)
+    pub(crate) async fn save_pool(&mut self) {
+        let mut tx_pool = self.tx_pool.write().await;
+        if let Err(err) = tx_pool.save_into_file() {
+            error!("failed to save pool, error: {:?}", err)
+        }
     }
 }
 

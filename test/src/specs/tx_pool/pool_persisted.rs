@@ -14,15 +14,11 @@ impl Spec for PoolPersisted {
         mine_until_out_bootstrap_period(node0);
 
         info!("Generate 6 txs on node0");
-        let mut txs_hash1 = Vec::new();
-        let mut txs_hash2 = Vec::new();
         let mut hash = node0.generate_transaction();
-        txs_hash1.push(hash.clone());
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
             hash = node0.rpc_client().send_transaction(tx.data().into());
-            txs_hash1.push(hash.clone());
         });
 
         info!("Generate 1 more blocks on node0");
@@ -32,7 +28,6 @@ impl Spec for PoolPersisted {
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
             hash = node0.rpc_client().send_transaction(tx.data().into());
-            txs_hash2.push(hash.clone());
         });
 
         info!("Generate 1 more blocks on node0");
@@ -50,12 +45,21 @@ impl Spec for PoolPersisted {
 
         let tx_pool_info_reloaded = node0.get_tip_tx_pool_info();
         info!("TxPool should be same as before");
-        assert_eq!(tx_pool_info_original, tx_pool_info_reloaded);
-
-        info!("Check the specific values of TxPool state");
-        node0.assert_tx_pool_size(txs_hash2.len() as u64, txs_hash1.len() as u64);
-        assert!(tx_pool_info_reloaded.total_tx_size.value() > 0);
-        assert!(tx_pool_info_reloaded.total_tx_cycles.value() > 0);
-        assert!(tx_pool_info_reloaded.last_txs_updated_at.value() > 0);
+        info!("tx_pool_info_original: {:?}", tx_pool_info_original);
+        info!("tx_pool_info_reloaded: {:?}", tx_pool_info_reloaded);
+        assert_eq!(
+            tx_pool_info_original.proposed,
+            tx_pool_info_reloaded.proposed
+        );
+        assert_eq!(tx_pool_info_original.orphan, tx_pool_info_reloaded.orphan);
+        assert_eq!(tx_pool_info_original.pending, tx_pool_info_reloaded.pending);
+        assert_eq!(
+            tx_pool_info_original.total_tx_size,
+            tx_pool_info_reloaded.total_tx_size
+        );
+        assert_eq!(
+            tx_pool_info_original.total_tx_cycles,
+            tx_pool_info_reloaded.total_tx_cycles
+        );
     }
 }

@@ -548,7 +548,7 @@ impl Node {
         drop(self.guard.take())
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     pub fn stop_gracefully(&mut self) {
         if let Some(mut guard) = self.guard.take() {
             if !guard.killed {

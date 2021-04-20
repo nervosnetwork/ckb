@@ -20,7 +20,6 @@ use ckb_types::{
         Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
-    prelude::*,
 };
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
@@ -94,7 +93,6 @@ impl TxPool {
         const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
         TxPool {
-            config,
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
@@ -102,6 +100,7 @@ impl TxPool {
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            config,
             snapshot,
         }
     }
