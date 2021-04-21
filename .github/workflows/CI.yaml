@@ -49,9 +49,7 @@ jobs:
          make fmt
          make clippy
          git diff --exit-code Cargo.lock
-    - name: Latest Linters
-      with: 
-        cache: false
+    - name: Latest Linters 
       run:
         rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
         rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
