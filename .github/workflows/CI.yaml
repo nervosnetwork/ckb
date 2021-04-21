@@ -1,0 +1,66 @@
+name: CI
+on:
+  issue_comment:
+    types: [ created ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  CKB_CLI_VERSION: v0.40.0
+  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+    
+jobs:
+  deploy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: acknowledge deployment request to commenter
+        id: check
+        uses: khan/pull-request-comment-trigger@master
+        with:
+          trigger: "/deploy"
+          reaction: rocket
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+    outputs:
+      triggered: ${{ steps.check.outputs.triggered }}
+
+  deploy: 
+    runs-on: [self-hosted, linux, X64]
+    needs: deploy-check
+    if: needs.deploy-check.outputs.triggered == 'true'
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false  
+    - name: Test
+      run: make test
+    - name: Linters
+      run:
+         cargo fmt --version || travis_retry rustup component add rustfmt
+         cargo clippy --version || travis_retry rustup component add clippy
+
+
+
+    # strategy:
+    #   matrix:
+    #     allow_failures:
+    #        - rust: stable
+    #     include:
+    #       - name: PR Integration
+    #         run:
+    #           script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+    #       - name: Linters
+    #         run:
+    #           install:
+    #             - cargo fmt --version || travis_retry rustup component add rustfmt
+    #             - cargo clippy --version || travis_retry rustup component add clippy
+    #           script:
+    #             - make fmt
+    #             - make clippy
+    #             - git diff --exit-code Cargo.lock
+    # - name: Build
+    #   run: cargo build --verbose
+    # - name: Run tests
+    #   run: cargo test --verbose
+
+
