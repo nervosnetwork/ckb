@@ -51,7 +51,6 @@ jobs:
          git diff --exit-code Cargo.lock
     - name: Latest Linters
       with: 
-        rust: stable
         cache: false
       run:
         rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
