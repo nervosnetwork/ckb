@@ -16,23 +16,23 @@ jobs:
     - uses: actions/checkout@v2
     - name: Test
       run: make test
-    strategy:
-      matrix:
-        allow_failures:
-           - rust: stable
-        include:
-          - name: PR Integration
-            run:
-              script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - name: Linters
-            run:
-              install:
-                - cargo fmt --version || travis_retry rustup component add rustfmt
-                - cargo clippy --version || travis_retry rustup component add clippy
-              script:
-                - make fmt
-                - make clippy
-                - git diff --exit-code Cargo.lock
+    # strategy:
+    #   matrix:
+    #     allow_failures:
+    #        - rust: stable
+    #     include:
+    #       - name: PR Integration
+    #         run:
+    #           script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+    #       - name: Linters
+    #         run:
+    #           install:
+    #             - cargo fmt --version || travis_retry rustup component add rustfmt
+    #             - cargo clippy --version || travis_retry rustup component add clippy
+    #           script:
+    #             - make fmt
+    #             - make clippy
+    #             - git diff --exit-code Cargo.lock
     # - name: Build
     #   run: cargo build --verbose
     # - name: Run tests
