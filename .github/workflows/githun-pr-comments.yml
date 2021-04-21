@@ -2,7 +2,7 @@ name: Pull Request comments test
 on:
   pull_request_review_comment:
     types: [created, edited]
-    branches: [ github_action_learn ]
+    branches: [github_action_learn ]
 jobs:
   Explore-GitHub-Actions:
     runs-on: ubuntu-latest
