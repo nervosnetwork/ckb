@@ -59,8 +59,6 @@ jobs:
         make clippy
         mv rust-toolchain.bak rust-toolchain
     - name: Quick Check
-      with:
-        cache: false
       run:
         make check-cargotoml
         make check-whitespaces
@@ -68,9 +66,6 @@ jobs:
         make check-dirty-hashes-toml
         devtools/ci/check-cyclic-dependencies.py 
     - name: Cyclic dev-dependencies
-      with:
-        cache: false
-        rust: stable
       run:
         devtools/ci/check-cyclic-dependencies.py --dev
     - name: Security Audit & Licenses
