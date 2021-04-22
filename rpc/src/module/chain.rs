@@ -892,7 +892,8 @@ pub trait ChainRpc {
     /// ## Returns
     ///
     /// If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
-    /// its rewards have been finalized, return the block rewards analysis for this block.
+    /// its rewards have been finalized, return the block rewards analysis for this block. A special
+    /// case is that the return value for genesis block is null.
     ///
     /// ## Examples
     ///
