@@ -170,13 +170,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .expect("parent header should be stored");
         let mut seen_inputs = HashSet::new();
 
-        let txs: Vec<_> = block_template
-            .transactions
-            .iter()
-            .map(|tx_template| {
-                let transaction: packed::Transaction = tx_template.data.clone().into();
-                transaction.into_view()
-            })
+        let txs: Vec<_> = packed::Block::from(block_template.clone())
+            .transactions()
+            .into_iter()
+            .map(|tx| tx.into_view())
             .collect();
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
