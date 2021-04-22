@@ -2,12 +2,11 @@ use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
 use crate::util::mining::mine;
 use crate::{Node, TXOSet};
-use ckb_jsonrpc_types::BlockTemplate;
 use ckb_network::bytes::Bytes;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochNumber, HeaderView, TransactionView},
     packed::{
-        Block, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
+        BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
         RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders, SyncMessage,
     },
     prelude::*,
@@ -125,13 +124,6 @@ pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
         .build();
 
     RelayMessage::new_builder().set(content).build().as_bytes()
-}
-
-pub fn new_block_with_template(template: BlockTemplate) -> BlockView {
-    Block::from(template)
-        .as_advanced_builder()
-        .nonce(rand::random::<u128>().pack())
-        .build()
 }
 
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool
