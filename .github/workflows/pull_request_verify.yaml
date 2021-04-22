@@ -1,0 +1,94 @@
+name: Pull Requests
+
+# When someone comment "/deploy" on anyone PR,
+# this workflow will be triggered and run.
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened, labeled ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  CKB_CLI_VERSION: v0.40.0    
+jobs:
+#job for checkout the ckb
+  checkout: 
+    name: ckb-checkout  
+    runs-on: [self-hosted, linux, X64]
+    strategy:
+      matrix:
+        allow_failures:
+           - rust: stable
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+        fetch-depth: 1
+        ref: ${{ github.event.pull_request.head.sha }}
+        repository: ${{github.event.pull_request.head.repo.full_name}}
+  Test: 
+    runs-on: [self-hosted, linux, X64]
+    needs: checkout
+    steps:
+    - name: Test
+      run: |
+        cat ${{ github.workspace }}/README.md
+        make test
+        rm -rf $HOME/.cargo/registry
+  # Linters: 
+  #   runs-on: [self-hosted, linux, X64]
+  #   steps:
+  #   - name: Linters
+  #     run: |
+  #        cargo fmt --version || travis_retry rustup component add rustfmt
+  #        cargo clippy --version || travis_retry rustup component add clippy
+  #        make fmt
+  #        make clippy
+  #        git diff --exit-code Cargo.lock
+    # - name: Quick Check
+    #   run: |
+    #     make check-cargotoml
+    #     make check-whitespaces
+    #     make check-dirty-rpc-doc
+    #     make check-dirty-hashes-toml
+    #     devtools/ci/check-cyclic-dependencies.py 
+    # - name: Security Audit & Licenses
+    #   run: |
+    #     cargo deny --version || travis_retry cargo install cargo-deny --locked
+    #     make security-audit
+    #     make check-crates
+    #     make check-licenses
+    # - name: WASM build
+    #   run: |
+    #     export PATH=/usr/lib/llvm-8/bin:$PATH
+    #     rustup target add wasm32-unknown-unknown
+    #     make wasm-build-test
+    # - name: Test benchmarks on Linux
+    #   run: make bench-test
+    # - name: Integration on Linux
+    #   run: make CKB_TEST_ARGS="-c 1 --no-report" integration
+    # - name: Code Coverage
+    #   env: 
+    #     CACHE_NAME: tarpaulin
+    #   run: |
+    #     cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin --locked
+    #     - if make cov; then bash <(curl -s https://codecov.io/bash); fi
+    # - name: Latest Linters 
+    #   run: |
+    #     rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
+    #     rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
+    #     mv rust-toolchain rust-toolchain.bak
+    #     echo "stable" > rust-toolchain
+    #     make fmt
+    #     make clippy
+    #     mv rust-toolchain.bak rust-toolchain
+    # - name: Cyclic dev-dependencies
+    #   run: |
+    #     devtools/ci/check-cyclic-dependencies.py --dev
+    # - name: PR Integration 
+    #   run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+
+
+ 
+
+

@@ -43,8 +43,6 @@ jobs:
       run: |
         make test
         rm -rf $HOME/.cargo/registry
-    - name: PR Integration 
-      run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
     - name: Linters
       run: |
          cargo fmt --version || travis_retry rustup component add rustfmt
@@ -52,15 +50,6 @@ jobs:
          make fmt
          make clippy
          git diff --exit-code Cargo.lock
-    - name: Latest Linters 
-      run: |
-        rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
-        rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
-        mv rust-toolchain rust-toolchain.bak
-        echo "stable" > rust-toolchain
-        make fmt
-        make clippy
-        mv rust-toolchain.bak rust-toolchain
     - name: Quick Check
       run: |
         make check-cargotoml
@@ -68,9 +57,6 @@ jobs:
         make check-dirty-rpc-doc
         make check-dirty-hashes-toml
         devtools/ci/check-cyclic-dependencies.py 
-    - name: Cyclic dev-dependencies
-      run: |
-        devtools/ci/check-cyclic-dependencies.py --dev
     - name: Security Audit & Licenses
       run: |
         cargo deny --version || travis_retry cargo install cargo-deny --locked
@@ -92,29 +78,22 @@ jobs:
       run: |
         cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin --locked
         - if make cov; then bash <(curl -s https://codecov.io/bash); fi
+    - name: Latest Linters 
+      run: |
+        rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
+        mv rust-toolchain rust-toolchain.bak
+        echo "stable" > rust-toolchain
+        make fmt
+        make clippy
+        mv rust-toolchain.bak rust-toolchain
+    - name: Cyclic dev-dependencies
+      run: |
+        devtools/ci/check-cyclic-dependencies.py --dev
+    - name: PR Integration 
+      run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
 
 
-
-    # strategy:
-    #   matrix:
-    #     allow_failures:
-    #        - rust: stable
-    #     include:
-    #       - name: PR Integration
-    #         run:
-    #           script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-    #       - name: Linters
-    #         run:
-    #           install:
-    #             - cargo fmt --version || travis_retry rustup component add rustfmt
-    #             - cargo clippy --version || travis_retry rustup component add clippy
-    #           script:
-    #             - make fmt
-    #             - make clippy
-    #             - git diff --exit-code Cargo.lock
-    # - name: Build
-    #   run: cargo build --verbose
-    # - name: Run tests
-    #   run: cargo test --verbose
+ 
 
 
