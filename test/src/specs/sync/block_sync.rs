@@ -2,8 +2,7 @@ use crate::node::waiting_for_sync;
 use crate::util::mining::mine;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::{
-    build_block, build_compact_block, build_get_blocks, build_header, new_block_with_template,
-    now_ms, sleep, wait_until,
+    build_block, build_compact_block, build_get_blocks, build_header, now_ms, sleep, wait_until,
 };
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
@@ -368,8 +367,8 @@ impl Spec for RequestUnverifiedBlocks {
         let node2 = &nodes[2];
         out_ibd_mode(nodes);
 
-        let main_chain = build_forks(node1, &[0; 6]);
-        let fork_chain = build_forks(node2, &[1; 5]);
+        let main_chain = build_forks(node1, &[0; 16]);
+        let fork_chain = build_forks(node2, &[1; 15]);
         assert!(main_chain.len() > fork_chain.len());
 
         // Submit `main_chain` before `fork_chain`, to make `target_node` marks `fork_chain`
@@ -467,10 +466,8 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
         template.current_time = (template.current_time.value() + offset).into();
-        let block = new_block_with_template(template);
-        node.submit_block(&block);
-
-        blocks.push(block);
+        rpc_client.generate_block_with_template(template.clone());
+        blocks.push(packed::Block::from(template).into_view());
     }
     blocks
 }
