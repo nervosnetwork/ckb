@@ -211,7 +211,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             }
         }
 
-        while index.number() > competing_commit_start {
+        while index.number() > competing_commit_start && !target_proposals.is_empty() {
             index = store
                 .get_block_header(&index.data().raw().parent_hash())
                 .expect("header stored");
