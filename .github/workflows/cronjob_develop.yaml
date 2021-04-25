@@ -1,0 +1,81 @@
+name: Cron job for develop branch
+
+# When someone comment "/deploy" on anyone PR,
+# this workflow will be triggered and run.
+on:
+  schedule: 
+    - cron: '0 23 * * *'
+      
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full   
+jobs:  
+  checkout: 
+    name: ckb-checkout  
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner, mac-runner,win-runner]
+        include:
+          - os: Linux-runner
+            script_run: make build    
+          - os:  mac-runner
+            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+          - os: win-runner
+            script_run: devtools/windows/make prod 
+    steps:
+    - name: Set env
+      run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+        fetch-depth: 2
+        ref: ${{ github.ref }}
+    - run: ${{ matrix.script_run }}
+  Benchmarks_Test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+        -  Linux-runner
+        -  mac-runner
+    needs: checkout
+    steps: 
+    - name: Set env
+      run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Benchmarks_Test
+      run: |
+        if [ ${{ runner.os }} == "macOS" ]; then
+        export PATH="/Users/administrator/.cargo/bin:$PATH"
+        fi
+        make bench-test
+  Integration_Test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner, mac-runner,win-runner]
+        include:
+          - os: Linux-runner
+            script_run: RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}  
+          - os:  mac-runner
+            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}
+          - os: win-runner
+            script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration 
+            CI: true
+            SENTRY_DSN: 'https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7'
+            LOGBAK_USER: $(LOGBAK_USER)
+            LOGBAK_PASSWORD: $(LOGBAK_PASSWORD)
+            LOGBAK_SERVER: $(LOGBAK_SERVER)
+    needs: Benchmarks_Test
+    steps: 
+    - name: Set env
+      run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Integration_Test
+      run: ${{ matrix.script_run }}
+
+        
+
+ 
+
+

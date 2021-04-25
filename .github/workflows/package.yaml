@@ -1,0 +1,57 @@
+name: Package
+
+# When someone comment "/deploy" on anyone PR,
+# this workflow will be triggered and run.
+on:
+  push:
+    branches:
+      - 'pkg/*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  CKB_CLI_VERSION: v0.40.0
+  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"   
+  QINIU_SECRET_KEY: "${{ secrets.QINIU_SECRET_KEY }}"
+  encrypted_82dff4145bbf_iv: "${{ secrets.encrypted_82dff4145bbf_iv }}"
+  encrypted_82dff4145bbf_key: "${{ secrets.encrypted_82dff4145bbf_key }}"
+
+jobs:
+# job for checkout the ckb
+  package-for-linux: 
+    name: package-for-linux 
+    runs-on: [self-hosted, Linux, X64,Linux-runner]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+        fetch-depth: 2
+    - run: |
+        branch=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
+        #  docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
+        # Will reeturn the input device is not a TTY if docker run with -it. Follow this comments to solve it https://github.com/actions/runner/issues/241#issuecomment-556626706
+        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv ${encrypted_82dff4145bbf_iv} -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        gpg --import devtools/ci/travis-secret.asc
+        devtools/ci/package.sh target/release/ckb
+        if [ -n "${QINIU_SECRET_KEY:-}" ]; then devtools/ci/qput-7z "releases/ckb_${branch}_x86_64-unknown-linux-gnu"; fi
+      env: 
+        REL_PKG: x86_64-unknown-linux-gnu.tar.gz 
+        BUILDER_IMAGE: nervos/ckb-docker-builder:xenial-rust-1.46.0
+  package-for-mac:
+    name: package-for-mac
+    runs-on: [self-hosted, macOS, X64,mac-runner]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+        fetch-depth: 2
+    - run: |
+        export PATH="/Users/administrator/.cargo/bin:$PATH"
+        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include prod
+        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        gpg --import devtools/ci/travis-secret.asc
+        devtools/ci/package.sh target/release/ckb
+      env: 
+        REL_PKG: x86_64-apple-darwin.zip 
+
