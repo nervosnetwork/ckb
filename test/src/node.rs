@@ -6,6 +6,7 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
+use ckb_logger::{debug, error};
 use ckb_types::{
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
@@ -28,8 +29,8 @@ struct ProcessGuard(pub Child);
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         match self.0.kill() {
-            Err(e) => log::error!("Could not kill ckb process: {}", e),
-            Ok(_) => log::debug!("Successfully killed ckb process"),
+            Err(e) => error!("Could not kill ckb process: {}", e),
+            Ok(_) => debug!("Successfully killed ckb process"),
         }
         let _ = self.0.wait();
     }
@@ -48,7 +49,6 @@ pub struct Node {
 impl Node {
     pub fn new(spec_name: &str, node_name: &str) -> Self {
         let working_dir = temp_path(spec_name, node_name);
-        // log::info!("New {}-{} on: {}", spec_name, node_name, working_dir);
 
         // Copy node template into node's working directory
         let cells_dir = working_dir.join("specs").join("cells");
@@ -149,7 +149,7 @@ impl Node {
         &self.rpc_client
     }
 
-    fn working_dir(&self) -> PathBuf {
+    pub fn working_dir(&self) -> PathBuf {
         self.working_dir.clone()
     }
 
@@ -266,9 +266,12 @@ impl Node {
     }
 
     pub fn submit_block(&self, block: &BlockView) -> Byte32 {
-        self.rpc_client()
+        let hash = self
+            .rpc_client()
             .submit_block("".to_owned(), block.data().into())
-            .unwrap()
+            .unwrap();
+        self.wait_for_tx_pool();
+        hash
     }
 
     pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
@@ -379,13 +382,22 @@ impl Node {
         let rpc_client = self.rpc_client();
         let mut chain_tip = rpc_client.get_tip_header();
         let mut tx_pool_tip = rpc_client.tx_pool_info();
-        let instant = Instant::now();
+        if chain_tip.hash == tx_pool_tip.tip_hash {
+            return;
+        }
+        let mut instant = Instant::now();
         while instant.elapsed() < Duration::from_secs(10) {
+            sleep(std::time::Duration::from_secs(1));
+            chain_tip = rpc_client.get_tip_header();
+            let prev_tx_pool_tip = tx_pool_tip;
+            tx_pool_tip = rpc_client.tx_pool_info();
             if chain_tip.hash == tx_pool_tip.tip_hash {
                 return;
+            } else if prev_tx_pool_tip.tip_hash != tx_pool_tip.tip_hash
+                && tx_pool_tip.tip_number.value() < chain_tip.inner.number.value()
+            {
+                instant = Instant::now();
             }
-            chain_tip = rpc_client.get_tip_header();
-            tx_pool_tip = rpc_client.tx_pool_info();
         }
         panic!(
             "timeout to wait for tx pool,\n\tchain   tip: {:?}, {:#x},\n\ttx-pool tip: {}, {:#x}",
@@ -496,7 +508,7 @@ impl Node {
             match child_process.try_wait() {
                 Ok(None) => sleep(std::time::Duration::from_secs(1)),
                 Ok(Some(status)) => {
-                    log::error!(
+                    error!(
                         "Error: node crashed: {}, log_path: {}",
                         status,
                         self.log_path().display()
@@ -504,7 +516,7 @@ impl Node {
                     process::exit(status.code().unwrap());
                 }
                 Err(error) => {
-                    log::error!(
+                    error!(
                         "Error: node crashed with reason: {}, log_path: {}",
                         error,
                         self.log_path().display()
@@ -590,5 +602,8 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     });
     if !synced {
         panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
+    }
+    for node in nodes {
+        node.borrow().wait_for_tx_pool();
     }
 }

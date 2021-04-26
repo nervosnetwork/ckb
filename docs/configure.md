@@ -41,7 +41,7 @@ Then edit the generated config files according to the in-line comments.
 ## Chain Spec
 
 The option `chain.spec` configures the chain spec, which controls which kind of chain to run.
-This option is set to a chain used for development by default.
+This option is set to Lina, the mainnet by default.
 
 The subcommand `init` supports exporting the default options for different
 chains. The following command lists all supported chains.
@@ -50,7 +50,7 @@ chains. The following command lists all supported chains.
 ckb init --list-chains
 ```
 
-Here is an example to export config files for testnet.
+Here is an example to export config files for Aggron, the testnet.
 
 ```
 ckb init --chain testnet
@@ -107,10 +107,12 @@ value       = 5000
 
 Each node requires its own `<config-dir>`. Since the default ports will conflict, please export the config files and edit the listen ports in the config files.
 
+The option `--genesis-message` is required to set to the same message for dev chain, because by default dev chain generates a random genesis message. Nodes with different genesis messages cannot connect to each other.
+
 ```
 mkdir node1 node2
-ckb -C node1 init
-ckb -C node2 init
+ckb -C node1 init --chain dev --genesis-message dev-genesis
+ckb -C node2 init --chain dev --genesis-message dev-genesis
 # Change listen ports 8114/8115 to 8116/8117 in node2/ckb.toml.
 # Change `rpc_url` in node2/ckb.toml to use 8116.
 # start node1

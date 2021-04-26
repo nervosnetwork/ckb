@@ -95,13 +95,8 @@ pub fn as_outputs(cells: &[CellMeta]) -> Vec<CellOutput> {
 }
 
 pub fn as_input(cell: &CellMeta) -> CellInput {
-    let block_number = cell
-        .transaction_info
-        .as_ref()
-        .map(|txinfo| txinfo.block_number)
-        .unwrap();
     let out_point = cell.out_point.clone();
-    CellInput::new(out_point, block_number)
+    CellInput::new(out_point, 0)
 }
 
 pub fn as_output(cell: &CellMeta) -> CellOutput {

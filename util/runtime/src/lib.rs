@@ -10,6 +10,8 @@ use tokio::runtime::Handle as TokioHandle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+pub use tokio;
+
 // Handle is a newtype wrap and unwrap tokio::Handle, it is workaround with Rust Orphan Rules.
 // We need `Handle` impl ckb spawn trait decouple tokio dependence
 

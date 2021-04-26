@@ -5,15 +5,16 @@ use crate::write_batch::RocksDBWriteBatch;
 use crate::{internal_error, Result};
 use ckb_app_config::DBConfig;
 use ckb_db_schema::Col;
-use ckb_logger::{info, warn};
+use ckb_logger::info;
 use rocksdb::ops::{
-    CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions,
-    WriteOps,
+    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF,
+    Put, SetOptions, WriteOps,
 };
 use rocksdb::{
     ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
     OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteBatch, WriteOptions,
 };
+use std::path::Path;
 use std::sync::Arc;
 
 /// RocksDB wrapper base on OptimisticTransactionDB
@@ -61,54 +62,11 @@ impl RocksDB {
             (opts, cf_descriptors)
         };
 
-        opts.create_if_missing(false);
+        opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let db = OptimisticTransactionDB::open_cf_descriptors(
-            &opts,
-            &config.path,
-            cf_descriptors.clone(),
-        )
-        .or_else(|err| {
-            let err_str = err.as_ref();
-            if err_str.starts_with("Invalid argument:")
-                && err_str.ends_with("does not exist (create_if_missing is false)")
-            {
-                info!("Initialize a new database");
-                opts.create_if_missing(true);
-                let db = OptimisticTransactionDB::open_cf_descriptors(
-                    &opts,
-                    &config.path,
-                    cf_descriptors.clone(),
-                )
-                .map_err(|err| {
-                    internal_error(format!("failed to open a new created database: {}", err))
-                })?;
-                Ok(db)
-            } else if err.as_ref().starts_with("Corruption:") {
-                warn!("Repairing the rocksdb since {} ...", err);
-                let mut repair_opts = Options::default();
-                repair_opts.create_if_missing(false);
-                repair_opts.create_missing_column_families(false);
-                OptimisticTransactionDB::repair(repair_opts, &config.path).map_err(|err| {
-                    internal_error(format!("failed to repair the database: {}", err))
-                })?;
-                warn!("Opening the repaired rocksdb ...");
-                OptimisticTransactionDB::open_cf_descriptors(
-                    &opts,
-                    &config.path,
-                    cf_descriptors.clone(),
-                )
-                .map_err(|err| {
-                    internal_error(format!("failed to open the repaired database: {}", err))
-                })
-            } else {
-                Err(internal_error(format!(
-                    "failed to open the database: {}",
-                    err
-                )))
-            }
-        })?;
+        let db = OptimisticTransactionDB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
+            .map_err(|err| internal_error(format!("failed to open database: {}", err)))?;
 
         if !config.options.is_empty() {
             let rocksdb_options: Vec<(&str, &str)> = config
@@ -125,6 +83,17 @@ impl RocksDB {
         })
     }
 
+    /// Repairer does best effort recovery to recover as much data as possible
+    /// after a disaster without compromising consistency.
+    /// It does not guarantee bringing the database to a time consistent state.
+    /// Note: Currently there is a limitation that un-flushed column families will be lost after repair.
+    /// This would happen even if the DB is in healthy state.
+    pub fn repair<P: AsRef<Path>>(path: P) -> Result<()> {
+        let repair_opts = Options::default();
+        OptimisticTransactionDB::repair(repair_opts, path)
+            .map_err(|err| internal_error(format!("failed to repair database: {}", err)))
+    }
+
     /// Open a database with the given configuration and columns count.
     pub fn open(config: &DBConfig, columns: u32) -> Self {
         Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
@@ -138,6 +107,51 @@ impl RocksDB {
             ..Default::default()
         };
         Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))
+    }
+
+    /// Set appropriate parameters for bulk loading.
+    pub fn prepare_for_bulk_load_open<P: AsRef<Path>>(
+        path: P,
+        columns: u32,
+    ) -> Result<Option<Self>> {
+        let mut opts = Options::default();
+
+        opts.create_missing_column_families(true);
+        opts.set_prepare_for_bulk_load();
+
+        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
+        let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
+
+        OptimisticTransactionDB::open_cf(&opts, path, &cf_options).map_or_else(
+            |err| {
+                let err_str = err.as_ref();
+                if err_str.starts_with("Invalid argument:")
+                    && err_str.ends_with("does not exist (create_if_missing is false)")
+                {
+                    Ok(None)
+                } else if err_str.starts_with("Corruption:") {
+                    info!(
+                        "DB corrupted: {}.\n\
+                        Try ckb db-repair command to repair DB.\n\
+                        Note: Currently there is a limitation that un-flushed column families will be lost after repair.\
+                        This would happen even if the DB is in healthy state.\n\
+                        See https://github.com/facebook/rocksdb/wiki/RocksDB-Repairer for detail",
+                        err_str
+                    );
+                    Err(internal_error("DB corrupted"))
+                } else {
+                    Err(internal_error(format!(
+                        "failed to open the database: {}",
+                        err
+                    )))
+                }
+            },
+            |db| {
+                Ok(Some(RocksDB {
+                    inner: Arc::new(db),
+                }))
+            },
+        )
     }
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
@@ -201,6 +215,49 @@ impl RocksDB {
     /// Write batch into transaction db.
     pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
         self.inner.write(&batch.inner).map_err(internal_error)
+    }
+
+    /// WriteOptions set_sync true
+    /// If true, the write will be flushed from the operating system
+    /// buffer cache (by calling WritableFile::Sync()) before the write
+    /// is considered complete.  If this flag is true, writes will be
+    /// slower.
+    ///
+    /// If this flag is false, and the machine crashes, some recent
+    /// writes may be lost.  Note that if it is just the process that
+    /// crashes (i.e., the machine does not reboot), no writes will be
+    /// lost even if sync==false.
+    ///
+    /// In other words, a DB write with sync==false has similar
+    /// crash semantics as the "write()" system call.  A DB write
+    /// with sync==true has similar crash semantics to a "write()"
+    /// system call followed by "fdatasync()".
+    ///
+    /// Default: false
+    pub fn write_sync(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        let mut wo = WriteOptions::new();
+        wo.set_sync(true);
+        self.inner
+            .write_opt(&batch.inner, &wo)
+            .map_err(internal_error)
+    }
+
+    /// The begin and end arguments define the key range to be compacted.
+    /// The behavior varies depending on the compaction style being used by the db.
+    /// In case of universal and FIFO compaction styles, the begin and end arguments are ignored and all files are compacted.
+    /// Also, files in each level are compacted and left in the same level.
+    /// For leveled compaction style, all files containing keys in the given range are compacted to the last level containing files.
+    /// If either begin or end are NULL, it is taken to mean the key before all keys in the db or the key after all keys respectively.
+    ///
+    /// If more than one thread calls manual compaction,
+    /// only one will actually schedule it while the other threads will simply wait for
+    /// the scheduled manual compaction to complete.
+    ///
+    /// CompactRange waits while compaction is performed on the background threads and thus is a blocking call.
+    pub fn compact_range(&self, col: Col, start: Option<&[u8]>, end: Option<&[u8]>) -> Result<()> {
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner.compact_range_cf(&cf, start, end);
+        Ok(())
     }
 
     /// Return `RocksDBSnapshot`.

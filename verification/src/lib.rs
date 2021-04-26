@@ -17,7 +17,7 @@ mod tests;
 pub use crate::block_verifier::{
     BlockVerifier, HeaderResolverWrapper, NonContextualBlockTxsVerifier,
 };
-pub use crate::contextual_block_verifier::{ContextualBlockVerifier, Switch, VerifyContext};
+pub use crate::contextual_block_verifier::{ContextualBlockVerifier, VerifyContext};
 pub use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, BlockVersionError, CellbaseError,
     CommitError, EpochError, HeaderError, HeaderErrorKind, InvalidParentError, NumberError,
@@ -35,11 +35,3 @@ pub use crate::transaction_verifier::{
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second
 
 pub(crate) const LOG_TARGET: &str = "ckb_chain";
-
-/// Trait for verification
-pub trait Verifier {
-    /// The verification associated target
-    type Target;
-    /// The Interface for verification
-    fn verify(&self, target: &Self::Target) -> Result<(), ckb_error::Error>;
-}

@@ -1,6 +1,5 @@
 //! CKB chain service.
 
-use crate::switch::Switch;
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
@@ -21,9 +20,10 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::{
-    BlockVerifier, ContextualBlockVerifier, NonContextualBlockTxsVerifier, Verifier, VerifyContext,
+    BlockVerifier, ContextualBlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier,
+    VerifyContext,
 };
-use ckb_verification::{InvalidParentError, Switch as _};
+use ckb_verification_traits::{Switch, Verifier};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -288,15 +288,17 @@ impl ChainService {
     // visible pub just for test
     #[doc(hidden)]
     pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        debug!("begin processing block: {}", block.header().hash());
-        if block.header().number() < 1 {
-            warn!(
-                "receive 0 number block: {}-{}",
-                block.header().number(),
-                block.header().hash()
-            );
+        let block_number = block.number();
+        let block_hash = block.hash();
+
+        debug!("begin processing block: {}-{}", block_number, block_hash);
+        if block_number < 1 {
+            warn!("receive 0 number block: 0-{}", block_hash);
         }
+
+        let timer = Timer::start();
         self.insert_block(block, switch).map(|ret| {
+            metrics!(timing, "ckb.processed_block", timer.stop());
             debug!("finish processing block");
             ret
         })
@@ -337,7 +339,6 @@ impl ChainService {
 
         let mut total_difficulty = U256::zero();
         let mut fork = ForkChanges::default();
-        let timer = Timer::start();
 
         let parent_ext = txn_snapshot
             .get_block_ext(&block.data().header().raw().parent_hash())
@@ -359,18 +360,13 @@ impl ChainService {
 
         db_txn.insert_block(&block)?;
 
-        let parent_header_epoch = txn_snapshot
-            .get_block_epoch(&parent_header.hash())
-            .expect("parent epoch already store");
-
-        let next_epoch_ext = txn_snapshot.next_epoch_ext(
-            self.shared.consensus(),
-            &parent_header_epoch,
-            &parent_header,
-        );
-        let new_epoch = next_epoch_ext.is_some();
-
-        let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
+        let next_block_epoch = self
+            .shared
+            .consensus()
+            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .expect("epoch should be stored");
+        let new_epoch = next_block_epoch.is_head();
+        let epoch = next_block_epoch.epoch();
 
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
@@ -384,7 +380,9 @@ impl ChainService {
             &block.header().hash(),
             &epoch.last_block_hash_in_previous_epoch(),
         )?;
-        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        if new_epoch {
+            db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        }
 
         let shared_snapshot = Arc::clone(&self.shared.snapshot());
         let origin_proposals = shared_snapshot.proposals();
@@ -407,11 +405,6 @@ impl ChainService {
                 &cannon_total_difficulty - &current_total_difficulty
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
-            if !fork.detached_blocks.is_empty() {
-                metrics!(gauge, "ckb-chain.reorg", fork.attached_blocks.len() as i64, "type" => "attached");
-                metrics!(gauge, "ckb-chain.reorg", fork.detached_blocks.len() as i64, "type" => "detached");
-            }
-
             self.rollback(&fork, &db_txn)?;
 
             // update and verify chain root
@@ -475,8 +468,7 @@ impl ChainService {
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }
-            metrics!(gauge, "ckb-chain.tip_number", block.header().number() as i64, "type" => "main_chain");
-            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "false");
+            metrics!(gauge, "ckb.chain_tip", block.header().number() as i64);
         } else {
             self.shared.refresh_snapshot();
             info!(
@@ -495,7 +487,6 @@ impl ChainService {
             {
                 error!("notify new_uncle error {}", e);
             }
-            metrics!(timing, "ckb-chain.insert_block", timer.stop(), "type" => "elapsed", "is_uncle" => "true");
         }
 
         Ok(true)

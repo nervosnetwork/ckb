@@ -81,10 +81,7 @@ pub trait CKBProtocolContext: Send {
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
     /// Ban peer
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String);
-    /// Can send message again?
-    fn send_paused(&self) -> bool;
     /// current protocol id
-    // Other methods
     fn protocol_id(&self) -> ProtocolId;
     /// Raw tentacle controller
     fn p2p_control(&self) -> Option<&ServiceControl> {
@@ -244,7 +241,6 @@ impl ServiceProtocol for CKBHandler {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
-            send_paused: false,
         };
         nc.set_notify(Duration::from_secs(6), std::u64::MAX)
             .expect("set_notify at init should be ok");
@@ -262,13 +258,10 @@ impl ServiceProtocol for CKBHandler {
             return;
         }
 
-        let pending_data_size = context.session.pending_data_size();
-        let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
-            send_paused,
         };
         let peer_index = context.session.id;
         self.handler.connected(Arc::new(nc), peer_index, version);
@@ -285,13 +278,10 @@ impl ServiceProtocol for CKBHandler {
             return;
         }
 
-        let pending_data_size = context.session.pending_data_size();
-        let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
-            send_paused,
         };
         let peer_index = context.session.id;
         self.handler.disconnected(Arc::new(nc), peer_index);
@@ -308,13 +298,10 @@ impl ServiceProtocol for CKBHandler {
             context.session.id,
             data.len()
         );
-        let pending_data_size = context.session.pending_data_size();
-        let send_paused = pending_data_size >= self.network_state.config.max_send_buffer();
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
-            send_paused,
         };
         let peer_index = context.session.id;
         self.handler.received(Arc::new(nc), peer_index, data);
@@ -332,7 +319,6 @@ impl ServiceProtocol for CKBHandler {
                 proto_id: self.proto_id,
                 network_state: Arc::clone(&self.network_state),
                 p2p_control: context.control().to_owned(),
-                send_paused: false,
             };
             self.handler.notify(Arc::new(nc), token);
         }
@@ -347,7 +333,6 @@ impl ServiceProtocol for CKBHandler {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
-            send_paused: false,
         };
         self.handler.poll(Arc::new(nc))
     }
@@ -357,7 +342,6 @@ struct DefaultCKBProtocolContext {
     proto_id: ProtocolId,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
-    send_paused: bool,
 }
 
 impl CKBProtocolContext for DefaultCKBProtocolContext {
@@ -486,10 +470,6 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn protocol_id(&self) -> ProtocolId {
         self.proto_id
-    }
-
-    fn send_paused(&self) -> bool {
-        self.send_paused
     }
 
     fn p2p_control(&self) -> Option<&ServiceControl> {

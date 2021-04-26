@@ -1,5 +1,6 @@
 mod cellbase_maturity;
 mod collision;
+mod dead_cell_deps;
 mod depend_tx_in_same_block;
 mod descendant;
 mod different_txs_with_same_input;
@@ -21,6 +22,7 @@ mod valid_since;
 
 pub use cellbase_maturity::*;
 pub use collision::*;
+pub use dead_cell_deps::*;
 pub use depend_tx_in_same_block::*;
 pub use descendant::*;
 pub use different_txs_with_same_input::*;

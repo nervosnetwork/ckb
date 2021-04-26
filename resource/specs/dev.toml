@@ -9,7 +9,9 @@ uncles_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 nonce = "0x0"
 
 [genesis.genesis_cell]
-message = "ckb_dev"
+message = "ckb_dev" # {{
+# customize => message = "{genesis_message}"
+# }}
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -91,7 +93,7 @@ epoch_duration_target = 14400
 genesis_epoch_length = 1000
 # For development and testing purposes only.
 # Keep difficulty be permanent if the pow is Dummy. (default: false)
-# permanent_difficulty_in_dummy = true
+permanent_difficulty_in_dummy = true
 
 [pow]
 func = "Dummy"

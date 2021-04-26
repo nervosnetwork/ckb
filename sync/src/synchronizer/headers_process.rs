@@ -1,13 +1,15 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, SyncShared};
-use crate::{Status, StatusCode, MAX_HEADERS_LEN};
+use crate::{Status, StatusCode};
+use ckb_constant::sync::MAX_HEADERS_LEN;
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
 use ckb_types::{core, packed, prelude::*};
-use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderError, HeaderResolver, HeaderVerifier};
+use ckb_verification_traits::Verifier;
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,

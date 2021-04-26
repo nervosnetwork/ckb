@@ -1,5 +1,5 @@
 //! TODO(doc): @quake
-use ckb_db::RocksDB;
+use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::MIGRATION_VERSION_KEY;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
@@ -35,7 +35,7 @@ impl Migrations {
     /// Check whether database requires migration
     ///
     /// Return true if migration is required
-    pub fn check(&self, db: &RocksDB) -> bool {
+    pub fn check(&self, db: &ReadOnlyDB) -> bool {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -43,7 +43,7 @@ impl Migrations {
             Some(version_bytes) => {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
-            None => return true,
+            None => return false,
         };
 
         self.migrations
@@ -51,6 +51,24 @@ impl Migrations {
             .last()
             .map(|m| m.version() > db_version.as_str())
             .unwrap_or(false)
+    }
+
+    /// Check if the migrations will consume a lot of time.
+    pub fn expensive(&self, db: &ReadOnlyDB) -> bool {
+        let db_version = match db
+            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .expect("get the version of database")
+        {
+            Some(version_bytes) => {
+                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+            }
+            None => return false,
+        };
+
+        self.migrations
+            .values()
+            .skip_while(|m| m.version() <= db_version.as_str())
+            .any(|m| m.expensive())
     }
 
     /// TODO(doc): @quake
@@ -129,6 +147,13 @@ pub trait Migration {
 
     /// returns migration version, use `date +'%Y%m%d%H%M%S'` timestamp format
     fn version(&self) -> &str;
+
+    /// Will cost a lot of time to perform this migration operation.
+    ///
+    /// Override this function for `Migrations` which could be executed very fast.
+    fn expensive(&self) -> bool {
+        true
+    }
 }
 
 /// TODO(doc): @quake
@@ -156,6 +181,10 @@ impl Migration for DefaultMigration {
 
     fn version(&self) -> &str {
         &self.version
+    }
+
+    fn expensive(&self) -> bool {
+        false
     }
 }
 

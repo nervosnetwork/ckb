@@ -7,6 +7,7 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
+        self,
         cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
         error::OutPointError,
     },
@@ -303,12 +304,31 @@ impl ExperimentRpc for ExperimentRpcImpl {
     fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
-        block_hash: H256,
+        withdrawing_header_hash: H256,
     ) -> Result<Capacity> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
-        let calculator = DaoCalculator::new(consensus, snapshot);
-        match calculator.maximum_withdraw(&out_point.into(), &block_hash.pack()) {
+        let out_point: packed::OutPoint = out_point.into();
+        let calculator = DaoCalculator::new(consensus, snapshot.as_data_provider());
+
+        let (tx, deposit_header_hash) = snapshot
+            .get_transaction(&out_point.tx_hash())
+            .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
+        let output = tx
+            .outputs()
+            .get(out_point.index().unpack())
+            .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
+        let output_data = tx
+            .outputs_data()
+            .get(out_point.index().unpack())
+            .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
+
+        match calculator.calculate_maximum_withdraw(
+            &output,
+            core::Capacity::bytes(output_data.len()).expect("should not overlfow"),
+            &deposit_header_hash,
+            &withdrawing_header_hash.pack(),
+        ) {
             Ok(capacity) => Ok(capacity.into()),
             Err(err) => Err(RPCError::from_ckb_error(err)),
         }

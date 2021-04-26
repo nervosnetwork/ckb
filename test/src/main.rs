@@ -1,4 +1,5 @@
 use ckb_channel::unbounded;
+use ckb_logger::{error, info, warn};
 use ckb_test::specs::*;
 use ckb_test::{
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
@@ -8,14 +9,14 @@ use ckb_test::{
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
 use clap::{value_t, App, Arg};
-use log::{error, info};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
 use std::env;
-use std::fs::{read_to_string, File};
+use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,12 +50,19 @@ fn main() {
         0
     };
     let worker_count = value_t!(matches, "concurrent", usize).unwrap_or_else(|err| err.exit());
-    let vendor = value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir());
+    let vendor =
+        value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir().join("vendor"));
+    let log_file_opt = matches
+        .value_of("log-file")
+        .map(PathBuf::from_str)
+        .transpose()
+        .unwrap_or_else(|err| panic!("failed to parse the log file path since {}", err));
     let fail_fast = !matches.is_present("no-fail-fast");
     let report = !matches.is_present("no-report");
+    let clean_tmp = !matches.is_present("keep-tmp-data");
     let verbose = matches.is_present("verbose");
 
-    let _ = {
+    let logger_guard = {
         let filter = if !verbose {
             env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string())
         } else {
@@ -64,7 +72,19 @@ fn main() {
                 module_path!(),
             )
         };
-        env_logger::builder().parse_filters(&filter).try_init()
+        let mut logger_config = ckb_logger_config::Config::default();
+        logger_config.filter = Some(filter);
+        if let Some(log_file) = log_file_opt {
+            if log_file.is_relative() {
+                logger_config.log_dir = current_dir();
+            }
+            logger_config.file = log_file;
+            logger_config.log_to_file = true;
+        } else {
+            logger_config.log_to_file = false;
+        }
+        ckb_logger_service::init(None, logger_config)
+            .unwrap_or_else(|err| panic!("failed to init the logger service since {}", err))
     };
 
     if matches.is_present("list-specs") {
@@ -162,7 +182,11 @@ fn main() {
                     print_panicked_logs(&node_log_paths);
                 }
             }
-            Notify::Done { spec_name, seconds } => {
+            Notify::Done {
+                spec_name,
+                seconds,
+                node_paths,
+            } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
                     status: TestResultStatus::Passed,
@@ -173,6 +197,13 @@ fn main() {
                     "{}/{} .............. [{}] Done in {} seconds",
                     done_specs, total, spec_name, seconds
                 );
+                if clean_tmp {
+                    for path in node_paths {
+                        if let Err(err) = fs::remove_dir_all(&path) {
+                            warn!("failed to remove directory [{:?}] since {}", path, err);
+                        }
+                    }
+                }
             }
             Notify::Stop => {
                 worker_running -= 1;
@@ -221,6 +252,8 @@ fn main() {
     if !spec_errors.is_empty() {
         std::process::exit(1);
     }
+
+    drop(logger_guard);
 }
 
 fn clap_app() -> App<'static, 'static> {
@@ -274,6 +307,15 @@ fn clap_app() -> App<'static, 'static> {
                 .long("no-report")
                 .help("Do not show integration test report"),
         )
+        .arg(
+            Arg::with_name("log-file")
+                .long("log-file")
+                .takes_value(true)
+                .help("Write log outputs into file."),
+        )
+        .arg(Arg::with_name("keep-tmp-data").long("keep-tmp-data").help(
+            "Keep all temporary files. Default: only keep temporary file for the failed tests.",
+        ))
 }
 
 fn filter_specs(
@@ -296,9 +338,7 @@ fn filter_specs(
 }
 
 fn current_dir() -> PathBuf {
-    env::current_dir()
-        .expect("can't get current_dir")
-        .join("vendor")
+    env::current_dir().expect("can't get current_dir")
 }
 
 fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
@@ -432,12 +472,19 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(AvoidDuplicatedProposalsWithUncles),
         Box::new(TemplateTxSelect),
         Box::new(BlockSyncRelayerCollaboration),
+        Box::new(RpcGetBlockTemplate),
+        Box::new(RpcSubmitBlock),
         Box::new(RpcTruncate),
         Box::new(RpcTransactionProof),
         Box::new(RpcGetBlockMedianTime),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
         Box::new(LastCommonHeaderForPeerWithWorseChain),
+        Box::new(BlockTransactionsRelayParentOfOrphanBlock),
+        Box::new(CellBeingSpentThenCellDepInSameBlockTestSubmitBlock),
+        Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
+        Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
+        Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
     ];
     specs.shuffle(&mut thread_rng());
     specs
@@ -494,6 +541,9 @@ fn tail_node_logs(node_log_paths: &[PathBuf]) {
         .unwrap_or_default()
         .parse()
         .unwrap_or(2000);
+    if tail_n == 0 {
+        return;
+    }
 
     for (i, node_log) in node_log_paths.iter().enumerate() {
         let content = read_to_string(node_log).expect("failed to read node's log");

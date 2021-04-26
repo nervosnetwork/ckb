@@ -1,4 +1,3 @@
-use super::Verifier;
 use crate::{
     error::CellbaseError, BlockErrorKind, BlockVerifier, EpochError, NumberError, UnclesError,
     UnknownParentError,
@@ -7,6 +6,7 @@ use ckb_chain_spec::{calculate_block_reward, consensus::Consensus};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_error::Error;
 use ckb_types::{core::BlockView, packed::CellInput};
+use ckb_verification_traits::Verifier;
 
 /// The genesis verification
 ///

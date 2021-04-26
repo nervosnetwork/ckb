@@ -1,9 +1,9 @@
 use crate::{Relayer, SyncShared};
-use ckb_chain::{chain::ChainService, switch::Switch};
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId,
-    TargetSession,
+    SupportProtocols, TargetSession,
 };
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -22,6 +22,7 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     U256,
 };
+use ckb_verification_traits::Switch;
 use faketime::{self, unix_time_as_millis};
 use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 
@@ -43,11 +44,12 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
 
 pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> HeaderBuilder {
     let parent_hash = parent.hash();
-    let parent_epoch = shared.store().get_block_epoch(&parent_hash).unwrap();
     let snapshot = shared.snapshot();
     let epoch = snapshot
-        .next_epoch_ext(snapshot.consensus(), &parent_epoch, parent)
-        .unwrap_or(parent_epoch);
+        .consensus()
+        .next_epoch_ext(&parent, &snapshot.as_data_provider())
+        .unwrap()
+        .epoch();
     HeaderBuilder::default()
         .parent_hash(parent_hash)
         .number((parent.number() + 1).pack())
@@ -162,13 +164,32 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     )
 }
 
-#[derive(Default)]
-pub(crate) struct MockProtocalContext {
-    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
-    pub sent_messages_to: RefCell<Vec<(PeerIndex, P2pBytes)>>,
+pub(crate) struct MockProtocolContext {
+    protocol: SupportProtocols,
+    sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
 }
 
-impl CKBProtocolContext for MockProtocalContext {
+impl MockProtocolContext {
+    pub(crate) fn new(protocol: SupportProtocols) -> Self {
+        Self {
+            protocol,
+            sent_messages: Default::default(),
+        }
+    }
+
+    pub(crate) fn has_sent(
+        &self,
+        protocol_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: P2pBytes,
+    ) -> bool {
+        self.sent_messages
+            .borrow()
+            .contains(&(protocol_id, peer_index, data))
+    }
+}
+
+impl CKBProtocolContext for MockProtocolContext {
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }
@@ -208,8 +229,8 @@ impl CKBProtocolContext for MockProtocalContext {
         Ok(())
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
-        self.sent_messages_to.borrow_mut().push((peer_index, data));
-        Ok(())
+        let protocol_id = self.protocol_id();
+        self.send_message(protocol_id, peer_index, data)
     }
 
     fn filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
@@ -234,9 +255,6 @@ impl CKBProtocolContext for MockProtocalContext {
         unimplemented!();
     }
     fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
-    }
-    fn send_paused(&self) -> bool {
-        false
+        self.protocol.protocol_id()
     }
 }

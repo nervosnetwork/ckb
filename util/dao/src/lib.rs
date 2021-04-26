@@ -4,15 +4,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
-use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
-use ckb_traits::CellDataProvider;
+use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Capacity, CapacityResult, HeaderView, ScriptHashType,
     },
-    packed::{Byte32, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{Byte32, CellOutput, Script, WitnessArgs},
     prelude::*,
 };
 use std::collections::HashSet;
@@ -20,19 +19,16 @@ use std::convert::TryFrom;
 
 /// Dao field calculator
 /// `DaoCalculator` is a facade to calculate the dao field.
-pub struct DaoCalculator<'a, CS, DL> {
+pub struct DaoCalculator<'a, DL> {
     consensus: &'a Consensus,
-    store: &'a CS,
     data_loader: DL,
 }
 
-impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
+impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a, DL> {
     /// Creates a new `DaoCalculator`.
-    pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
-        let data_loader = DataLoaderWrapper::new(store);
+    pub fn new(consensus: &'a Consensus, data_loader: DL) -> Self {
         DaoCalculator {
             consensus,
-            store,
             data_loader,
         }
     }
@@ -40,9 +36,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     /// Returns the primary block reward for `target` block.
     pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let target_epoch = self
-            .store
-            .get_block_epoch_index(&target.hash())
-            .and_then(|index| self.store.get_epoch_ext(&index))
+            .data_loader
+            .get_epoch_ext(target)
             .ok_or(DaoError::InvalidHeader)?;
 
         target_epoch.block_reward(target.number())
@@ -56,13 +51,12 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
 
         let target_parent_hash = target.data().raw().parent_hash();
         let target_parent = self
-            .store
-            .get_block_header(&target_parent_hash)
+            .data_loader
+            .get_header(&target_parent_hash)
             .ok_or(DaoError::InvalidHeader)?;
         let target_epoch = self
-            .store
-            .get_block_epoch_index(&target.hash())
-            .and_then(|index| self.store.get_epoch_ext(&index))
+            .data_loader
+            .get_epoch_ext(target)
             .ok_or(DaoError::InvalidHeader)?;
 
         let target_g2 = target_epoch
@@ -72,30 +66,6 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             / u128::from(target_parent_c.as_u64());
         let reward = u64::try_from(reward128).map_err(|_| DaoError::Overflow)?;
         Ok(Capacity::shannons(reward))
-    }
-
-    /// Returns the sum of primary block reward and secondary block reward for `target` block.
-    ///
-    /// Notice unlike primary_block_reward and secondary_epoch_reward above,
-    /// this starts calculating from parent, not target header.
-    ///
-    /// NOTE: Used for testing only!
-    #[doc(hidden)]
-    pub fn base_block_reward(&self, parent: &HeaderView) -> Result<Capacity, Error> {
-        let target_number = self
-            .consensus
-            .finalize_target(parent.number() + 1)
-            .ok_or(DaoError::InvalidHeader)?;
-        let target = self
-            .store
-            .get_block_hash(target_number)
-            .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or(DaoError::InvalidHeader)?;
-
-        let primary_block_reward = self.primary_block_reward(&target)?;
-        let secondary_block_reward = self.secondary_block_reward(&target)?;
-
-        Ok(primary_block_reward.safe_add(secondary_block_reward)?)
     }
 
     /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
@@ -125,15 +95,11 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         // issuance for each block(which will only be issued on chain
         // after the finalization delay), not the capacities generated
         // in the cellbase of current block.
-        let parent_block_epoch = self
-            .store
-            .get_block_epoch_index(&parent.hash())
-            .and_then(|index| self.store.get_epoch_ext(&index))
-            .ok_or(DaoError::InvalidHeader)?;
         let current_block_epoch = self
-            .store
-            .next_epoch_ext(&self.consensus, &parent_block_epoch, &parent)
-            .unwrap_or(parent_block_epoch);
+            .consensus
+            .next_epoch_ext(&parent, &self.data_loader)
+            .ok_or_else(|| DaoError::InvalidHeader)?
+            .epoch();
         let current_block_number = parent.number() + 1;
         let current_g2 = current_block_epoch.secondary_block_issuance(
             current_block_number,
@@ -165,34 +131,6 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .ok_or(DaoError::Overflow)?;
 
         Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
-    }
-
-    /// Returns the maximum capacity that the deposited `out_point` acts [withdrawing phase 1] at `withdrawing_header_hash.`
-    ///
-    /// [withdrawing phase 1]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#withdraw-phase-1
-    pub fn maximum_withdraw(
-        &self,
-        out_point: &OutPoint,
-        withdrawing_header_hash: &Byte32,
-    ) -> Result<Capacity, Error> {
-        let (tx, block_hash) = self
-            .store
-            .get_transaction(&out_point.tx_hash())
-            .ok_or(DaoError::InvalidOutPoint)?;
-        let output = tx
-            .outputs()
-            .get(out_point.index().unpack())
-            .ok_or(DaoError::InvalidOutPoint)?;
-        let output_data = tx
-            .outputs_data()
-            .get(out_point.index().unpack())
-            .ok_or(DaoError::InvalidOutPoint)?;
-        self.calculate_maximum_withdraw(
-            &output,
-            Capacity::bytes(output_data.len())?,
-            &block_hash,
-            withdrawing_header_hash,
-        )
     }
 
     /// Returns the total transactions fee of `rtx`.
@@ -328,7 +266,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         )
     }
 
-    fn calculate_maximum_withdraw(
+    /// Calculate maximum withdraw capacity of a deposited dao output
+    pub fn calculate_maximum_withdraw(
         &self,
         output: &CellOutput,
         output_data_capacity: Capacity,
@@ -336,12 +275,12 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         withdrawing_header_hash: &Byte32,
     ) -> Result<Capacity, Error> {
         let deposit_header = self
-            .store
-            .get_block_header(deposit_header_hash)
+            .data_loader
+            .get_header(deposit_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
         let withdrawing_header = self
-            .store
-            .get_block_header(withdrawing_header_hash)
+            .data_loader
+            .get_header(withdrawing_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
         if deposit_header.number() >= withdrawing_header.number() {
             return Err(DaoError::InvalidOutPoint.into());
@@ -386,7 +325,7 @@ mod tests {
     use super::*;
     use ckb_db::RocksDB;
     use ckb_db_schema::COLUMNS;
-    use ckb_store::ChainDB;
+    use ckb_store::{ChainDB, ChainStore};
     use ckb_types::{
         bytes::Bytes,
         core::{
@@ -451,7 +390,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, None);
-        let result = DaoCalculator::new(&consensus, &store)
+        let result = DaoCalculator::new(&consensus, store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -482,7 +421,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, Some(0));
-        let result = DaoCalculator::new(&consensus, &store)
+        let result = DaoCalculator::new(&consensus, store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -513,7 +452,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, Some(12340));
-        let result = DaoCalculator::new(&consensus, &store)
+        let result = DaoCalculator::new(&consensus, store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -544,7 +483,8 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, None);
-        let result = DaoCalculator::new(&consensus, &store).dao_field(&[], &parent_header);
+        let result =
+            DaoCalculator::new(&consensus, store.as_data_provider()).dao_field(&[], &parent_header);
         assert!(result
             .unwrap_err()
             .to_string()
@@ -589,7 +529,7 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let result = DaoCalculator::new(&consensus, &store)
+        let result = DaoCalculator::new(&consensus, store.as_data_provider())
             .dao_field(&[rtx], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -611,7 +551,7 @@ mod tests {
             .capacity(capacity_bytes!(1000000).pack())
             .build();
         let tx = TransactionBuilder::default()
-            .output(output)
+            .output(output.clone())
             .output_data(data.pack())
             .build();
         let deposit_header = HeaderBuilder::default()
@@ -625,10 +565,8 @@ mod tests {
             .build();
         let deposit_block = BlockBuilder::default()
             .header(deposit_header)
-            .transaction(tx.clone())
+            .transaction(tx)
             .build();
-
-        let out_point = OutPoint::new(tx.hash(), 0);
 
         let withdrawing_header = HeaderBuilder::default()
             .number(200.pack())
@@ -650,8 +588,13 @@ mod tests {
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdrawing_block.hash());
+        let calculator = DaoCalculator::new(&consensus, store.as_data_provider());
+        let result = calculator.calculate_maximum_withdraw(
+            &output,
+            Capacity::bytes(data.len()).expect("should not overlfow"),
+            &deposit_block.hash(),
+            &withdrawing_block.hash(),
+        );
         assert_eq!(result.unwrap(), Capacity::shannons(100_000_000_009_999));
     }
 
@@ -660,7 +603,7 @@ mod tests {
         let output = CellOutput::new_builder()
             .capacity(Capacity::shannons(18_446_744_073_709_550_000).pack())
             .build();
-        let tx = TransactionBuilder::default().output(output).build();
+        let tx = TransactionBuilder::default().output(output.clone()).build();
         let deposit_header = HeaderBuilder::default()
             .number(100.pack())
             .dao(pack_dao_data(
@@ -672,10 +615,8 @@ mod tests {
             .build();
         let deposit_block = BlockBuilder::default()
             .header(deposit_header)
-            .transaction(tx.clone())
+            .transaction(tx)
             .build();
-
-        let out_point = OutPoint::new(tx.hash(), 0);
 
         let withdrawing_header = HeaderBuilder::default()
             .number(200.pack())
@@ -686,9 +627,7 @@ mod tests {
                 Default::default(),
             ))
             .build();
-        let withdrawing_block = BlockBuilder::default()
-            .header(withdrawing_header.clone())
-            .build();
+        let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
         let store = new_store();
         let txn = store.begin_transaction();
@@ -699,8 +638,13 @@ mod tests {
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, &store);
-        let result = calculator.maximum_withdraw(&out_point, &withdrawing_header.hash());
+        let calculator = DaoCalculator::new(&consensus, store.as_data_provider());
+        let result = calculator.calculate_maximum_withdraw(
+            &output,
+            Capacity::bytes(0).expect("should not overlfow"),
+            &deposit_block.hash(),
+            &withdrawing_block.hash(),
+        );
         assert!(result.is_err());
     }
 }

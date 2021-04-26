@@ -1,4 +1,3 @@
-use crate::switch::Switch;
 use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
@@ -10,6 +9,7 @@ use ckb_types::{
     core::{BlockBuilder, BlockView},
     packed::OutPoint,
 };
+use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 #[test]

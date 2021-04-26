@@ -1,15 +1,15 @@
 use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
+use ckb_constant::sync::MAX_LOCATOR_SIZE;
+use ckb_logger::info;
 use ckb_network::SupportProtocols;
-use ckb_sync::MAX_LOCATOR_SIZE;
 use ckb_types::{
     h256,
     packed::{Byte32, GetHeaders, SyncMessage},
     prelude::*,
     H256,
 };
-use log::info;
 
 pub struct InvalidLocatorSize;
 

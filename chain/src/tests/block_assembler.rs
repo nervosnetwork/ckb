@@ -1,5 +1,5 @@
+use crate::chain::ChainController;
 use crate::chain::ChainService;
-use crate::{chain::ChainController, switch::Switch};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,7 +21,8 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification_traits::{Switch, Verifier};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 
@@ -175,13 +176,6 @@ fn test_prepare_uncles() {
 
     let block0_0 = gen_block(&genesis, 11, &epoch);
     let block0_1 = gen_block(&genesis, 10, &epoch);
-
-    let last_epoch = epoch;
-    let epoch = shared
-        .snapshot()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &block0_1.header())
-        .unwrap_or(last_epoch);
-
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
     chain_controller
@@ -209,11 +203,11 @@ fn test_prepare_uncles() {
     }
     assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
 
-    let last_epoch = epoch;
     let epoch = shared
-        .snapshot()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &block1_1.header())
-        .unwrap_or(last_epoch);
+        .consensus()
+        .next_epoch_ext(&block1_1.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
 
     let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
     chain_controller
@@ -233,11 +227,11 @@ fn test_prepare_uncles() {
     // block number 4, epoch 0, uncles should retained
     assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
 
-    let last_epoch = epoch;
     let epoch = shared
-        .snapshot()
-        .next_epoch_ext(shared.consensus(), &last_epoch, &block2_1.header())
-        .unwrap_or(last_epoch);
+        .consensus()
+        .next_epoch_ext(&block2_1.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
 
     let block3_1 = gen_block(&block2_1.header(), 10, &epoch);
     chain_controller

@@ -3,36 +3,37 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
 use ckb_types::packed::Byte32;
+use faketime::unix_time_as_millis;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb export`.
 pub struct ExportArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
-    /// TODO(doc): @doitian
+    /// Loaded consensus.
     pub consensus: Consensus,
-    /// TODO(doc): @doitian
+    /// The target directory to save the exported file.
     pub target: PathBuf,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
-    /// TODO(doc): @doitian
+    /// Loaded consensus.
     pub consensus: Consensus,
-    /// TODO(doc): @doitian
+    /// The path to the file to be imported.
     pub source: PathBuf,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb run`.
 pub struct RunArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
-    /// TODO(doc): @doitian
+    /// Loaded consensus.
     pub consensus: Consensus,
-    /// TODO(doc): @doitian
+    /// Whether allow advanced block assembler options.
     pub block_assembler_advanced: bool,
     /// Whether skip chain spec hash check
     pub skip_chain_spec_check: bool,
@@ -44,119 +45,165 @@ pub struct RunArgs {
     pub chain_spec_hash: Byte32,
 }
 
+/// Enable profile on blocks in the range `[from, to]`.
 pub type ProfileArgs = Option<(Option<u64>, Option<u64>)>;
-/// TODO(doc): @doitian
+
+/// Parsed command line arguments for `ckb replay`.
 pub struct ReplayArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
-    /// TODO(doc): @doitian
+    /// Loaded consensus.
     pub consensus: Consensus,
-    /// TODO(doc): @doitian
+    /// The directory to store the temporary files during the replay.
     pub tmp_target: PathBuf,
-    /// TODO(doc): @doitian
+    /// Enable profile on blocks in the range `[from, to]`.
     pub profile: ProfileArgs,
-    /// TODO(doc): @doitian
+    /// Enable sanity check.
     pub sanity_check: bool,
-    /// TODO(doc): @doitian
+    /// Enable full verification.
     pub full_verification: bool,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb miner`.
 pub struct MinerArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb-miner.toml`.
     pub config: MinerConfig,
-    /// TODO(doc): @doitian
+    /// Selected PoW algorithm.
     pub pow_engine: Arc<dyn PowEngine>,
-    /// TODO(doc): @doitian
+    /// Options to configure the memory tracker.
     pub memory_tracker: MemoryTrackerConfig,
-    /// TODO(doc): @doitian
+    /// The miner process will exit when there are `limit` nounces (puzzle solutions) found. Set it
+    /// to 0 to loop forever.
     pub limit: u128,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb stats`.
 pub struct StatsArgs {
-    /// TODO(doc): @doitian
+    /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
-    /// TODO(doc): @doitian
+    /// Loaded consensus.
     pub consensus: Consensus,
-    /// TODO(doc): @doitian
+    /// Specifies the starting block number. The default is 1.
     pub from: Option<u64>,
-    /// TODO(doc): @doitian
+    /// Specifies the ending block number. The default is the tip block in the database.
     pub to: Option<u64>,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb init`.
 pub struct InitArgs {
-    /// TODO(doc): @doitian
+    /// Whether to prompt user inputs interactively.
     pub interactive: bool,
-    /// TODO(doc): @doitian
+    /// The CKB root directory.
     pub root_dir: PathBuf,
-    /// TODO(doc): @doitian
+    /// The chain name that this node will join.
     pub chain: String,
-    /// TODO(doc): @doitian
+    /// RPC port.
     pub rpc_port: String,
-    /// TODO(doc): @doitian
+    /// P2P port.
     pub p2p_port: String,
-    /// TODO(doc): @doitian
+    /// Whether to save the logs into the log file.
     pub log_to_file: bool,
-    /// TODO(doc): @doitian
+    /// Whether to print the logs on the process stdout.
     pub log_to_stdout: bool,
-    /// TODO(doc): @doitian
+    /// Asks to list available chains.
     pub list_chains: bool,
-    /// TODO(doc): @doitian
+    /// Force file overwriting.
     pub force: bool,
-    /// TODO(doc): @doitian
+    /// Block assembler lock script code hash.
     pub block_assembler_code_hash: Option<String>,
-    /// TODO(doc): @doitian
+    /// Block assembler lock script args.
     pub block_assembler_args: Vec<String>,
-    /// TODO(doc): @doitian
+    /// Block assembler lock script hash type.
     pub block_assembler_hash_type: ScriptHashType,
-    /// TODO(doc): @doitian
+    /// Block assembler cellbase transaction message.
     pub block_assembler_message: Option<String>,
-    /// TODO(doc): @doitian
+    /// Import the spec file.
+    ///
+    /// When this is set to `-`, the spec file is imported from stdin and the file content must be
+    /// encoded by base64. Otherwise it must be a path to the spec file.
+    ///
+    /// The spec file will be saved into `specs/{CHAIN}.toml`, where `CHAIN` is the chain name.
     pub import_spec: Option<String>,
+    /// Customize parameters for chain spec or not.
+    ///
+    /// Only works for dev chains.
+    pub customize_spec: CustomizeSpec,
 }
 
-/// TODO(doc): @doitian
+/// Customize parameters for chain spec.
+pub struct CustomizeSpec {
+    /// Specify a string as the genesis message.
+    pub genesis_message: Option<String>,
+}
+
+/// Parsed command line arguments for `ckb reset-data`.
 pub struct ResetDataArgs {
-    /// TODO(doc): @doitian
+    /// Reset without asking for user confirmation.
     pub force: bool,
-    /// TODO(doc): @doitian
+    /// Reset all data.
     pub all: bool,
-    /// TODO(doc): @doitian
+    /// Reset database.
     pub database: bool,
-    /// TODO(doc): @doitian
+    /// Reset all network data, including the secret key and peer store.
     pub network: bool,
-    /// TODO(doc): @doitian
+    /// Reset network peer store.
     pub network_peer_store: bool,
-    /// TODO(doc): @doitian
+    /// Reset network secret key.
     pub network_secret_key: bool,
-    /// TODO(doc): @doitian
+    /// Clean logs directory.
     pub logs: bool,
-    /// TODO(doc): @doitian
+    /// The path to the CKB data directory.
     pub data_dir: PathBuf,
-    /// TODO(doc): @doitian
+    /// The path to the database directory.
     pub db_path: PathBuf,
-    /// TODO(doc): @doitian
+    /// The path to the network data directory.
     pub network_dir: PathBuf,
-    /// TODO(doc): @doitian
+    /// The path to the network peer store directory.
     pub network_peer_store_path: PathBuf,
-    /// TODO(doc): @doitian
+    /// The path to the network secret key.
     pub network_secret_key_path: PathBuf,
-    /// TODO(doc): @doitian
+    /// The path to the logs directory.
     pub logs_dir: Option<PathBuf>,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb peer-id`.
 pub struct PeerIDArgs {
-    /// TODO(doc): @doitian
+    /// The peer ID read from the secret key file.
     pub peer_id: secio::PeerId,
 }
 
-/// TODO(doc): @doitian
+/// Parsed command line arguments for `ckb migrate`.
 pub struct MigrateArgs {
-    /// TODO(doc): @doitian
+    /// The parsed `ckb.toml.`
     pub config: Box<CKBAppConfig>,
-    /// check flag present
+    /// Loaded consensus.
+    pub consensus: Consensus,
+    /// Check whether it is required to do migration instead of really perform the migration.
     pub check: bool,
+    /// Do migration without interactive prompt.
+    pub force: bool,
+}
+
+/// Parsed command line arguments for `ckb db-repair`.
+pub struct RepairArgs {
+    /// Parsed `ckb.toml`.
+    pub config: Box<CKBAppConfig>,
+}
+
+impl CustomizeSpec {
+    /// No specified parameters for chain spec.
+    pub fn is_unset(&self) -> bool {
+        self.genesis_message.is_none()
+    }
+
+    /// Generates a vector of key-value pairs.
+    pub fn key_value_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut vec = Vec::new();
+        let genesis_message = self
+            .genesis_message
+            .clone()
+            .unwrap_or_else(|| unix_time_as_millis().to_string());
+        vec.push(("genesis_message", genesis_message));
+        vec
+    }
 }

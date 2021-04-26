@@ -116,9 +116,10 @@ impl TxPoolService {
     ) -> (Vec<UncleBlockView>, EpochExt, u64) {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
-        let last_epoch = snapshot.get_current_epoch_ext().expect("current epoch ext");
-        let next_epoch_ext = snapshot.next_epoch_ext(consensus, &last_epoch, tip_header);
-        let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
+        let current_epoch = consensus
+            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
+            .expect("tip header's epoch should be stored")
+            .epoch();
         let candidate_number = tip_header.number() + 1;
 
         let mut guard = block_assembler.candidate_uncles.lock().await;
@@ -219,7 +220,8 @@ impl TxPoolService {
         }).collect();
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, tip_header)?;
+        let dao = DaoCalculator::new(consensus, snapshot.as_data_provider())
+            .dao_field(&rtxs, tip_header)?;
 
         let candidate_number = tip_header.number() + 1;
         let cycles_limit = consensus.max_block_cycles();

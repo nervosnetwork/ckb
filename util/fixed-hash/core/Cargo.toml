@@ -1,6 +1,6 @@
 [package]
 name = "ckb-fixed-hash-core"
-version = "0.40.0"
+version = "0.41.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"

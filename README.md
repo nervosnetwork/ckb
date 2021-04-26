@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.40.0-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Version](https://img.shields.io/badge/version-0.41.0-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
 
@@ -17,6 +17,8 @@ CKB is the layer 1 of Nervos Network, a public/permissionless blockchain. CKB us
 CKB supports scripting in any programming language with its own [CKB-VM](https://github.com/nervosnetwork/ckb-vm/), a virtual machine fully compatible with RISC-V ISA. CKB is a [General Verification Network](https://medium.com/nervosnetwork/https-medium-com-nervosnetwork-cell-model-7323fca57571), its programming model focuses on state verification, leaves state generation to layer 2 applications/protocols.
 
 [Nervos project](https://www.nervos.org) defines [a suite of scalable and interoperable blockchain protocols](https://github.com/nervosnetwork/rfcs) to create a self-evolving distributed economy, [CKB](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md) is among them.
+
+Support for different platforms are organized into [three tiers](docs/platform-support.md), each with a different set of guarantees.
 
 **Notice**: The ckb process will send stack trace to sentry on Rust panics.
 This is enabled by default before mainnet, which can be opted out by setting
@@ -67,5 +69,6 @@ Mainnet Lina or Testnet Aggron, switch to the branch [master].
 
 - [Quick Start](docs/quick-start.md)
 - [Configure CKB](docs/configure.md)
+- [Platform Support](docs/platform-support.md)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).

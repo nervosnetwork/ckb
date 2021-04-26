@@ -1,11 +1,11 @@
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
+use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
     packed::CellOutputBuilder,
     prelude::*,
 };
-use log::info;
 
 pub struct DifferentTxsWithSameInput;
 

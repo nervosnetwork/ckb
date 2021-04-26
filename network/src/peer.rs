@@ -1,4 +1,4 @@
-use crate::network_group::{Group, NetworkGroup};
+use crate::network_group::Group;
 use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
 use p2p::{secio::PeerId, SessionId};
 use std::collections::HashMap;
@@ -77,7 +77,7 @@ impl Peer {
 
     /// Get net group
     pub fn network_group(&self) -> Group {
-        self.connected_addr.network_group()
+        (&self.connected_addr).into()
     }
 
     /// Opened protocol version

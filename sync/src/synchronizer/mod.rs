@@ -13,12 +13,14 @@ use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
-use crate::{
-    Status, StatusCode, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
-};
+use crate::utils::send_message_to;
+use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
+use ckb_constant::sync::{
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
+};
 use ckb_error::AnyError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
@@ -194,7 +196,6 @@ impl BlockFetchCMD {
         ) {
             debug!("synchronizer send GetBlocks error: {:?}", err);
         }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
     }
 }
 
@@ -259,12 +260,18 @@ impl Synchronizer {
         message: packed::SyncMessageUnionReader<'r>,
     ) {
         let item_name = message.item_name();
+        let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
-        metrics!(counter, "ckb-net.received", 1, "action" => "sync", "item" => item_name.to_owned());
-        if !status.is_ok() {
-            metrics!(counter, "ckb-net.status", 1, "action" => "sync", "status" => status.tag());
-        }
+        metrics!(
+            counter,
+            "ckb.messages_bytes",
+            item_bytes,
+            "direction" => "in",
+            "protocol_id" => SupportProtocols::Sync.protocol_id().value().to_string(),
+            "item_id" => message.item_id().to_string(),
+            "status" => (status.code() as u16).to_string(),
+        );
 
         if let Some(ban_time) = status.should_ban() {
             error!(
@@ -544,7 +551,7 @@ impl Synchronizer {
             ::std::cmp::Reverse(
                 state
                     .get(id)
-                    .map_or(crate::INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count()),
+                    .map_or(INIT_BLOCKS_IN_TRANSIT_PER_PEER, |d| d.task_count()),
             )
         });
         peers
@@ -640,10 +647,7 @@ impl Synchronizer {
         let message = packed::SyncMessage::new_builder().set(content).build();
 
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
-        if let Err(err) = nc.send_message_to(peer, message.as_bytes()) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
-        }
-        crate::synchronizer::metrics_counter_send(message.to_enum().item_name());
+        let _status = send_message_to(nc, peer, &message);
     }
 }
 
@@ -792,10 +796,11 @@ mod tests {
     use super::*;
     use crate::{
         types::{HeaderView, HeadersSyncController, PeerState},
-        SyncShared, MAX_TIP_AGE,
+        SyncShared,
     };
-    use ckb_chain::{chain::ChainService, switch::Switch};
+    use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+    use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
@@ -818,6 +823,7 @@ mod tests {
         U256,
     };
     use ckb_util::Mutex;
+    use ckb_verification_traits::Switch;
     use futures::future::Future;
     use std::{
         collections::{HashMap, HashSet},
@@ -886,7 +892,7 @@ mod tests {
             let resolved_cellbase =
                 resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
                     .unwrap();
-            DaoCalculator::new(shared.consensus(), shared.store())
+            DaoCalculator::new(shared.consensus(), shared.store().as_data_provider())
                 .dao_field(&[resolved_cellbase], parent_header)
                 .unwrap()
         };
@@ -913,10 +919,11 @@ mod tests {
         let parent = snapshot
             .get_block_header(&snapshot.get_block_hash(number - 1).unwrap())
             .unwrap();
-        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
         let epoch = snapshot
-            .next_epoch_ext(snapshot.consensus(), &parent_epoch, &parent)
-            .unwrap_or(parent_epoch);
+            .consensus()
+            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let block = gen_block(shared, &parent, &epoch, nonce);
 
@@ -1015,10 +1022,11 @@ mod tests {
 
         for i in 1..block_number {
             let store = shared1.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared1.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared1
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared1, &parent, &epoch, i);
             blocks.push(new_block.clone());
 
@@ -1035,10 +1043,11 @@ mod tests {
         let fork = parent.number();
         for i in 1..=block_number {
             let store = shared2.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared2.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared2
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
@@ -1125,10 +1134,11 @@ mod tests {
             .unwrap();
         for i in 1..block_number {
             let store = shared1.store();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared1.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared1
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
@@ -1161,10 +1171,11 @@ mod tests {
             .unwrap();
         for i in 1..=block_number {
             let store = shared.snapshot();
-            let parent_epoch = store.get_block_epoch(&parent.hash()).unwrap();
-            let epoch = store
-                .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
-                .unwrap_or(parent_epoch);
+            let epoch = shared
+                .consensus()
+                .next_epoch_ext(&parent, &store.as_data_provider())
+                .unwrap()
+                .epoch();
             let new_block = gen_block(&shared, &parent, &epoch, i + 100);
             blocks.push(new_block.clone());
 
@@ -1294,9 +1305,6 @@ mod tests {
         // Other methods
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
-        }
-        fn send_paused(&self) -> bool {
-            false
         }
     }
 
@@ -1828,8 +1836,4 @@ mod tests {
             );
         }
     }
-}
-
-pub(self) fn metrics_counter_send(item_name: &str) {
-    metrics!(counter, "ckb-net.sent", 1, "action" => "sync", "item" => item_name.to_owned());
 }

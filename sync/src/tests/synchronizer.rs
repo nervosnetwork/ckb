@@ -4,7 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
-use ckb_chain::{chain::ChainService, switch::Switch};
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,6 +21,7 @@ use ckb_types::{
     U256,
 };
 use ckb_util::RwLock;
+use ckb_verification_traits::Switch;
 use faketime::{self, unix_time_as_millis};
 use std::collections::HashSet;
 use std::sync::mpsc::sync_channel;
@@ -113,10 +114,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         let timestamp = block.header().timestamp() + 1;
 
         let snapshot = shared.snapshot();
-        let last_epoch = snapshot.get_block_epoch(&block.header().hash()).unwrap();
         let epoch = snapshot
-            .next_epoch_ext(snapshot.consensus(), &last_epoch, &block.header())
-            .unwrap_or(last_epoch);
+            .consensus()
+            .next_epoch_ext(&block.header(), &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
 
         let (_, reward) = snapshot.finalize_block_reward(&block.header()).unwrap();
 
@@ -146,7 +148,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 snapshot.as_ref(),
             )
             .unwrap();
-            DaoCalculator::new(shared.consensus(), snapshot.as_ref())
+            DaoCalculator::new(shared.consensus(), snapshot.as_data_provider())
                 .dao_field(&[resolved_cellbase], &block.header())
                 .unwrap()
         };

@@ -1,3 +1,37 @@
+# [v0.41.0](https://github.com/nervosnetwork/ckb/compare/v0.40.0...v0.41.0) (2021-04-13)
+
+### Features
+
+* #2503: Customize chain spec for dev chains and update few preset params (@yangby-cryptape)
+
+    - Set `permanent_difficulty_in_dummy` to `true` as default for dev chains.
+    - Allow users to create different dev chains by customizing genesis message.
+      And they could also create same chain in different directories or machines by setting a same genesis message.
+    - Allow users to create different dev chains by customizing genesis timestamp.
+      If no timestamp is provided, use current timestamp.
+    - Display genesis hash after CKB direcotry created.
+
+* #2571: Request the approval for database migrations (@yangby-cryptape)
+* #2604: Allow miner http basic authorization (@driftluo)
+* #2569: Add rpc `generate_block_with_template` to IntegrationTest rpc module (@quake)
+
+    This PR adds `generate_block_with_template` rpc, so that dApps can get block template from `get_block_template` rpc, and then add or remove tx / proposal / uncle data in block template, and finally submit it via this rpc to control the newly generated block data.
+
+### Bug Fixes
+
+* #2556: Resolve peer store dump issue (@quake)
+
+### Improvements
+
+* #2525: Manually trigger compaction after freeze (@zhangsoledad)
+
+    * **Drawbacks**: Even we use `DeleteRange` apply to delete the range of keys, seems Rocksdb still hasn't implemented the feature of using seek() to skip until the end of range delete end yet.
+    Rocksdb iter seek slows down dramatically when there are many deletes.
+    * **Workaround**: Manually call `CompactRange()` for the range to delete,  this approach can solve the problem.
+
+* #2595: Set `prepare_for_bulk_load` option for migration (@zhangsoledad)
+* #2611: Smaller block status map during IBD (@yangby-cryptape)
+
 # [v0.40.0](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.40.0) (2021-02-23)
 
 ### Features

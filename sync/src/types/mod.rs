@@ -1,18 +1,18 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
-use crate::{
-    BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
-    HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
-    INIT_BLOCKS_IN_TRANSIT_PER_PEER, LOW_INDEX, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
-    MAX_TIP_AGE, NORMAL_INDEX, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
-    TIME_TRACE_SIZE,
-};
+use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::{chain::ChainController, switch::Switch};
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_constant::sync::{
+    BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
+    HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    SUSPEND_SYNC_TIME,
+};
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
-use ckb_metrics::{metrics, Timer};
+use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -27,6 +27,7 @@ use ckb_util::LinkedHashSet;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
+use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::cmp;
@@ -36,12 +37,13 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod header_map;
 
+use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
@@ -55,7 +57,7 @@ const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
-const SHRINK_THREHOLD: usize = 300;
+const SHRINK_THRESHOLD: usize = 300;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for connections that are outbound, non-manual,
@@ -680,7 +682,6 @@ impl InflightBlocks {
 
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
-        let prev_count = self.total_inflight_count();
         let mut disconnect_list = HashSet::new();
 
         let trace = &mut self.trace_number;
@@ -758,14 +759,6 @@ impl InflightBlocks {
             }
             true
         });
-
-        if prev_count == 0 {
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", 0, "type" => "elapsed_ms");
-        } else if prev_count != self.total_inflight_count() {
-            metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-            metrics!(value, "ckb-net.blocks_in_flight", BLOCK_DOWNLOAD_TIMEOUT, "type" => "elapsed_ms");
-        }
 
         disconnect_list
     }
@@ -850,11 +843,6 @@ impl InflightBlocks {
                         trace.remove(&block);
                     }
                 };
-                elapsed
-            })
-            .map(|elapsed| {
-                metrics!(value, "ckb-net.blocks_in_flight", self.total_inflight_count() as u64, "type" => "total");
-                metrics!(value, "ckb-net.blocks_in_flight", elapsed, "type" => "elapsed_ms");
             })
             .is_some()
     }
@@ -1057,19 +1045,15 @@ impl HeaderView {
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let timer = Timer::start();
         let mut current = self;
         if number > current.number() {
             return None;
         }
 
-        let base_number = current.number();
-        let mut steps = 0u64;
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
             let number_skip_prev = get_skip_height(number_walk - 1);
-            steps += 1;
             let store_first = current.number() <= tip_number;
             match current.skip_hash {
                 Some(ref hash)
@@ -1092,11 +1076,6 @@ impl HeaderView {
                 break;
             }
         }
-        metrics!(timing, "ckb-net.get_ancestor", timer.stop(), "type" => "elapsed");
-        metrics!(value, "ckb-net.get_ancestor", steps, "type" => "steps");
-        metrics!(value, "ckb-net.get_ancestor", base_number, "type" => "base_number");
-        metrics!(value, "ckb-net.get_ancestor", number, "type" => "target_number");
-        metrics!(value, "ckb-net.get_ancestor", current.number(), "type" => "ancestor_number");
         Some(current).map(HeaderView::into_inner)
     }
 
@@ -1223,7 +1202,6 @@ impl SyncShared {
         let state = SyncState {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
-            ibd_finished: AtomicBool::new(false),
             shared_best_header,
             header_map,
             block_status_map: Mutex::new(HashMap::new()),
@@ -1413,8 +1391,6 @@ impl SyncShared {
         );
         self.state.header_map.insert(header_view.clone());
         self.state
-            .insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
-        self.state
             .peers()
             .may_set_best_known_header(peer, header_view.clone());
         self.state.may_set_shared_best_header(header_view);
@@ -1480,7 +1456,6 @@ impl SyncShared {
 pub struct SyncState {
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
-    ibd_finished: AtomicBool,
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
@@ -1590,7 +1565,7 @@ impl SyncState {
             self.header_map.contains_key(&header.hash()),
             "HeaderView must exists in header_map before set best header"
         );
-        metrics!(gauge, "ckb-chain.tip_number", header.number() as i64, "type" => "best_header");
+        metrics!(gauge, "ckb.shared_best_number", header.number() as i64);
         *self.shared_best_header.write() = header;
     }
 
@@ -1668,7 +1643,7 @@ impl SyncState {
         blocks.iter().for_each(|block| {
             block_status_map.remove(&block.hash());
         });
-        shrink_to_fit!(block_status_map, SHRINK_THREHOLD);
+        shrink_to_fit!(block_status_map, SHRINK_THRESHOLD);
         blocks
     }
 
@@ -1683,7 +1658,7 @@ impl SyncState {
     pub fn remove_block_status(&self, block_hash: &Byte32) {
         let mut guard = self.block_status_map.lock();
         guard.remove(block_hash);
-        shrink_to_fit!(guard, SHRINK_THREHOLD);
+        shrink_to_fit!(guard, SHRINK_THRESHOLD);
     }
 
     pub fn clear_get_block_proposals(
@@ -1801,16 +1776,7 @@ impl ActiveChain {
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        // Once this function has returned false, it must remain false.
-        if self.state.ibd_finished.load(Ordering::Relaxed) {
-            false
-        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
-        {
-            true
-        } else {
-            self.state.ibd_finished.store(true, Ordering::Relaxed);
-            false
-        }
+        self.shared.shared().is_initial_block_download()
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
@@ -2009,28 +1975,26 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        if let Err(err) = nc.send_message(
-            SupportProtocols::Sync.protocol_id(),
-            peer,
-            message.as_bytes(),
-        ) {
-            debug!("synchronizer send get_headers error: {:?}", err);
-        }
+        let _status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
         match self.state.block_status_map.lock().get(block_hash).cloned() {
             Some(status) => status,
             None => {
-                let verified = self
-                    .snapshot
-                    .get_block_ext(block_hash)
-                    .map(|block_ext| block_ext.verified);
-                match verified {
-                    None => BlockStatus::UNKNOWN,
-                    Some(None) => BlockStatus::BLOCK_STORED,
-                    Some(Some(true)) => BlockStatus::BLOCK_VALID,
-                    Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                if self.state.header_map.contains_key(block_hash) {
+                    BlockStatus::HEADER_VALID
+                } else {
+                    let verified = self
+                        .snapshot
+                        .get_block_ext(block_hash)
+                        .map(|block_ext| block_ext.verified);
+                    match verified {
+                        None => BlockStatus::UNKNOWN,
+                        Some(None) => BlockStatus::BLOCK_STORED,
+                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                    }
                 }
             }
         }

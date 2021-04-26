@@ -1,19 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-/// TODO(doc): @doitian
+/// Store config options.
 #[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct Config {
-    /// TODO(doc): @doitian
+    /// The maximum number of cached block headers.
     pub header_cache_size: usize,
-    /// TODO(doc): @doitian
+    /// The maximum number of cached cell data.
     pub cell_data_cache_size: usize,
-    /// TODO(doc): @doitian
+    /// The maximum number of blocks which proposals section is cached.
     pub block_proposals_cache_size: usize,
-    /// TODO(doc): @doitian
+    /// The maximum number of blocks which tx hashes are cached.
     pub block_tx_hashes_cache_size: usize,
-    /// TODO(doc): @doitian
+    /// The maximum number of blocks which uncles section is cached.
     pub block_uncles_cache_size: usize,
-    /// TODO(doc): @doitian
+    /// The maximum number of blocks which cellbase transaction is cached.
     pub cellbase_cache_size: usize,
     /// whether enable freezer
     #[serde(default = "default_freezer_enable")]

@@ -30,6 +30,15 @@ function Restore-Env {
   }
 }
 
+function Unset-Env {
+  param(
+    [string] $Key
+  )
+
+  echo "unset $Key"
+  Remove-Item -Path "env:\$Key" -ErrorAction SilentlyContinue
+}
+
 function Enable-DebugSymbols {
   $content = Get-Content Cargo.toml | % {
     $_
@@ -74,9 +83,43 @@ function run-integration {
   New-Item -ItemType Junction -Path test/target -Value "$(pwd)/target"
 
   pushd test
+
   Set-Env RUST_BACKTRACE 1
   Set-Env RUST_LOG $env:INTEGRATION_RUST_LOG
-  iex "cargo run -- --bin target/debug/ckb $($env:CKB_TEST_ARGS)"
+
+  $test_id=$(Get-Date -UFormat "%Y%m%d-%H%M%S")
+  if ($env:CKB_INTEGRATION_TEST_TMP -eq $null) {
+    Set-Env CKB_INTEGRATION_TEST_TMP "target/ckb-test/$test_id"
+  }
+  if ($env:CKB_INTEGRATION_FAILURE_FILE -eq $null) {
+    Set-Env CKB_INTEGRATION_FAILURE_FILE "$env:CKB_INTEGRATION_TEST_TMP/integration.failure"
+  }
+  New-Item -Path "$env:CKB_INTEGRATION_TEST_TMP" -Type Directory -ErrorAction SilentlyContinue
+
+  $ckb_bin="target/debug/ckb"
+  $logfile="$env:CKB_INTEGRATION_TEST_TMP/integration.log"
+  $ckb_release=$(iex "$ckb_bin --version")
+
+  iex "cargo run -- --bin $ckb_bin --log-file ${logfile} $($env:CKB_TEST_ARGS)"
+  $errcode=$LASTEXITCODE
+
+  if ($errcode -ne 0) {
+    if ($env:LOGBAK_SERVER -ne $null) {
+        $upload_id="azure-$test_id-$($env:BUILD_BUILDID ?? "0")-$($env:ImageOS ?? "unknown")"
+        7z a -t7z "$upload_id.7z" "$env:CKB_INTEGRATION_TEST_TMP"
+        echo y | pscp -sftp -P 22 -pw "${env:LOGBAK_PASSWORD}" "$upload_id.7z" "${env:LOGBAK_USER}@${env:LOGBAK_SERVER}:/ci/azure/"
+    }
+    Unset-Env LOGBAK_USER
+    Unset-Env LOGBAK_PASSWORD
+    Unset-Env LOGBAK_SERVER
+    if ($env:SENTRY_DSN -ne $null) {
+      foreach($line in Get-Content $env:CKB_INTEGRATION_FAILURE_FILE) {
+        sentry-cli send-event -m "$line" -r "$ckb_release" --logfile "$logfile"
+      }
+    }
+    exit $errcode
+  }
+
   popd
 }
 
@@ -91,7 +134,7 @@ try {
     Set-Env CKB_TEST_ARGS "-c 4"
   }
   if ($env:INTEGRATION_RUST_LOG -eq $null) {
-    Set-Env INTEGRATION_RUST_LOG "ckb-network=error"
+    Set-Env INTEGRATION_RUST_LOG "info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug"
   }
 
   foreach ($arg in $args) {

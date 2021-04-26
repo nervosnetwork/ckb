@@ -2,8 +2,8 @@ use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::assert_send_transaction_fail;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 
+use ckb_logger::info;
 use ckb_types::core::BlockNumber;
-use log::info;
 
 const MATURITY: BlockNumber = 5;
 

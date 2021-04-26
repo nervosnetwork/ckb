@@ -1,10 +1,7 @@
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
 use crate::UnclesError;
-use ckb_chain::{
-    chain::{ChainController, ChainService},
-    switch::Switch,
-};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -17,6 +14,7 @@ use ckb_types::{
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
 };
+use ckb_verification_traits::Switch;
 use rand::random;
 use std::sync::Arc;
 
@@ -81,10 +79,11 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     let mut parent = genesis.clone();
     for _ in 1..number {
         let snapshot = shared.snapshot();
-        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
-        let epoch = snapshot
-            .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
-            .unwrap_or(parent_epoch);
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
         let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
             .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
@@ -98,10 +97,11 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
         let snapshot = shared.snapshot();
-        let parent_epoch = snapshot.get_block_epoch(&parent.hash()).unwrap();
-        let epoch = snapshot
-            .next_epoch_ext(shared.consensus(), &parent_epoch, &parent)
-            .unwrap_or(parent_epoch);
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
         let new_block = if i > 10 {
             gen_block(&parent, random(), &epoch)
         } else {
@@ -124,10 +124,11 @@ fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
 
 fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
     let snapshot = shared.snapshot();
-    let parent_epoch = snapshot.get_block_epoch(&chain[index].hash()).unwrap();
-    snapshot
-        .next_epoch_ext(shared.consensus(), &parent_epoch, &chain[index].header())
-        .unwrap_or(parent_epoch)
+    shared
+        .consensus()
+        .next_epoch_ext(&chain[index].header(), &snapshot.as_data_provider())
+        .unwrap()
+        .epoch()
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
+use ckb_constant::sync::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
@@ -168,10 +168,6 @@ impl Status {
     /// Status code
     pub fn code(&self) -> StatusCode {
         self.code
-    }
-
-    pub(crate) fn tag(&self) -> String {
-        format!("{:?}", self.code)
     }
 }
 

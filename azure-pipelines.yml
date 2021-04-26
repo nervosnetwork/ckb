@@ -7,7 +7,7 @@ trigger:
     - '*'
 
 variables:
-  CKBClientVersion: v0.40.0
+  CKBClientVersion: v0.41.0
 
 jobs:
   - job: UnitTest
@@ -50,10 +50,14 @@ jobs:
       - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.46.0-x86_64-pc-windows-msvc'
-      - pwsh: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="--max-time 1200 -c 4" integration
+      - pwsh: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
         displayName: Run integration tests
         env:
           CI: true
+          SENTRY_DSN: 'https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7'
+          LOGBAK_USER: $(LOGBAK_USER)
+          LOGBAK_PASSWORD: $(LOGBAK_PASSWORD)
+          LOGBAK_SERVER: $(LOGBAK_SERVER)
 
   - job: Package
     timeoutInMinutes: 0

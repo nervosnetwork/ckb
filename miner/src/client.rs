@@ -57,6 +57,10 @@ impl Rpc {
                 *req.uri_mut() = req_url;
                 req.headers_mut()
                     .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                if let Some(value) = parse_authorization(&url) {
+                    req.headers_mut()
+                        .append(hyper::header::AUTHORIZATION, value);
+                }
 
                 let request = client
                     .request(req)
@@ -223,5 +227,21 @@ fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, R
             serde_json::from_value::<T>(success.result).map_err(RpcError::Json)
         }
         Output::Failure(failure) => Err(RpcError::Fail(failure.error)),
+    }
+}
+
+fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
+    let a: Vec<&str> = url.authority_part()?.as_str().split('@').collect();
+    if a.len() >= 2 {
+        if a[0].is_empty() {
+            return None;
+        }
+        let mut encoded = "Basic ".to_string();
+        base64::encode_config_buf(a[0], base64::STANDARD, &mut encoded);
+        let mut header = HeaderValue::from_str(&encoded).unwrap();
+        header.set_sensitive(true);
+        Some(header)
+    } else {
+        None
     }
 }

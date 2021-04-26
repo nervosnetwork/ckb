@@ -1,6 +1,6 @@
 use crate::utils::wait_until;
 use crate::{Node, Spec};
-use log::info;
+use ckb_logger::info;
 
 pub struct Disconnect;
 

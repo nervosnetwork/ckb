@@ -16,7 +16,8 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::packed::Byte32;
 use ckb_types::{core::cell::setup_system_cell_cache, prelude::*};
-use ckb_verification::{GenesisVerifier, Verifier};
+use ckb_verification::GenesisVerifier;
+use ckb_verification_traits::Verifier;
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -24,25 +25,42 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
+    info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
+
     let block_assembler_config = sanitize_block_assembler_config(&args)?;
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    let (shared, table) = SharedBuilder::new(
-        &args.config.db,
-        Some(args.config.ancient.clone()),
-        async_handle,
-    )
-    .consensus(args.consensus.clone())
-    .tx_pool_config(args.config.tx_pool)
-    .notify_config(args.config.notify.clone())
-    .store_config(args.config.store)
-    .block_assembler_config(block_assembler_config)
-    .build()
-    .map_err(|err| {
-        eprintln!("Run error: {:?}", err);
-        ExitCode::Failure
-    })?;
+    let (shared, table) = {
+        let shared_builder = SharedBuilder::new(
+            &args.config.db,
+            Some(args.config.ancient.clone()),
+            async_handle,
+        );
+
+        if shared_builder.require_expensive_migrations() {
+            eprintln!(
+                "For optimal performance, CKB wants to migrate the data into new format.\n\
+                You can use the old version CKB if you don't want to do the migration.\n\
+                We strongly recommended you to use the latest stable version of CKB, \
+                since the old versions may have unfixed vulnerabilities.\n\
+                Run `ckb migrate --help` for more information about migration."
+            );
+            return Err(ExitCode::Failure);
+        }
+
+        shared_builder
+            .consensus(args.consensus.clone())
+            .tx_pool_config(args.config.tx_pool)
+            .notify_config(args.config.notify.clone())
+            .store_config(args.config.store)
+            .block_assembler_config(block_assembler_config)
+            .build()
+            .map_err(|err| {
+                eprintln!("Run error: {:?}", err);
+                ExitCode::Failure
+            })?
+    };
 
     // Verify genesis every time starting node
     verify_genesis(&shared)?;
@@ -75,7 +93,6 @@ pub fn run(mut args: RunArgs, version: Version, async_handle: Handle) -> Result<
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
-    info_target!(crate::LOG_TARGET_MAIN, "ckb version: {}", version);
     info_target!(
         crate::LOG_TARGET_MAIN,
         "chain genesis hash: {:#x}",

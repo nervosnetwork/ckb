@@ -1,7 +1,7 @@
 use crate::util::mining::mine;
 use crate::utils::{sleep, wait_until};
 use crate::{Node, Spec};
-use log::info;
+use ckb_logger::info;
 
 pub struct IBDProcess;
 

@@ -867,7 +867,8 @@ impl<T: ExitHandler> NetworkService<T> {
             .upnp(config.upnp)
             .yamux_config(yamux_config)
             .forever(true)
-            .max_connection_number(1024);
+            .max_connection_number(1024)
+            .set_send_buffer_size(config.max_send_buffer());
 
         #[cfg(target_os = "linux")]
         let p2p_service = {

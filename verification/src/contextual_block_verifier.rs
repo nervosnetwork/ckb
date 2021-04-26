@@ -10,6 +10,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_logger::error_target;
+use ckb_metrics::{metrics, Timer};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
@@ -23,6 +24,7 @@ use ckb_types::{
     packed::{Byte32, CellOutput, Script},
     prelude::*,
 };
+use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,22 +36,6 @@ pub struct VerifyContext<'a, CS> {
     pub(crate) consensus: &'a Consensus,
 }
 
-/// The trait abstract for particular verification
-pub trait Switch {
-    /// Disable epoch verification
-    fn disable_epoch(&self) -> bool;
-    /// Disable uncles-related verification
-    fn disable_uncles(&self) -> bool;
-    /// Disable two-phase-commit verification
-    fn disable_two_phase_commit(&self) -> bool;
-    /// Disable DAO-header verification
-    fn disable_daoheader(&self) -> bool;
-    /// Disable reward verification
-    fn disable_reward(&self) -> bool;
-    /// Whether execute script?
-    fn disable_script(&self) -> bool;
-}
-
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
     /// Create new VerifyContext from `Store` and `Consensus`
     pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
@@ -58,19 +44,6 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
 
     fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
-    }
-
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {
-        self.consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.store.get_block_header(hash),
-            |hash| {
-                self.store
-                    .get_block_ext(hash)
-                    .map(|ext| ext.total_uncles_count)
-            },
-        )
     }
 }
 
@@ -316,17 +289,20 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let dao = DaoCalculator::new(self.context.consensus, self.context.store)
-            .dao_field(&self.resolved, self.parent)
-            .map_err(|e| {
-                error_target!(
-                    crate::LOG_TARGET,
-                    "Error generating dao data for block {}: {:?}",
-                    self.header.hash(),
-                    e
-                );
+        let dao = DaoCalculator::new(
+            self.context.consensus,
+            self.context.store.as_data_provider(),
+        )
+        .dao_field(&self.resolved, self.parent)
+        .map_err(|e| {
+            error_target!(
+                crate::LOG_TARGET,
+                "Error generating dao data for block {}: {:?}",
+                self.header.hash(),
                 e
-            })?;
+            );
+            e
+        })?;
 
         if dao != self.header.dao() {
             return Err((BlockErrorKind::InvalidDAO).into());
@@ -390,6 +366,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         handle: &Handle,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+        let timer = Timer::start();
         let keys: Vec<Byte32> = self
             .resolved
             .iter()
@@ -461,6 +438,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             }
         });
 
+        metrics!(timing, "ckb.contextual_verified_block_txs", timer.stop());
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
@@ -468,22 +446,6 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
     }
 }
-
-fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
-    context: &VerifyContext<'a, CS>,
-    parent: &HeaderView,
-) -> Result<EpochExt, Error> {
-    let parent_ext = context
-        .store
-        .get_block_epoch(&parent.hash())
-        .ok_or_else(|| UnknownParentError {
-            parent_hash: parent.hash(),
-        })?;
-    Ok(context
-        .next_epoch_ext(&parent_ext, parent)
-        .unwrap_or(parent_ext))
-}
-
 /// EpochVerifier
 ///
 /// Check for block epoch
@@ -541,14 +503,15 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
     }
 
     /// Perform context-dependent verification checks for block
-    pub fn verify<SW: Switch>(
+    pub fn verify(
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         handle: &Handle,
-        switch: SW,
+        switch: Switch,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+        let timer = Timer::start();
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
             .context
@@ -561,7 +524,13 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         let epoch_ext = if block.is_genesis() {
             self.context.consensus.genesis_epoch_ext().to_owned()
         } else {
-            prepare_epoch_ext(&self.context, &parent)?
+            self.context
+                .consensus
+                .next_epoch_ext(&parent, &self.context.store.as_data_provider())
+                .ok_or_else(|| UnknownParentError {
+                    parent_hash: parent.hash(),
+                })?
+                .epoch()
         };
 
         if !switch.disable_epoch() {
@@ -585,13 +554,15 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockTxsVerifier::new(
+        let ret = BlockTxsVerifier::new(
             &self.context,
             block.number(),
             block.epoch(),
             parent_hash,
             resolved,
         )
-        .verify(txs_verify_cache, handle, switch.disable_script())
+        .verify(txs_verify_cache, handle, switch.disable_script())?;
+        metrics!(timing, "ckb.contextual_verified_block", timer.stop());
+        Ok(ret)
     }
 }

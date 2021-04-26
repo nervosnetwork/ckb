@@ -2,8 +2,8 @@ use crate::node::waiting_for_sync;
 use crate::util::mining::{mine, out_ibd_mode};
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Node, Spec};
+use ckb_logger::info;
 use ckb_types::prelude::*;
-use log::info;
 use std::time::Duration;
 
 pub struct RelayTooNewBlock;

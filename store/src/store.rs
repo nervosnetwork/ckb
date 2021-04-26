@@ -1,5 +1,5 @@
 use crate::cache::StoreCache;
-use ckb_chain_spec::consensus::Consensus;
+use crate::data_loader_wrapper::DataLoaderWrapper;
 use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
@@ -36,6 +36,10 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     /// TODO(doc): @quake
     fn cell_provider(&self) -> CellProviderWrapper<Self> {
         CellProviderWrapper(self)
+    }
+    /// Return the provider trait default implementation
+    fn as_data_provider(&'a self) -> DataLoaderWrapper<'a, Self> {
+        DataLoaderWrapper::new(self)
     }
 
     /// Get block by block header hash
@@ -416,21 +420,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         } else {
             ret
         }
-    }
-
-    /// TODO(doc): @quake
-    fn next_epoch_ext(
-        &'a self,
-        consensus: &Consensus,
-        last_epoch: &EpochExt,
-        header: &HeaderView,
-    ) -> Option<EpochExt> {
-        consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.get_block_header(&hash),
-            |hash| self.get_block_ext(&hash).map(|ext| ext.total_uncles_count),
-        )
     }
 
     /// TODO(doc): @quake

@@ -1,111 +1,115 @@
-//! TODO(doc): @doitian
+//! CKB command line arguments parser.
 use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
-/// TODO(doc): @doitian
+/// Subcommand `run`.
 pub const CMD_RUN: &str = "run";
-/// TODO(doc): @doitian
+/// Subcommand `miner`.
 pub const CMD_MINER: &str = "miner";
-/// TODO(doc): @doitian
+/// Subcommand `export`.
 pub const CMD_EXPORT: &str = "export";
-/// TODO(doc): @doitian
+/// Subcommand `import`.
 pub const CMD_IMPORT: &str = "import";
-/// TODO(doc): @doitian
+/// Subcommand `init`.
 pub const CMD_INIT: &str = "init";
-/// TODO(doc): @doitian
+/// Subcommand `replay`.
 pub const CMD_REPLAY: &str = "replay";
-/// TODO(doc): @doitian
+/// Subcommand `stats`.
 pub const CMD_STATS: &str = "stats";
-/// TODO(doc): @doitian
+/// Subcommand `list-hashes`.
 pub const CMD_LIST_HASHES: &str = "list-hashes";
-/// TODO(doc): @doitian
+/// Subcommand `reset-data`.
 pub const CMD_RESET_DATA: &str = "reset-data";
-/// TODO(doc): @doitian
+/// Subcommand `peer-id`.
 pub const CMD_PEERID: &str = "peer-id";
-/// TODO(doc): @doitian
+/// Subcommand `gen`.
 pub const CMD_GEN_SECRET: &str = "gen";
-/// TODO(doc): @doitian
+/// Subcommand `from-secret`.
 pub const CMD_FROM_SECRET: &str = "from-secret";
-/// TODO(doc): @doitian
+/// Subcommand `migrate`.
 pub const CMD_MIGRATE: &str = "migrate";
+/// Subcommand `db-repair`.
+pub const CMD_DB_REPAIR: &str = "db-repair";
 
-/// TODO(doc): @doitian
+/// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
-/// TODO(doc): @doitian
+/// Command line argument `--format`.
 pub const ARG_FORMAT: &str = "format";
-/// TODO(doc): @doitian
+/// Command line argument `--target`.
 pub const ARG_TARGET: &str = "target";
-/// TODO(doc): @doitian
+/// Command line argument `--source`.
 pub const ARG_SOURCE: &str = "source";
-/// TODO(doc): @doitian
+/// Command line argument `--data`.
 pub const ARG_DATA: &str = "data";
-/// TODO(doc): @doitian
+/// Command line argument `--list-chains`.
 pub const ARG_LIST_CHAINS: &str = "list-chains";
-/// TODO(doc): @doitian
+/// Command line argument `--interactive`.
 pub const ARG_INTERACTIVE: &str = "interactive";
-/// TODO(doc): @doitian
+/// Command line argument `--chain`.
 pub const ARG_CHAIN: &str = "chain";
-/// TODO(doc): @doitian
+/// Command line argument `--import-spec`.
 pub const ARG_IMPORT_SPEC: &str = "import-spec";
-/// TODO(doc): @doitian
+/// The argument for the genesis message.
+pub const ARG_GENESIS_MESSAGE: &str = "genesis-message";
+/// Command line argument `--p2p-port`.
 pub const ARG_P2P_PORT: &str = "p2p-port";
-/// TODO(doc): @doitian
+/// Command line argument `--rpc-port`.
 pub const ARG_RPC_PORT: &str = "rpc-port";
-/// TODO(doc): @doitian
+/// Command line argument `--force`.
 pub const ARG_FORCE: &str = "force";
-/// TODO(doc): @doitian
+/// Command line argument `--log-to`.
 pub const ARG_LOG_TO: &str = "log-to";
-/// TODO(doc): @doitian
+/// Command line argument `--bundled`.
 pub const ARG_BUNDLED: &str = "bundled";
-/// TODO(doc): @doitian
+/// Command line argument `--ba-code-hash`.
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
-/// TODO(doc): @doitian
+/// Command line argument `--ba-arg`.
 pub const ARG_BA_ARG: &str = "ba-arg";
-/// TODO(doc): @doitian
+/// Command line argument `--ba-hash-type`.
 pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
-/// TODO(doc): @doitian
+/// Command line argument `--ba-message`.
 pub const ARG_BA_MESSAGE: &str = "ba-message";
-/// TODO(doc): @doitian
+/// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
-/// TODO(doc): @doitian
+/// Command line argument `--from`.
 pub const ARG_FROM: &str = "from";
-/// TODO(doc): @doitian
+/// Command line argument `--to`.
 pub const ARG_TO: &str = "to";
-/// TODO(doc): @doitian
+/// Command line argument `--all`.
 pub const ARG_ALL: &str = "all";
-/// TODO(doc): @doitian
+/// Command line argument `--limit`.
 pub const ARG_LIMIT: &str = "limit";
-/// TODO(doc): @doitian
+/// Command line argument `--database`.
 pub const ARG_DATABASE: &str = "database";
-/// TODO(doc): @doitian
+/// Command line argument `--network`.
 pub const ARG_NETWORK: &str = "network";
-/// TODO(doc): @doitian
+/// Command line argument `--network-peer-store`.
 pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
-/// TODO(doc): @doitian
+/// Command line argument `--network-secret-key`.
 pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
-/// TODO(doc): @doitian
+/// Command line argument `--logs`.
 pub const ARG_LOGS: &str = "logs";
-/// TODO(doc): @doitian
+/// Command line argument `--tmp-target`.
 pub const ARG_TMP_TARGET: &str = "tmp-target";
-/// TODO(doc): @doitian
+/// Command line argument `--secret-path`.
 pub const ARG_SECRET_PATH: &str = "secret-path";
-/// TODO(doc): @doitian
+/// Command line argument `--profile`.
 pub const ARG_PROFILE: &str = "profile";
-/// TODO(doc): @doitian
+/// Command line argument `--sanity-check`.
 pub const ARG_SANITY_CHECK: &str = "sanity-check";
-/// TODO(doc): @doitian
+/// Command line argument `--full-verification`.
 pub const ARG_FULL_VERIFICATION: &str = "full-verification";
-/// Present `skip-spec-check` arg to `run` skip spec check on setup
+/// Command line argument `--skip-spec-check`.
 pub const ARG_SKIP_CHAIN_SPEC_CHECK: &str = "skip-spec-check";
 /// Present `overwrite-spec` arg to force overriding the chain spec in the database with the present configured chain spec
 pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
-/// assume valid target cli arg name
+/// Command line argument `--assume-valid-target`.
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
-/// Migrate check flag arg
+/// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
 
-/// TODO(doc): @doitian
+/// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
 
 fn basic_app<'b>() -> App<'static, 'b> {
@@ -134,9 +138,12 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(reset_data())
         .subcommand(peer_id())
         .subcommand(migrate())
+        .subcommand(db_repair())
 }
 
-/// TODO(doc): @doitian
+/// Parse the command line arguments by supplying the version information.
+///
+/// The version is used to generate the help message and output for `--version`.
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     basic_app()
         .version(version.short().as_str())
@@ -333,6 +340,16 @@ fn migrate() -> App<'static, 'static> {
                     otherwise ExitCode(64) is returned",
                 ),
         )
+        .arg(
+            Arg::with_name(ARG_FORCE)
+                .long(ARG_FORCE)
+                .conflicts_with(ARG_MIGRATE_CHECK)
+                .help("Do migration without interactive prompt"),
+        )
+}
+
+fn db_repair() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_DB_REPAIR).about("Try repair ckb database")
 }
 
 fn list_hashes() -> App<'static, 'static> {
@@ -458,6 +475,17 @@ fn init() -> App<'static, 'static> {
                 .long("spec")
                 .takes_value(true)
                 .hidden(true),
+        )
+        .arg(
+            Arg::with_name(ARG_GENESIS_MESSAGE)
+                .long(ARG_GENESIS_MESSAGE)
+                .value_name(ARG_GENESIS_MESSAGE)
+                .takes_value(true)
+                .help(
+                    "Specify a string as the genesis message. \
+                     Only works for dev chains. \
+                     If no message is provided, use current timestamp.",
+                ),
         )
 }
 

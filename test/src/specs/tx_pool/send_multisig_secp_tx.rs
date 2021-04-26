@@ -6,6 +6,7 @@ use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE1
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::JsonBytes;
+use ckb_logger::info;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL;
 use ckb_types::{
     bytes::Bytes,
@@ -14,7 +15,6 @@ use ckb_types::{
     prelude::*,
     H160, H256,
 };
-use log::info;
 
 pub struct SendMultiSigSecpTxUseDepGroup {
     // secp lock script's hash type

@@ -1,12 +1,24 @@
 use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_chain::{chain::ChainController, switch::Switch};
-use ckb_jsonrpc_types::{Block, Cycle, JsonBytes, Script, Transaction};
+use ckb_chain::chain::ChainController;
+use ckb_dao::DaoCalculator;
+use ckb_jsonrpc_types::{Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{
+    core::{
+        cell::{
+            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
+        },
+        BlockView,
+    },
+    packed,
+    prelude::*,
+    H256,
+};
+use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -30,6 +42,9 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
+
+    #[rpc(name = "generate_block_with_template")]
+    fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -41,7 +56,7 @@ pub(crate) struct IntegrationTestRpcImpl {
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
-        let block: Arc<core::BlockView> = Arc::new(block.into_view());
+        let block: Arc<BlockView> = Arc::new(block.into_view());
         let ret = self
             .chain
             .internal_process_block(Arc::clone(&block), Switch::DISABLE_ALL);
@@ -118,25 +133,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
-        let block: packed::Block = block_template.into();
-        let block_view = Arc::new(block.into_view());
-        let content = packed::CompactBlock::build_from_block(&block_view, &HashSet::new());
-        let message = packed::RelayMessage::new_builder().set(content).build();
-
-        // insert block to chain
-        self.chain
-            .process_block(Arc::clone(&block_view))
-            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
-
-        // announce new block
-        if let Err(err) = self
-            .network_controller
-            .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
-        {
-            error!("Broadcast new block failed: {:?}", err);
-        }
-
-        Ok(block_view.header().hash().unpack())
+        self.process_and_announce_block(block_template.into())
     }
 
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
@@ -163,5 +160,69 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         } else {
             Ok(hash.unpack())
         }
+    }
+
+    fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let consensus = snapshot.consensus();
+        let parent_header = snapshot
+            .get_block_header(&block_template.parent_hash.pack())
+            .expect("parent header should be stored");
+        let mut seen_inputs = HashSet::new();
+
+        let txs: Vec<_> = packed::Block::from(block_template.clone())
+            .transactions()
+            .into_iter()
+            .map(|tx| tx.into_view())
+            .collect();
+
+        let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
+        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
+
+        let rtxs = txs.iter().map(|tx| {
+            resolve_transaction(
+                tx.clone(),
+                &mut seen_inputs,
+                &overlay_cell_provider,
+                snapshot,
+            ).map_err(|err| {
+                error!(
+                    "resolve transactions error when generating block with block template, error: {:?}",
+                    err
+                );
+                RPCError::invalid_params(err.to_string())
+            })
+        }).collect::<Result<Vec<ResolvedTransaction>>>()?;
+
+        let mut update_dao_template = block_template;
+        update_dao_template.dao = DaoCalculator::new(consensus, snapshot.as_data_provider())
+            .dao_field(&rtxs, &parent_header)
+            .expect("dao calculation should be OK")
+            .into();
+        let block = update_dao_template.into();
+        self.process_and_announce_block(block)
+    }
+}
+
+impl IntegrationTestRpcImpl {
+    fn process_and_announce_block(&self, block: packed::Block) -> Result<H256> {
+        let block_view = Arc::new(block.into_view());
+        let content = packed::CompactBlock::build_from_block(&block_view, &HashSet::new());
+        let message = packed::RelayMessage::new_builder().set(content).build();
+
+        // insert block to chain
+        self.chain
+            .process_block(Arc::clone(&block_view))
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+
+        // announce new block
+        if let Err(err) = self
+            .network_controller
+            .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+        {
+            error!("Broadcast new block failed: {:?}", err);
+        }
+
+        Ok(block_view.header().hash().unpack())
     }
 }

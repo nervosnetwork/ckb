@@ -7,6 +7,5 @@
 //! [ChainController](chain/struct.ChainController.html)
 
 pub mod chain;
-pub mod switch;
 #[cfg(test)]
 mod tests;

@@ -20,8 +20,9 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     U256,
 };
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
-use criterion::{criterion_group, Criterion};
+use ckb_verification::{HeaderResolverWrapper, HeaderVerifier};
+use ckb_verification_traits::Verifier;
+use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use rand::random;
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -127,47 +128,53 @@ pub fn gen_txs_from_block(block: &BlockView) -> Vec<TransactionView> {
 }
 
 fn bench(c: &mut Criterion) {
-    c.bench_function_over_inputs(
-        "overall",
-        |b, txs_size| {
-            b.iter_with_setup(
-                || setup_chain(**txs_size),
-                |(shared, chain)| {
-                    let mut i = 10;
-                    while i > 0 {
-                        let snapshot: &Snapshot = &shared.snapshot();
-                        let tip_hash = snapshot.tip_hash();
-                        let block = snapshot.get_block(&tip_hash).expect("tip exist");
-                        let txs = gen_txs_from_block(&block);
-                        let tx_pool = shared.tx_pool_controller();
-                        if !txs.is_empty() {
-                            tx_pool.submit_txs(txs).unwrap().expect("submit_txs");
+    let mut group = c.benchmark_group("overall");
+
+    for txs_size in SIZES.iter() {
+        group.bench_with_input(
+            BenchmarkId::new("overall", txs_size),
+            txs_size,
+            |b, txs_size| {
+                b.iter_batched(
+                    || setup_chain(*txs_size),
+                    |(shared, chain)| {
+                        let mut i = 10;
+                        while i > 0 {
+                            let snapshot: &Snapshot = &shared.snapshot();
+                            let tip_hash = snapshot.tip_hash();
+                            let block = snapshot.get_block(&tip_hash).expect("tip exist");
+                            let txs = gen_txs_from_block(&block);
+                            let tx_pool = shared.tx_pool_controller();
+                            if !txs.is_empty() {
+                                tx_pool.submit_txs(txs).unwrap().expect("submit_txs");
+                            }
+                            let block_template = tx_pool
+                                .get_block_template(None, None, None)
+                                .unwrap()
+                                .expect("get_block_template");
+                            let raw_block: Block = block_template.into();
+                            let raw_header = raw_block.header().raw();
+                            let header = Header::new_builder()
+                                .raw(raw_header)
+                                .nonce(random::<u128>().pack())
+                                .build();
+                            let block = raw_block.as_builder().header(header).build().into_view();
+
+                            let header_view = block.header();
+                            let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
+                            let header_verifier =
+                                HeaderVerifier::new(snapshot, &shared.consensus());
+                            header_verifier.verify(&resolver).expect("header verified");
+
+                            chain.process_block(Arc::new(block)).expect("process_block");
+                            i -= 1;
                         }
-                        let block_template = tx_pool
-                            .get_block_template(None, None, None)
-                            .unwrap()
-                            .expect("get_block_template");
-                        let raw_block: Block = block_template.into();
-                        let raw_header = raw_block.header().raw();
-                        let header = Header::new_builder()
-                            .raw(raw_header)
-                            .nonce(random::<u128>().pack())
-                            .build();
-                        let block = raw_block.as_builder().header(header).build().into_view();
-
-                        let header_view = block.header();
-                        let resolver = HeaderResolverWrapper::new(&header_view, snapshot);
-                        let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
-                        header_verifier.verify(&resolver).expect("header verified");
-
-                        chain.process_block(Arc::new(block)).expect("process_block");
-                        i -= 1;
-                    }
-                },
-            )
-        },
-        SIZES,
-    );
+                    },
+                    BatchSize::PerIteration,
+                )
+            },
+        );
+    }
 }
 
 criterion_group!(

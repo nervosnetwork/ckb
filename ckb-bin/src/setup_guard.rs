@@ -4,6 +4,8 @@ use ckb_build_info::Version;
 use ckb_logger_service::{self, LoggerInitGuard};
 use ckb_metrics_service::{self, Guard as MetricsInitGuard};
 
+const CKB_LOG_ENV: &str = "CKB_LOG";
+
 pub struct SetupGuard {
     _logger_guard: LoggerInitGuard,
     #[cfg(feature = "with_sentry")]
@@ -25,7 +27,7 @@ impl SetupGuard {
         if logger_config.emit_sentry_breadcrumbs.is_none() {
             logger_config.emit_sentry_breadcrumbs = Some(setup.is_sentry_enabled);
         }
-        let logger_guard = ckb_logger_service::init(logger_config)?;
+        let logger_guard = ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config)?;
 
         let sentry_guard = if setup.is_sentry_enabled {
             let sentry_config = setup.config.sentry();
@@ -72,7 +74,7 @@ impl SetupGuard {
         async_handle: Handle,
     ) -> Result<Self, ExitCode> {
         let logger_config = setup.config.logger().to_owned();
-        let logger_guard = ckb_logger_service::init(logger_config)?;
+        let logger_guard = ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config)?;
 
         let metrics_config = setup.config.metrics().to_owned();
         let metrics_guard =
