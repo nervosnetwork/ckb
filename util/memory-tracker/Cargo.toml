@@ -1,6 +1,6 @@
 [package]
 name = "ckb-memory-tracker"
-version = "0.41.0-pre"
+version = "0.43.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.41.0-pre" }
-ckb-metrics = { path = "../metrics", version = "= 0.41.0-pre" }
-ckb-db = { path = "../../db", version = "= 0.41.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.43.0-pre" }
+ckb-metrics = { path = "../metrics", version = "= 0.43.0-pre" }
+ckb-db = { path = "../../db", version = "= 0.43.0-pre" }
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 heim = { version = "0.0.11", default-features=false, features = ["process"] }
