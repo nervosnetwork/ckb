@@ -53,7 +53,7 @@ fn create_transaction(
     always_success_script: &Script,
     always_success_out_point: &OutPoint,
 ) -> TransactionView {
-    let capacity = 100_000_000 / 100 as usize;
+    let capacity = 100_000_000 / 100_usize;
     let output = CellOutputBuilder::default()
         .capacity(Capacity::bytes(capacity).unwrap().pack())
         .lock(always_success_script.to_owned())

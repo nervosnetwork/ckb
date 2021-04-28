@@ -153,11 +153,13 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .path()
         .to_path_buf();
     let network_controller = {
-        let mut network_config = NetworkConfig::default();
-        network_config.path = dir;
-        network_config.ping_interval_secs = 1;
-        network_config.ping_timeout_secs = 1;
-        network_config.connect_outbound_interval_secs = 1;
+        let network_config = NetworkConfig {
+            path: dir,
+            ping_interval_secs: 1,
+            ping_timeout_secs: 1,
+            connect_outbound_interval_secs: 1,
+            ..Default::default()
+        };
         let network_state =
             Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
         NetworkService::new(
@@ -327,8 +329,8 @@ fn find_rpc_method(line: &str) -> Option<&str> {
         for w in line.split('=').collect::<Vec<_>>().windows(2) {
             if w[0].trim().ends_with("name") && w[1].trim().starts_with('"') {
                 let name = w[1].split('"').collect::<Vec<_>>()[1];
-                if name.starts_with("deprecated.") {
-                    return Some(&name["deprecated.".len()..]);
+                if let Some(n) = name.strip_prefix("deprecated.") {
+                    return Some(n);
                 } else {
                     return Some(name);
                 }

@@ -110,7 +110,7 @@ impl ValidSince {
                     .into()
             })
             .collect();
-        timestamps.sort();
+        timestamps.sort_unstable();
         let median_time = timestamps[timestamps.len() >> 1];
 
         // Absolute since timestamp in seconds
@@ -156,7 +156,7 @@ impl ValidSince {
                     .into()
             })
             .collect();
-        timestamps.sort();
+        timestamps.sort_unstable();
         let median_time = timestamps[timestamps.len() >> 1];
 
         // Absolute since timestamp in seconds

@@ -9,6 +9,7 @@
 //! [Packed bytes]: ../packed/index.html
 //! [those packed bytes]: ../packed/index.html
 //! [those bytes]: ../packed/index.html
+#![allow(clippy::from_over_into)]
 
 pub mod cell;
 pub mod error;

@@ -10,7 +10,7 @@ use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, panic, process, sync, thread};
 
 use ckb_logger_config::Config;
@@ -309,7 +309,7 @@ impl Logger {
         }
     }
 
-    fn open_log_file(file_path: &PathBuf) -> Result<fs::File, String> {
+    fn open_log_file(file_path: &Path) -> Result<fs::File, String> {
         fs::OpenOptions::new()
             .append(true)
             .create(true)

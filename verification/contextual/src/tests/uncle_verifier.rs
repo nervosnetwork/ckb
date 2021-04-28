@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
 use ckb_chain::chain::{ChainController, ChainService};

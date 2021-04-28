@@ -2044,9 +2044,9 @@ impl From<bool> for IBDState {
     }
 }
 
-impl Into<bool> for IBDState {
-    fn into(self) -> bool {
-        match self {
+impl From<IBDState> for bool {
+    fn from(s: IBDState) -> bool {
+        match s {
             IBDState::In => true,
             IBDState::Out => false,
         }

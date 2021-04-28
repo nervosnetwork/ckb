@@ -175,13 +175,11 @@ impl NetworkState {
                 reason
             );
             if let Some(peer) = self.with_peer_registry_mut(|reg| reg.remove_peer(session_id)) {
-                if let Err(err) = self.peer_store.lock().ban_addr(
+                self.peer_store.lock().ban_addr(
                     &peer.connected_addr,
                     duration.as_millis() as u64,
                     reason,
-                ) {
-                    debug!("Failed to ban peer {:?} {:?}", err, peer);
-                }
+                );
                 let message = format!("Ban for {} seconds", duration.as_secs());
                 if let Err(err) =
                     disconnect_with_message(p2p_control, peer.session_id, message.as_str())
@@ -537,10 +535,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 let mut public_addrs = self.network_state.public_addrs.write();
                 let addr = address
                     .iter()
-                    .filter(|proto| match proto {
-                        multiaddr::Protocol::P2P(_) => false,
-                        _ => true,
-                    })
+                    .filter(|proto| !matches!(proto, multiaddr::Protocol::P2P(_)))
                     .collect();
 
                 if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
@@ -799,8 +794,10 @@ impl<T: ExitHandler> NetworkService<T> {
         protocol_metas.push(identify_meta);
 
         let mut service_builder = ServiceBuilder::default();
-        let mut yamux_config = YamuxConfig::default();
-        yamux_config.max_stream_count = protocol_metas.len();
+        let yamux_config = YamuxConfig {
+            max_stream_count: protocol_metas.len(),
+            ..Default::default()
+        };
         for meta in protocol_metas.into_iter() {
             network_state
                 .protocols
@@ -1160,7 +1157,7 @@ impl NetworkController {
     }
 
     /// Ban an ip
-    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
+    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) {
         self.network_state
             .peer_store
             .lock()

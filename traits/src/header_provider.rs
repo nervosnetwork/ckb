@@ -33,7 +33,7 @@ pub trait HeaderProvider {
         }
 
         // return greater one if count is even.
-        timestamps.sort();
+        timestamps.sort_unstable();
         timestamps[timestamps.len() >> 1]
     }
 }

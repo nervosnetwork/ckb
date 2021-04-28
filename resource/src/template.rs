@@ -185,8 +185,8 @@ impl Template {
                     } else if line.starts_with(&spec_branch) {
                         writeln(w, &line[spec_branch.len()..], context)?;
                         state = TemplateState::SearchEndMarker;
-                    } else if line.starts_with(WILDCARD_BRANCH) {
-                        writeln(w, &line[WILDCARD_BRANCH.len()..], context)?;
+                    } else if let Some(c) = line.strip_prefix(WILDCARD_BRANCH) {
+                        writeln(w, c, context)?;
                         state = TemplateState::SearchEndMarker;
                     }
                 }

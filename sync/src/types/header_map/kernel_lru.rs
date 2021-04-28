@@ -224,9 +224,10 @@ where
 #[cfg(feature = "stats")]
 impl HeaderMapLruKernelStats {
     fn new(frequency: usize) -> Self {
-        let mut ret = Self::default();
-        ret.frequency = frequency;
-        ret
+        Self {
+            frequency,
+            ..Default::default()
+        }
     }
 
     fn frequency(&self) -> usize {

@@ -806,12 +806,9 @@ impl ChainService {
         let bottom = tip_number - cmp::min(tip_number, len);
 
         for number in (bottom..=tip_number).rev() {
-            let hash = snapshot.get_block_hash(number).unwrap_or_else(|| {
-                panic!(format!(
-                    "invaild block number({}), tip={}",
-                    number, tip_number
-                ))
-            });
+            let hash = snapshot
+                .get_block_hash(number)
+                .unwrap_or_else(|| panic!("invaild block number({}), tip={}", number, tip_number));
             debug!("   {} => {}", number, hash);
         }
 

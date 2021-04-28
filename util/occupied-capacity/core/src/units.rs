@@ -36,37 +36,37 @@ impl Ratio {
 }
 
 /// Conversion into `Capacity`.
-pub trait AsCapacity {
+pub trait IntoCapacity {
     /// Converts `self` into `Capacity`.
-    fn as_capacity(self) -> Capacity;
+    fn into_capacity(self) -> Capacity;
 }
 
-impl AsCapacity for Capacity {
-    fn as_capacity(self) -> Capacity {
+impl IntoCapacity for Capacity {
+    fn into_capacity(self) -> Capacity {
         self
     }
 }
 
-impl AsCapacity for u64 {
-    fn as_capacity(self) -> Capacity {
+impl IntoCapacity for u64 {
+    fn into_capacity(self) -> Capacity {
         Capacity::shannons(self)
     }
 }
 
-impl AsCapacity for u32 {
-    fn as_capacity(self) -> Capacity {
+impl IntoCapacity for u32 {
+    fn into_capacity(self) -> Capacity {
         Capacity::shannons(u64::from(self))
     }
 }
 
-impl AsCapacity for u16 {
-    fn as_capacity(self) -> Capacity {
+impl IntoCapacity for u16 {
+    fn into_capacity(self) -> Capacity {
         Capacity::shannons(u64::from(self))
     }
 }
 
-impl AsCapacity for u8 {
-    fn as_capacity(self) -> Capacity {
+impl IntoCapacity for u8 {
+    fn into_capacity(self) -> Capacity {
         Capacity::shannons(u64::from(self))
     }
 }
@@ -122,25 +122,25 @@ impl Capacity {
     }
 
     /// Adds self and rhs and checks overflow error.
-    pub fn safe_add<C: AsCapacity>(self, rhs: C) -> Result<Self> {
+    pub fn safe_add<C: IntoCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_add(rhs.as_capacity().0)
+            .checked_add(rhs.into_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }
 
     /// Subtracts self and rhs and checks overflow error.
-    pub fn safe_sub<C: AsCapacity>(self, rhs: C) -> Result<Self> {
+    pub fn safe_sub<C: IntoCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_sub(rhs.as_capacity().0)
+            .checked_sub(rhs.into_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }
 
     /// Multiplies self and rhs and checks overflow error.
-    pub fn safe_mul<C: AsCapacity>(self, rhs: C) -> Result<Self> {
+    pub fn safe_mul<C: IntoCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_mul(rhs.as_capacity().0)
+            .checked_mul(rhs.into_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }

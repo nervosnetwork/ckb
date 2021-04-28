@@ -72,8 +72,10 @@ fn main() {
                 module_path!(),
             )
         };
-        let mut logger_config = ckb_logger_config::Config::default();
-        logger_config.filter = Some(filter);
+        let mut logger_config = ckb_logger_config::Config {
+            filter: Some(filter),
+            ..Default::default()
+        };
         if let Some(log_file) = log_file_opt {
             if log_file.is_relative() {
                 logger_config.log_dir = current_dir();
@@ -130,7 +132,7 @@ fn main() {
                 if err.is_timeout() {
                     continue;
                 }
-                panic!(err);
+                std::panic::panic_any(err);
             }
         };
         match msg {
@@ -494,7 +496,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
 fn list_specs() {
     let all_specs = all_specs();
     let mut names: Vec<_> = all_specs.iter().map(|spec| spec.name()).collect();
-    names.sort();
+    names.sort_unstable();
     for spec_name in names {
         println!("{}", spec_name);
     }

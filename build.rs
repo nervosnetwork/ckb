@@ -14,12 +14,13 @@ fn rerun_if_changed(path_str: &str) -> bool {
         return false;
     }
 
-    match path_str {
-        "COPYING" | "Makefile" | "clippy.toml" | "rustfmt.toml" | "rust-toolchain" => false,
-        _ => true,
-    }
+    !matches!(
+        path_str,
+        "COPYING" | "Makefile" | "clippy.toml" | "rustfmt.toml" | "rust-toolchain"
+    )
 }
 
+#[allow(clippy::manual_strip)]
 fn main() {
     let files_stdout = std::process::Command::new("git")
         .args(&["ls-tree", "-r", "--name-only", "HEAD"])

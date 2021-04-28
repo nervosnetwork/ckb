@@ -276,7 +276,7 @@ mod tests {
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
     use ckb_db::RocksDB;
     use ckb_db_schema::COLUMNS;
-    use ckb_occupied_capacity::AsCapacity;
+    use ckb_occupied_capacity::IntoCapacity;
     use ckb_store::{ChainDB, ChainStore};
     use ckb_types::{
         core::{BlockBuilder, BlockExt, HeaderBuilder, TransactionBuilder},
@@ -340,10 +340,10 @@ mod tests {
 
         let block = BlockBuilder::default().build();
         let ext_tx_fees = vec![
-            100u32.as_capacity(),
-            20u32.as_capacity(),
-            33u32.as_capacity(),
-            34u32.as_capacity(),
+            100u32.into_capacity(),
+            20u32.into_capacity(),
+            33u32.into_capacity(),
+            34u32.into_capacity(),
         ];
         let ext = BlockExt {
             received_at: block.timestamp(),
@@ -366,7 +366,7 @@ mod tests {
             .map(|x| x - x * 4 / 10)
             .sum();
 
-        assert_eq!(txs_fees, expected.as_capacity());
+        assert_eq!(txs_fees, expected.into_capacity());
     }
 
     // Earliest proposer get 40% of tx fee as reward when tx committed
@@ -502,9 +502,9 @@ mod tests {
             .build();
 
         let ext_tx_fees_14 = vec![
-            100u32.as_capacity(),
-            20u32.as_capacity(),
-            33u32.as_capacity(),
+            100u32.into_capacity(),
+            20u32.into_capacity(),
+            33u32.into_capacity(),
         ];
 
         let ext_14 = BlockExt {
@@ -516,7 +516,7 @@ mod tests {
         };
 
         // txs(p4)
-        let ext_tx_fees_15 = vec![300u32.as_capacity()];
+        let ext_tx_fees_15 = vec![300u32.into_capacity()];
 
         let ext_15 = BlockExt {
             received_at: block_15.timestamp(),
@@ -527,7 +527,7 @@ mod tests {
         };
 
         // txs(p5, p6)
-        let ext_tx_fees_18 = vec![41u32.as_capacity(), 999u32.as_capacity()];
+        let ext_tx_fees_18 = vec![41u32.into_capacity(), 999u32.into_capacity()];
 
         let ext_18 = BlockExt {
             received_at: block_18.timestamp(),
@@ -568,6 +568,6 @@ mod tests {
         // target's earliest proposals: p4, p5, p6
         let expected: u32 = [300u32, 41u32, 999u32].iter().map(|x| x * 4 / 10).sum();
 
-        assert_eq!(proposal_reward, expected.as_capacity());
+        assert_eq!(proposal_reward, expected.into_capacity());
     }
 }

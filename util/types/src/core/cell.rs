@@ -83,12 +83,13 @@ impl CellMetaBuilder {
 
     /// TODO(doc): @quake
     pub fn from_cell_output(cell_output: CellOutput, data: Bytes) -> Self {
-        let mut builder = CellMetaBuilder::default();
-        builder.cell_output = cell_output;
-        builder.data_bytes = data.len().try_into().expect("u32");
-        builder.mem_cell_data_hash = Some(CellOutput::calc_data_hash(&data));
-        builder.mem_cell_data = Some(data);
-        builder
+        CellMetaBuilder {
+            cell_output,
+            data_bytes: data.len().try_into().expect("u32"),
+            mem_cell_data_hash: Some(CellOutput::calc_data_hash(&data)),
+            mem_cell_data: Some(data),
+            ..Default::default()
+        }
     }
 
     /// TODO(doc): @quake
@@ -181,10 +182,7 @@ impl CellStatus {
 
     /// TODO(doc): @quake
     pub fn is_live(&self) -> bool {
-        match *self {
-            CellStatus::Live(_) => true,
-            _ => false,
-        }
+        matches!(*self, CellStatus::Live(_))
     }
 
     /// TODO(doc): @quake
@@ -483,7 +481,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                     })
                 })
             })
-            .unwrap_or_else(|| CellStatus::Unknown)
+            .unwrap_or(CellStatus::Unknown)
     }
 }
 

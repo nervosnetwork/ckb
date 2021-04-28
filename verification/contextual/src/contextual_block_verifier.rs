@@ -139,7 +139,7 @@ impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
             .context
             .store
             .get_block_hash(proposal_end)
-            .ok_or_else(|| CommitError::AncestorNotFound)?;
+            .ok_or(CommitError::AncestorNotFound)?;
 
         let mut proposal_txs_ids = HashSet::new();
 
@@ -148,7 +148,7 @@ impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
                 .context
                 .store
                 .get_block_header(&block_hash)
-                .ok_or_else(|| CommitError::AncestorNotFound)?;
+                .ok_or(CommitError::AncestorNotFound)?;
             if header.is_genesis() {
                 break;
             }

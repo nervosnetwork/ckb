@@ -82,7 +82,7 @@ impl Worker {
                     Err(err) => {
                         if !err.is_empty() {
                             self.outbox.send(Notify::Stop).unwrap();
-                            panic!(err)
+                            std::panic::panic_any(err)
                         }
                         None
                     }
