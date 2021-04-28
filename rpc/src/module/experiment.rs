@@ -1,8 +1,6 @@
 use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    Capacity, DryRunResult, EstimateResult, OutPoint, Script, Transaction, Uint64,
-};
+use ckb_jsonrpc_types::{Capacity, DryRunResult, OutPoint, Transaction};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -27,114 +25,6 @@ use std::collections::HashSet;
 /// The methods here may be removed or changed in future releases without prior notifications.
 #[rpc(server)]
 pub trait ExperimentRpc {
-    /// Returns the transaction hash for the given transaction.
-    ///
-    /// ## Examples
-    ///
-    /// Request
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "method": "_compute_transaction_hash",
-    ///   "params": [
-    ///     {
-    ///       "cell_deps": [
-    ///         {
-    ///           "dep_type": "code",
-    ///           "out_point": {
-    ///             "index": "0x0",
-    ///             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-    ///           }
-    ///         }
-    ///       ],
-    ///       "header_deps": [
-    ///         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-    ///       ],
-    ///       "inputs": [
-    ///         {
-    ///           "previous_output": {
-    ///             "index": "0x0",
-    ///             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-    ///           },
-    ///           "since": "0x0"
-    ///         }
-    ///       ],
-    ///       "outputs": [
-    ///         {
-    ///           "capacity": "0x2540be400",
-    ///           "lock": {
-    ///             "args": "0x",
-    ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": "data"
-    ///           },
-    ///           "type": null
-    ///         }
-    ///       ],
-    ///       "outputs_data": [
-    ///         "0x"
-    ///       ],
-    ///       "version": "0x0",
-    ///       "witnesses": []
-    ///     }
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// Response
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
-    /// }
-    /// ```
-    #[deprecated(
-        since = "0.36.0",
-        note = "Please implement molecule and compute the transaction hash in clients."
-    )]
-    #[rpc(name = "deprecated._compute_transaction_hash")]
-    fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256>;
-
-    /// Returns the script hash for the given script.
-    ///
-    /// ## Examples
-    ///
-    /// Request
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "method": "_compute_script_hash",
-    ///   "params": [
-    ///     {
-    ///       "args": "0x",
-    ///       "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///       "hash_type": "data"
-    ///     }
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// Response
-    ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-    /// }
-    /// ```
-    #[deprecated(
-        since = "0.36.0",
-        note = "Please implement molecule and compute the script hash in clients."
-    )]
-    #[rpc(name = "deprecated._compute_script_hash")]
-    fn compute_script_hash(&self, script: Script) -> Result<H256>;
-
     /// Dry run a transaction and return the execution cycles.
     ///
     /// This method will not check the transaction validity, but only run the lock script
@@ -271,14 +161,6 @@ pub trait ExperimentRpc {
         out_point: OutPoint,
         block_hash: H256,
     ) -> Result<Capacity>;
-
-    /// Estimates a fee rate (capacity/KB) for a transaction that to be committed within the expect number of blocks.
-    #[deprecated(
-        since = "0.34.0",
-        note = "This method is deprecated because of the performance issue. It always returns an error now."
-    )]
-    #[rpc(name = "deprecated.estimate_fee_rate")] // noexample
-    fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> Result<EstimateResult>;
 }
 
 pub(crate) struct ExperimentRpcImpl {
@@ -286,16 +168,6 @@ pub(crate) struct ExperimentRpcImpl {
 }
 
 impl ExperimentRpc for ExperimentRpcImpl {
-    fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
-        let tx: packed::Transaction = tx.into();
-        Ok(tx.calc_tx_hash().unpack())
-    }
-
-    fn compute_script_hash(&self, script: Script) -> Result<H256> {
-        let script: packed::Script = script.into();
-        Ok(script.calc_script_hash().unpack())
-    }
-
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
         let tx: packed::Transaction = tx.into();
         DryRunner::new(&self.shared).run(tx)
@@ -333,13 +205,6 @@ impl ExperimentRpc for ExperimentRpcImpl {
             Ok(capacity) => Ok(capacity.into()),
             Err(err) => Err(RPCError::from_ckb_error(err)),
         }
-    }
-
-    fn estimate_fee_rate(&self, _expect_confirm_blocks: Uint64) -> Result<EstimateResult> {
-        Err(RPCError::custom(
-            RPCError::Deprecated,
-            "estimate_fee_rate have been deprecated due to it has availability and performance issue"
-        ))
     }
 }
 

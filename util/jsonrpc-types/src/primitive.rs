@@ -35,12 +35,6 @@ pub type Capacity = Uint64;
 ///
 /// This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 pub type Cycle = Uint64;
-/// The fee rate is the ratio between fee and transaction weight in unit Shannon per 1,000 bytes.
-///
-/// Based on the context, the weight is either the transaction virtual bytes or serialization size in the block.
-///
-/// This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
-pub type FeeRate = Uint64;
 /// The Unix timestamp in milliseconds (1 second is 1000 milliseconds).
 ///
 /// For example, 1588233578000 is Thu, 30 Apr 2020 07:59:38 +0000
