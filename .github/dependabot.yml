@@ -1,0 +1,39 @@
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: weekly
+    day: wednesday
+    timezone: Asia/Shanghai
+  open-pull-requests-limit: 10
+  versioning-strategy: lockfile-only
+  ignore:
+  - dependency-name: serde
+    versions:
+    - "> 1.0.105, < 1.1"
+  - dependency-name: ctrlc
+    versions:
+    - 3.1.9
+  - dependency-name: libc
+    versions:
+    - 0.2.88
+    - 0.2.89
+    - 0.2.91
+    - 0.2.92
+  - dependency-name: syn
+    versions:
+    - 1.0.63
+  - dependency-name: futures
+    versions:
+    - 0.3.12
+  - dependency-name: serde_json
+    versions:
+    - 1.0.62
+  - dependency-name: hyper
+    versions:
+    - 0.13.10
+  - dependency-name: lru
+    versions:
+    - 0.6.4
+  rebase-strategy: disabled
