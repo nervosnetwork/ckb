@@ -23,6 +23,8 @@ We ensure that these platforms will satisfy the following requirements:
 | Ubuntu 16.04 | x64 | ASM |
 | macOS | x64 | ASM |
 
+The Tier 1 requires CPU to support at least SSE4.2, and AVX is recommended.
+
 ## Tier 2
 
 Tier 2 platforms are known to work. But either there are known performance issues or we don't run enough tests in these platforms.
@@ -40,6 +42,8 @@ The official binary releases are also provided for the Tier 2 platforms.
 | CentOS 7 | x64 | ASM |
 
 \* The Rust code base uses RocksDB to store data, which has known issues in Windows.
+
+The Tier 2 requires CPU to support following instructions: call (MODE64), cmovbe (CMOV), xorps (SSE1), movq (SSE2). The provided binaries cannot run on the platforms without these instructions.
 
 ## Tier 3
 
