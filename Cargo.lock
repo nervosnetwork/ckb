@@ -489,6 +489,7 @@ dependencies = [
  "ckb-verification-traits",
  "clap",
  "ctrlc",
+ "fdlimit",
  "rayon",
  "serde",
  "serde_plain",
@@ -2011,6 +2012,15 @@ name = "faster-hex"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "348138dd23e03bb0018caef99647fb1a5befec5ff4b501991de88f09854d4c28"
+
+[[package]]
+name = "fdlimit"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4c9e43643f5a3be4ca5b67d26b98031ff9db6806c3440ae32e02e3ceac3f1b"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "fixedbitset"
