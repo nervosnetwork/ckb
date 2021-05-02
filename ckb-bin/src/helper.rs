@@ -1,3 +1,4 @@
+use ckb_logger::info;
 use std::io::{stdin, stdout, Write};
 
 #[cfg(not(feature = "deadlock_detection"))]
@@ -5,7 +6,7 @@ pub fn deadlock_detection() {}
 
 #[cfg(feature = "deadlock_detection")]
 pub fn deadlock_detection() {
-    use ckb_logger::{info, warn};
+    use ckb_logger::warn;
     use ckb_util::parking_lot::deadlock;
     use std::{thread, time::Duration};
 
@@ -40,4 +41,22 @@ pub fn prompt(msg: &str) -> String {
     let _ = stdin.read_line(&mut input);
 
     input
+}
+
+/// Raise the soft open file descriptor resource limit to the hard resource
+/// limit.
+///
+/// # Panics
+///
+/// Panics if [`libc::getrlimit`], [`libc::setrlimit`], [`libc::sysctl`], [`libc::getrlimit`] or [`libc::setrlimit`]
+/// fail.
+///
+/// darwin_fd_limit exists to work around an issue where launchctl on Mac OS X
+/// defaults the rlimit maxfiles to 256/unlimited. The default soft limit of 256
+/// ends up being far too low for our multithreaded scheduler testing, depending
+/// on the number of cores available.
+pub fn raise_fd_limit() {
+    if let Some(limit) = fdlimit::raise_fd_limit() {
+        info!("raise_fd_limit newly-increased limit: {}", limit);
+    }
 }
