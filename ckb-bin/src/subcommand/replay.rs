@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let (shared, _) = SharedBuilder::new(&args.config.db, None, async_handle.clone())
         .consensus(args.consensus.clone())
-        .tx_pool_config(args.config.tx_pool)
+        .tx_pool_config(args.config.tx_pool.clone())
         .build()
         .map_err(|err| {
             eprintln!("replay error: {:?}", err);

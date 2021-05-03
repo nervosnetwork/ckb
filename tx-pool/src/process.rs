@@ -650,7 +650,7 @@ impl TxPoolService {
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
-        let config = tx_pool.config;
+        let config = tx_pool.config.clone();
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
     }

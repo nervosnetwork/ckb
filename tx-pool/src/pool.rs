@@ -90,10 +90,10 @@ impl TxPool {
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
         TxPool {
-            config,
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
+            config,
             committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
             total_tx_size: 0,

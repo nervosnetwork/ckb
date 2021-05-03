@@ -247,7 +247,7 @@ impl Launcher {
             self.async_handle.clone(),
         )
         .consensus(self.args.consensus.clone())
-        .tx_pool_config(self.args.config.tx_pool)
+        .tx_pool_config(self.args.config.tx_pool.clone())
         .notify_config(self.args.config.notify.clone())
         .store_config(self.args.config.store)
         .block_assembler_config(block_assembler_config)

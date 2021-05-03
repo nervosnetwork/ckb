@@ -3,6 +3,7 @@ use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
@@ -12,7 +13,7 @@ const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 25;
 
 /// Transaction pool configuration
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_mem_size> mb
     pub max_mem_size: usize,
@@ -31,6 +32,9 @@ pub struct TxPoolConfig {
     pub max_tx_verify_cycles: Cycle,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
+    /// tx pool data storage directory path.
+    #[serde(default)]
+    pub path: PathBuf,
 }
 
 impl Default for TxPoolConfig {
@@ -44,6 +48,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
+            path: PathBuf::default(),
         }
     }
 }
