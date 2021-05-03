@@ -14,7 +14,7 @@ pub use miner::{
     ClientConfig as MinerClientConfig, Config as MinerConfig, DummyConfig, EaglesongSimpleConfig,
     ExtraHashFunction, WorkerConfig as MinerWorkerConfig,
 };
-pub use network::{Config as NetworkConfig, HeaderMapConfig, SyncConfig};
+pub use network::{Config as NetworkConfig, HeaderMapConfig, SupportProtocol, SyncConfig};
 pub use network_alert::Config as NetworkAlertConfig;
 pub use notify::Config as NotifyConfig;
 pub use rpc::{Config as RpcConfig, Module as RpcModule};

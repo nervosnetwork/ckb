@@ -7,7 +7,7 @@ extern crate num_cpus;
 
 mod migrations;
 
-use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs, SupportProtocol};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -300,15 +300,41 @@ impl Launcher {
             NetworkState::from_config(self.args.config.network.clone())
                 .expect("Init network state failed"),
         );
-        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
-        let relayer = Relayer::new(
-            chain_controller.clone(),
-            Arc::clone(&sync_shared),
-            self.args.config.tx_pool.min_fee_rate,
-            self.args.config.tx_pool.max_tx_verify_cycles,
-        );
-        let net_timer = NetTimeProtocol::default();
+        // Sync is a core protocol, user cannot disable it via config
+        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+        let mut protocols = vec![CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Sync,
+            Box::new(synchronizer),
+            Arc::clone(&network_state),
+        )];
+
+        let support_protocols = &self.args.config.network.support_protocols;
+
+        if support_protocols.contains(&SupportProtocol::Relay) {
+            let relayer = Relayer::new(
+                chain_controller.clone(),
+                Arc::clone(&sync_shared),
+                self.args.config.tx_pool.min_fee_rate,
+                self.args.config.tx_pool.max_tx_verify_cycles,
+            );
+
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Relay,
+                Box::new(relayer),
+                Arc::clone(&network_state),
+            ));
+        }
+
+        if support_protocols.contains(&SupportProtocol::Time) {
+            let net_timer = NetTimeProtocol::default();
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Time,
+                Box::new(net_timer),
+                Arc::clone(&network_state),
+            ));
+        }
+
         let alert_signature_config = self.args.config.alert_signature.clone().unwrap_or_default();
         let alert_relayer = AlertRelayer::new(
             self.version.to_string(),
@@ -318,29 +344,13 @@ impl Launcher {
 
         let alert_notifier = Arc::clone(alert_relayer.notifier());
         let alert_verifier = Arc::clone(alert_relayer.verifier());
-
-        let protocols = vec![
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Sync,
-                Box::new(synchronizer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Relay,
-                Box::new(relayer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Time,
-                Box::new(net_timer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
+        if support_protocols.contains(&SupportProtocol::Alert) {
+            protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Alert,
                 Box::new(alert_relayer),
                 Arc::clone(&network_state),
-            ),
-        ];
+            ));
+        }
 
         let required_protocol_ids = vec![SupportProtocols::Sync.protocol_id()];
 
