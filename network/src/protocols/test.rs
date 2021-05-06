@@ -165,7 +165,7 @@ fn net_service_start(name: String) -> Node {
     // Feeler protocol
     let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
         let network_state = Arc::clone(&network_state);
-        move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+        move || ProtocolHandle::Callback(Box::new(Feeler::new(Arc::clone(&network_state))))
     });
 
     let service_builder = ServiceBuilder::default()
@@ -190,10 +190,9 @@ fn net_service_start(name: String) -> Node {
 
     thread::spawn(move || {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
-        let mut rt = tokio::runtime::Builder::new()
-            .core_threads(num_threads)
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(num_threads)
             .enable_all()
-            .threaded_scheduler()
             .build()
             .unwrap();
         rt.block_on(async move {

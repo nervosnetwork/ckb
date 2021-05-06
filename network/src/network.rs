@@ -384,7 +384,7 @@ impl NetworkState {
             return Err(Error::Dial(format!("ignore dialing addr {}", addr)));
         }
 
-        debug!("dialing {} with {:?}", addr, target);
+        debug!("dialing {}", addr);
         p2p_control.dial(addr.clone(), target)?;
         self.dialing_addrs.write().insert(
             extract_peer_id(&addr).expect("verified addr"),
@@ -771,7 +771,7 @@ impl<T: ExitHandler> NetworkService<T> {
         // Feeler protocol
         let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
             let network_state = Arc::clone(&network_state);
-            move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+            move || ProtocolHandle::Callback(Box::new(Feeler::new(Arc::clone(&network_state))))
         });
 
         let disconnect_message_state = Arc::clone(&network_state);
@@ -1192,18 +1192,22 @@ impl NetworkController {
     fn try_broadcast(
         &self,
         quick: bool,
-        target: TargetSession,
+        target: Option<SessionId>,
         proto_id: ProtocolId,
         data: Bytes,
     ) -> Result<(), SendErrorKind> {
         let now = Instant::now();
         loop {
+            let target = target
+                .clone()
+                .map(TargetSession::Single)
+                .unwrap_or(TargetSession::All);
             let result = if quick {
                 self.p2p_control
-                    .quick_filter_broadcast(target.clone(), proto_id, data.clone())
+                    .quick_filter_broadcast(target, proto_id, data.clone())
             } else {
                 self.p2p_control
-                    .filter_broadcast(target.clone(), proto_id, data.clone())
+                    .filter_broadcast(target, proto_id, data.clone())
             };
             match result {
                 Ok(()) => {
@@ -1226,16 +1230,12 @@ impl NetworkController {
 
     /// Broadcast a message to all connected peers
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids);
-        self.try_broadcast(false, target, proto_id, data)
+        self.try_broadcast(false, None, proto_id, data)
     }
 
     /// Broadcast a message to all connected peers through quick queue
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids);
-        self.try_broadcast(true, target, proto_id, data)
+        self.try_broadcast(true, None, proto_id, data)
     }
 
     /// Send message to one connected peer
@@ -1245,8 +1245,7 @@ impl NetworkController {
         proto_id: ProtocolId,
         data: Bytes,
     ) -> Result<(), SendErrorKind> {
-        let target = TargetSession::Single(session_id);
-        self.try_broadcast(false, target, proto_id, data)
+        self.try_broadcast(false, Some(session_id), proto_id, data)
     }
 
     /// network message processing controller, always true, if false, discard any received messages

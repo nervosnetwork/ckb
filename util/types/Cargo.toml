@@ -9,10 +9,10 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-molecule = "=0.6.0"
+molecule = "=0.7.0"
 ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.43.0-pre" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-bytes = { version="0.5.4", features = ["serde"] }
+bytes = { version="1", features = ["serde"] }
 merkle-cbt = "0.3"
 ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.43.0-pre" }
 ckb-hash = { path = "../hash", version = "= 0.43.0-pre" }

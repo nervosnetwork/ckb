@@ -121,8 +121,8 @@ pub struct BannedAddr {
 pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
     for addr_component in multiaddr {
         match addr_component {
-            Protocol::IP4(ipv4) => return Some(IpNetwork::V4(ipv4.into())),
-            Protocol::IP6(ipv6) => return Some(IpNetwork::V6(ipv6.into())),
+            Protocol::Ip4(ipv4) => return Some(IpNetwork::V4(ipv4.into())),
+            Protocol::Ip6(ipv6) => return Some(IpNetwork::V6(ipv6.into())),
             _ => (),
         }
     }

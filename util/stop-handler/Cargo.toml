@@ -12,5 +12,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 parking_lot = "=0.7.1"
 ckb-logger = { path = "../logger", version = "= 0.43.0-pre" }
 futures = "0.1"
-tokio = { version = "0.2", features = ["sync", "blocking", "rt-threaded"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 ckb-channel = { path = "../channel", version = "= 0.43.0-pre" }

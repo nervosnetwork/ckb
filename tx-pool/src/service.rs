@@ -142,7 +142,7 @@ impl TxPoolController {
         max_version: Option<Version>,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplateResult, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(
             (
@@ -168,7 +168,7 @@ impl TxPoolController {
 
     /// Notify new uncle
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let notify = Notify::notify(uncle);
         sender.try_send(Message::NewUncle(notify)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
@@ -187,7 +187,7 @@ impl TxPoolController {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let notify = Notify::notify((
             detached_blocks,
             attached_blocks,
@@ -202,7 +202,7 @@ impl TxPoolController {
 
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(tx, responder);
         sender
@@ -224,7 +224,7 @@ impl TxPoolController {
         declared_cycles: Cycle,
         peer: PeerIndex,
     ) -> Result<SubmitTxResult, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((tx, declared_cycles, peer), responder);
         sender
@@ -241,7 +241,7 @@ impl TxPoolController {
 
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
     pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((entries, target), responder);
         sender.try_send(Message::PlugEntry(request)).map_err(|e| {
@@ -256,7 +256,7 @@ impl TxPoolController {
 
     /// Receive txs from network, try to add txs to tx-pool
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let notify = Notify::notify(txs);
         sender.try_send(Message::NotifyTxs(notify)).map_err(|e| {
             let (_m, e) = handle_try_send_error(e);
@@ -266,7 +266,7 @@ impl TxPoolController {
 
     /// Return tx-pool information
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
         sender
@@ -286,7 +286,7 @@ impl TxPoolController {
         &self,
         proposals: Vec<ProposalShortId>,
     ) -> Result<Vec<ProposalShortId>, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(proposals, responder);
         sender
@@ -303,7 +303,7 @@ impl TxPoolController {
 
     /// Return tx for rpc
     pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(id, responder);
         sender.try_send(Message::FetchTxRPC(request)).map_err(|e| {
@@ -321,7 +321,7 @@ impl TxPoolController {
         &self,
         short_ids: Vec<ProposalShortId>,
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
         sender.try_send(Message::FetchTxs(request)).map_err(|e| {
@@ -339,7 +339,7 @@ impl TxPoolController {
         &self,
         short_ids: Vec<ProposalShortId>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
         sender
@@ -356,7 +356,7 @@ impl TxPoolController {
 
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call(new_snapshot, responder);
         sender.try_send(Message::ClearPool(request)).map_err(|e| {
@@ -371,7 +371,7 @@ impl TxPoolController {
 
     /// TODO(doc): @zhangsoledad
     pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
         sender
@@ -388,7 +388,7 @@ impl TxPoolController {
 
     /// TODO(doc): @zhangsoledad
     pub fn get_all_ids(&self) -> Result<TxPoolIds, AnyError> {
-        let mut sender = self.sender.clone();
+        let sender = self.sender.clone();
         let (responder, response) = oneshot::channel();
         let request = Request::call((), responder);
         sender.try_send(Message::GetAllIds(request)).map_err(|e| {
