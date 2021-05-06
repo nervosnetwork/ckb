@@ -27,16 +27,16 @@ use ckb_types::{
 };
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
+use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
-use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, iter, mem};
+use std::{cmp, fmt, iter};
 
 mod header_map;
 
@@ -388,7 +388,7 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
+    pub state: DashMap<PeerIndex, PeerState>,
 }
 
 #[derive(Debug, Clone)]
@@ -875,7 +875,6 @@ impl InflightBlocks {
 impl Peers {
     pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
         self.state
-            .write()
             .entry(peer)
             .and_modify(|state| {
                 state.peer_flags = peer_flags;
@@ -890,20 +889,18 @@ impl Peers {
 
     pub fn relay_connected(&self, peer: PeerIndex) {
         self.state
-            .write()
             .entry(peer)
             .or_insert_with(|| PeerState::new(PeerFlags::default()));
     }
 
     pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
         self.state
-            .read()
             .get(&pi)
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
     pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
-        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+        if let Some(mut peer_state) = self.state.get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.is_better_than(&hv.total_difficulty()) {
                     peer_state.best_known_header = Some(header_view);
@@ -916,14 +913,12 @@ impl Peers {
 
     pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
         self.state
-            .read()
             .get(&pi)
             .and_then(|peer_state| peer_state.last_common_header.clone())
     }
 
     pub fn set_last_common_header(&self, pi: PeerIndex, header: core::HeaderView) {
         self.state
-            .write()
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
     }
@@ -933,26 +928,24 @@ impl Peers {
     }
 
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        self.state.write().remove(&peer)
+        self.state.remove(&peer).map(|(_, peer_state)| peer_state)
     }
 
     pub fn insert_unknown_header_hash(&self, peer: PeerIndex, hash: Byte32) {
         self.state
-            .write()
             .entry(peer)
             .and_modify(|state| state.unknown_header_list.push(hash));
     }
 
     pub fn unknown_header_list_is_empty(&self, peer: PeerIndex) -> bool {
         self.state
-            .read()
             .get(&peer)
             .map(|state| state.unknown_header_list.is_empty())
             .unwrap_or(true)
     }
 
     pub fn clear_unknown_list(&self) {
-        self.state.write().values_mut().for_each(|state| {
+        self.state.iter_mut().for_each(|mut state| {
             if !state.unknown_header_list.is_empty() {
                 state.unknown_header_list.clear()
             }
@@ -964,14 +957,14 @@ impl Peers {
         tip: BlockNumber,
     ) -> Vec<PeerIndex> {
         self.state
-            .read()
             .iter()
-            .filter_map(|(pi, state)| {
+            .filter_map(|kv_pair| {
+                let (peer_index, state) = kv_pair.pair();
                 if !state.unknown_header_list.is_empty() {
                     return None;
                 }
                 match state.best_known_header {
-                    Some(ref header) if header.number() < tip => Some(*pi),
+                    Some(ref header) if header.number() < tip => Some(*peer_index),
                     _ => None,
                 }
             })
@@ -980,13 +973,12 @@ impl Peers {
 
     pub fn take_unknown_last(&self, peer: PeerIndex) -> Option<Byte32> {
         self.state
-            .write()
             .get_mut(&peer)
-            .and_then(|state| state.unknown_header_list.pop())
+            .and_then(|mut state| state.unknown_header_list.pop())
     }
 
     pub fn get_flag(&self, peer: PeerIndex) -> Option<PeerFlags> {
-        self.state.read().get(&peer).map(|state| state.peer_flags)
+        self.state.get(&peer).map(|state| state.peer_flags)
     }
 }
 
@@ -1237,14 +1229,14 @@ impl SyncShared {
             n_protected_outbound_peers: AtomicUsize::new(0),
             shared_best_header,
             header_map,
-            block_status_map: Mutex::new(HashMap::new()),
+            block_status_map: DashMap::new(),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
             known_txs: Mutex::new(KnownFilter::default()),
-            pending_get_block_proposals: Mutex::new(HashMap::default()),
+            pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: Mutex::new(HashSet::default()),
+            inflight_proposals: DashSet::new(),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
@@ -1488,7 +1480,7 @@ pub struct SyncState {
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
     header_map: HeaderMap,
-    block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
+    block_status_map: DashMap<Byte32, BlockStatus>,
     tx_filter: Mutex<Filter<Byte32>>,
 
     /* Status relevant to peers */
@@ -1496,13 +1488,13 @@ pub struct SyncState {
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
-    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, HashSet<PeerIndex>>>,
+    pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
     pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
+    inflight_proposals: DashSet<packed::ProposalShortId>,
     inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
 
@@ -1559,8 +1551,8 @@ impl SyncState {
         self.inflight_blocks.write()
     }
 
-    pub fn inflight_proposals(&self) -> MutexGuard<HashSet<packed::ProposalShortId>> {
-        self.inflight_proposals.lock()
+    pub fn inflight_proposals(&self) -> &DashSet<packed::ProposalShortId> {
+        &self.inflight_proposals
     }
 
     pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, Byte32)> {
@@ -1649,13 +1641,15 @@ impl SyncState {
     }
 
     pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
-        let mut locked = self.inflight_proposals.lock();
-        ids.into_iter().map(|id| locked.insert(id)).collect()
+        ids.into_iter()
+            .map(|id| self.inflight_proposals.insert(id))
+            .collect()
     }
 
     pub fn remove_inflight_proposals(&self, ids: &[packed::ProposalShortId]) -> Vec<bool> {
-        let mut locked = self.inflight_proposals.lock();
-        ids.iter().map(|id| locked.remove(id)).collect()
+        ids.iter()
+            .map(|id| self.inflight_proposals.remove(id).is_some())
+            .collect()
     }
 
     pub fn insert_orphan_block(&self, block: core::BlockView) {
@@ -1665,11 +1659,10 @@ impl SyncState {
 
     pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
-        let mut block_status_map = self.block_status_map.lock();
         blocks.iter().for_each(|block| {
-            block_status_map.remove(&block.hash());
+            self.block_status_map.remove(&block.hash());
         });
-        shrink_to_fit!(block_status_map, SHRINK_THRESHOLD);
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
         blocks
     }
 
@@ -1678,29 +1671,28 @@ impl SyncState {
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
-        self.block_status_map.lock().insert(block_hash, status);
+        self.block_status_map.insert(block_hash, status);
     }
 
     pub fn remove_block_status(&self, block_hash: &Byte32) {
-        let mut guard = self.block_status_map.lock();
-        guard.remove(block_hash);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        self.block_status_map.remove(block_hash);
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
     }
 
-    pub fn clear_get_block_proposals(
+    pub fn drain_get_block_proposals(
         &self,
-    ) -> HashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
-        let mut locked = self.pending_get_block_proposals.lock();
-        let old = locked.deref_mut();
-        let mut ret = HashMap::default();
-        mem::swap(old, &mut ret);
+    ) -> DashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
+        let ret = self.pending_get_block_proposals.clone();
+        self.pending_get_block_proposals.clear();
         ret
     }
 
     pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<packed::ProposalShortId>) {
-        let mut locked = self.pending_get_block_proposals.lock();
         for id in ids.into_iter() {
-            locked.entry(id).or_default().insert(pi);
+            self.pending_get_block_proposals
+                .entry(id)
+                .or_default()
+                .insert(pi);
         }
     }
 
@@ -2005,8 +1997,8 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.state.block_status_map.lock().get(block_hash).cloned() {
-            Some(status) => status,
+        match self.state.block_status_map.get(block_hash) {
+            Some(status_ref) => *status_ref.value(),
             None => {
                 if self.state.header_map.contains_key(block_hash) {
                     BlockStatus::HEADER_VALID

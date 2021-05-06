@@ -53,7 +53,7 @@ impl<'a> TransactionHashesProcess<'a> {
             return Status::ok();
         }
 
-        if let Some(peer_state) = state.peers().state.write().get_mut(&self.peer) {
+        if let Some(mut peer_state) = state.peers().state.get_mut(&self.peer) {
             let mut inflight_transactions = state.inflight_transactions();
 
             debug_target!(

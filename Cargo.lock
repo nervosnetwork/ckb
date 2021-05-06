@@ -1333,6 +1333,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
+ "dashmap",
  "faketime",
  "faux",
  "futures 0.3.12",
