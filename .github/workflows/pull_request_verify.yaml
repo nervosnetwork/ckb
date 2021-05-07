@@ -1,7 +1,5 @@
 name: Pull Requests
 
-# When someone comment "/deploy" on anyone PR,
-# this workflow will be triggered and run.
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
@@ -21,12 +19,14 @@ jobs:
           - os: Linux-runner
             script_run: make build    
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+            script_run: make build 
           - os: win-runner
             script_run: devtools/windows/make prod 
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - uses: actions/checkout@v2
       with:
         submodules: false
@@ -44,16 +44,19 @@ jobs:
           - os: Linux-runner
             script_run: make test    
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+            script_run: make build 
           - os: win-runner
             script_run: devtools/windows/make test 
-            CI: true
-            ImageOS: ${{runner.os}}
-            BUILD_BUILDID: ${{ github.sha }} 
+            env:
+              CI: true
+              ImageOS: 'windows-2019'
+              BUILD_BUILDID: ${{ github.sha }} 
     needs: checkout
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: UnitTest
       run: ${{ matrix.script_run }} 
 
@@ -68,11 +71,10 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Linters
       run: |
-         if [ ${{ runner.os }} == "macOS" ]; then
-         export PATH="/Users/administrator/.cargo/bin:$PATH"
-         fi
          cargo fmt --version ||  rustup component add rustfmt
          cargo clippy --version ||  rustup component add clippy
          make fmt
@@ -90,10 +92,11 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Latest_Linters
       run: |
         if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
         rustup component add rustfmt-preview
         rustup component add clippy-preview
         fi
@@ -117,12 +120,10 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV  
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Quick_Check
       run: |
-        pwd
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         make check-cargotoml
         make check-whitespaces
         make check-dirty-rpc-doc
@@ -140,11 +141,10 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Cyclic_dev_dependencies
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         devtools/ci/check-cyclic-dependencies.py --dev
   Security_Audit_Licenses:
     runs-on: ${{ matrix.os }}
@@ -158,11 +158,10 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV 
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Security Audit & Licenses
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         cargo deny --version || cargo install cargo-deny --locked
         make security-audit
         make check-crates
@@ -178,11 +177,10 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: WASM build
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         export PATH=/usr/lib/llvm-8/bin:$PATH
         rustup target add wasm32-unknown-unknown
         make wasm-build-test

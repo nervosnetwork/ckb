@@ -1,7 +1,5 @@
 name: Cron job for master branch
 
-# When someone comment "/deploy" on anyone PR,
-# this workflow will be triggered and run.
 on:
   schedule:
     - cron: '0 23 * * *'
@@ -21,12 +19,14 @@ jobs:
           - os: Linux-runner
             script_run: make build    
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+            script_run: make build 
           - os: win-runner
             script_run: devtools/windows/make prod 
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - uses: actions/checkout@v2
       with:
         submodules: false
@@ -43,16 +43,18 @@ jobs:
           - os: Linux-runner
             script_run: make test    
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+            script_run: make build 
           - os: win-runner
             script_run: devtools/windows/make test
             CI: true
-            ImageOS: ${{runner.os}}
+            ImageOS: 'windows-2019'
             BUILD_BUILDID: ${{ github.sha }} 
     needs: checkout
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: UnitTest
       run: ${{ matrix.script_run }} 
   Linters: 
@@ -66,11 +68,10 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Linters
       run: |
-         if [ ${{ runner.os }} == "macOS" ]; then
-         export PATH="/Users/administrator/.cargo/bin:$PATH"
-         fi
          cargo fmt --version || travis_retry rustup component add rustfmt
          cargo clippy --version || travis_retry rustup component add clippy
          make fmt
@@ -88,10 +89,11 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Latest_Linters
       run: |
         if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
         rustup component add rustfmt-preview
         rustup component add clippy-preview
         fi
@@ -114,13 +116,11 @@ jobs:
     needs: Latest_Linters
     steps:
     - name: Set env
-      run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV  
+      run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV 
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH  
     - name: Quick_Check
       run: |
-        pwd
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         make check-cargotoml
         make check-whitespaces
         make check-dirty-rpc-doc
@@ -138,11 +138,10 @@ jobs:
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Cyclic_dev_dependencies
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         devtools/ci/check-cyclic-dependencies.py --dev
   Security_Audit_Licenses:
     runs-on: ${{ matrix.os }}
@@ -156,11 +155,10 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV 
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Security Audit & Licenses
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         cargo deny --version || travis_retry cargo install cargo-deny --locked
         make security-audit
         make check-crates
@@ -176,11 +174,10 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: WASM build
       run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
         export PATH=/usr/lib/llvm-8/bin:$PATH
         rustup target add wasm32-unknown-unknown
         make wasm-build-test
@@ -195,6 +192,8 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Benchmarks_Test
       run: |
         make bench-test
@@ -207,7 +206,7 @@ jobs:
           - os: Linux-runner
             script_run: RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}  
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}
+            script_run: RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}
           - os: win-runner
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration 
             CI: true
@@ -219,6 +218,8 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Integration_Test
       run: ${{ matrix.script_run }}
 
@@ -233,6 +234,8 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Code Coverage
       run: |
         cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin --locked

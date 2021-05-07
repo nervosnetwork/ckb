@@ -1,7 +1,5 @@
 name: Package
 
-# When someone comment "/deploy" on anyone PR,
-# this workflow will be triggered and run.
 on:
   push:
     branches:
@@ -10,8 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v0.40.0
-  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"   
+  CKB_CLI_VERSION: v0.40.0 
   QINIU_SECRET_KEY: "${{ secrets.QINIU_SECRET_KEY }}"
   encrypted_82dff4145bbf_iv: "${{ secrets.encrypted_82dff4145bbf_iv }}"
   encrypted_82dff4145bbf_key: "${{ secrets.encrypted_82dff4145bbf_key }}"

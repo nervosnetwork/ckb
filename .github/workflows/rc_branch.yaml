@@ -1,7 +1,5 @@
 name: Workflow for 'rc*' branch
 
-# When someone comment "/deploy" on anyone PR,
-# this workflow will be triggered and run.
 on:
   push:
     branches:
@@ -21,12 +19,14 @@ jobs:
           - os: Linux-runner
             script_run: make build    
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && make build 
+            script_run: make build 
           - os: win-runner
             script_run: devtools/windows/make prod 
     steps:
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - uses: actions/checkout@v2
       with:
         submodules: false
@@ -45,12 +45,10 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Benchmarks_Test
-      run: |
-        if [ ${{ runner.os }} == "macOS" ]; then
-        export PATH="/Users/administrator/.cargo/bin:$PATH"
-        fi
-        make bench-test
+      run: make bench-test
   Integration_Test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -60,7 +58,7 @@ jobs:
           - os: Linux-runner
             script_run: RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}  
           - os:  mac-runner
-            script_run: export PATH="/Users/administrator/.cargo/bin:$PATH" && RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}
+            script_run: RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin $CARGO_TARGET_DIR/release/ckb ${CKB_TEST_ARGS}
           - os: win-runner
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration 
             CI: true
@@ -72,6 +70,8 @@ jobs:
     steps: 
     - name: Set env
       run: echo "CARGO_TARGET_DIR=$(echo $HOME/target)" >> $GITHUB_ENV
+    - name: Set Cargo path
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH 
     - name: Integration_Test
       run: ${{ matrix.script_run }}
 
