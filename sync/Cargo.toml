@@ -34,10 +34,11 @@ governor = "0.3.1"
 tempfile = "3.0"
 faketime = "0.2.0"
 bitflags = "1.0"
+bloom-filters = "0.1"
+rand = "0.7"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.43.0-pre" }
-rand = "0.7"
 ckb-dao = { path = "../util/dao", version = "= 0.43.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.43.0-pre" }
 

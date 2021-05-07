@@ -1,6 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
 use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
+use bloom_filters::{BloomFilter, DefaultBuildHashKernels, StableBloomFilter};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -28,6 +29,7 @@ use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLock
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
+use std::collections::hash_map::RandomState;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::DerefMut;
@@ -342,35 +344,40 @@ impl PeerState {
     }
 }
 
-pub struct Filter<T: Eq + Hash> {
-    inner: LruCache<T, ()>,
+pub struct Filter {
+    inner: StableBloomFilter<DefaultBuildHashKernels<RandomState>>,
 }
 
-impl<T: Eq + Hash> Default for Filter<T> {
+impl Default for Filter {
     fn default() -> Self {
         Filter::new(FILTER_SIZE)
     }
 }
 
-impl<T: Eq + Hash> Filter<T> {
+impl Filter {
     pub fn new(size: usize) -> Self {
         Self {
-            inner: LruCache::new(size),
+            inner: StableBloomFilter::new(
+                size,
+                3,
+                0.03,
+                DefaultBuildHashKernels::new(rand::random(), RandomState::default()),
+            ),
         }
     }
 
-    pub fn contains(&self, item: &T) -> bool {
+    pub fn contains<T: Hash>(&self, item: &T) -> bool {
         self.inner.contains(item)
     }
 
-    pub fn insert(&mut self, item: T) -> bool {
-        self.inner.put(item, ()).is_none()
+    pub fn insert<T: Hash>(&mut self, item: &T) {
+        self.inner.insert(item)
     }
 }
 
 #[derive(Default)]
 pub struct KnownFilter {
-    inner: HashMap<PeerIndex, Filter<Byte32>>,
+    inner: HashMap<PeerIndex, Filter>,
 }
 
 impl KnownFilter {
@@ -378,10 +385,13 @@ impl KnownFilter {
     /// If the filter did not have this value present, `true` is returned.
     /// If the filter did have this value present, `false` is returned.
     pub fn insert(&mut self, index: PeerIndex, hash: Byte32) -> bool {
-        self.inner
-            .entry(index)
-            .or_insert_with(Filter::default)
-            .insert(hash)
+        let filter = self.inner.entry(index).or_insert_with(Filter::default);
+        if filter.contains(&hash) {
+            false
+        } else {
+            filter.insert(&hash);
+            true
+        }
     }
 }
 
@@ -1486,7 +1496,7 @@ pub struct SyncState {
     shared_best_header: RwLock<HeaderView>,
     header_map: HeaderMap,
     block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
-    tx_filter: Mutex<Filter<Byte32>>,
+    tx_filter: Mutex<Filter>,
 
     /* Status relevant to peers */
     peers: Peers,
@@ -1620,7 +1630,7 @@ impl SyncState {
         let mut tx_filter = self.tx_filter.lock();
 
         for hash in hashes {
-            tx_filter.insert(hash);
+            tx_filter.insert(&hash);
         }
     }
 
@@ -1628,7 +1638,7 @@ impl SyncState {
         self.tx_filter.lock().contains(hash)
     }
 
-    pub fn tx_filter(&self) -> MutexGuard<Filter<Byte32>> {
+    pub fn tx_filter(&self) -> MutexGuard<Filter> {
         self.tx_filter.lock()
     }
 

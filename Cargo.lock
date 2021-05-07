@@ -1313,6 +1313,7 @@ name = "ckb-sync"
 version = "0.43.0-pre"
 dependencies = [
  "bitflags",
+ "bloom-filters",
  "ckb-app-config",
  "ckb-chain",
  "ckb-chain-spec",
