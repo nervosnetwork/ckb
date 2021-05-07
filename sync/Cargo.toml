@@ -34,7 +34,7 @@ governor = "0.3.1"
 tempfile = "3.0"
 faketime = "0.2.0"
 bitflags = "1.0"
-dashmap = "4.0"
+dashmap = { git = "https://github.com/quake/dashmap", branch = "parking_lot", features = ["parking_lot"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.43.0-pre" }
