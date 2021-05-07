@@ -80,7 +80,7 @@ function run-integration {
   rm -Re -Fo -ErrorAction SilentlyContinue test/target
 
   cargo build --features deadlock_detection
-  New-Item -ItemType Junction -Path test/target -Value "$(pwd)/../target"
+  New-Item -ItemType Junction -Path test/target -Value "$(pwd)/target"
 
   pushd test
 
