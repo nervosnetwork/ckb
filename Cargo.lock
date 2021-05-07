@@ -1431,7 +1431,7 @@ version = "0.43.0-pre"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "regex",
 ]
 
@@ -3698,14 +3698,11 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e136c1904604defe99ce5fd71a28d473fa60a12255d511aa78a9ddf11237aeb"
 dependencies = [
- "backtrace",
  "cfg-if 0.1.10",
  "cloudabi",
  "libc",
- "petgraph",
  "redox_syscall",
  "smallvec 1.6.1",
- "thread-id",
  "winapi 0.3.8",
 ]
 
@@ -3715,11 +3712,14 @@ version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c6d9b8427445284a09c55be860a15855ab580a417ccad9da88f5a06787ced0"
 dependencies = [
+ "backtrace",
  "cfg-if 1.0.0",
  "instant",
  "libc",
+ "petgraph",
  "redox_syscall",
  "smallvec 1.6.1",
+ "thread-id",
  "winapi 0.3.8",
 ]
 
@@ -4682,6 +4682,7 @@ dependencies = [
  "molecule",
  "nohash-hasher",
  "once_cell",
+ "parking_lot 0.11.1",
  "rand 0.7.3",
  "tentacle-multiaddr",
  "tentacle-secio",
