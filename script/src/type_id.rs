@@ -47,9 +47,8 @@ impl<'a> TypeIdSystemScript<'a> {
         // TYPE_ID script, we are creating such a cell,
         // we also need to validate that the first argument matches
         // the hash of following items concatenated:
-        // 1. Transaction hash of the first CellInput's OutPoint
-        // 2. Cell index of the first CellInput's OutPoint
-        // 3. Index of the first output cell in current script group.
+        // 1. First CellInput of the transaction.
+        // 2. Index of the first output cell in current script group.
         if self.script_group.input_indices.is_empty() {
             let first_cell_input = self
                 .rtx
