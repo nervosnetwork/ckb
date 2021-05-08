@@ -291,15 +291,16 @@ impl Relayer {
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
 
-            let selected_peers: Vec<PeerIndex> = nc
+            let selected_peers: HashSet<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
                 .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
-            if let Err(err) =
-                nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), message.as_bytes())
-            {
+            if let Err(err) = nc.quick_filter_broadcast(
+                TargetSession::Filter(Box::new(move |id| selected_peers.contains(id))),
+                message.as_bytes(),
+            ) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send block when accept block error: {:?}",

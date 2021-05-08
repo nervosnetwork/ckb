@@ -9,8 +9,8 @@
 ///
 /// Other protocols will be closed after a timeout.
 use crate::{network::disconnect_with_message, NetworkState, Peer, ProtocolId, SupportProtocols};
-use ckb_logger::{debug, warn};
-use futures::{Future, Stream};
+use ckb_logger::debug;
+use futures::Future;
 use p2p::service::ServiceControl;
 use std::{
     pin::Pin,
@@ -130,12 +130,8 @@ impl Future for ProtocolTypeCheckerService {
         }
         let mut interval = self.interval.take().unwrap();
         loop {
-            match Pin::new(&mut interval).as_mut().poll_next(cx) {
-                Poll::Ready(Some(_tick)) => self.check_protocol_type(),
-                Poll::Ready(None) => {
-                    warn!("ckb protocol checker service stopped");
-                    return Poll::Ready(());
-                }
+            match interval.poll_tick(cx) {
+                Poll::Ready(_) => self.check_protocol_type(),
                 Poll::Pending => {
                     self.interval = Some(interval);
                     return Poll::Pending;

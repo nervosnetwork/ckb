@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.43.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.43.0-pre" }
 ckb-spawn = {  path = "../spawn", version = "= 0.43.0-pre" }

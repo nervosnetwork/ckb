@@ -159,12 +159,15 @@ impl CKBProtocolHandler for AlertRelayer {
         // mark sender as known
         self.mark_as_known(peer_index, alert_id);
         // broadcast message
-        let selected_peers: Vec<PeerIndex> = nc
+        let selected_peers: HashSet<PeerIndex> = nc
             .connected_peers()
             .into_iter()
             .filter(|peer| self.mark_as_known(*peer, alert_id))
             .collect();
-        if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data) {
+        if let Err(err) = nc.quick_filter_broadcast(
+            TargetSession::Filter(Box::new(move |id| selected_peers.contains(id))),
+            data,
+        ) {
             debug!("alert broadcast error: {:?}", err);
         }
         // add to received alerts

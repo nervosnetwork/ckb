@@ -425,12 +425,12 @@ impl Callback for IdentifyCallback {
                         registry_client_version(client_version);
 
                         // The remote end can support all local protocols.
-                        let protos = self
-                            .network_state
-                            .get_protocol_ids(|id| id != SupportProtocols::Feeler.protocol_id());
-
-                        let _ = context
-                            .open_protocols(context.session.id, TargetProtocol::Multi(protos));
+                        let _ = context.open_protocols(
+                            context.session.id,
+                            TargetProtocol::Filter(Box::new(|id| {
+                                id != &SupportProtocols::Feeler.protocol_id()
+                            })),
+                        );
                     } else {
                         // The remote end cannot support all local protocols.
                         return MisbehaveResult::Disconnect;
@@ -500,7 +500,7 @@ impl Callback for IdentifyCallback {
                 addr.iter()
                     .filter_map(|proto| match proto {
                         Protocol::P2P(_) => None,
-                        Protocol::TCP(_) => Some(Protocol::TCP(socket_addr.port())),
+                        Protocol::Tcp(_) => Some(Protocol::Tcp(socket_addr.port())),
                         value => Some(value),
                     })
                     .collect::<Multiaddr>()

@@ -29,7 +29,8 @@ impl Handle {
     where
         F: FnOnce() -> R,
     {
-        self.inner.enter(f)
+        let _enter = self.inner.enter();
+        f()
     }
 
     /// Spawns a future onto the runtime.
@@ -51,9 +52,8 @@ impl Handle {
 
 /// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle
 pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
-    let mut runtime = Builder::new()
+    let runtime = Builder::new_multi_thread()
         .enable_all()
-        .threaded_scheduler()
         .thread_name("ckb-global-runtime")
         .build()
         .expect("ckb runtime initialized");
