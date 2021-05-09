@@ -6,6 +6,8 @@ mod descendant;
 mod different_txs_with_same_input;
 mod duplicate_cell_deps;
 mod limit;
+#[cfg(target_os = "linux")]
+mod pool_persisted;
 mod pool_reconcile;
 mod pool_resurrect;
 mod proposal_expire_rule;
@@ -29,6 +31,8 @@ pub use descendant::*;
 pub use different_txs_with_same_input::*;
 pub use duplicate_cell_deps::*;
 pub use limit::*;
+#[cfg(target_os = "linux")]
+pub use pool_persisted::*;
 pub use pool_reconcile::*;
 pub use pool_resurrect::*;
 pub use proposal_expire_rule::*;

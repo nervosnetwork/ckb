@@ -3,6 +3,7 @@ use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
@@ -12,7 +13,7 @@ const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 25;
 
 /// Transaction pool configuration
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_mem_size> mb
     pub max_mem_size: usize,
@@ -31,6 +32,11 @@ pub struct TxPoolConfig {
     pub max_tx_verify_cycles: Cycle,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
+    /// The file to persist the tx pool on the disk when tx pool have been shutdown.
+    ///
+    /// By default, it is a file inside the data directory.
+    #[serde(default)]
+    pub persisted_data: PathBuf,
 }
 
 impl Default for TxPoolConfig {
@@ -44,6 +50,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
+            persisted_data: Default::default(),
         }
     }
 }
@@ -61,4 +68,23 @@ pub struct BlockAssemblerConfig {
     pub args: JsonBytes,
     /// An arbitrary message to be added into the cellbase transaction.
     pub message: JsonBytes,
+}
+
+impl TxPoolConfig {
+    /// Canonicalizes paths in the config options.
+    ///
+    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool_persisted_data`.
+    ///
+    /// If `self.path` is relative, convert them to absolute path using
+    /// `root_dir` as current working directory.
+    pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
+        if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
+            self.persisted_data = data_dir
+                .as_ref()
+                .to_path_buf()
+                .join("tx_pool_persisted_data");
+        } else if self.persisted_data.is_relative() {
+            self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
+        }
+    }
 }

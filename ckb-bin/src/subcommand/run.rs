@@ -54,7 +54,10 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller);
+    tx_pool_builder.start(network_controller).map_err(|err| {
+        eprintln!("TxPool Error: {}", err);
+        ExitCode::Failure
+    })?;
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -65,6 +68,11 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     info!("Finishing work, please wait...");
     drop(rpc_server);
+
+    shared.tx_pool_controller().save_pool().map_err(|err| {
+        eprintln!("TxPool Error: {}", err);
+        ExitCode::Failure
+    })?;
 
     Ok(())
 }

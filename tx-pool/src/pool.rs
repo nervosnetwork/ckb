@@ -90,7 +90,6 @@ impl TxPool {
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
 
         TxPool {
-            config,
             pending: PendingQueue::new(config.max_ancestors_count),
             gap: PendingQueue::new(config.max_ancestors_count),
             proposed: ProposedPool::new(config.max_ancestors_count),
@@ -99,6 +98,7 @@ impl TxPool {
             total_tx_size: 0,
             total_tx_cycles: 0,
             snapshot,
+            config,
         }
     }
 
@@ -455,5 +455,14 @@ impl TxPool {
             .collect();
 
         TxPoolEntryInfo { pending, proposed }
+    }
+
+    /// Returns all pending or proposed transactions.
+    pub(crate) fn get_all_transactions(&self) -> impl Iterator<Item = &TransactionView> {
+        self.pending
+            .iter()
+            .chain(self.gap.iter())
+            .chain(self.proposed.iter())
+            .map(|(_, entry)| entry.transaction())
     }
 }
