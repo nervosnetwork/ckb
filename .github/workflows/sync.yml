@@ -1,0 +1,109 @@
+name: Sync Mainnet
+
+on:
+  pull_request_review:
+    types: [ submitted ]
+
+jobs:
+  build_ckb:
+    name: Build CKB
+    runs-on: [ self-hosted, Linux, X64 ]
+    if: |
+      contains(github.event.review.body, '#sync-mainnet') &&
+      contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+
+    env:
+      CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build CKB
+        run: |
+          make build
+          cd ${{ env.CARGO_TARGET_DIR }}/release
+          tar -czvf ckb.tar.gz ckb
+          mv ckb.tar.gz ${{ github.workspace }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ckb.tar.gz
+          path: ckb.tar.gz
+
+  sync:
+    name: Sync Mainnet
+    runs-on: [ self-hosted, Linux, X64 ]
+    needs: [ build_ckb ]
+    env:
+      TERRAFORM_DIR:          ${{ github.workspace }}/.github/workflows/sync/terraform
+      ANSIBLE_DIR:            ${{ github.workspace }}/.github/workflows/sync/ansible
+      ANSIBLE_INVENTORY_PATH: ${{ github.workspace }}/.github/workflows/sync/ansible/inventory.yml
+      PRIVATE_KEY_PATH:       ${{ github.workspace }}/id_rsa
+      PUBLIC_KEY_PATH:        ${{ github.workspace }}/id_rsa.pub
+    steps:
+      - uses: actions/checkout@v2
+      - name: Prepare - Download CKB Tarball
+        uses: actions/download-artifact@v2
+        with:
+          name: ckb.tar.gz
+
+      # Prepare
+      - name: Prepare - Generate Random SSH Key
+        run: ssh-keygen -N "" -f ${{ env.PRIVATE_KEY_PATH }}
+      - name: Prepare - Apply Resources Based on Terraform Files
+        uses: ./.github/actions/terraform
+        env:
+          # Environment variables used inside terraform/variables.tf
+          TF_VAR_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          TF_VAR_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          TF_VAR_prefix: sync-${{ github.repository }}-${{ github.run_id }}
+          TF_VAR_instance_type: c5.xlarge
+          TF_VAR_private_key_path: ${{ env.PRIVATE_KEY_PATH }}
+          TF_VAR_public_key_path: ${{ env.PUBLIC_KEY_PATH }}
+        with:
+          terraform_dir: ${{ env.TERRAFORM_DIR }}
+      - name: Prepare - Output Ansible Inventory Based on Terraform State
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          terraform output | grep -v EOT > ${{ env.ANSIBLE_INVENTORY_PATH }}
+          terraform output | grep -v EOT
+
+      # Run
+      - name: Run Ansible Playbook
+        shell: bash
+        working-directory: ${{ env.ANSIBLE_DIR }}
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: False
+          ANSIBLE_TIMEOUT:           60
+          ANSIBLE_REMOTE_USER:       ubuntu
+          ANSIBLE_INVENTORY:         ${{ env.ANSIBLE_INVENTORY_PATH }}
+          ANSIBLE_PRIVATE_KEY_FILE:  ${{ env.PRIVATE_KEY_PATH }}
+        run: |
+          ansible-galaxy install --roles-path roles --role-file requirements.yml
+
+          ansible-playbook playbook.yml \
+            -e 'ckb_local_source=${{ github.workspace  }}/ckb.tar.gz' \
+            -t ckb_install,ckb_configure
+          ansible-playbook playbook.yml -t ckb_restart
+          ansible-playbook playbook.yml -t wait_ckb_synchronization
+          ansible-playbook playbook.yml -t fetch_ckb_logfiles
+          # Will produce result.tar.gz and report.yml within ANSIBLE_DIR
+          ansible-playbook playbook.yml -t process_result
+
+      - name: Post Run - Upload Result
+        uses: actions/upload-artifact@v2
+        with:
+          name: result.tar.gz
+          path: ${{ env.ANSIBLE_DIR }}/result.tar.gz
+      - name: Post Run - Construct Report
+        run: |
+          echo 'SYNC_MAINNET_REPORT<<EOF' >> $GITHUB_ENV
+          cat ${ANSIBLE_DIR}/report.yml   >> $GITHUB_ENV
+          echo 'EOF'                      >> $GITHUB_ENV
+      - name: Post Run - Comment Report
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            **Sync Mainnet Report**: https://www.github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ```yaml
+            ${{ env.SYNC_MAINNET_REPORT }}
+            ```

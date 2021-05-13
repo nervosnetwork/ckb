@@ -1,0 +1,83 @@
+---
+- hosts: all
+  gather_facts: yes
+  tasks:
+    - include_vars: vars/all.yml
+      tags: [ always ]
+    - name: Operate CKB Via Ansible-CKB
+      include_role:
+        name: ansible-ckb
+        public: false
+      tags:
+        - ckb_install
+        - ckb_configure
+        - ckb_restart
+        - ckb_start
+        - ckb_stop
+        - ckb_status
+        - ckb_miner_restart
+        - ckb_miner_start
+        - ckb_miner_stop
+
+    - name: Wait For CKB Synchronization
+      block:
+        - name: Query Mainnet Tip Number From api.explorer.nervos.org
+          uri:
+            url: https://api.explorer.nervos.org/api/v1/statistics/tip_block_number
+            headers:
+              Accept: "application/vnd.api+json"
+              Content-Type: "application/vnd.api+json"
+          register: explorer_tip
+          when:
+            - ckb_sync_target_number is not defined or ckb_sync_target_number == ''
+        - name: Use api.explorer.nervos.org Tip Block Number As Synchronization Target Number
+          set_fact:
+            ckb_sync_target_number: "{{ explorer_tip.json.data.attributes.tip_block_number }}"
+          when:
+            - ckb_sync_target_number is not defined or ckb_sync_target_number == ''
+        - name: Wait Until CKB Reach Tip Number `{{ ckb_sync_target_number }}`
+          wait_for:
+            path: "{{ ckb_data_dir }}/logs/run.log"
+            search_regex: "(?P<line>.* ChainService INFO ckb_chain::chain  block: {{ ckb_sync_target_number }}, .*)"
+            timeout: 18000 # 5 hours
+          register: wait_until_reach_explorer_tip
+        - debug:
+            msg: "{{ wait_until_reach_explorer_tip['match_groupdict']['line'] }}"
+      tags:
+        - wait_ckb_synchronization
+
+    - name: Fetch CKB Config Files And Log Files
+      become: true
+      fetch:
+        flat: true
+        src: "{{ item }}"
+        dest: "{{ inventory_hostname }}.{{ item | basename }}"
+      with_items:
+        - "{{ ckb_workspace }}/ckb.toml"
+        - "{{ ckb_data_dir }}/logs/run.log"
+      tags:
+        - fetch_ckb_logfiles
+
+    - name: Calculate Synchronization Time Cost
+      run_once: true
+      delegate_to: localhost
+      environment:
+        CKB_NETWORK_NAME: "{{ ckb_network_name | default('unknown') }}"
+      shell: "{{ playbook_dir }}/files/produce-report.sh {{ item }} >> report.yml"
+      with_fileglob:
+        # with_fileglob with "./*.run.log" returns nothing :(
+        - "{{ playbook_dir }}/*.run.log"
+      tags:
+        - process_result
+
+    - name: Create Archive Of Result Files
+      run_once: true
+      delegate_to: localhost
+      archive:
+        dest: result.tar.gz
+        path:
+          - "report.yml"
+          - "*.ckb.toml"
+          - "*.run.log"
+      tags:
+        - process_result
