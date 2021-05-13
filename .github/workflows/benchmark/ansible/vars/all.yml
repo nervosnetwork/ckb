@@ -1,0 +1,40 @@
+# ansible-ckb
+# TODO elegent way to assign bootnodes list
+ckb_workspace: "/var/lib/ckb"
+ckb_data_dir: "{{ ckb_workspace }}/data"
+secret_keys:
+  instance-0: "QmUpChEcQwBcnhTqoNXxynW2B4hNq9R2USgWZKHUnkWdGd"
+  instance-1: "QmcjX7xQxHJ2spbpb8uCD89LiCNbFsnFCLBA1Mu9SKgXjo"
+  instance-2: "Qmctiy6jRrpZnf7SCWjCskwetwKroW7bhZJc28PydsBevX"
+ckb_network_secret_key: "{{ secret_keys[inventory_hostname] | default('') }}"
+ckb_network_bootnodes:
+  - "/ip4/{{ hostvars['instance-0'].ansible_host }}/tcp/8115/p2p/{{ secret_keys['instance-0'] }}"
+ckb_network_bootnode_mode: "true"
+
+ckb_rpc_listen_address: "0.0.0.0:8114"
+
+ckb_tx_pool_max_mem_size: "40_000_000"
+ckb_tx_pool_max_cycles: "400_000_000_000"
+ckb_tx_pool_min_fee_rate: "0"
+ckb_chain_spec_file: "benchmark-spec.toml"
+
+# ansible-ckb miner
+ckb_block_assembler:
+  key: "98400f6a67af07025f5959af35ed653d649f745b8f54bf3f07bef9bd605ee946"
+  code_hash: "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+  args: "0x8883a512ee2383c01574a328f60eeccbb4d78240"
+  hash_type: "type"
+  message: "0x"
+ckb_miner_workers:
+  - worker_type: "Dummy"
+    delay_type: "Constant"
+    value: 500
+
+# ansible-ckb-benchmark
+ckb_benchmark_workspace: "/var/lib/ckb-benchmark"
+ckb_benchmark_data_dir: "{{ ckb_benchmark_workspace }}/data"
+ckb_benchmark_skip_best_tps_caculation: false
+ckb_benchmark_block_assembler: "{{ ckb_block_assembler }}"
+ckb_benchmark_benchmarks:
+  - transaction_type: In2Out2
+    send_delay: 100
