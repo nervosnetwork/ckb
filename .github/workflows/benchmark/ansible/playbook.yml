@@ -102,7 +102,8 @@
       run_once: true
       delegate_to: localhost
       archive:
-        dest: result.tar.gz
+        format: xz
+        dest: result.tar.xz
         path:
           - "bench.log"
           - "metrics.yml"

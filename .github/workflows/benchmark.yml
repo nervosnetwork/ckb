@@ -22,12 +22,12 @@ jobs:
           sed -i 's/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = .*;$/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 12_000;/g' spec/src/consensus.rs
           make build
           cd ${{ env.CARGO_TARGET_DIR }}/release
-          tar -czvf ckb.tar.gz ckb
-          mv ckb.tar.gz ${{ github.workspace }}
+          tar cfJ ckb.tar.xz ckb
+          mv ckb.tar.xz ${{ github.workspace }}
       - uses: actions/upload-artifact@v2
         with:
-          name: ckb.tar.gz
-          path: ckb.tar.gz
+          name: ckb.tar.xz
+          path: ckb.tar.xz
 
   benchmark:
     name: Benchmark
@@ -44,7 +44,7 @@ jobs:
       - name: Prepare - Download CKB Tarball
         uses: actions/download-artifact@v2
         with:
-          name: ckb.tar.gz
+          name: ckb.tar.xz
 
       # Prepare
       - name: Prepare - Generate Random SSH Key
@@ -85,7 +85,7 @@ jobs:
 
           ansible-playbook playbook.yml \
             -e 'hostname=instances' \
-            -e 'ckb_local_source=${{ github.workspace  }}/ckb.tar.gz' \
+            -e 'ckb_local_source=${{ github.workspace  }}/ckb.tar.xz' \
             -t ckb_install,ckb_configure
           ansible-playbook playbook.yml \
             -e 'hostname=bastions' \
@@ -104,7 +104,7 @@ jobs:
           ansible-playbook playbook.yml -e 'hostname=bastions'   -t ckb_benchmark_start
 
           # Fetch and process result files
-          # It will produce `report.yml`, `metrics.yml` and `result.tar.gz`
+          # It will produce `report.yml`, `metrics.yml` and `result.tar.xz`
           ansible-playbook playbook.yml -e 'hostname=bastions'   -t fetch_ckb_benchmark_logfiles
           ansible-playbook playbook.yml -e 'hostname=instances'  -t fetch_ckb_logfiles
           ansible-playbook playbook.yml \
@@ -113,11 +113,11 @@ jobs:
             -e 'instance_type_bastion=t2.xlarge' \
             -t process_result
 
-      - name: Post Run - Upload Result `result.tar.gz`
+      - name: Post Run - Upload Result `result.tar.xz`
         uses: actions/upload-artifact@v2
         with:
-          name: result.tar.gz
-          path: ${{ env.ANSIBLE_DIR }}/result.tar.gz
+          name: result.tar.xz
+          path: ${{ env.ANSIBLE_DIR }}/result.tar.xz
       - name: Post Run - Construct Report
         run: |
           echo 'BENCHMARK_REPORT<<EOF'  >> $GITHUB_ENV
