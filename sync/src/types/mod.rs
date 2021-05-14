@@ -360,7 +360,7 @@ impl Filter {
             inner: StableBloomFilter::new(
                 size,
                 3,
-                0.03,
+                0.0001,
                 DefaultBuildHashKernels::new(rand::random(), RandomState::default()),
             ),
         }
