@@ -7,7 +7,7 @@ on:
 jobs:
   build_modified_ckb:
     name: Build Modified CKB
-    runs-on: [ self-hosted, Linux, X64 ]
+    runs-on: [ self-hosted, Linux, X64, building ]
     if: |
       contains(github.event.review.body, '#benchmark') &&
       contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
@@ -31,7 +31,7 @@ jobs:
 
   benchmark:
     name: Benchmark
-    runs-on: [ self-hosted, Linux, X64 ]
+    runs-on: [ self-hosted, Linux, X64, operating ]
     needs: [ build_modified_ckb ]
     env:
       TERRAFORM_DIR:          ${{ github.workspace }}/.github/workflows/benchmark/terraform
