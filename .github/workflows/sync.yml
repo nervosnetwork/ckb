@@ -7,7 +7,7 @@ on:
 jobs:
   build_ckb:
     name: Build CKB
-    runs-on: [ self-hosted, Linux, X64 ]
+    runs-on: [ self-hosted, Linux, X64, building ]
     if: |
       contains(github.event.review.body, '#sync-mainnet') &&
       contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
@@ -29,7 +29,7 @@ jobs:
 
   sync:
     name: Sync
-    runs-on: [ self-hosted, Linux, X64 ]
+    runs-on: [ self-hosted, Linux, X64, operating ]
     needs: [ build_ckb ]
     env:
       TERRAFORM_DIR:          ${{ github.workspace }}/.github/workflows/sync/terraform
