@@ -1,4 +1,4 @@
-ckb_sync_target_number: 10000
+# ckb_sync_target_number: 10000
 ckb_workspace: "/var/lib/ckb"
 ckb_data_dir: "{{ ckb_workspace }}/data"
 ckb_rpc_listen_address: "0.0.0.0:8114"
