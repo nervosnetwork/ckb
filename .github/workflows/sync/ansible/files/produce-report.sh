@@ -27,7 +27,7 @@ esac
 
 ckb_run_log="$1"
 
-[[ $ckb_run_log == *".run.log" ]] || { echo "Wrong Usage"; exit 1; }
+[[ $ckb_run_log == *"run.log" ]] || { echo "Wrong Usage"; exit 1; }
 
 hostname=$(basename "$ckb_run_log" | $SED "s/.run.log//g")
 version=$($GREP -m 1 "ckb version: " "$ckb_run_log" | $SED -r 's/.*ckb version: (.*)$/\1/g')

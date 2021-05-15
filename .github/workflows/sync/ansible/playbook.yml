@@ -43,30 +43,48 @@
           register: wait_until_reach_explorer_tip
         - debug:
             msg: "{{ wait_until_reach_explorer_tip['match_groupdict']['line'] }}"
+        - name: Archive CKB Logfiles
+          archive:
+            format: xz
+            dest: "{{ ckb_workspace }}/{{ inventory_hostname }}.tar.xz"
+            path:
+              - "{{ ckb_workspace }}/ckb.toml"
+              - "{{ ckb_data_dir }}/logs/run.log"
       tags:
         - wait_ckb_synchronization
 
-    - name: Fetch CKB Config Files And Log Files
+    - name: Fetch CKB LogFile Archives
       become: true
       fetch:
         flat: true
-        src: "{{ item }}"
-        dest: "{{ inventory_hostname }}.{{ item | basename }}"
-      with_items:
-        - "{{ ckb_workspace }}/ckb.toml"
-        - "{{ ckb_data_dir }}/logs/run.log"
+        src: "{{ ckb_workspace }}/{{ inventory_hostname }}.tar.xz"
+        dest: "{{ inventory_hostname }}.tar.xz"
       tags:
         - fetch_ckb_logfiles
 
-    - name: Calculate Synchronization Time Cost
-      run_once: true
+    - name: Create Temporary Directory
+      delegate_to: localhost
+      file:
+        state: directory
+        path: "{{ playbook_dir }}/{{ inventory_hostname }}"
+      tags:
+        - process_result
+
+    - name: Unarchive CKB LogFile Archives
+      delegate_to: localhost
+      unarchive:
+        copy: false
+        src: "{{ playbook_dir }}/{{ inventory_hostname }}.tar.xz"
+        dest: "{{ playbook_dir }}/{{ inventory_hostname }}"
+        mode: 0666
+      tags:
+        - process_result
+
+    - name: Calculate Synchronization Time Cost According to Logfiles
       delegate_to: localhost
       environment:
         CKB_NETWORK_NAME: "{{ ckb_network_name | default('unknown') }}"
-      shell: "{{ playbook_dir }}/files/produce-report.sh {{ item }} >> report.yml"
-      with_fileglob:
-        # with_fileglob with "./*.run.log" returns nothing :(
-        - "{{ playbook_dir }}/*.run.log"
+      shell: "{{ playbook_dir }}/files/produce-report.sh {{ inventory_hostname }}/data/logs/run.log >> report.yml"
       tags:
         - process_result
 
@@ -78,7 +96,6 @@
         dest: result.tar.xz
         path:
           - "report.yml"
-          - "*.ckb.toml"
-          - "*.run.log"
+          - "*.tar.xz"
       tags:
         - process_result

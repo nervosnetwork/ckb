@@ -28,7 +28,7 @@ jobs:
           path: ckb.tar.xz
 
   sync:
-    name: Sync Mainnet
+    name: Sync
     runs-on: [ self-hosted, Linux, X64 ]
     needs: [ build_ckb ]
     env:
