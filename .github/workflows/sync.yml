@@ -71,6 +71,8 @@ jobs:
         working-directory: ${{ env.ANSIBLE_DIR }}
         env:
           ANSIBLE_HOST_KEY_CHECKING: False
+          ANSIBLE_SSH_RETRIES:       5
+          ANSIBLE_SSH_ARGS:          "-C -o ControlMaster=auto -o ControlPersist=24h"
           ANSIBLE_TIMEOUT:           60
           ANSIBLE_REMOTE_USER:       ubuntu
           ANSIBLE_INVENTORY:         ${{ env.ANSIBLE_INVENTORY_PATH }}
