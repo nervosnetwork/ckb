@@ -234,7 +234,7 @@ impl ProposedPool {
         None
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<Option<TxEntry>, Reject> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         let inputs = entry.transaction().input_pts_iter();
         let outputs = entry.transaction().output_pts();
 
@@ -296,29 +296,19 @@ impl ProposedPool {
         (input_conflict, deps_consumed)
     }
 
-    /// Iterate sorted transactions
-    /// transaction is sorted by ancestor score from higher to lower,
-    /// this method is used for package txs into block
-    pub(crate) fn with_sorted_by_score_iter<F, Ret>(&self, func: F) -> Ret
-    where
-        F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
-    {
-        let mut iter = self.inner.keys_sorted_by_fee().map(|key| {
-            self.inner
-                .get(&key.id)
-                .expect("proposed pool must be consistent")
-        });
-        func(&mut iter)
+    /// sorted by ancestor score from higher to lower
+    pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
+        self.inner.score_sorted_iter()
     }
 
     /// find all ancestors from pool
-    pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.get_ancestors(&tx_short_id)
+    pub fn calc_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        self.inner.calc_ancestors(&tx_short_id)
     }
 
     /// find all descendants from pool
-    pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.get_descendants(&tx_short_id)
+    pub fn calc_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        self.inner.calc_descendants(&tx_short_id)
     }
 }
 
@@ -545,10 +535,10 @@ mod tests {
         ))
         .unwrap();
 
-        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction().hash())
-                .collect::<Vec<_>>()
-        });
+        let txs_sorted_by_fee_rate = pool
+            .score_sorted_iter()
+            .map(|entry| entry.transaction().hash())
+            .collect::<Vec<_>>();
         let expect_result = vec![tx2.hash(), tx3.hash(), tx1.hash()];
         assert_eq!(txs_sorted_by_fee_rate, expect_result);
     }
@@ -596,10 +586,10 @@ mod tests {
         ))
         .unwrap();
 
-        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| entry.transaction().hash())
-                .collect::<Vec<_>>()
-        });
+        let txs_sorted_by_fee_rate = pool
+            .score_sorted_iter()
+            .map(|entry| entry.transaction().hash())
+            .collect::<Vec<_>>();
         let expect_result = vec![tx4.hash(), tx2.hash(), tx3.hash(), tx1.hash()];
         assert_eq!(txs_sorted_by_fee_rate, expect_result);
     }
@@ -637,10 +627,10 @@ mod tests {
             .unwrap();
         }
 
-        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
-            iter.map(|entry| format!("{}", entry.transaction().hash()))
-                .collect::<Vec<_>>()
-        });
+        let txs_sorted_by_fee_rate = pool
+            .score_sorted_iter()
+            .map(|entry| format!("{}", entry.transaction().hash()))
+            .collect::<Vec<_>>();
         // the entry with most ancestors score will win
         let expect_result = format!("{}", tx2_4.hash());
         assert_eq!(txs_sorted_by_fee_rate[0], expect_result);
@@ -689,7 +679,7 @@ mod tests {
         ))
         .unwrap();
 
-        let ancestors = pool.get_ancestors(&tx4.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx4.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]
             .into_iter()
             .collect();
@@ -713,7 +703,7 @@ mod tests {
         );
         assert_eq!(entry.ancestors_count, ancestors.len() + 1);
 
-        let ancestors = pool.get_ancestors(&tx3.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx3.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id()].into_iter().collect();
         assert_eq!(ancestors, expect_result);
         let entry = pool.get(&tx3.proposal_short_id()).expect("exists");
@@ -735,7 +725,7 @@ mod tests {
         );
         assert_eq!(entry.ancestors_count, ancestors.len() + 1);
 
-        let ancestors = pool.get_ancestors(&tx1.proposal_short_id());
+        let ancestors = pool.calc_ancestors(&tx1.proposal_short_id());
         assert_eq!(ancestors, Default::default());
         let entry = pool.get(&tx1.proposal_short_id()).expect("exists");
         assert_eq!(entry.ancestors_cycles, cycles);

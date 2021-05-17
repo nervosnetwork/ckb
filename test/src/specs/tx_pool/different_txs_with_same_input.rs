@@ -32,9 +32,6 @@ impl Spec for DifferentTxsWithSameInput {
 
         mine(&node0, 1);
         mine(&node0, 1);
-
-        info!("RBF (Replace-By-Fees) is not implemented, but transaction fee sorting is ready");
-        info!("tx2 should be included in the next + 2 block, and tx1 should be ignored");
         mine(&node0, 1);
 
         // tx pool statics should reset
@@ -47,11 +44,12 @@ impl Spec for DifferentTxsWithSameInput {
             .map(TransactionView::hash)
             .collect();
 
-        assert!(commit_txs_hash.contains(&tx2.hash()));
-        assert!(!commit_txs_hash.contains(&tx1.hash()));
+        // RBF (Replace-By-Fees) is not implemented
+        assert!(commit_txs_hash.contains(&tx1.hash()));
+        assert!(!commit_txs_hash.contains(&tx2.hash()));
 
-        // when tx2 was confirmed, tx1 should be discarded
-        let tx = node0.rpc_client().get_transaction(tx1.hash());
-        assert!(tx.is_none(), "tx1 should be discarded");
+        // when tx1 was confirmed, tx2 should be discarded
+        let tx = node0.rpc_client().get_transaction(tx2.hash());
+        assert!(tx.is_none(), "tx2 should be discarded");
     }
 }

@@ -401,7 +401,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
         Box::new(TxsRelayOrder),
-        Box::new(SendArrowTxs),
+        Box::new(SendTxChain),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),

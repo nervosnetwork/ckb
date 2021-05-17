@@ -5,7 +5,6 @@ use ckb_types::{
     packed::{OutPoint, ProposalShortId},
 };
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 
 /// An entry in the transaction pool.
@@ -93,27 +92,12 @@ impl TxEntry {
         );
     }
 
-    /// Update ancestors to add it as a descendant transaction.
-    pub fn add_ancestors_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_add(entry.ancestors_count);
-        self.ancestors_size = self.ancestors_size.saturating_add(entry.ancestors_size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.ancestors_cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_add(entry.ancestors_fee.as_u64()),
-        );
-    }
-    /// Update ancestors to remove it.
-    pub fn sub_ancestors_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_sub(entry.ancestors_count);
-        self.ancestors_size = self.ancestors_size.saturating_sub(entry.ancestors_size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.ancestors_cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_sub(entry.ancestors_fee.as_u64()),
-        );
+    /// Reset ancestor state by remove
+    pub fn reset_ancestors_state(&mut self) {
+        self.ancestors_count = 1;
+        self.ancestors_size = self.size;
+        self.ancestors_cycles = self.cycles;
+        self.ancestors_fee = self.fee;
     }
 
     /// Converts entry to a `TxEntryInfo`.
@@ -166,56 +150,5 @@ impl PartialOrd for TxEntry {
 impl Ord for TxEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_sorted_key().cmp(&other.as_sorted_key())
-    }
-}
-
-// A template data struct used to store modified entries when package txs
-pub struct TxModifiedEntries {
-    entries: HashMap<ProposalShortId, TxEntry>,
-    sort_index: BTreeSet<AncestorsScoreSortKey>,
-}
-
-impl Default for TxModifiedEntries {
-    fn default() -> Self {
-        TxModifiedEntries {
-            entries: HashMap::default(),
-            sort_index: BTreeSet::default(),
-        }
-    }
-}
-
-impl TxModifiedEntries {
-    pub fn with_sorted_by_score_iter<F, Ret>(&self, func: F) -> Ret
-    where
-        F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
-    {
-        let mut iter = self
-            .sort_index
-            .iter()
-            .rev()
-            .map(|key| self.entries.get(&key.id).expect("must be consistent"));
-        func(&mut iter)
-    }
-
-    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
-        self.entries.get(id)
-    }
-
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.entries.contains_key(id)
-    }
-
-    pub fn insert(&mut self, entry: TxEntry) {
-        let key = AncestorsScoreSortKey::from(&entry);
-        let short_id = entry.proposal_short_id();
-        self.entries.insert(short_id, entry);
-        self.sort_index.insert(key);
-    }
-
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
-        self.entries.remove(id).map(|entry| {
-            self.sort_index.remove(&(&entry).into());
-            entry
-        })
     }
 }
