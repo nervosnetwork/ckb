@@ -847,7 +847,7 @@ impl<T: ExitHandler> NetworkService<T> {
                     let mut iter = addr.iter();
 
                     iter.find_map(|proto| {
-                        if let multiaddr::Protocol::Ws = proto {
+                        if let p2p::multiaddr::Protocol::Ws = proto {
                             Some(TransportType::Ws)
                         } else {
                             None

@@ -607,6 +607,7 @@ impl Relayer {
                                 .entry(*target)
                                 .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
                             hashes.push(hash.clone());
+                            self.shared.state().mark_as_known_tx(hash.clone());
                         }
                     }
                 }
