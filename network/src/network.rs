@@ -30,7 +30,7 @@ use p2p::{
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
-    multiaddr::{self, Multiaddr, Protocol},
+    multiaddr::{Multiaddr, Protocol},
     secio::{self, error::SecioError, PeerId},
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,

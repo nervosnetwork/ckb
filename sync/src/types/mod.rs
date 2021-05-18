@@ -1202,7 +1202,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
     ) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
@@ -1212,7 +1212,7 @@ impl SyncShared {
         shared: Shared,
         sync_config: SyncConfig,
         tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
     ) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1504,7 +1504,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1560,7 +1560,7 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(PeerIndex, Byte32)> {
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, Byte32)> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
