@@ -1,6 +1,7 @@
 name: Benchmark
 
 on:
+  # Submit your review with a comment body containing "#benchmark"
   pull_request_review:
     types: [ submitted ]
 
