@@ -13,6 +13,7 @@
 
 pub mod cell;
 pub mod error;
+pub mod hardfork;
 pub mod service;
 pub mod tx_pool;
 

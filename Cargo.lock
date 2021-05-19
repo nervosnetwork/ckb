@@ -549,6 +549,7 @@ dependencies = [
 name = "ckb-chain-spec"
 version = "0.43.0-pre"
 dependencies = [
+ "ckb-constant",
  "ckb-crypto",
  "ckb-dao-utils",
  "ckb-error",

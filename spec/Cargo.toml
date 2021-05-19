@@ -11,6 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
+ckb-constant = { path = "../util/constant", version = "= 0.43.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.43.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.43.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.43.0-pre" }
