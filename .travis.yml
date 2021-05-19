@@ -64,17 +64,17 @@ matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying))'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying) OR branch =~ /^ckb2021/)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR repo != nervosnetwork/ckb)'
       os: linux
     - name: PR Integration
       if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
       script: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
     - name: Linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -99,7 +99,7 @@ matrix:
         - make clippy
         - mv rust-toolchain.bak rust-toolchain
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR repo != nervosnetwork/ckb)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -119,7 +119,7 @@ matrix:
       script:
         - devtools/ci/check-cyclic-dependencies.py --dev
     - name: Security Audit & Licenses
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo deny --version || travis_retry cargo install cargo-deny --locked
@@ -129,7 +129,7 @@ matrix:
         - make check-licenses
 
     - name: WASM build
-      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR repo != nervosnetwork/ckb)'
       os: linux
       script:
         - export PATH=/usr/lib/llvm-8/bin:$PATH
@@ -141,11 +141,11 @@ matrix:
       os: linux
       script: make bench-test
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: osx
       script: make CKB_TEST_ARGS="-c 1 --no-report" integration
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, staging2, trying) OR branch =~ /^ckb2021/ OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
       script: make CKB_TEST_ARGS="-c 1 --no-report" integration
     - name: Code Coverage
