@@ -2,8 +2,8 @@ use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
     error::ScriptError,
     syscalls::{
-        Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
-        LoadTx, LoadWitness,
+        CurrentCycles, Debugger, Exec, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript,
+        LoadScriptHash, LoadTx, LoadWitness, VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{ScriptGroup, ScriptGroupType},
@@ -200,6 +200,25 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         self.rtx.transaction.hash()
     }
 
+    fn build_current_cycles(&self) -> CurrentCycles {
+        CurrentCycles::new()
+    }
+
+    fn build_vm_version(&self) -> VMVersion {
+        VMVersion::new()
+    }
+
+    fn build_exec(&'a self, group_inputs: &'a [usize], group_outputs: &'a [usize]) -> Exec<'a, DL> {
+        Exec::new(
+            &self.data_loader,
+            &self.outputs,
+            self.resolved_inputs(),
+            self.resolved_cell_deps(),
+            group_inputs,
+            group_outputs,
+        )
+    }
+
     fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(&self.rtx.transaction)
     }
@@ -385,6 +404,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ) -> Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> {
         let current_script_hash = script_group.script.calc_script_hash();
         vec![
+            Box::new(self.build_vm_version()),
+            Box::new(self.build_current_cycles()),
+            Box::new(self.build_exec(&script_group.input_indices, &script_group.output_indices)),
             Box::new(self.build_load_script_hash(current_script_hash.clone())),
             Box::new(self.build_load_tx()),
             Box::new(
@@ -1797,4 +1819,113 @@ mod tests {
         assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
         assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
+
+    #[test]
+    fn check_vm_version() {
+        let vm_version_cell_data = Bytes::from(std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/vm_version")).unwrap());
+        let vm_version_cell = CellOutput::new_builder()
+        .capacity(
+            Capacity::bytes(vm_version_cell_data.len())
+                .unwrap()
+                .pack(),
+        )
+        .build();
+        let vm_version_script = Script::new_builder().hash_type(ScriptHashType::Data.into())
+            .code_hash(CellOutput::calc_data_hash(&vm_version_cell_data))
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(vm_version_script.clone())
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let vm_version_cell = CellMetaBuilder::from_cell_output(
+            vm_version_cell.clone(),
+            vm_version_cell_data.to_owned(),
+        )
+        .transaction_info(default_transaction_info())
+        .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![vm_version_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        assert!(verifier.verify(6000).is_ok());
+    }
+
+    #[test]
+    fn check_exec() {
+        let exec_caller_cell_data = Bytes::from(std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller")).unwrap());
+        let exec_caller_cell = CellOutput::new_builder()
+        .capacity(
+            Capacity::bytes(exec_caller_cell_data.len())
+                .unwrap()
+                .pack(),
+        )
+        .build();
+
+        let exec_callee_cell_data = Bytes::from(std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_callee")).unwrap());
+        let exec_callee_cell = CellOutput::new_builder()
+        .capacity(
+            Capacity::bytes(exec_callee_cell_data.len())
+                .unwrap()
+                .pack(),
+        )
+        .build();
+
+        let exec_caller_script = Script::new_builder().hash_type(ScriptHashType::Data.into())
+            .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(exec_caller_script.clone())
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let exec_caller_cell = CellMetaBuilder::from_cell_output(
+            exec_caller_cell.clone(),
+            exec_caller_cell_data.to_owned(),
+        )
+        .transaction_info(default_transaction_info())
+        .build();
+
+        let exec_callee_cell = CellMetaBuilder::from_cell_output(
+            exec_callee_cell.clone(),
+            exec_callee_cell_data.to_owned(),
+        )
+        .transaction_info(default_transaction_info())
+        .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        println!("{:?}", verifier.verify(600000));
+        assert!(verifier.verify(600000).is_ok());
+    }
+
 }

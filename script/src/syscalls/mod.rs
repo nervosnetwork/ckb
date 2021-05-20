@@ -1,4 +1,6 @@
+mod current_cycles;
 mod debugger;
+mod exec;
 mod load_cell;
 mod load_cell_data;
 mod load_header;
@@ -8,8 +10,11 @@ mod load_script_hash;
 mod load_tx;
 mod load_witness;
 mod utils;
+mod vm_version;
 
+pub use self::current_cycles::CurrentCycles;
 pub use self::debugger::Debugger;
+pub use self::exec::Exec;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
@@ -18,6 +23,7 @@ pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
+pub use self::vm_version::VMVersion;
 
 use ckb_vm::Error;
 
@@ -29,7 +35,11 @@ pub const SUCCESS: u8 = 0;
 pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
+pub const WRONG_FORMAT: u8 = 4;
 
+pub const VM_VERSION: u64 = 2041;
+pub const CURRENT_CYCLES: u64 = 2042;
+pub const EXEC: u64 = 2043;
 pub const LOAD_TRANSACTION_SYSCALL_NUMBER: u64 = 2051;
 pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2052;
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
@@ -191,9 +201,9 @@ mod tests {
         prelude::*,
         H256,
     };
-    use ckb_vm::machine::DefaultCoreMachine;
+    use ckb_vm::{SupportMachine, machine::DefaultCoreMachine};
     use ckb_vm::{
-        machine::VERSION0,
+        machine::{VERSION0, VERSION1},
         memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
         CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, ISA_IMC,
@@ -1460,4 +1470,73 @@ mod tests {
             assert_eq!(machine.memory_mut().load8(&i), Ok(1));
         }
     }
+
+    #[test]
+    fn test_vm_version0() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, VM_VERSION);
+
+        let result = VMVersion::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 0);
+    }
+
+    #[test]
+    fn test_vm_version1() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION1,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, VM_VERSION);
+
+        let result = VMVersion::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 1);
+    }
+
+    #[test]
+    fn test_current_cycles() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION1,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, CURRENT_CYCLES);
+
+        machine.set_cycles(100);
+
+        let result = CurrentCycles::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 100);
+    }
+
 }

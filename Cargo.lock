@@ -1491,14 +1491,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-<<<<<<< HEAD
-version = "0.19.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f4b7a3a2f19771d379884030417094c55986ccbc0d5caaaa651f7421ead4bb4"
-=======
 version = "0.19.1"
-source = "git+https://github.com/mohanson/ckb-vm?branch=instruction_design#fbd9af94342da2fe42839f965dbab1851aa87fb4"
->>>>>>> Bump ckb-vm
+source = "git+https://github.com/mohanson/ckb-vm?branch=develop#09e1e21995acaea3f75d26e144e652b4c4ba67ea"
 dependencies = [
  "byteorder",
  "bytes 1.0.1",
@@ -1506,7 +1500,7 @@ dependencies = [
  "ckb-vm-definitions",
  "derive_more",
  "goblin 0.2.3",
- "goblin 0.3.4",
+ "goblin 0.4.0",
  "libc",
  "mapr",
  "rand 0.7.3",
@@ -1516,14 +1510,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-<<<<<<< HEAD
-version = "0.19.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5dd4b68248ffd8283d693a477f9594d195ceac25f6aa7f98e99d1b8f43f9b3e"
-=======
 version = "0.19.1"
-source = "git+https://github.com/mohanson/ckb-vm?branch=instruction_design#fbd9af94342da2fe42839f965dbab1851aa87fb4"
->>>>>>> Bump ckb-vm
+source = "git+https://github.com/mohanson/ckb-vm?branch=develop#09e1e21995acaea3f75d26e144e652b4c4ba67ea"
 
 [[package]]
 name = "clap"
@@ -2324,9 +2312,9 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.3.4"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "669cdc3826f69a51d3f8fc3f86de81c2378110254f678b8407977736122057a4"
+checksum = "532a09cd3df2c6bbfc795fb0434bff8f22255d1d07328180e918a2e6ce122d4d"
 dependencies = [
  "log",
  "plain",
