@@ -414,7 +414,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) signal_receiver: oneshot::Receiver<()>,
     pub(crate) handle: Handle,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
 }
 
 impl TxPoolServiceBuilder {
@@ -426,7 +426,7 @@ impl TxPoolServiceBuilder {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
-        tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
+        tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, signal_receiver) = oneshot::channel();
@@ -528,7 +528,7 @@ pub(crate) struct TxPoolService {
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) network: NetworkController,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(PeerIndex, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
 }
 
 impl TxPoolService {

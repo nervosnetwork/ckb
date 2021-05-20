@@ -591,11 +591,24 @@ impl Relayer {
             let mut known_txs = self.shared.state().known_txs();
             for (origin_peer, hash) in &tx_hashes {
                 for target in &connected_peers {
-                    if known_txs.insert(*target, hash.clone()) && (origin_peer != target) {
-                        let hashes = selected
-                            .entry(*target)
-                            .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                        hashes.push(hash.clone());
+                    match origin_peer {
+                        Some(origin) => {
+                            // broadcast tx hash to all connected peers except origin peer
+                            if known_txs.insert(*target, hash.clone()) && (origin != target) {
+                                let hashes = selected
+                                    .entry(*target)
+                                    .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                                hashes.push(hash.clone());
+                            }
+                        }
+                        None => {
+                            // since this tx is submitted through local rpc, it is assumed to be a new tx for all connected peers
+                            let hashes = selected
+                                .entry(*target)
+                                .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                            hashes.push(hash.clone());
+                            self.shared.state().mark_as_known_tx(hash.clone());
+                        }
                     }
                 }
             }

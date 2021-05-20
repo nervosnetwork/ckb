@@ -30,7 +30,7 @@ use p2p::{
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
-    multiaddr::{self, Multiaddr, Protocol},
+    multiaddr::{Multiaddr, Protocol},
     secio::{self, error::SecioError, PeerId},
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,
@@ -847,7 +847,7 @@ impl<T: ExitHandler> NetworkService<T> {
                     let mut iter = addr.iter();
 
                     iter.find_map(|proto| {
-                        if let multiaddr::Protocol::Ws = proto {
+                        if let p2p::multiaddr::Protocol::Ws = proto {
                             Some(TransportType::Ws)
                         } else {
                             None

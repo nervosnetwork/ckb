@@ -6,7 +6,6 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use ckb_util::LinkedHashMap;
 
 pub struct TransactionHashesProcess<'a> {
     message: packed::RelayTransactionHashesReader<'a>,
@@ -40,36 +39,13 @@ impl<'a> TransactionHashesProcess<'a> {
             }
         }
 
-        let hashes: Vec<Byte32> = {
+        let transit_hashes: Vec<Byte32> = {
             let tx_filter = state.tx_filter();
             self.message
                 .tx_hashes()
                 .iter()
                 .map(|x| x.to_entity())
                 .filter(|tx_hash| !tx_filter.contains(&tx_hash))
-                .collect()
-        };
-
-        let transit_hashes: Vec<Byte32> = {
-            let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-            let mut proposals: LinkedHashMap<packed::ProposalShortId, Byte32> = hashes
-                .into_iter()
-                .map(|tx_hash| (packed::ProposalShortId::from_tx_hash(&tx_hash), tx_hash))
-                .collect();
-            let fresh_ids = {
-                match tx_pool.fresh_proposals_filter(proposals.keys().cloned().collect()) {
-                    Err(err) => {
-                        return StatusCode::TxPool.with_context(format!(
-                            "[TransactionHashesProcess] request fresh_proposals_filter error {:?}",
-                            err,
-                        ));
-                    }
-                    Ok(fresh_ids) => fresh_ids,
-                }
-            };
-            fresh_ids
-                .into_iter()
-                .filter_map(|id| proposals.remove(&id))
                 .collect()
         };
 
