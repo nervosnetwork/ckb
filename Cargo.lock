@@ -1339,6 +1339,7 @@ dependencies = [
  "faux",
  "futures 0.3.12",
  "governor",
+ "keyed_priority_queue",
  "lru",
  "rand 0.7.3",
  "tempfile",
@@ -2838,9 +2839,13 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.0.2"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
+checksum = "824845a0bf897a9042383849b02c1bc219c2383772efcd5c6f9766fa4b81aef3"
+dependencies = [
+ "autocfg 1.0.0",
+ "hashbrown 0.9.1",
+]
 
 [[package]]
 name = "indicatif"
@@ -3090,6 +3095,15 @@ checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "keyed_priority_queue"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7a59df08c683d655315a5a674004a3da802743579069278fa07c37cf8a3e8d4"
+dependencies = [
+ "indexmap",
 ]
 
 [[package]]

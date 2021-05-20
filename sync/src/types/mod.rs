@@ -29,6 +29,7 @@ use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLock
 use ckb_verification_traits::Switch;
 use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
+use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
@@ -44,8 +45,7 @@ use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
-const MAX_ASK_MAP_SIZE: usize = 50000;
-const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
+const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -217,9 +217,8 @@ pub struct PeerState {
     pub peer_flags: PeerFlags,
     sync_connected: bool,
     pub chain_sync: ChainSyncState,
-    // The key is a `timeout`, means do not ask the tx before `timeout`.
-    tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
-    tx_ask_for_set: HashSet<Byte32>,
+    // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
+    unknown_tx_hashes: KeyedPriorityQueue<Byte32, cmp::Reverse<Instant>>,
 
     // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
@@ -238,8 +237,7 @@ impl PeerState {
             peer_flags,
             sync_connected: false,
             chain_sync: ChainSyncState::default(),
-            tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::new(),
+            unknown_tx_hashes: KeyedPriorityQueue::default(),
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
@@ -280,62 +278,33 @@ impl PeerState {
         tx_hash: Byte32,
         last_ask_timeout: Option<Instant>,
     ) -> Option<Instant> {
-        if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
+        if self.unknown_tx_hashes.len() > MAX_UNKNOWN_TX_HASHES_SIZE {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_map is full, ignore {}",
+                "this peer unknown_tx_hashes is full, ignore {}",
                 tx_hash
             );
             return None;
         }
-        if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_set is full, ignore {}",
-                tx_hash
-            );
-            return None;
-        }
-        // This peer already register asked for this tx
-        if self.tx_ask_for_set.contains(&tx_hash) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer already register ask tx({})",
-                tx_hash
-            );
-            return None;
-        }
-
         // Retry ask tx `RETRY_ASK_TX_TIMEOUT_INCREASE` later
         //  NOTE: last_ask_timeout is some when other peer already asked for this tx_hash
         let next_ask_timeout = last_ask_timeout
             .map(|time| cmp::max(time + RETRY_ASK_TX_TIMEOUT_INCREASE, Instant::now()))
             .unwrap_or_else(Instant::now);
-        self.tx_ask_for_map
-            .entry(next_ask_timeout)
-            .or_default()
-            .push(tx_hash.clone());
-        self.tx_ask_for_set.insert(tx_hash);
+        self.unknown_tx_hashes
+            .push(tx_hash, cmp::Reverse(next_ask_timeout));
         Some(next_ask_timeout)
-    }
-
-    pub fn remove_ask_for_tx(&mut self, tx_hash: &Byte32) {
-        self.tx_ask_for_set.remove(tx_hash);
     }
 
     pub fn pop_ask_for_txs(&mut self) -> Vec<Byte32> {
         let mut all_txs = Vec::new();
-        let mut timeouts = Vec::new();
         let now = Instant::now();
-        for (timeout, txs) in &self.tx_ask_for_map {
-            if *timeout >= now {
+        while let Some((tx_hash, timeout)) = self.unknown_tx_hashes.pop() {
+            if timeout.0 >= now {
+                self.unknown_tx_hashes.push(tx_hash, timeout);
                 break;
             }
-            timeouts.push(*timeout);
-            all_txs.extend(txs.clone());
-        }
-        for timeout in timeouts {
-            self.tx_ask_for_map.remove(&timeout);
+            all_txs.push(tx_hash);
         }
         all_txs
     }
@@ -2048,7 +2017,8 @@ impl From<IBDState> for bool {
 
 #[cfg(test)]
 mod tests {
-    use super::HeaderView;
+    use super::{HeaderView, PeerFlags, PeerState};
+    use ckb_constant::sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
     use ckb_types::{
         core::{BlockNumber, HeaderBuilder},
         packed::Byte32,
@@ -2056,7 +2026,11 @@ mod tests {
         U256,
     };
     use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, HashMap};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        thread::sleep,
+        time::{Duration, Instant},
+    };
 
     const SKIPLIST_LENGTH: u64 = 10_000;
 
@@ -2135,5 +2109,30 @@ mod tests {
             let found_0_header = a_to_b(from, 0, 120);
             assert_eq!(found_0_header.hash(), view_0.hash());
         }
+    }
+
+    #[test]
+    fn test_pop_ask_for_txs() {
+        let mut peer_state = PeerState::new(PeerFlags {
+            is_outbound: true,
+            is_protect: false,
+            is_whitelist: false,
+        });
+
+        let tx_hash_1 = Byte32::from_slice(&[0; 32]).unwrap();
+        peer_state.add_ask_for_tx(tx_hash_1.clone(), None);
+
+        let tx_hash_2 = Byte32::from_slice(&[1; 32]).unwrap();
+        let timeout = Instant::now() - RETRY_ASK_TX_TIMEOUT_INCREASE + Duration::from_secs(2);
+        peer_state.add_ask_for_tx(tx_hash_2.clone(), Some(timeout));
+
+        let mut tx_hashes = peer_state.pop_ask_for_txs();
+        assert_eq!(tx_hashes.pop().unwrap(), tx_hash_1);
+        assert!(tx_hashes.pop().is_none());
+
+        sleep(Duration::from_secs(3));
+        let mut tx_hashes = peer_state.pop_ask_for_txs();
+        assert_eq!(tx_hashes.pop().unwrap(), tx_hash_2);
+        assert!(tx_hashes.pop().is_none());
     }
 }

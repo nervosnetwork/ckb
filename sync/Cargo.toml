@@ -35,6 +35,7 @@ tempfile = "3.0"
 faketime = "0.2.0"
 bitflags = "1.0"
 dashmap = "4.0"
+keyed_priority_queue = "0.3"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.43.0-pre" }

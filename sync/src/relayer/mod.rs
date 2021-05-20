@@ -549,14 +549,7 @@ impl Relayer {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
                 .into_iter()
-                .filter(|tx_hash| {
-                    let already_known = state.already_known_tx(&tx_hash);
-                    if already_known {
-                        // Remove tx_hash from `tx_ask_for_set`
-                        peer_state.remove_ask_for_tx(&tx_hash);
-                    }
-                    !already_known
-                })
+                .filter(|tx_hash| !state.already_known_tx(&tx_hash))
                 .take(MAX_RELAY_TXS_NUM_PER_BATCH)
                 .collect::<Vec<_>>();
 
