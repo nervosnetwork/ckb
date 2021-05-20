@@ -8,6 +8,7 @@ mod error;
 mod genesis_verifier;
 mod header_verifier;
 mod transaction_verifier;
+mod tx_verify_env;
 
 #[cfg(test)]
 mod tests;
@@ -24,6 +25,7 @@ pub use crate::transaction_verifier::{
     ContextualTransactionVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since,
     SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
 };
+pub use crate::tx_verify_env::TxVerifyEnv;
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the
 /// current time before the block will be accepted.

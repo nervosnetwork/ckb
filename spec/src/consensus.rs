@@ -392,6 +392,12 @@ impl ConsensusBuilder {
         self
     }
 
+    /// Sets median_time_block_count for the new Consensus.
+    pub fn median_time_block_count(mut self, median_time_block_count: usize) -> Self {
+        self.inner.median_time_block_count = median_time_block_count;
+        self
+    }
+
     /// Sets tx_proposal_window for the new Consensus.
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.inner.tx_proposal_window = proposal_window;
@@ -924,6 +930,12 @@ impl Consensus {
     pub fn hardfork_switch(&self) -> &HardForkSwitch {
         &self.hardfork_switch
     }
+}
+
+/// Trait for consensus provider.
+pub trait ConsensusProvider {
+    /// Returns the `Consensus`.
+    fn get_consensus(&self) -> &Consensus;
 }
 
 /// Corresponding epoch information of next block

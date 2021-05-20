@@ -18,7 +18,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use ckb_verification::cache::CacheEntry;
+use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::collections::HashSet;
@@ -352,7 +352,9 @@ impl TxPool {
         self.check_rtx_from_pending_and_proposed(&rtx)?;
         let snapshot = self.snapshot();
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+        let tip_header = snapshot.tip_header();
+        let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
@@ -372,7 +374,9 @@ impl TxPool {
         self.check_rtx_from_proposed(&rtx)?;
         let snapshot = self.snapshot();
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+        let tip_header = snapshot.tip_header();
+        let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();

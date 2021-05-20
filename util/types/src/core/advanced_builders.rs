@@ -470,6 +470,11 @@ impl packed::Header {
 }
 
 impl packed::Block {
+    /// Creates an empty advanced builder.
+    pub fn new_advanced_builder() -> BlockBuilder {
+        Default::default()
+    }
+
     /// Creates an advanced builder base on current data.
     pub fn as_advanced_builder(&self) -> BlockBuilder {
         BlockBuilder::default()
@@ -491,6 +496,11 @@ impl packed::Block {
 }
 
 impl core::TransactionView {
+    /// Creates an empty advanced builder.
+    pub fn new_advanced_builder() -> TransactionBuilder {
+        Default::default()
+    }
+
     /// Creates an advanced builder base on current data.
     pub fn as_advanced_builder(&self) -> TransactionBuilder {
         self.data().as_advanced_builder()
@@ -498,6 +508,11 @@ impl core::TransactionView {
 }
 
 impl core::HeaderView {
+    /// Creates an empty advanced builder.
+    pub fn new_advanced_builder() -> HeaderBuilder {
+        Default::default()
+    }
+
     /// Creates an advanced builder base on current data.
     pub fn as_advanced_builder(&self) -> HeaderBuilder {
         self.data().as_advanced_builder()

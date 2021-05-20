@@ -24,14 +24,14 @@ use ckb_types::{
             get_related_dep_out_points, OverlayCellChecker, ResolvedTransaction,
             TransactionsChecker,
         },
-        BlockView, Capacity, Cycle, EpochExt, ScriptHashType, TransactionView, UncleBlockView,
-        Version,
+        BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
+        UncleBlockView, Version,
     },
     packed::{Byte32, CellbaseWitness, OutPoint, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::cache::CacheEntry;
+use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -49,10 +49,21 @@ pub enum PlugTarget {
     Proposed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxStatus {
     Fresh,
     Gap,
     Proposed,
+}
+
+impl TxStatus {
+    fn with_env(self, header: &HeaderView) -> TxVerifyEnv {
+        match self {
+            TxStatus::Fresh => TxVerifyEnv::new_submit(header),
+            TxStatus::Gap => TxVerifyEnv::new_proposed(header, 0),
+            TxStatus::Proposed => TxVerifyEnv::new_proposed(header, 1),
+        }
+    }
 }
 
 impl TxPoolService {
@@ -560,7 +571,9 @@ impl TxPoolService {
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = max_cycles.unwrap_or(self.tx_pool_config.max_tx_verify_cycles);
-        let verified = verify_rtx(&snapshot, &rtx, verify_cache, max_cycles)?;
+        let tip_header = snapshot.tip_header();
+        let tx_env = status.with_env(tip_header);
+        let verified = verify_rtx(&snapshot, &rtx, &tx_env, verify_cache, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -631,8 +644,11 @@ impl TxPoolService {
             if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
                 if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
+                    let snapshot = tx_pool.snapshot();
+                    let tip_header = snapshot.tip_header();
+                    let tx_env = status.with_env(tip_header);
                     if let Ok(verified) =
-                        verify_rtx(tx_pool.snapshot(), &rtx, verify_cache, max_cycles)
+                        verify_rtx(snapshot, &rtx, &tx_env, verify_cache, max_cycles)
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {

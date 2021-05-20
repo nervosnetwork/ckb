@@ -3,8 +3,8 @@ use super::super::transaction_verifier::{
     Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
 use crate::error::TransactionErrorSource;
-use crate::TransactionError;
-use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_DAO};
+use crate::{TransactionError, TxVerifyEnv};
+use ckb_chain_spec::{build_genesis_type_id_script, consensus::ConsensusBuilder, OUTPUT_INDEX_DAO};
 use ckb_error::{assert_error_eq, Error};
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_traits::HeaderProvider;
@@ -14,8 +14,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, TransactionBuilder,
-        TransactionInfo, TransactionView,
+        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView,
+        TransactionBuilder, TransactionInfo, TransactionView,
     },
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint},
@@ -392,15 +392,19 @@ fn verify_since<'a, DL: HeaderProvider>(
     epoch_number: EpochNumber,
 ) -> Result<(), Error> {
     let parent_hash = Arc::new(MockMedianTime::get_block_hash(block_number - 1));
-    SinceVerifier::new(
-        rtx,
-        data_loader,
-        block_number,
-        EpochNumberWithFraction::new(epoch_number, 0, 10),
-        11,
-        parent_hash.as_ref().to_owned(),
-    )
-    .verify()
+    let consensus = ConsensusBuilder::default()
+        .median_time_block_count(11)
+        .build();
+    let tx_env = {
+        let epoch = EpochNumberWithFraction::new(epoch_number, 0, 10);
+        let header = HeaderView::new_advanced_builder()
+            .number(block_number.pack())
+            .epoch(epoch.pack())
+            .parent_hash(parent_hash.as_ref().to_owned())
+            .build();
+        TxVerifyEnv::new_commit(&header)
+    };
+    SinceVerifier::new(rtx, &consensus, data_loader, &tx_env).verify()
 }
 
 #[test]
@@ -495,30 +499,35 @@ fn test_fraction_epoch_since_verify() {
         &tx,
         MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
+    let consensus = ConsensusBuilder::default()
+        .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
+        .build();
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     let block_number = 1000;
     let parent_hash = Arc::new(MockMedianTime::get_block_hash(block_number - 1));
 
-    let result = SinceVerifier::new(
-        &rtx,
-        &median_time_context,
-        block_number,
-        EpochNumberWithFraction::new(16, 1, 10),
-        MOCK_MEDIAN_TIME_COUNT,
-        parent_hash.as_ref().to_owned(),
-    )
-    .verify();
+    let tx_env = {
+        let epoch = EpochNumberWithFraction::new(16, 1, 10);
+        let header = HeaderView::new_advanced_builder()
+            .number(block_number.pack())
+            .epoch(epoch.pack())
+            .parent_hash(parent_hash.as_ref().to_owned())
+            .build();
+        TxVerifyEnv::new_commit(&header)
+    };
+    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
     assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
 
-    let result = SinceVerifier::new(
-        &rtx,
-        &median_time_context,
-        block_number,
-        EpochNumberWithFraction::new(16, 5, 10),
-        MOCK_MEDIAN_TIME_COUNT,
-        parent_hash.as_ref().to_owned(),
-    )
-    .verify();
+    let tx_env = {
+        let epoch = EpochNumberWithFraction::new(16, 5, 10);
+        let header = HeaderView::new_advanced_builder()
+            .number(block_number.pack())
+            .epoch(epoch.pack())
+            .parent_hash(parent_hash.as_ref().to_owned())
+            .build();
+        TxVerifyEnv::new_commit(&header)
+    };
+    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
     assert!(result.is_ok());
 }
 
