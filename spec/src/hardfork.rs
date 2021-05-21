@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 
 /// Hard forks parameters for spec.
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HardForkConfig {
-    /// Just a dummy field to test hard fork feature.
-    pub rfc_0000: Option<EpochNumber>,
+    // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0223: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -54,7 +56,7 @@ impl HardForkConfig {
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
     ) -> Result<HardForkSwitchBuilder, String> {
-        let builder = builder.rfc_0000(check_default!(self, rfc_0000, ckb2021));
+        let builder = builder.rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021));
         Ok(builder)
     }
 
@@ -63,7 +65,7 @@ impl HardForkConfig {
     /// Enable features which are set to `None` at the user provided epoch.
     pub fn complete_with_default(&self, default: EpochNumber) -> Result<HardForkSwitch, String> {
         HardForkSwitch::new_builder()
-            .rfc_0000(self.rfc_0000.unwrap_or(default))
+            .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .build()
     }
 }

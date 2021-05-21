@@ -462,4 +462,12 @@ impl EpochNumberWithFraction {
     pub fn to_rational(self) -> RationalU256 {
         RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
     }
+
+    /// Check the data format.
+    ///
+    /// The epoch length should be greater than zero.
+    /// The epoch index should be less than the epoch length.
+    pub fn is_well_formed(self) -> bool {
+        self.length() > 0 && self.length() > self.index()
+    }
 }

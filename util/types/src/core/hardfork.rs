@@ -94,8 +94,7 @@ macro_rules! define_methods {
 /// [`HardForkSwitchBuilder`]:  struct.HardForkSwitchBuilder.html
 #[derive(Debug, Clone)]
 pub struct HardForkSwitch {
-    // TODO hardfork Remove this feature after add real hardfork features.
-    rfc_0000: EpochNumber,
+    rfc_pr_0223: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -103,7 +102,12 @@ pub struct HardForkSwitch {
 /// [`HardForkSwitch`]:  struct.HardForkSwitch.html
 #[derive(Debug, Clone, Default)]
 pub struct HardForkSwitchBuilder {
-    rfc_0000: Option<EpochNumber>,
+    // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
+    /// In the "since epoch", the index should be less than length and
+    /// the length should be greater than zero.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0223: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -114,22 +118,22 @@ impl HardForkSwitch {
 
     /// Creates a new builder based on the current instance.
     pub fn as_builder(&self) -> HardForkSwitchBuilder {
-        Self::new_builder().rfc_0000(self.rfc_0000())
+        Self::new_builder().rfc_pr_0223(self.rfc_pr_0223())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
     pub fn new_without_any_enabled() -> Self {
         // Use a builder to ensure all features are set manually.
-        Self::new_builder().disable_rfc_0000().build().unwrap()
+        Self::new_builder().disable_rfc_pr_0223().build().unwrap()
     }
 }
 
 define_methods!(
-    rfc_0000,
-    dummy_feature,
-    is_dummy_feature_enabled,
-    disable_rfc_0000,
-    "RFC 0000"
+    rfc_pr_0223,
+    check_length_in_epoch_since,
+    is_check_length_in_epoch_since_enabled,
+    disable_rfc_pr_0223,
+    "RFC PR 0223"
 );
 
 impl HardForkSwitchBuilder {
@@ -147,7 +151,7 @@ impl HardForkSwitchBuilder {
                 })?;
             };
         }
-        let rfc_0000 = try_find!(rfc_0000);
-        Ok(HardForkSwitch { rfc_0000 })
+        let rfc_pr_0223 = try_find!(rfc_pr_0223);
+        Ok(HardForkSwitch { rfc_pr_0223 })
     }
 }

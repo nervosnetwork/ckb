@@ -599,6 +599,14 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    let proposal_window = self.consensus.tx_proposal_window();
+                    let epoch_number = self.tx_env.epoch_number(proposal_window);
+                    let hardfork_switch = self.consensus.hardfork_switch();
+                    if hardfork_switch.is_check_length_in_epoch_since_enabled(epoch_number)
+                        && !epoch_number_with_fraction.is_well_formed()
+                    {
+                        return Err((TransactionError::InvalidSince { index }).into());
+                    }
                     if self.tx_env.epoch() < epoch_number_with_fraction {
                         return Err((TransactionError::Immature { index }).into());
                     }
@@ -638,6 +646,14 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    let proposal_window = self.consensus.tx_proposal_window();
+                    let epoch_number = self.tx_env.epoch_number(proposal_window);
+                    let hardfork_switch = self.consensus.hardfork_switch();
+                    if hardfork_switch.is_check_length_in_epoch_since_enabled(epoch_number)
+                        && !epoch_number_with_fraction.is_well_formed()
+                    {
+                        return Err((TransactionError::InvalidSince { index }).into());
+                    }
                     let a = self.tx_env.epoch().to_rational();
                     let b =
                         info.block_epoch.to_rational() + epoch_number_with_fraction.to_rational();

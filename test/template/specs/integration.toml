@@ -68,5 +68,8 @@ primary_epoch_reward_halving_interval = 8760
 epoch_duration_target = 14400
 genesis_epoch_length = 1000
 
+[params.hardfork]
+rfc_pr_0223 = 9_223_372_036_854_775_807
+
 [pow]
 func = "Dummy"

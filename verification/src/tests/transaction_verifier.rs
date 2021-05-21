@@ -14,6 +14,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
+        hardfork::HardForkSwitch,
         BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView,
         TransactionBuilder, TransactionInfo, TransactionView,
     },
@@ -529,6 +530,68 @@ fn test_fraction_epoch_since_verify() {
     };
     let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_fraction_epoch_since_verify_v2021() {
+    let fork_at = 16;
+    let transaction_info =
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1);
+    let tx1 = create_tx_with_lock(0x2000_0a00_0f00_000f);
+    let rtx1 = create_resolve_tx_with_transaction_info(&tx1, transaction_info.clone());
+    let tx2 = create_tx_with_lock(0x2000_0a00_0500_0010);
+    let rtx2 = create_resolve_tx_with_transaction_info(&tx2, transaction_info);
+    let median_time_context = MockMedianTime::new(vec![0; 11]);
+    let tx_env = {
+        let block_number = 1000;
+        let epoch = EpochNumberWithFraction::new(fork_at, 5, 10);
+        let parent_hash = Arc::new(MockMedianTime::get_block_hash(block_number - 1));
+        let header = HeaderView::new_advanced_builder()
+            .number(block_number.pack())
+            .epoch(epoch.pack())
+            .parent_hash(parent_hash.as_ref().to_owned())
+            .build();
+        TxVerifyEnv::new_commit(&header)
+    };
+
+    {
+        // Test CKB v2019
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0223(fork_at + 1)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let result = SinceVerifier::new(&rtx1, &consensus, &median_time_context, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = SinceVerifier::new(&rtx2, &consensus, &median_time_context, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+    }
+    {
+        // Test CKB v2021
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0223(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
+            .hardfork_switch(hardfork_switch)
+            .build();
+
+        let result = SinceVerifier::new(&rtx1, &consensus, &median_time_context, &tx_env).verify();
+        assert_error_eq!(
+            result.unwrap_err(),
+            TransactionError::InvalidSince { index: 0 }
+        );
+
+        let result = SinceVerifier::new(&rtx2, &consensus, &median_time_context, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+    }
 }
 
 #[test]
