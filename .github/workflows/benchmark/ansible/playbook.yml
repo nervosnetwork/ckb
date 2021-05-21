@@ -1,0 +1,114 @@
+---
+- hosts: "{{ hostname }}"
+  gather_facts: yes
+  tasks:
+    - include_vars: vars/all.yml
+      tags: [ always ]
+    - name: Operate CKB Via Ansible-CKB
+      include_role:
+        name: ansible-ckb
+        public: false
+      tags:
+        - ckb_install
+        - ckb_configure
+        - ckb_restart
+        - ckb_start
+        - ckb_stop
+        - ckb_status
+        - ckb_miner_restart
+        - ckb_miner_start
+        - ckb_miner_stop
+
+    - name: Install And Configure CKB Benchmark Via Ansible-CKB-Benchmark
+      include_role:
+        name: ansible-ckb-benchmark
+        public: false
+      tags:
+        - ckb_benchmark_install
+        - ckb_benchmark_configure
+
+    - name: Set Facts - `ckb_urls`
+      block:
+        - name: Set Facts - Declare `ckb_urls`
+          set_fact:
+            ckb_urls: []
+        - name: Set Facts - Extend `ckb_urls`
+          vars:
+            ckb_port: "{{ hostvars[item].ckb_rpc_listen_address | default(ckb_rpc_listen_address) | regex_replace(\".*:\", \"\")}}"
+            ckb_host: "{{ hostvars[item].ansible_host }}"
+            ckb_url: "http://{{ ckb_host }}:{{ ckb_port }}"
+          set_fact:
+            ckb_urls: "{{ ckb_urls + [ ckb_url ] }}"
+          with_items: "{{ groups.instances }}"
+      tags:
+        - ckb_benchmark_start
+
+    # NOTE: It seems bug that when uses `include_role` inside block statement,
+    #       tags cannot pass through properly. So please do not put
+    #       `include_role` inside block statement.
+    - name: Start CKB Benchmark
+      vars:
+        ckb_benchmark_rpc_urls: "{{ ckb_urls }}"
+      include_role:
+        name: ansible-ckb-benchmark
+        public: false
+      tags:
+        - ckb_benchmark_start
+
+    - name: Fetch CKB Config Files And Log Files
+      become: true
+      fetch:
+        flat: true
+        src: "{{ item }}"
+        dest: "{{ inventory_hostname }}.{{ item | basename }}"
+      with_items:
+        - "{{ ckb_workspace }}/ckb.toml"
+        - "{{ ckb_data_dir }}/logs/run.log"
+      tags:
+        - fetch_ckb_logfiles
+
+    - name: Fetch CKB Benchmark Logfiles
+      become: true
+      fetch:
+        flat: true
+        src: "{{ item }}"
+        dest: "{{ item | basename }}"
+      with_items:
+        - "{{ ckb_benchmark_data_dir }}/bench.log"
+        - "{{ ckb_benchmark_data_dir }}/metrics.json"
+      tags:
+        - fetch_ckb_benchmark_logfiles
+
+    - name: Process TPS-Bench Result `metrics.yml`
+      run_once: true
+      delegate_to: localhost
+      environment:
+        INSTANCE_TYPE: "{{ hostvars['instance-0'].instance_type }}"
+        INSTANCE_BASTION_TYPE: "{{ hostvars['bastion-0'].instance_type }}"
+      shell: ./files/process-metrics.py metrics.json > metrics.yml
+      tags:
+        - process_result
+
+    - name: Produce TPS-Bench Report `report.yml`
+      run_once: true
+      delegate_to: localhost
+      shell: |
+        ln=$(grep '^-' metrics.yml -n |  cut -f1 -d: | tail -n 1)
+        tail -n +$ln metrics.yml > report.yml
+      tags:
+        - process_result
+
+    - name: Create Archive Of Result Files
+      run_once: true
+      delegate_to: localhost
+      archive:
+        format: xz
+        dest: result.tar.xz
+        path:
+          - "bench.log"
+          - "metrics.yml"
+          - "report.yml"
+          - "*.ckb.toml"
+          - "*.run.log"
+      tags:
+        - process_result
