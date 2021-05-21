@@ -24,6 +24,7 @@ jobs:
         docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
         #  docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
         # Will reeturn the input device is not a TTY if docker run with -it. Follow this comments to solve it https://github.com/actions/runner/issues/241#issuecomment-556626706
+        sudo chmod 777 -R ${{ github.workspace }} $whoami  #Since the tartget build by docker usre, so chamod the target folder to remove the workspace succeed on next workflow 
         openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv ${encrypted_82dff4145bbf_iv} -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         gpg --import devtools/ci/travis-secret.asc
         devtools/ci/package.sh target/release/ckb
@@ -31,9 +32,10 @@ jobs:
       env:
         REL_PKG: x86_64-unknown-linux-gnu.tar.gz
         BUILDER_IMAGE: nervos/ckb-docker-builder:xenial-rust-1.46.0
+
   package-for-Centos:
     name: package-for-Centos
-    runs-on: [self-hosted, Linux, X64,Linux-runner-centos]
+    runs-on: [self-hosted, macOS, X64,centos-runner]
     steps:
     - uses: actions/checkout@v2
     - run: |
@@ -46,6 +48,7 @@ jobs:
       env:
         REL_PKG: x86_64-unknown-linux-gnu.tar.gz
         BUILDER_IMAGE: nervos/ckb-docker-builder:xenial-rust-1.46.0
+
   package-for-mac:
     name: package-for-mac
     runs-on: [self-hosted, macOS, X64,mac-runner]
@@ -60,6 +63,7 @@ jobs:
         devtools/ci/package.sh target/release/ckb
       env:
         REL_PKG: x86_64-apple-darwin.zip
+
   package-for-windows:
     name: package-for-windows
     runs-on: [self-hosted, Windows, X64,win-runner]
@@ -72,7 +76,7 @@ jobs:
       run: curl -LO https://github.com/nervosnetwork/ckb-cli/releases/download/$($env:CKB_CLI_VERSION)/ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip
     - name: Prepare archive
       run: |
-        $env:GIT_TAG_NAME=($env:ref -split '/')[3]
+        $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
         mkdir releases
         mkdir releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
         cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
@@ -82,25 +86,23 @@ jobs:
         mv ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc/ckb-cli.exe releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc/
     - name: Archive Files
       run: |
-        $env:GIT_TAG_NAME=($env:ref -split '/')[3]
+        $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
         Compress-Archive -Path releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc -DestinationPath releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)
     - name: Install GPG4Win
       run: |
         scoop bucket add extras
         scoop install gpg4win
-    - name: Setup GPG
-      run: |
-        set PATH=%PATH%;%ProgramFiles(x86)%/GnuPG/bin
-        gpg --import devtools/ci/travis-secret.asc
-        echo "##vso[task.setvariable variable=PATH;]%PATH%;%ProgramFiles(x86)%/GnuPG/bin"
+        scoop install openssl
     - name: Sign Archive
       run: |
-        $env:GIT_TAG_NAME=($env:ref -split '/')[3]
+        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        gpg --import devtools/ci/travis-secret.asc
+        $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
         gpg -u "Nervos Azure Builder <bot@nervos.org>" -ab "$($env:Archive_Files_Dir)/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
     env:
-      ref: ${{ github.ref }}
       Archive_Files_Dir: ${{ github.workspace }}
       REL_PKG: x86_64-pc-windows-msvc.zip
+
   create_release:
     name: Create release
     runs-on: ubuntu-latest
@@ -113,68 +115,84 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
+      - uses: actions/upload-artifact@v2
+      - name: Set tag
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ env.GIT_TAG_NAME}}
+          release_name: ${{ env.GIT_TAG_NAME}}
           draft: true
           prerelease: true
+
   Upload_Zip_File:
     name: Upload_Zip_File
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [v0.35.2] #The value should be the branch name
-        os: [Linux-runner,Linux-runner-centos, mac-runner,win-runner]
+        os: [Linux-runner,centos-runner, mac-runner,win-runner]
         include:
           - os: Linux-runner
             REL_PKG: x86_64-unknown-linux-gnu.tar.gz
-          - os: Linux-runner
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+          - os: centos-runner
             REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
           - os: mac-runner
             REL_PKG: x86_64-apple-darwin.zip
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
           - os: win-runner
             REL_PKG: x86_64-pc-windows-msvc.zip
+            SET_ENV: echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
     needs: create_release
     steps:
-    - uses: olegtarasov/get-tag@v2.1
-    - name: Upload release assets
+    - name: Set tag
+      run: ${{ matrix.SET_ENV }}
+    - name: Upload release assets 
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ needs.create_release.outputs.upload_url }}
-        asset_name: ckb_${{ matrix.node-version }}_${{ matrix.REL_PKG }}
-        asset_path: ${{ github.workspace }}/releases/ckb_${{ matrix.node-version }}_${{ matrix.REL_PKG }}
+        asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
+        asset_path: ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}
         asset_content_type: application/octet-stream
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   Upload_ASC_File:
     name: Upload_ASC_File
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [v0.35.2] #The value should be the branch name
-        os: [Linux-runner,Linux-runner-centos, mac-runner,win-runner]
+        os: [Linux-runner,centos-runner, mac-runner,win-runner]
         include:
           - os: Linux-runner
             REL_PKG: x86_64-unknown-linux-gnu.tar.gz
-          - os: Linux-runner-centos
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+          - os: centos-runner
             REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
           - os: mac-runner
             REL_PKG: x86_64-apple-darwin.zip
+            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
           - os: win-runner
             REL_PKG: x86_64-pc-windows-msvc.zip
+            SET_ENV: echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/', '')) >> $env:GITHUB_ENV
     needs: create_release
     steps:
-    - name: Upload release assets
+    - name: Set tag
+      run: ${{ matrix.SET_ENV }}
+    - name: Upload release assets 
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ needs.create_release.outputs.upload_url }}
-        asset_name: ckb_${{ matrix.node-version }}_${{ matrix.REL_PKG }}.asc
-        asset_path: ${{ github.workspace }}/releases/ckb_${{ matrix.node-version }}_${{ matrix.REL_PKG }}.asc
+        asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
+        asset_path: ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
         asset_content_type: application/octet-stream
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
