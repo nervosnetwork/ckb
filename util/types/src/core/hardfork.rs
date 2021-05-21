@@ -94,6 +94,7 @@ macro_rules! define_methods {
 /// [`HardForkSwitchBuilder`]:  struct.HardForkSwitchBuilder.html
 #[derive(Debug, Clone)]
 pub struct HardForkSwitch {
+    rfc_pr_0221: EpochNumber,
     rfc_pr_0223: EpochNumber,
 }
 
@@ -103,6 +104,11 @@ pub struct HardForkSwitch {
 #[derive(Debug, Clone, Default)]
 pub struct HardForkSwitchBuilder {
     // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
+    /// Use the input cell creation block timestamp as start time in the
+    /// "relative since timestamp".
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0221: Option<EpochNumber>,
     /// In the "since epoch", the index should be less than length and
     /// the length should be greater than zero.
     ///
@@ -118,16 +124,29 @@ impl HardForkSwitch {
 
     /// Creates a new builder based on the current instance.
     pub fn as_builder(&self) -> HardForkSwitchBuilder {
-        Self::new_builder().rfc_pr_0223(self.rfc_pr_0223())
+        Self::new_builder()
+            .rfc_pr_0221(self.rfc_pr_0221())
+            .rfc_pr_0223(self.rfc_pr_0223())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
     pub fn new_without_any_enabled() -> Self {
         // Use a builder to ensure all features are set manually.
-        Self::new_builder().disable_rfc_pr_0223().build().unwrap()
+        Self::new_builder()
+            .disable_rfc_pr_0221()
+            .disable_rfc_pr_0223()
+            .build()
+            .unwrap()
     }
 }
 
+define_methods!(
+    rfc_pr_0221,
+    block_ts_as_relative_since_start,
+    is_block_ts_as_relative_since_start_enabled,
+    disable_rfc_pr_0221,
+    "RFC PR 0221"
+);
 define_methods!(
     rfc_pr_0223,
     check_length_in_epoch_since,
@@ -151,7 +170,11 @@ impl HardForkSwitchBuilder {
                 })?;
             };
         }
+        let rfc_pr_0221 = try_find!(rfc_pr_0221);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
-        Ok(HardForkSwitch { rfc_pr_0223 })
+        Ok(HardForkSwitch {
+            rfc_pr_0221,
+            rfc_pr_0223,
+        })
     }
 }

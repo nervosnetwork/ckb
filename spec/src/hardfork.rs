@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 pub struct HardForkConfig {
     // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0221: Option<EpochNumber>,
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0223: Option<EpochNumber>,
 }
 
@@ -56,7 +58,9 @@ impl HardForkConfig {
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
     ) -> Result<HardForkSwitchBuilder, String> {
-        let builder = builder.rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021));
+        let builder = builder
+            .rfc_pr_0221(check_default!(self, rfc_pr_0221, ckb2021))
+            .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021));
         Ok(builder)
     }
 
@@ -65,6 +69,7 @@ impl HardForkConfig {
     /// Enable features which are set to `None` at the user provided epoch.
     pub fn complete_with_default(&self, default: EpochNumber) -> Result<HardForkSwitch, String> {
         HardForkSwitch::new_builder()
+            .rfc_pr_0221(self.rfc_pr_0221.unwrap_or(default))
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .build()
     }
