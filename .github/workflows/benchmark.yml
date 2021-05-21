@@ -1,0 +1,131 @@
+name: Benchmark
+
+on:
+  # Submit your review with a comment body containing "#benchmark"
+  pull_request_review:
+    types: [ submitted ]
+
+jobs:
+  build_modified_ckb:
+    name: Build Modified CKB
+    runs-on: [ self-hosted, Linux, X64, building ]
+    if: |
+      contains(github.event.review.body, '#benchmark') &&
+      contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+
+    env:
+      CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Modify Consensus Parameters And Build CKB
+        run: |
+          sed -i 's/const TWO_IN_TWO_OUT_COUNT: u64 = .*;$/const TWO_IN_TWO_OUT_COUNT: u64 = 8_000;/g'            spec/src/consensus.rs
+          sed -i 's/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = .*;$/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 12_000;/g' spec/src/consensus.rs
+          make build
+          cd ${{ env.CARGO_TARGET_DIR }}/release
+          tar cfJ ckb.tar.xz ckb
+          mv ckb.tar.xz ${{ github.workspace }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ckb.tar.xz
+          path: ckb.tar.xz
+
+  benchmark:
+    name: Benchmark
+    runs-on: [ self-hosted, Linux, X64, operating ]
+    needs: [ build_modified_ckb ]
+    env:
+      TERRAFORM_DIR:     ${{ github.workspace }}/.github/workflows/benchmark/terraform
+      ANSIBLE_DIR:       ${{ github.workspace }}/.github/workflows/benchmark/ansible
+      ANSIBLE_INVENTORY: ${{ github.workspace }}/.github/workflows/benchmark/ansible/inventory.yml
+      PRIVATE_KEY_PATH:  ${{ github.workspace }}/id_rsa
+      PUBLIC_KEY_PATH:   ${{ github.workspace }}/id_rsa.pub
+    steps:
+      - uses: actions/checkout@v2
+      - name: Prepare - Download CKB Tarball
+        uses: actions/download-artifact@v2
+        with:
+          name: ckb.tar.xz
+
+      # Prepare
+      - name: Prepare - Generate Random SSH Key
+        run: ssh-keygen -N "" -f ${{ env.PRIVATE_KEY_PATH }}
+      - name: Prepare - Apply Resources Based on Terraform Files
+        uses: ./.github/actions/terraform
+        env:
+          # Environment variables used inside terraform/variables.tf
+          TF_VAR_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          TF_VAR_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          TF_VAR_prefix: benchmark-${{ github.repository }}-${{ github.run_id }}
+          TF_VAR_instances_count: 3
+          TF_VAR_instance_type: c5.xlarge
+          TF_VAR_instance_type_bastion: t2.xlarge
+          TF_VAR_private_key_path: ${{ env.PRIVATE_KEY_PATH }}
+          TF_VAR_public_key_path: ${{ env.PUBLIC_KEY_PATH }}
+        with:
+          terraform_dir: ${{ env.TERRAFORM_DIR }}
+      - name: Prepare - Output Ansible Inventory Based on Terraform State
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          # `ansible_hosts` is defined in terraform/main.tf
+          terraform output -raw ansible_hosts > ${{ env.ANSIBLE_INVENTORY }}
+          terraform output -raw ansible_hosts
+
+      # Run
+      - name: Run Ansible Playbook
+        shell: bash
+        working-directory: ${{ env.ANSIBLE_DIR }}
+        env:
+          ANSIBLE_PRIVATE_KEY_FILE:  ${{ env.PRIVATE_KEY_PATH }}
+        run: |
+          ansible-galaxy install --roles-path roles --role-file requirements.yml
+
+          # Install CKB on group instance
+          ansible-playbook playbook.yml \
+            -e 'hostname=instances' \
+            -e 'ckb_local_source=${{ github.workspace  }}/ckb.tar.xz' \
+            -t ckb_install,ckb_configure
+
+          # Install CKB-Benchmark on hosts bastion-0
+          ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_install,ckb_benchmark_configure
+
+          # Connect all CKB nodes into a network.
+          #
+          # In order to resolve network issues caused by IBD, we allowed instance-0 out
+          # of IBD, then restarted the other nodes to allow them to connect.
+          ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_stop
+          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_start
+          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_start
+          sleep 5
+          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_stop
+          ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_start
+
+          # Start benchmark
+          ansible-playbook playbook.yml -e 'hostname=bastions'   -t ckb_benchmark_start
+
+          # Fetch and process result
+          # It will produce `report.yml`, `metrics.yml` and `result.tar.xz`
+          ansible-playbook playbook.yml -e 'hostname=bastions'   -t fetch_ckb_benchmark_logfiles
+          ansible-playbook playbook.yml -e 'hostname=instances'  -t fetch_ckb_logfiles
+          ansible-playbook playbook.yml -e 'hostname=instances'  -t process_result
+
+      - name: Post Run - Upload Result `result.tar.xz`
+        uses: actions/upload-artifact@v2
+        with:
+          name: result.tar.xz
+          path: ${{ env.ANSIBLE_DIR }}/result.tar.xz
+      - name: Post Run - Construct Report
+        run: |
+          echo 'BENCHMARK_REPORT<<EOF'  >> $GITHUB_ENV
+          cat ${ANSIBLE_DIR}/report.yml >> $GITHUB_ENV
+          echo 'EOF'                    >> $GITHUB_ENV
+      - name: Post Run - Comment Report
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            **Benchmark Report**: https://www.github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ```yaml
+            ${{ env.BENCHMARK_REPORT }}
+            ```
