@@ -1,0 +1,39 @@
+# ckb_sync_target_number: 10
+ckb_workspace: "/var/lib/ckb"
+ckb_data_dir: "{{ ckb_workspace }}/data"
+ckb_rpc_listen_address: "0.0.0.0:8114"
+ckb_network_name: "mainnet"
+ckb_chain_spec_bundled: "specs/{{ ckb_network_name }}.toml"
+ckb_network_bootnodes:
+  # Hangzhou, Asia
+  - "/ip4/47.110.15.57/tcp/8114/p2p/QmXS4Kbc9HEeykHUTJCm2tNmqghbvWyYpUp6BtE5b6VrAU"
+  # Tokyo Asia
+  - "/ip4/47.245.31.79/tcp/8114/p2p/QmUaSuEdXNGJEKvkE4rCn3cwBrpRFUm5TsouF4M3Sjursv"
+  # Mumbai Asia
+  - "/ip4/13.234.144.148/tcp/8114/p2p/QmbT7QimcrcD5k2znoJiWpxoESxang6z1Gy9wof1rT1LKR"
+  # Virginia North America
+  - "/ip4/3.218.170.86/tcp/8114/p2p/QmShw2vtVt49wJagc1zGQXGS6LkQTcHxnEV3xs6y8MAmQN"
+  # Frankfurt Europe
+  - "/ip4/52.59.155.249/tcp/8114/p2p/QmRHqhSGMGm5FtnkW8D6T83X7YwaiMAZXCXJJaKzQEo3rb"
+  # Beijing Asia
+  - "/ip4/39.107.100.85/tcp/8114/p2p/QmeQwD2GGuZyFzDPbQEKFJUjmNaY9FG3X7WHPL823zFD3a"
+  # Shanghai Asia
+  - "/ip4/47.103.44.208/tcp/8114/p2p/QmWVt9kNFv8XM1CMqeJj2nmG4tJ4ViqgwzJMr7yYynp6qd"
+  # Shenzhen Asia
+  - "/ip4/120.24.85.239/tcp/8114/p2p/QmaJP1sDiWZuwAEMghNHt7TrTgaMCyYaEMMYLc4YvoUGSV"
+  # Hong Kong Asia
+  - "/ip4/47.91.238.128/tcp/8114/p2p/QmTjLAewCM6SivjpW7BJfSj1ABuPA7x6FsFu5ga7Xy2xig"
+  # Jakarta Asia
+  - "/ip4/147.139.137.53/tcp/8114/p2p/QmQBLw9TqkS8yu2Kg8UtiYzvxEQ7DfKiXLx8iD7bF8XRyj"
+  # California North America
+  - "/ip4/13.52.18.181/tcp/8114/p2p/QmcEK1wUR287qSYdw8eHNWeQrFitQsCaZHHTM9wgvakxnS"
+  # Singapore Asia
+  - "/ip4/18.140.240.153/tcp/8114/p2p/QmVi7reKhqVnoBYzW2nJYnrujVeckrZXhwuYbX7P2whPJg"
+  # Quebec North America
+  - "/ip4/35.183.172.68/tcp/8114/p2p/QmNRAvtC6L85hwp6vWnqaKonJw3dz1q39B4nXVQErzC4Hx"
+  # London Europe
+  - "/ip4/3.10.216.39/tcp/8114/p2p/QmagxSv7GNwKXQE7mi1iDjFHghjUpbqjBgqSot7PmMJqHA"
+  # Sydney Oceania
+  - "/ip4/3.105.209.193/tcp/8114/p2p/QmQidJaxciY3NT2PjsaCR4Gz8vB8kFn3Avwz96u6b3jGc1"
+  # Sao Paulo, South America
+  - "/ip4/18.229.214.173/tcp/8114/p2p/QmVeeCh81GTLGRwB7vRHXeTRdUHRYcfn6qKEfewhtiRJZC"
