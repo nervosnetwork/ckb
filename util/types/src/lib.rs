@@ -14,7 +14,6 @@ mod generated;
 pub use generated::packed;
 pub mod core;
 
-pub mod constants;
 mod conversion;
 mod extension;
 pub mod utilities;

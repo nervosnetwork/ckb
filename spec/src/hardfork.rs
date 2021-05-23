@@ -16,6 +16,8 @@ pub struct HardForkConfig {
     pub rfc_pr_0221: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0223: Option<EpochNumber>,
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0230: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -60,7 +62,8 @@ impl HardForkConfig {
     ) -> Result<HardForkSwitchBuilder, String> {
         let builder = builder
             .rfc_pr_0221(check_default!(self, rfc_pr_0221, ckb2021))
-            .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021));
+            .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021))
+            .rfc_pr_0230(check_default!(self, rfc_pr_0230, ckb2021));
         Ok(builder)
     }
 
@@ -71,6 +74,7 @@ impl HardForkConfig {
         HardForkSwitch::new_builder()
             .rfc_pr_0221(self.rfc_pr_0221.unwrap_or(default))
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
+            .rfc_pr_0230(self.rfc_pr_0230.unwrap_or(default))
             .build()
     }
 }

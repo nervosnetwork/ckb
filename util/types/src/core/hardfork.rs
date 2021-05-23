@@ -96,6 +96,7 @@ macro_rules! define_methods {
 pub struct HardForkSwitch {
     rfc_pr_0221: EpochNumber,
     rfc_pr_0223: EpochNumber,
+    rfc_pr_0230: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -114,6 +115,10 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0223: Option<EpochNumber>,
+    /// Allow unknown block versions and transactions versions.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0230: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -127,6 +132,7 @@ impl HardForkSwitch {
         Self::new_builder()
             .rfc_pr_0221(self.rfc_pr_0221())
             .rfc_pr_0223(self.rfc_pr_0223())
+            .rfc_pr_0230(self.rfc_pr_0230())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
@@ -135,6 +141,7 @@ impl HardForkSwitch {
         Self::new_builder()
             .disable_rfc_pr_0221()
             .disable_rfc_pr_0223()
+            .disable_rfc_pr_0230()
             .build()
             .unwrap()
     }
@@ -154,6 +161,13 @@ define_methods!(
     disable_rfc_pr_0223,
     "RFC PR 0223"
 );
+define_methods!(
+    rfc_pr_0230,
+    allow_unknown_versions,
+    is_allow_unknown_versions_enabled,
+    disable_rfc_pr_0230,
+    "RFC PR 0230"
+);
 
 impl HardForkSwitchBuilder {
     /// Build a new [`HardForkSwitch`].
@@ -172,9 +186,11 @@ impl HardForkSwitchBuilder {
         }
         let rfc_pr_0221 = try_find!(rfc_pr_0221);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
+        let rfc_pr_0230 = try_find!(rfc_pr_0230);
         Ok(HardForkSwitch {
             rfc_pr_0221,
             rfc_pr_0223,
+            rfc_pr_0230,
         })
     }
 }

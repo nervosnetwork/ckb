@@ -491,6 +491,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         // Test hard fork features
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
+        Box::new(CheckBlockVersion),
+        Box::new(CheckTxVersion),
     ];
     specs.shuffle(&mut thread_rng());
     specs

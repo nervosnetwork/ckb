@@ -14,7 +14,6 @@ use ckb_resource::Resource;
 use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{
     bytes::Bytes,
-    constants::{BLOCK_VERSION, TX_VERSION},
     core::{
         hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
@@ -261,8 +260,6 @@ impl ConsensusBuilder {
                 secp256k1_blake160_sighash_all_type_hash: None,
                 secp256k1_blake160_multisig_all_type_hash: None,
                 genesis_epoch_ext,
-                block_version: BLOCK_VERSION,
-                tx_version: TX_VERSION,
                 type_id_code_hash: TYPE_ID_CODE_HASH,
                 proposer_reward_ratio: PROPOSER_REWARD_RATIO,
                 max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
@@ -513,10 +510,6 @@ pub struct Consensus {
     pub max_block_cycles: Cycle,
     /// Maximum number of bytes to use for the entire block
     pub max_block_bytes: u64,
-    /// The block version number supported
-    pub block_version: Version,
-    /// The tx version number supported
-    pub tx_version: Version,
     /// The "TYPE_ID" in hex
     pub type_id_code_hash: H256,
     /// The Limit to the number of proposals per block
@@ -694,13 +687,13 @@ impl Consensus {
     }
 
     /// The current block version
-    pub fn block_version(&self) -> Version {
-        self.block_version
+    pub fn block_version(&self, _epoch_number: EpochNumber) -> Version {
+        0
     }
 
     /// The current transaction version
-    pub fn tx_version(&self) -> Version {
-        self.tx_version
+    pub fn tx_version(&self, _epoch_number: EpochNumber) -> Version {
+        0
     }
 
     /// The "TYPE_ID" in hex
@@ -930,6 +923,46 @@ impl Consensus {
     pub fn hardfork_switch(&self) -> &HardForkSwitch {
         &self.hardfork_switch
     }
+
+    /// Convert to a JSON type with an input epoch number as the tip epoch number.
+    pub fn to_json(&self, epoch_number: EpochNumber) -> ckb_jsonrpc_types::Consensus {
+        ckb_jsonrpc_types::Consensus {
+            id: self.id.clone(),
+            genesis_hash: self.genesis_hash.unpack(),
+            dao_type_hash: self.dao_type_hash().map(|h| h.unpack()),
+            secp256k1_blake160_sighash_all_type_hash: self
+                .secp256k1_blake160_sighash_all_type_hash()
+                .map(|h| h.unpack()),
+            secp256k1_blake160_multisig_all_type_hash: self
+                .secp256k1_blake160_multisig_all_type_hash()
+                .map(|h| h.unpack()),
+            initial_primary_epoch_reward: self.initial_primary_epoch_reward.into(),
+            secondary_epoch_reward: self.secondary_epoch_reward.into(),
+            max_uncles_num: (self.max_uncles_num as u64).into(),
+            orphan_rate_target: self.orphan_rate_target().to_owned(),
+            epoch_duration_target: self.epoch_duration_target.into(),
+            tx_proposal_window: ckb_jsonrpc_types::ProposalWindow {
+                closest: self.tx_proposal_window.0.into(),
+                farthest: self.tx_proposal_window.1.into(),
+            },
+            proposer_reward_ratio: RationalU256::new_raw(
+                self.proposer_reward_ratio.numer().into(),
+                self.proposer_reward_ratio.denom().into(),
+            ),
+            cellbase_maturity: self.cellbase_maturity.into(),
+            median_time_block_count: (self.median_time_block_count as u64).into(),
+            max_block_cycles: self.max_block_cycles.into(),
+            max_block_bytes: self.max_block_bytes.into(),
+            block_version: self.block_version(epoch_number).into(),
+            tx_version: self.tx_version(epoch_number).into(),
+            type_id_code_hash: self.type_id_code_hash().to_owned(),
+            max_block_proposals_limit: self.max_block_proposals_limit.into(),
+            primary_epoch_reward_halving_interval: self
+                .primary_epoch_reward_halving_interval
+                .into(),
+            permanent_difficulty_in_dummy: self.permanent_difficulty_in_dummy,
+        }
+    }
 }
 
 /// Trait for consensus provider.
@@ -958,47 +991,6 @@ impl NextBlockEpoch {
     /// Is a head block of epoch
     pub fn is_head(&self) -> bool {
         matches!(*self, Self::HeadBlock(_))
-    }
-}
-
-impl From<Consensus> for ckb_jsonrpc_types::Consensus {
-    fn from(consensus: Consensus) -> Self {
-        Self {
-            id: consensus.id,
-            genesis_hash: consensus.genesis_hash.unpack(),
-            dao_type_hash: consensus.dao_type_hash.map(|h| h.unpack()),
-            secp256k1_blake160_sighash_all_type_hash: consensus
-                .secp256k1_blake160_sighash_all_type_hash
-                .map(|h| h.unpack()),
-            secp256k1_blake160_multisig_all_type_hash: consensus
-                .secp256k1_blake160_multisig_all_type_hash
-                .map(|h| h.unpack()),
-            initial_primary_epoch_reward: consensus.initial_primary_epoch_reward.into(),
-            secondary_epoch_reward: consensus.secondary_epoch_reward.into(),
-            max_uncles_num: (consensus.max_uncles_num as u64).into(),
-            orphan_rate_target: consensus.orphan_rate_target,
-            epoch_duration_target: consensus.epoch_duration_target.into(),
-            tx_proposal_window: ckb_jsonrpc_types::ProposalWindow {
-                closest: consensus.tx_proposal_window.0.into(),
-                farthest: consensus.tx_proposal_window.1.into(),
-            },
-            proposer_reward_ratio: RationalU256::new_raw(
-                consensus.proposer_reward_ratio.numer().into(),
-                consensus.proposer_reward_ratio.denom().into(),
-            ),
-            cellbase_maturity: consensus.cellbase_maturity.into(),
-            median_time_block_count: (consensus.median_time_block_count as u64).into(),
-            max_block_cycles: consensus.max_block_cycles.into(),
-            max_block_bytes: consensus.max_block_bytes.into(),
-            block_version: consensus.block_version.into(),
-            tx_version: consensus.tx_version.into(),
-            type_id_code_hash: consensus.type_id_code_hash,
-            max_block_proposals_limit: consensus.max_block_proposals_limit.into(),
-            primary_epoch_reward_halving_interval: consensus
-                .primary_epoch_reward_halving_interval
-                .into(),
-            permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
-        }
     }
 }
 

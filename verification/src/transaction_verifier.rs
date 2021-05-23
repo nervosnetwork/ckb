@@ -10,7 +10,7 @@ use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView, Version,
+        Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView,
     },
     packed::Byte32,
     prelude::*,
@@ -51,13 +51,11 @@ impl<'a, DL: HeaderProvider + ConsensusProvider> TimeRelativeTransactionVerifier
 ///
 /// Basic checks that don't depend on any context
 /// Contains:
-/// - Check for version
 /// - Check for size
 /// - Check inputs and output empty
 /// - Check for duplicate deps
 /// - Check for whether outputs match data
 pub struct NonContextualTransactionVerifier<'a> {
-    pub(crate) version: VersionVerifier<'a>,
     pub(crate) size: SizeVerifier<'a>,
     pub(crate) empty: EmptyVerifier<'a>,
     pub(crate) duplicate_deps: DuplicateDepsVerifier<'a>,
@@ -68,7 +66,6 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     /// Creates a new NonContextualTransactionVerifier
     pub fn new(tx: &'a TransactionView, consensus: &'a Consensus) -> Self {
         NonContextualTransactionVerifier {
-            version: VersionVerifier::new(tx, consensus.tx_version()),
             size: SizeVerifier::new(tx, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(tx),
             duplicate_deps: DuplicateDepsVerifier::new(tx),
@@ -78,7 +75,6 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 
     /// Perform context-independent verification
     pub fn verify(&self) -> Result<(), Error> {
-        self.version.verify()?;
         self.size.verify()?;
         self.empty.verify()?;
         self.duplicate_deps.verify()?;
@@ -90,12 +86,14 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
+/// [`VersionVerifier`](./struct.VersionVerifier.html)
 /// [`MaturityVerifier`](./struct.MaturityVerifier.html)
 /// [`SinceVerifier`](./struct.SinceVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<'a, DL> {
+    pub(crate) version: VersionVerifier<'a>,
     pub(crate) maturity: MaturityVerifier<'a>,
     pub(crate) since: SinceVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
@@ -115,6 +113,7 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualTransactionVerifier {
+            version: VersionVerifier::new(&rtx, consensus, tx_env),
             maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
             script: ScriptVerifier::new(rtx, data_loader),
             capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
@@ -128,6 +127,7 @@ where
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         let timer = Timer::start();
+        self.version.verify()?;
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.since.verify()?;
@@ -203,23 +203,45 @@ impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a
 }
 
 pub struct VersionVerifier<'a> {
-    transaction: &'a TransactionView,
-    tx_version: Version,
+    rtx: &'a ResolvedTransaction,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(transaction: &'a TransactionView, tx_version: Version) -> Self {
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        tx_env: &'a TxVerifyEnv,
+    ) -> Self {
         VersionVerifier {
-            transaction,
-            tx_version,
+            rtx,
+            consensus,
+            tx_env,
         }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.transaction.version() != self.tx_version {
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let target = self.consensus.tx_version(epoch_number);
+        let actual = self.rtx.transaction.version();
+        if self
+            .consensus
+            .hardfork_switch()
+            .is_allow_unknown_versions_enabled(epoch_number)
+        {
+            if actual < target {
+                return Err((TransactionError::DeprecatedVersion {
+                    minimum: target,
+                    actual,
+                })
+                .into());
+            }
+        } else if actual != target {
             return Err((TransactionError::MismatchedVersion {
-                expected: self.tx_version,
-                actual: self.transaction.version(),
+                expected: target,
+                actual,
             })
             .into());
         }

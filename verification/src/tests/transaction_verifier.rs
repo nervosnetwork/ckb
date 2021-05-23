@@ -10,7 +10,6 @@ use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_traits::HeaderProvider;
 use ckb_types::{
     bytes::Bytes,
-    constants::TX_VERSION,
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
@@ -40,18 +39,66 @@ pub fn test_empty() {
 
 #[test]
 pub fn test_version() {
-    let transaction = TransactionBuilder::default()
-        .version((TX_VERSION + 1).pack())
+    let fork_at = 10;
+    let default_tx_version = ConsensusBuilder::default().build().tx_version(fork_at);
+    let tx1 = TransactionBuilder::default()
+        .version(default_tx_version.pack())
         .build();
-    let verifier = VersionVerifier::new(&transaction, TX_VERSION);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        TransactionError::MismatchedVersion {
-            expected: 0,
-            actual: 1
-        },
+    let rtx1 = create_resolve_tx_with_transaction_info(
+        &tx1,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
+    let tx2 = TransactionBuilder::default()
+        .version((default_tx_version + 1).pack())
+        .build();
+    let rtx2 = create_resolve_tx_with_transaction_info(
+        &tx2,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
+    let tx_env = {
+        let epoch = EpochNumberWithFraction::new(fork_at, 0, 10);
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
+        TxVerifyEnv::new_commit(&header)
+    };
+
+    {
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0230(fork_at + 1)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let result = VersionVerifier::new(&rtx1, &consensus, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = VersionVerifier::new(&rtx2, &consensus, &tx_env).verify();
+        assert_error_eq!(
+            result.unwrap_err(),
+            TransactionError::MismatchedVersion {
+                expected: default_tx_version,
+                actual: default_tx_version + 1
+            },
+        );
+    }
+    {
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0230(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let result = VersionVerifier::new(&rtx1, &consensus, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = VersionVerifier::new(&rtx2, &consensus, &tx_env).verify();
+        assert!(result.is_ok(), "result = {:?}", result);
+    }
 }
 
 #[test]

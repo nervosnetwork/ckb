@@ -6,7 +6,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_traits::HeaderProvider;
-use ckb_types::core::{HeaderView, Version};
+use ckb_types::core::HeaderView;
 use ckb_verification_traits::Verifier;
 use faketime::unix_time_as_millis;
 
@@ -31,7 +31,7 @@ impl<'a, DL: HeaderProvider> HeaderVerifier<'a, DL> {
 impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
-        VersionVerifier::new(header, self.consensus.block_version()).verify()?;
+        VersionVerifier::new(header, self.consensus).verify()?;
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent = self
@@ -53,26 +53,36 @@ impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
 
 pub struct VersionVerifier<'a> {
     header: &'a HeaderView,
-    block_version: Version,
+    consensus: &'a Consensus,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a HeaderView, block_version: Version) -> Self {
-        VersionVerifier {
-            header,
-            block_version,
-        }
+    pub fn new(header: &'a HeaderView, consensus: &'a Consensus) -> Self {
+        VersionVerifier { header, consensus }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.version() != self.block_version {
-            return Err(BlockVersionError {
-                expected: self.block_version,
-                actual: self.header.version(),
+        let epoch_number = self.header.epoch().number();
+        let target = self.consensus.block_version(epoch_number);
+        let actual = self.header.version();
+        let failed = if self
+            .consensus
+            .hardfork_switch()
+            .is_allow_unknown_versions_enabled(epoch_number)
+        {
+            actual < target
+        } else {
+            actual != target
+        };
+        if failed {
+            Err(BlockVersionError {
+                expected: target,
+                actual,
             }
-            .into());
+            .into())
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
 
