@@ -1,7 +1,7 @@
 # [v0.41.0](https://github.com/nervosnetwork/ckb/compare/v0.40.0...v0.41.0) (2021-04-13)
 
 ### Features
-
+* #2503: Customize chain spec for dev chains and update few preset params (@yangby-cryptape)
 * #2503: Customize chain spec for dev chains and update few preset params (@yangby-cryptape)
 
     - Set `permanent_difficulty_in_dummy` to `true` as default for dev chains.
