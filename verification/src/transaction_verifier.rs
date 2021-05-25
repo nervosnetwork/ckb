@@ -115,7 +115,7 @@ where
         ContextualTransactionVerifier {
             version: VersionVerifier::new(&rtx, consensus, tx_env),
             maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
-            script: ScriptVerifier::new(rtx, data_loader),
+            script: ScriptVerifier::new(rtx, consensus, data_loader, tx_env),
             capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
             since: SinceVerifier::new(rtx, consensus, data_loader, tx_env),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
@@ -282,24 +282,38 @@ impl<'a> SizeVerifier<'a> {
 /// - [ckb-vm](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0003-ckb-vm/0003-ckb-vm.md)
 /// - [vm-cycle-limits](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0014-vm-cycle-limits/0014-vm-cycle-limits.md)
 pub struct ScriptVerifier<'a, DL> {
-    data_loader: &'a DL,
     resolved_transaction: &'a ResolvedTransaction,
+    consensus: &'a Consensus,
+    data_loader: &'a DL,
+    tx_env: &'a TxVerifyEnv,
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
     /// Creates a new ScriptVerifier
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, data_loader: &'a DL) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        data_loader: &'a DL,
+        tx_env: &'a TxVerifyEnv,
+    ) -> Self {
         ScriptVerifier {
-            data_loader,
             resolved_transaction,
+            consensus,
+            data_loader,
+            tx_env,
         }
     }
 
     /// Perform script verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let timer = Timer::start();
-        let cycle = TransactionScriptsVerifier::new(&self.resolved_transaction, self.data_loader)
-            .verify(max_cycles)?;
+        let cycle = TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            self.consensus,
+            self.data_loader,
+            self.tx_env,
+        )
+        .verify(max_cycles)?;
         metrics!(timing, "ckb.verified_script", timer.stop());
         Ok(cycle)
     }

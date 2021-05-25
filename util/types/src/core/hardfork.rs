@@ -95,6 +95,7 @@ macro_rules! define_methods {
 #[derive(Debug, Clone)]
 pub struct HardForkSwitch {
     rfc_pr_0221: EpochNumber,
+    rfc_pr_0222: EpochNumber,
     rfc_pr_0223: EpochNumber,
     rfc_pr_0230: EpochNumber,
 }
@@ -110,6 +111,10 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0221: Option<EpochNumber>,
+    /// Allow script multiple matches on identical data for type hash-type scripts.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0222: Option<EpochNumber>,
     /// In the "since epoch", the index should be less than length and
     /// the length should be greater than zero.
     ///
@@ -131,6 +136,7 @@ impl HardForkSwitch {
     pub fn as_builder(&self) -> HardForkSwitchBuilder {
         Self::new_builder()
             .rfc_pr_0221(self.rfc_pr_0221())
+            .rfc_pr_0222(self.rfc_pr_0222())
             .rfc_pr_0223(self.rfc_pr_0223())
             .rfc_pr_0230(self.rfc_pr_0230())
     }
@@ -140,6 +146,7 @@ impl HardForkSwitch {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
             .disable_rfc_pr_0221()
+            .disable_rfc_pr_0222()
             .disable_rfc_pr_0223()
             .disable_rfc_pr_0230()
             .build()
@@ -153,6 +160,13 @@ define_methods!(
     is_block_ts_as_relative_since_start_enabled,
     disable_rfc_pr_0221,
     "RFC PR 0221"
+);
+define_methods!(
+    rfc_pr_0222,
+    allow_multiple_matches_on_identical_data,
+    is_allow_multiple_matches_on_identical_data_enabled,
+    disable_rfc_pr_0222,
+    "RFC PR 0222"
 );
 define_methods!(
     rfc_pr_0223,
@@ -185,10 +199,12 @@ impl HardForkSwitchBuilder {
             };
         }
         let rfc_pr_0221 = try_find!(rfc_pr_0221);
+        let rfc_pr_0222 = try_find!(rfc_pr_0222);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
         let rfc_pr_0230 = try_find!(rfc_pr_0230);
         Ok(HardForkSwitch {
             rfc_pr_0221,
+            rfc_pr_0222,
             rfc_pr_0223,
             rfc_pr_0230,
         })

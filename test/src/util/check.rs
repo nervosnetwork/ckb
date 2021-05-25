@@ -40,6 +40,18 @@ pub fn assert_epoch_should_be(node: &Node, number: u64, index: u64, length: u64)
     );
 }
 
+pub fn assert_epoch_should_less_than(node: &Node, number: u64, index: u64, length: u64) {
+    let tip_header: HeaderView = node.rpc_client().get_tip_header().into();
+    let tip_epoch = tip_header.epoch();
+    let target_epoch = EpochNumberWithFraction::new(number, index, length);
+    assert!(
+        tip_epoch < target_epoch,
+        "current tip epoch is {}, but expect epoch less than {}",
+        tip_epoch,
+        target_epoch
+    );
+}
+
 pub fn assert_submit_block_fail(node: &Node, block: &BlockView, message: &str) {
     let result = node
         .rpc_client()

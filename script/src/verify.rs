@@ -7,8 +7,9 @@ use crate::{
     },
     type_id::TypeIdSystemScript,
     types::{ScriptGroup, ScriptGroupType},
+    verify_env::TxVerifyEnv,
 };
-use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
+use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
@@ -41,19 +42,49 @@ type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
 type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
 
+enum Binaries {
+    Unique((Byte32, Bytes)),
+    Duplicate((Byte32, Bytes)),
+    Multiple,
+}
+
+impl Binaries {
+    fn new(data_hash: Byte32, data: Bytes) -> Self {
+        Self::Unique((data_hash, data))
+    }
+
+    fn merge(&mut self, data_hash: &Byte32) {
+        match self {
+            Self::Unique(ref old) | Self::Duplicate(ref old) => {
+                if old.0 != *data_hash {
+                    *self = Self::Multiple;
+                } else {
+                    *self = Self::Duplicate(old.to_owned());
+                }
+            }
+            Self::Multiple => {
+                *self = Self::Multiple;
+            }
+        }
+    }
+}
+
 /// This struct leverages CKB VM to verify transaction inputs.
 ///
 /// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
 /// future, we might refactor this to share buffer to achieve zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
+
     debug_printer: Box<dyn Fn(&Byte32, &str)>,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction,
 
     binaries_by_data_hash: HashMap<Byte32, Bytes>,
-    binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)>,
+    binaries_by_type_hash: HashMap<Byte32, Binaries>,
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
 }
@@ -67,7 +98,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// * `data_loader` - used to load cell data.
     pub fn new(
         rtx: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
         data_loader: &'a DL,
+        tx_env: &'a TxVerifyEnv,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
@@ -94,18 +127,18 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .collect();
 
         let mut binaries_by_data_hash: HashMap<Byte32, Bytes> = HashMap::default();
-        let mut binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)> = HashMap::default();
+        let mut binaries_by_type_hash: HashMap<Byte32, Binaries> = HashMap::default();
         for cell_meta in resolved_cell_deps {
             let data = data_loader.load_cell_data(cell_meta).expect("cell data");
             let data_hash = data_loader
                 .load_cell_data_hash(cell_meta)
                 .expect("cell data hash");
-            binaries_by_data_hash.insert(data_hash, data.to_owned());
+            binaries_by_data_hash.insert(data_hash.to_owned(), data.to_owned());
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
                     .entry(t.calc_script_hash())
-                    .and_modify(|e| e.1 = true)
-                    .or_insert((data.to_owned(), false));
+                    .and_modify(|bin| bin.merge(&data_hash))
+                    .or_insert_with(|| Binaries::new(data_hash.to_owned(), data.to_owned()));
             }
         }
 
@@ -137,6 +170,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         TransactionScriptsVerifier {
             data_loader,
+            consensus,
+            tx_env,
             binaries_by_data_hash,
             binaries_by_type_hash,
             outputs,
@@ -271,12 +306,23 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 }
             }
             ScriptHashType::Type => {
-                if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash())
-                {
-                    if *multiple {
-                        Err(ScriptError::MultipleMatches)
-                    } else {
-                        Ok(data.to_owned())
+                if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
+                    match bin {
+                        Binaries::Unique((_, ref data)) => Ok(data.to_owned()),
+                        Binaries::Duplicate((_, ref data)) => {
+                            let proposal_window = self.consensus.tx_proposal_window();
+                            let epoch_number = self.tx_env.epoch_number(proposal_window);
+                            if self
+                                .consensus
+                                .hardfork_switch()
+                                .is_allow_multiple_matches_on_identical_data_enabled(epoch_number)
+                            {
+                                Ok(data.to_owned())
+                            } else {
+                                Err(ScriptError::MultipleMatches)
+                            }
+                        }
+                        Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
                     Err(ScriptError::InvalidCodeHash)
@@ -457,8 +503,8 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB};
     use ckb_types::{
         core::{
-            capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, ScriptHashType,
-            TransactionBuilder, TransactionInfo,
+            capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, HeaderView,
+            ScriptHashType, TransactionBuilder, TransactionInfo,
         },
         h256,
         packed::{
@@ -469,7 +515,9 @@ mod tests {
     };
     use faster_hex::hex_encode;
 
-    use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES};
+    use ckb_chain_spec::consensus::{
+        ConsensusBuilder, TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES,
+    };
     use ckb_error::assert_error_eq;
     use ckb_test_chain_utils::{
         always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
@@ -579,8 +627,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         assert!(verifier.verify(600).is_ok());
     }
 
@@ -639,8 +692,13 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert!(verifier.verify(100_000_000).is_ok());
 
@@ -720,8 +778,13 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -812,8 +875,13 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
@@ -877,7 +945,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
@@ -929,7 +1003,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
@@ -1012,7 +1092,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1086,8 +1172,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
@@ -1151,7 +1242,13 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         // Cycles can tell that both lock and type scripts are executed
         assert_eq!(
@@ -1214,8 +1311,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         if let Err(err) = verifier.verify(TYPE_ID_CYCLES * 2) {
             panic!("expect verification ok, got: {:?}", err);
@@ -1276,8 +1378,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(TYPE_ID_CYCLES - 1).unwrap_err(),
@@ -1347,8 +1454,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert!(verifier.verify(1_001_000).is_ok());
     }
@@ -1406,8 +1518,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert!(verifier.verify(1_001_000).is_ok());
     }
@@ -1480,8 +1597,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
@@ -1560,8 +1682,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
@@ -1629,8 +1756,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         assert_error_eq!(
             verifier.verify(TYPE_ID_CYCLES * 2).unwrap_err(),
@@ -1786,8 +1918,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
 
         let cycle = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
         assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
