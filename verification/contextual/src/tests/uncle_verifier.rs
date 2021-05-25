@@ -174,7 +174,7 @@ fn test_invalid_uncle_hash_case2() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .uncles_hash(uncles_hash.clone())
+        .extra_hash(uncles_hash.clone())
         .build_unchecked();
 
     let epoch = epoch(&shared, &chain1, chain1.len() - 2);

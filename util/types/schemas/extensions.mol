@@ -110,6 +110,15 @@ table CompactBlock {
     proposals:                  ProposalShortIdVec,
 }
 
+table CompactBlockV1 {
+    header:                     Header,
+    short_ids:                  ProposalShortIdVec,
+    prefilled_transactions:     IndexTransactionVec,
+    uncles:                     Byte32Vec,
+    proposals:                  ProposalShortIdVec,
+    extension:                  Bytes,
+}
+
 table RelayTransaction {
     cycles:                     Uint64,
     transaction:                Transaction,

@@ -43,7 +43,7 @@ pub struct HeaderBuilder {
     pub(crate) transactions_root: packed::Byte32,
     pub(crate) proposals_hash: packed::Byte32,
     pub(crate) compact_target: packed::Uint32,
-    pub(crate) uncles_hash: packed::Byte32,
+    pub(crate) extra_hash: packed::Byte32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
     // Nonce
@@ -63,6 +63,7 @@ pub struct BlockBuilder {
     pub(crate) uncles: Vec<core::UncleBlockView>,
     pub(crate) transactions: Vec<core::TransactionView>,
     pub(crate) proposals: Vec<packed::ProposalShortId>,
+    pub(crate) extension: Option<packed::Bytes>,
 }
 
 /*
@@ -79,7 +80,7 @@ impl ::std::default::Default for HeaderBuilder {
             transactions_root: Default::default(),
             proposals_hash: Default::default(),
             compact_target: DIFF_TWO.pack(),
-            uncles_hash: Default::default(),
+            extra_hash: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
             nonce: Default::default(),
@@ -240,7 +241,7 @@ impl HeaderBuilder {
     def_setter_simple!(transactions_root, Byte32);
     def_setter_simple!(proposals_hash, Byte32);
     def_setter_simple!(compact_target, Uint32);
-    def_setter_simple!(uncles_hash, Byte32);
+    def_setter_simple!(extra_hash, Byte32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
     def_setter_simple!(nonce, Uint128);
@@ -255,7 +256,7 @@ impl HeaderBuilder {
             transactions_root,
             proposals_hash,
             compact_target,
-            uncles_hash,
+            extra_hash,
             epoch,
             dao,
             nonce,
@@ -272,7 +273,7 @@ impl HeaderBuilder {
             .transactions_root(transactions_root)
             .proposals_hash(proposals_hash)
             .compact_target(compact_target)
-            .uncles_hash(uncles_hash)
+            .extra_hash(extra_hash)
             .epoch(epoch)
             .dao(dao)
             .build();
@@ -290,7 +291,7 @@ impl BlockBuilder {
     def_setter_simple!(header, transactions_root, Byte32);
     def_setter_simple!(header, proposals_hash, Byte32);
     def_setter_simple!(header, compact_target, Uint32);
-    def_setter_simple!(header, uncles_hash, Byte32);
+    def_setter_simple!(header, extra_hash, Byte32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
     def_setter_simple!(header, nonce, Uint128);
@@ -316,12 +317,20 @@ impl BlockBuilder {
         self
     }
 
+    /// Set `extension`.
+    #[doc(hidden)]
+    pub fn extension(mut self, extension: Option<packed::Bytes>) -> Self {
+        self.extension = extension;
+        self
+    }
+
     fn build_internal(self, reset_header: bool) -> core::BlockView {
         let Self {
             header,
             uncles,
             transactions,
             proposals,
+            extension,
         } = self;
         let (uncles, uncle_hashes) = {
             let len = uncles.len();
@@ -376,22 +385,37 @@ impl BlockBuilder {
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
             let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
-            let uncles_hash = uncles.calc_uncles_hash();
+            let extra_hash_view = core::ExtraHashView::new(
+                uncles.calc_uncles_hash(),
+                extension.as_ref().map(packed::Bytes::calc_raw_data_hash),
+            );
+            let extra_hash = extra_hash_view.extra_hash();
             header
                 .transactions_root(transactions_root)
                 .proposals_hash(proposals_hash)
-                .uncles_hash(uncles_hash)
+                .extra_hash(extra_hash)
                 .build()
         } else {
             header.build()
         };
 
-        let block = packed::Block::new_builder()
-            .header(data)
-            .uncles(uncles)
-            .transactions(transactions.pack())
-            .proposals(proposals)
-            .build();
+        let block = if let Some(extension) = extension {
+            packed::BlockV1::new_builder()
+                .header(data)
+                .uncles(uncles)
+                .transactions(transactions.pack())
+                .proposals(proposals)
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(data)
+                .uncles(uncles)
+                .transactions(transactions.pack())
+                .proposals(proposals)
+                .build()
+        };
         core::BlockView {
             data: block,
             hash,
@@ -448,7 +472,7 @@ impl packed::Header {
             .transactions_root(self.raw().transactions_root())
             .proposals_hash(self.raw().proposals_hash())
             .compact_target(self.raw().compact_target())
-            .uncles_hash(self.raw().uncles_hash())
+            .extra_hash(self.raw().extra_hash())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
             .nonce(self.nonce())
@@ -538,5 +562,6 @@ impl core::BlockView {
                     .collect::<Vec<_>>(),
             )
             .proposals(data.proposals().into_iter().collect::<Vec<_>>())
+            .extension(data.extension())
     }
 }

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
+    bytes,
     core::{self, BlockNumber},
     packed,
     prelude::*,
@@ -192,17 +193,102 @@ impl packed::Block {
         let witnesses_root = merkle_root(tx_witness_hashes);
         let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
         let proposals_hash = self.as_reader().calc_proposals_hash();
-        let uncles_hash = self.as_reader().calc_uncles_hash();
+        let extra_hash = self.as_reader().calc_extra_hash().extra_hash();
         let raw_header = self
             .header()
             .raw()
             .as_builder()
             .transactions_root(transactions_root)
             .proposals_hash(proposals_hash)
-            .uncles_hash(uncles_hash)
+            .extra_hash(extra_hash)
             .build();
         let header = self.header().as_builder().raw(raw_header).build();
-        self.as_builder().header(header).build()
+        if let Some(extension) = self.extension() {
+            packed::BlockV1::new_builder()
+                .header(header)
+                .uncles(self.uncles())
+                .transactions(self.transactions())
+                .proposals(self.proposals())
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            self.as_builder().header(header).build()
+        }
+    }
+
+    /// Gets the i-th extra field if it exists; i started from 0.
+    pub fn extra_field(&self, index: usize) -> Option<bytes::Bytes> {
+        let count = self.count_extra_fields();
+        if count > index {
+            let slice = self.as_slice();
+            let i = (1 + Self::FIELD_COUNT + index) * molecule::NUMBER_SIZE;
+            let start = molecule::unpack_number(&slice[i..]) as usize;
+            if count == index + 1 {
+                Some(self.as_bytes().slice(start..))
+            } else {
+                let j = i + molecule::NUMBER_SIZE;
+                let end = molecule::unpack_number(&slice[j..]) as usize;
+                Some(self.as_bytes().slice(start..end))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Gets the extension field if it existed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the first extra field exists but not a valid [`Bytes`](struct.Bytes.html).
+    pub fn extension(&self) -> Option<packed::Bytes> {
+        self.extra_field(0)
+            .map(|data| packed::Bytes::from_slice(&data).unwrap())
+    }
+}
+
+impl packed::BlockV1 {
+    /// Converts to a compatible [`Block`](struct.Block.html) with an extra field.
+    pub fn as_v0(&self) -> packed::Block {
+        packed::Block::new_unchecked(self.as_bytes())
+    }
+}
+
+impl<'r> packed::BlockReader<'r> {
+    /// Gets the i-th extra field if it exists; i started from 0.
+    pub fn extra_field(&self, index: usize) -> Option<&[u8]> {
+        let count = self.count_extra_fields();
+        if count > index {
+            let slice = self.as_slice();
+            let i = (1 + Self::FIELD_COUNT + index) * molecule::NUMBER_SIZE;
+            let start = molecule::unpack_number(&slice[i..]) as usize;
+            if count == index + 1 {
+                Some(&self.as_slice()[start..])
+            } else {
+                let j = i + molecule::NUMBER_SIZE;
+                let end = molecule::unpack_number(&slice[j..]) as usize;
+                Some(&self.as_slice()[start..end])
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Gets the extension field if it existed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the first extra field exists but not a valid [`BytesReader`](struct.BytesReader.html).
+    pub fn extension(&self) -> Option<packed::BytesReader> {
+        self.extra_field(0)
+            .map(|data| packed::BytesReader::from_slice(&data).unwrap())
+    }
+}
+
+impl<'r> packed::BlockV1Reader<'r> {
+    /// Converts to a compatible [`BlockReader`](struct.BlockReader.html) with an extra field.
+    pub fn as_v0(&self) -> packed::BlockReader {
+        packed::BlockReader::new_unchecked(self.as_slice())
     }
 }
 
@@ -237,13 +323,25 @@ impl packed::CompactBlock {
             }
         }
 
-        packed::CompactBlock::new_builder()
-            .header(block.data().header())
-            .short_ids(short_ids.pack())
-            .prefilled_transactions(prefilled_transactions.pack())
-            .uncles(block.uncle_hashes.clone())
-            .proposals(block.data().proposals())
-            .build()
+        if let Some(extension) = block.data().extension() {
+            packed::CompactBlockV1::new_builder()
+                .header(block.data().header())
+                .short_ids(short_ids.pack())
+                .prefilled_transactions(prefilled_transactions.pack())
+                .uncles(block.uncle_hashes.clone())
+                .proposals(block.data().proposals())
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::CompactBlock::new_builder()
+                .header(block.data().header())
+                .short_ids(short_ids.pack())
+                .prefilled_transactions(prefilled_transactions.pack())
+                .uncles(block.uncle_hashes.clone())
+                .proposals(block.data().proposals())
+                .build()
+        }
     }
 
     /// Takes proposal short ids for the transactions which are not prefilled.
@@ -286,5 +384,19 @@ impl packed::CompactBlock {
         (0..self.txs_len())
             .filter(|index| !prefilled_indexes.contains(&index))
             .collect()
+    }
+}
+
+impl packed::CompactBlockV1 {
+    /// Converts to a compatible [`CompactBlock`](struct.CompactBlock.html) with an extra field.
+    pub fn as_v0(&self) -> packed::CompactBlock {
+        packed::CompactBlock::new_unchecked(self.as_bytes())
+    }
+}
+
+impl<'r> packed::CompactBlockV1Reader<'r> {
+    /// Converts to a compatible [`CompactBlockReader`](struct.CompactBlockReader.html) with an extra field.
+    pub fn as_v0(&self) -> packed::CompactBlockReader {
+        packed::CompactBlockReader::new_unchecked(self.as_slice())
     }
 }

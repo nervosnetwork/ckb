@@ -102,6 +102,18 @@ pub enum BlockErrorKind {
 
     /// Total bytes of block exceeds limit.
     ExceededMaximumBlockBytes,
+
+    /// Empty block extension.
+    EmptyBlockExtension,
+
+    /// Total bytes of block extension exceeds limit.
+    ExceededMaximumBlockExtensionBytes,
+
+    /// The block has unknown field.
+    UnknownFields,
+
+    /// The calculated extra-hash does not match with the one in the header.
+    InvalidExtraHash,
 }
 
 def_error_base_on_kind!(

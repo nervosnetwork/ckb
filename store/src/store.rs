@@ -2,10 +2,10 @@ use crate::cache::StoreCache;
 use crate::data_loader_wrapper::DataLoaderWrapper;
 use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_TIP_HEADER_KEY,
+    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
+    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
+    COLUMN_CELL_DATA, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -48,8 +48,9 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         if let Some(freezer) = self.freezer() {
             if header.number() > 0 && header.number() < freezer.number() {
                 let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
-                let raw_block =
-                    packed::BlockReader::from_slice_should_be_ok(&raw_block).to_entity();
+                let raw_block = packed::BlockReader::from_compatible_slice(&raw_block)
+                    .expect("checked data")
+                    .to_entity();
                 return Some(raw_block.into_view());
             }
         }
@@ -60,7 +61,14 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         let proposals = self
             .get_block_proposal_txs_ids(h)
             .expect("block proposal_ids must be stored");
-        Some(BlockView::new_unchecked(header, uncles, body, proposals))
+        let extension_opt = self.get_block_extension(h);
+
+        let block = if let Some(extension) = extension_opt {
+            BlockView::new_unchecked_with_extension(header, uncles, body, proposals, extension)
+        } else {
+            BlockView::new_unchecked(header, uncles, body, proposals)
+        };
+        Some(block)
     }
 
     /// Get header by block header hash
@@ -127,7 +135,18 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
                     .to_entity()
             })
             .expect("block proposal_ids must be stored");
-        Some(BlockView::new_unchecked(header, uncles, body, proposals))
+
+        let extension_opt = self
+            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
+            .map(|slice| packed::BytesReader::from_slice_should_be_ok(&slice.as_ref()).to_entity());
+
+        let block = if let Some(extension) = extension_opt {
+            BlockView::new_unchecked_with_extension(header, uncles, body, proposals, extension)
+        } else {
+            BlockView::new_unchecked(header, uncles, body, proposals)
+        };
+
+        Some(block)
     }
 
     /// Get all transaction-hashes in block body by block header hash
@@ -210,6 +229,24 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         }
     }
 
+    /// Get block extension by block header hash
+    fn get_block_extension(&'a self, hash: &packed::Byte32) -> Option<packed::Bytes> {
+        if let Some(cache) = self.cache() {
+            if let Some(data) = cache.block_extensions.lock().get(hash) {
+                return data.clone();
+            }
+        };
+
+        let ret = self
+            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
+            .map(|slice| packed::BytesReader::from_slice_should_be_ok(&slice.as_ref()).to_entity());
+
+        if let Some(cache) = self.cache() {
+            cache.block_extensions.lock().put(hash.clone(), ret.clone());
+        }
+        ret
+    }
+
     /// Get block ext by block header hash
     fn get_block_ext(&'a self, block_hash: &packed::Byte32) -> Option<BlockExt> {
         self.get(COLUMN_BLOCK_EXT, block_hash.as_slice())
@@ -283,7 +320,8 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
                 let raw_block = freezer
                     .retrieve(tx_info.block_number)
                     .expect("block frozen")?;
-                let raw_block_reader = packed::BlockReader::from_slice_should_be_ok(&raw_block);
+                let raw_block_reader =
+                    packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
                 let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
                 return Some((tx_reader.to_entity().into_view(), tx_info));
             }

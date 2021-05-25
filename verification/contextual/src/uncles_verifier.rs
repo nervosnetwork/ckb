@@ -44,14 +44,18 @@ where
     pub fn verify(&self) -> Result<(), Error> {
         let uncles_count = self.block.data().uncles().len() as u32;
 
-        // verify uncles_hash
-        let actual_uncles_hash = self.block.calc_uncles_hash();
-        if actual_uncles_hash != self.block.uncles_hash() {
-            return Err(UnclesError::InvalidHash {
-                expected: self.block.uncles_hash(),
-                actual: actual_uncles_hash,
+        let epoch_number = self.block.epoch().number();
+        let hardfork_switch = self.provider.consensus().hardfork_switch();
+        if !hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number) {
+            // verify uncles_hash
+            let actual_uncles_hash = self.block.calc_uncles_hash();
+            if actual_uncles_hash != self.block.extra_hash() {
+                return Err(UnclesError::InvalidHash {
+                    expected: self.block.extra_hash(),
+                    actual: actual_uncles_hash,
+                }
+                .into());
             }
-            .into());
         }
 
         // if self.block.uncles is empty, return

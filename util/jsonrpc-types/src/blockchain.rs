@@ -637,6 +637,12 @@ pub struct Header {
     ///
     /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
     pub proposals_hash: H256,
+    // TODO ckb2021 Returns the extra hash as uncles hash directly since no extension now.
+    // The hash on `uncles` and extension in the block body.
+    //
+    // The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    // The extension hash is the hash of the extension.
+    // The extra hash is the hash on uncles hash and extension hash concatenated together.
     /// The hash on `uncles` in the block body.
     ///
     /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
@@ -696,7 +702,7 @@ impl From<packed::Header> for Header {
             transactions_root: raw.transactions_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             compact_target: raw.compact_target().unpack(),
-            uncles_hash: raw.uncles_hash().unpack(),
+            uncles_hash: raw.extra_hash().unpack(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
         }
@@ -743,7 +749,7 @@ impl From<Header> for packed::Header {
             .transactions_root(transactions_root.pack())
             .proposals_hash(proposals_hash.pack())
             .compact_target(compact_target.pack())
-            .uncles_hash(uncles_hash.pack())
+            .extra_hash(uncles_hash.pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()
@@ -843,6 +849,12 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 /// The JSON view of a Block including header and body.
@@ -856,6 +868,12 @@ pub struct BlockView {
     pub transactions: Vec<TransactionView>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 impl From<packed::Block> for Block {
@@ -865,6 +883,7 @@ impl From<packed::Block> for Block {
             uncles: input.uncles().into_iter().map(Into::into).collect(),
             transactions: input.transactions().into_iter().map(Into::into).collect(),
             proposals: input.proposals().into_iter().map(Into::into).collect(),
+            extension: input.extension().map(Into::into),
         }
     }
 }
@@ -905,6 +924,7 @@ impl From<core::BlockView> for BlockView {
             uncles,
             transactions,
             proposals: block.proposals().into_iter().map(Into::into).collect(),
+            extension: block.extension().map(Into::into),
         }
     }
 }
@@ -916,13 +936,26 @@ impl From<Block> for packed::Block {
             uncles,
             transactions,
             proposals,
+            extension,
         } = json;
-        packed::Block::new_builder()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).pack())
-            .transactions(transactions.into_iter().map(Into::into).pack())
-            .proposals(proposals.into_iter().map(Into::into).pack())
-            .build()
+        if let Some(extension) = extension {
+            let extension: packed::Bytes = extension.into();
+            packed::BlockV1::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .build()
+        }
     }
 }
 
@@ -933,6 +966,7 @@ impl From<BlockView> for core::BlockView {
             uncles,
             transactions,
             proposals,
+            extension,
         } = input;
         let block = Block {
             header: header.inner,
@@ -948,6 +982,7 @@ impl From<BlockView> for core::BlockView {
                 .collect(),
             transactions: transactions.into_iter().map(|tx| tx.inner).collect(),
             proposals,
+            extension,
         };
         let block: packed::Block = block.into();
         block.into_view()

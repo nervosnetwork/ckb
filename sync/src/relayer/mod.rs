@@ -641,8 +641,52 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
-        let msg = match packed::RelayMessage::from_slice(&data) {
-            Ok(msg) => msg.to_enum(),
+        let msg = match packed::RelayMessageReader::from_compatible_slice(&data) {
+            Ok(msg) => {
+                let item = msg.to_enum();
+                if let packed::RelayMessageUnionReader::CompactBlock(ref reader) = item {
+                    if reader.count_extra_fields() > 1 {
+                        info_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "Peer {} sends us a malformed message: \
+                             too many fields in CompactBlock",
+                            peer_index
+                        );
+                        nc.ban_peer(
+                            peer_index,
+                            BAD_MESSAGE_BAN_TIME,
+                            String::from(
+                                "send us a malformed message: \
+                                 too many fields in CompactBlock",
+                            ),
+                        );
+                        return;
+                    } else {
+                        item
+                    }
+                } else {
+                    match packed::RelayMessageReader::from_slice(&data) {
+                        Ok(msg) => msg.to_enum(),
+                        _ => {
+                            info_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "Peer {} sends us a malformed message: \
+                                 too many fields",
+                                peer_index
+                            );
+                            nc.ban_peer(
+                                peer_index,
+                                BAD_MESSAGE_BAN_TIME,
+                                String::from(
+                                    "send us a malformed message \
+                                     too many fields",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
             _ => {
                 info_target!(
                     crate::LOG_TARGET_RELAY,
@@ -675,7 +719,7 @@ impl CKBProtocolHandler for Relayer {
         }
 
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg.as_reader());
+        self.process(nc, peer_index, msg);
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "process message={}, peer={}, cost={:?}",

@@ -256,6 +256,7 @@ impl TxPoolService {
             cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
             work_id: work_id.into(),
             dao: dao.into(),
+            extension: None,
         })
     }
 

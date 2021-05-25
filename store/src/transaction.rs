@@ -5,10 +5,10 @@ use ckb_db::{
     DBVector, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
-    META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
+    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
+    COLUMN_CELL_DATA, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
@@ -126,6 +126,13 @@ impl StoreTransaction {
         let txs_len: packed::Uint32 = (block.transactions().len() as u32).pack();
         self.insert_raw(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())?;
+        if let Some(extension) = block.extension() {
+            self.insert_raw(
+                COLUMN_BLOCK_EXTENSION,
+                hash.as_slice(),
+                &extension.as_slice(),
+            )?;
+        }
         self.insert_raw(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
@@ -157,6 +164,7 @@ impl StoreTransaction {
         let txs_len = block.transactions().len();
         self.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
+        self.delete(COLUMN_BLOCK_EXTENSION, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
         self.delete(
             COLUMN_NUMBER_HASH,

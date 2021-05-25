@@ -97,6 +97,7 @@ pub struct HardForkSwitch {
     rfc_pr_0221: EpochNumber,
     rfc_pr_0222: EpochNumber,
     rfc_pr_0223: EpochNumber,
+    rfc_pr_0224: EpochNumber,
     rfc_pr_0230: EpochNumber,
 }
 
@@ -120,6 +121,10 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0223: Option<EpochNumber>,
+    /// Reuse `uncles_hash` in the header as `extra_hash`.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0224: Option<EpochNumber>,
     /// Allow unknown block versions and transactions versions.
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
@@ -138,6 +143,7 @@ impl HardForkSwitch {
             .rfc_pr_0221(self.rfc_pr_0221())
             .rfc_pr_0222(self.rfc_pr_0222())
             .rfc_pr_0223(self.rfc_pr_0223())
+            .rfc_pr_0224(self.rfc_pr_0224())
             .rfc_pr_0230(self.rfc_pr_0230())
     }
 
@@ -148,6 +154,7 @@ impl HardForkSwitch {
             .disable_rfc_pr_0221()
             .disable_rfc_pr_0222()
             .disable_rfc_pr_0223()
+            .disable_rfc_pr_0224()
             .disable_rfc_pr_0230()
             .build()
             .unwrap()
@@ -176,6 +183,13 @@ define_methods!(
     "RFC PR 0223"
 );
 define_methods!(
+    rfc_pr_0224,
+    reuse_uncles_hash_as_extra_hash,
+    is_reuse_uncles_hash_as_extra_hash_enabled,
+    disable_rfc_pr_0224,
+    "RFC PR 0224"
+);
+define_methods!(
     rfc_pr_0230,
     allow_unknown_versions,
     is_allow_unknown_versions_enabled,
@@ -201,11 +215,13 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0221 = try_find!(rfc_pr_0221);
         let rfc_pr_0222 = try_find!(rfc_pr_0222);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
+        let rfc_pr_0224 = try_find!(rfc_pr_0224);
         let rfc_pr_0230 = try_find!(rfc_pr_0230);
         Ok(HardForkSwitch {
             rfc_pr_0221,
             rfc_pr_0222,
             rfc_pr_0223,
+            rfc_pr_0224,
             rfc_pr_0230,
         })
     }

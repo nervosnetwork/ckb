@@ -5567,6 +5567,388 @@ impl molecule::prelude::Builder for CompactBlockBuilder {
     }
 }
 #[derive(Clone)]
+pub struct CompactBlockV1(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for CompactBlockV1 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for CompactBlockV1 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for CompactBlockV1 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "header", self.header())?;
+        write!(f, ", {}: {}", "short_ids", self.short_ids())?;
+        write!(
+            f,
+            ", {}: {}",
+            "prefilled_transactions",
+            self.prefilled_transactions()
+        )?;
+        write!(f, ", {}: {}", "uncles", self.uncles())?;
+        write!(f, ", {}: {}", "proposals", self.proposals())?;
+        write!(f, ", {}: {}", "extension", self.extension())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for CompactBlockV1 {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 1, 0, 0, 28, 0, 0, 0, 236, 0, 0, 0, 240, 0, 0, 0, 244, 0, 0, 0, 248, 0, 0, 0, 252,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        CompactBlockV1::new_unchecked(v.into())
+    }
+}
+impl CompactBlockV1 {
+    pub const FIELD_COUNT: usize = 6;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn header(&self) -> Header {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Header::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn short_ids(&self) -> ProposalShortIdVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        ProposalShortIdVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn prefilled_transactions(&self) -> IndexTransactionVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        IndexTransactionVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn uncles(&self) -> Byte32Vec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Byte32Vec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn proposals(&self) -> ProposalShortIdVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        ProposalShortIdVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn extension(&self) -> Bytes {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[28..]) as usize;
+            Bytes::new_unchecked(self.0.slice(start..end))
+        } else {
+            Bytes::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> CompactBlockV1Reader<'r> {
+        CompactBlockV1Reader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for CompactBlockV1 {
+    type Builder = CompactBlockV1Builder;
+    const NAME: &'static str = "CompactBlockV1";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        CompactBlockV1(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        CompactBlockV1Reader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        CompactBlockV1Reader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .header(self.header())
+            .short_ids(self.short_ids())
+            .prefilled_transactions(self.prefilled_transactions())
+            .uncles(self.uncles())
+            .proposals(self.proposals())
+            .extension(self.extension())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct CompactBlockV1Reader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for CompactBlockV1Reader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for CompactBlockV1Reader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for CompactBlockV1Reader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "header", self.header())?;
+        write!(f, ", {}: {}", "short_ids", self.short_ids())?;
+        write!(
+            f,
+            ", {}: {}",
+            "prefilled_transactions",
+            self.prefilled_transactions()
+        )?;
+        write!(f, ", {}: {}", "uncles", self.uncles())?;
+        write!(f, ", {}: {}", "proposals", self.proposals())?;
+        write!(f, ", {}: {}", "extension", self.extension())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> CompactBlockV1Reader<'r> {
+    pub const FIELD_COUNT: usize = 6;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn header(&self) -> HeaderReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        HeaderReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn short_ids(&self) -> ProposalShortIdVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        ProposalShortIdVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn prefilled_transactions(&self) -> IndexTransactionVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        IndexTransactionVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn uncles(&self) -> Byte32VecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn proposals(&self) -> ProposalShortIdVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
+        ProposalShortIdVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn extension(&self) -> BytesReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[24..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[28..]) as usize;
+            BytesReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            BytesReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for CompactBlockV1Reader<'r> {
+    type Entity = CompactBlockV1;
+    const NAME: &'static str = "CompactBlockV1Reader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        CompactBlockV1Reader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
+            return Ok(());
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        HeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        ProposalShortIdVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        IndexTransactionVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Byte32VecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        ProposalShortIdVecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        BytesReader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct CompactBlockV1Builder {
+    pub(crate) header: Header,
+    pub(crate) short_ids: ProposalShortIdVec,
+    pub(crate) prefilled_transactions: IndexTransactionVec,
+    pub(crate) uncles: Byte32Vec,
+    pub(crate) proposals: ProposalShortIdVec,
+    pub(crate) extension: Bytes,
+}
+impl CompactBlockV1Builder {
+    pub const FIELD_COUNT: usize = 6;
+    pub fn header(mut self, v: Header) -> Self {
+        self.header = v;
+        self
+    }
+    pub fn short_ids(mut self, v: ProposalShortIdVec) -> Self {
+        self.short_ids = v;
+        self
+    }
+    pub fn prefilled_transactions(mut self, v: IndexTransactionVec) -> Self {
+        self.prefilled_transactions = v;
+        self
+    }
+    pub fn uncles(mut self, v: Byte32Vec) -> Self {
+        self.uncles = v;
+        self
+    }
+    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
+        self.proposals = v;
+        self
+    }
+    pub fn extension(mut self, v: Bytes) -> Self {
+        self.extension = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for CompactBlockV1Builder {
+    type Entity = CompactBlockV1;
+    const NAME: &'static str = "CompactBlockV1Builder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.header.as_slice().len()
+            + self.short_ids.as_slice().len()
+            + self.prefilled_transactions.as_slice().len()
+            + self.uncles.as_slice().len()
+            + self.proposals.as_slice().len()
+            + self.extension.as_slice().len()
+    }
+    fn write<W: ::molecule::io::Write>(&self, writer: &mut W) -> ::molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.header.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.short_ids.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.prefilled_transactions.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.uncles.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.proposals.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.extension.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.header.as_slice())?;
+        writer.write_all(self.short_ids.as_slice())?;
+        writer.write_all(self.prefilled_transactions.as_slice())?;
+        writer.write_all(self.uncles.as_slice())?;
+        writer.write_all(self.proposals.as_slice())?;
+        writer.write_all(self.extension.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        CompactBlockV1::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct RelayTransaction(molecule::bytes::Bytes);
 impl ::core::fmt::LowerHex for RelayTransaction {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {

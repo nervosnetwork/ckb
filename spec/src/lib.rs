@@ -563,7 +563,7 @@ impl ChainSpec {
             .parent_hash(self.genesis.parent_hash.pack())
             .timestamp(self.genesis.timestamp.pack())
             .compact_target(self.genesis.compact_target.pack())
-            .uncles_hash(self.genesis.uncles_hash.pack())
+            .extra_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
             .nonce(u128::from_le_bytes(self.genesis.nonce.to_le_bytes()).pack())
             .transaction(cellbase_transaction)
