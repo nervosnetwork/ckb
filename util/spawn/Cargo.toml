@@ -1,6 +1,6 @@
 [package]
 name = "ckb-spawn"
-version = "0.42.0-pre"
+version = "0.42.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

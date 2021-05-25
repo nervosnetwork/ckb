@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test"
-version = "0.42.0-pre"
+version = "0.42.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,25 +11,25 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 clap = { version = "2" }
 toml = "0.5.0"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.42.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.42.0-pre" }
-ckb-network = { path = "../network", version = "= 0.42.0-pre" }
-ckb-channel = { path = "../util/channel", version = "= 0.42.0-pre" }
-ckb-types = { path = "../util/types", version = "= 0.42.0-pre" }
-ckb-hash = { path = "../util/hash", version = "= 0.42.0-pre" }
-ckb-util = { path = "../util", version = "= 0.42.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.42.0-pre" }
-ckb-crypto = { path = "../util/crypto", version = "= 0.42.0-pre" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.42.0-pre" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.42.0-pre" }
-ckb-resource = { path = "../resource", version = "= 0.42.0-pre" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.42.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.42.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.42.0-pre" }
-ckb-logger-config = { path = "../util/logger-config", version = "= 0.42.0-pre" }
-ckb-logger-service = { path = "../util/logger-service", version = "= 0.42.0-pre" }
-ckb-error = { path = "../error", version = "= 0.42.0-pre" }
-ckb-constant = { path = "../util/constant", version = "= 0.42.0-pre" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.42.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.42.0" }
+ckb-network = { path = "../network", version = "= 0.42.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.42.0" }
+ckb-types = { path = "../util/types", version = "= 0.42.0" }
+ckb-hash = { path = "../util/hash", version = "= 0.42.0" }
+ckb-util = { path = "../util", version = "= 0.42.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.42.0" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.42.0" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.42.0" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.42.0" }
+ckb-resource = { path = "../resource", version = "= 0.42.0" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.42.0" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.42.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.42.0" }
+ckb-logger-config = { path = "../util/logger-config", version = "= 0.42.0" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.42.0" }
+ckb-error = { path = "../error", version = "= 0.42.0" }
+ckb-constant = { path = "../util/constant", version = "= 0.42.0" }
 tempfile = "3.0"
 reqwest = { version = "0.10.9", features = ["blocking", "json"] }
 rand = "0.7"
