@@ -1,3 +1,39 @@
+# [v0.42.0](https://github.com/nervosnetwork/ckb/compare/v0.41.0...v0.42.0) (2021-05-25)
+
+### Features
+
+* #2633: Make reuse port configurable (@driftluo)
+* #2635: Remove deprecated rpc `get_peers_state` (@quake)
+* #2628: Fix download scheduler (@driftluo)
+
+    1. disable penalty when download nodes are scarce
+    2. allow the protection node to be disconnected due to sync judgment
+
+### Bug Fixes
+
+* #2620: The arc of timestamp in tx-pool controller become incorrect after clean (@yangby-cryptape)
+
+* #2629: Readonly for migrate check (@zhangsoledad)
+
+    * Perform migration check with read-only mode to prevent automatically create columns breaking compatibility
+    * Fix the error message is displayed incorrectly while performing the migration
+
+### Improvements
+
+* #2603: Split contextual block verification to a new crate (@quake)
+
+    This PR split contextual block verification to a new crate, eliminates verification crate dependency on `ckb_store`, and simplifies code: `BlockMedianTimeContext`, `HeaderResolverWrapper` and `VerifierResolver` are removed.
+
+* #2613: Introduce launcher (@zhangsoledad)
+
+    This PR mainly simplified the launch code.
+
+* #2634: Rewrite tx-pool (@zhangsoledad)
+
+    The existing tx-pool code has many potential issues, the PR focus those issue fix.
+
+* #2640: Replace `get_cellbase_output_capacity_details` with `get_block_economic_state` in test (@keroro520)
+
 # [v0.41.0](https://github.com/nervosnetwork/ckb/compare/v0.40.0...v0.41.0) (2021-04-13)
 
 ### Features
