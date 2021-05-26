@@ -117,9 +117,9 @@ impl Signature {
 impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Signature")
-            .field("r", &hex_string(&self.0[0..32]).expect("hex string"))
-            .field("s", &hex_string(&self.0[32..64]).expect("hex string"))
-            .field("v", &hex_string(&self.0[64..65]).expect("hex string"))
+            .field("r", &hex_string(&self.0[0..32]))
+            .field("s", &hex_string(&self.0[32..64]))
+            .field("v", &hex_string(&self.0[64..65]))
             .finish()
     }
 }

@@ -1,7 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.7.0
+MOLC_VERSION := 0.7.1
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
@@ -172,12 +172,15 @@ gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
 
+.PHONY: ${GEN_MOL_OUT_DIR}/blockchain.rs
 ${GEN_MOL_OUT_DIR}/blockchain.rs: ${GEN_MOL_IN_DIR}/blockchain.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
+.PHONY: ${GEN_MOL_OUT_DIR}/extensions.rs
 ${GEN_MOL_OUT_DIR}/extensions.rs: ${GEN_MOL_IN_DIR}/extensions.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
+.PHONY: ${GEN_MOL_OUT_DIR}/protocols.rs
 ${GEN_MOL_OUT_DIR}/protocols.rs: ${GEN_MOL_IN_DIR}/protocols.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
