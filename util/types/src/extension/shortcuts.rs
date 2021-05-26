@@ -288,3 +288,10 @@ impl packed::CompactBlock {
             .collect()
     }
 }
+
+impl AsRef<[u8]> for packed::TransactionKey {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
