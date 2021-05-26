@@ -201,7 +201,7 @@ mod tests {
         prelude::*,
         H256,
     };
-    use ckb_vm::{SupportMachine, machine::DefaultCoreMachine};
+    use ckb_vm::{machine::DefaultCoreMachine, SupportMachine};
     use ckb_vm::{
         machine::{VERSION0, VERSION1},
         memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
@@ -1538,5 +1538,4 @@ mod tests {
         assert_eq!(result.unwrap(), true);
         assert_eq!(machine.registers()[A0], 100);
     }
-
 }

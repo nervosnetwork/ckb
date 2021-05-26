@@ -98,6 +98,7 @@ pub fn instruction_cycles(i: Instruction) -> u64 {
         // MOP
         insts::OP_WIDE_MUL => 5,
         insts::OP_WIDE_MULU => 5,
+        insts::OP_WIDE_MULSU => 5,
         insts::OP_WIDE_DIV => 32,
         insts::OP_WIDE_DIVU => 32,
         insts::OP_FAR_JUMP_REL => 3,

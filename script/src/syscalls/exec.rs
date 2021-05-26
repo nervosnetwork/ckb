@@ -2,9 +2,10 @@ use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, WRONG_FORMAT};
 use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::CellMeta;
+use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
 use ckb_vm::Memory;
 use ckb_vm::{
-    registers::{A0, A1, A2, A3, A7},
+    registers::{A0, A1, A2, A3, A4, A5, A7},
     Bytes, Error as VMError, Register, SupportMachine, Syscalls,
 };
 use ckb_vm::{DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY};
@@ -17,6 +18,7 @@ pub struct Exec<'a, DL> {
     resolved_cell_deps: &'a [CellMeta],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
+    witnesses: BytesVec,
 }
 
 impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
@@ -27,6 +29,7 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
         resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
+        witnesses: BytesVec,
     ) -> Exec<'a, DL> {
         Exec {
             data_loader,
@@ -35,6 +38,7 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
             resolved_cell_deps,
             group_inputs,
             group_outputs,
+            witnesses,
         }
     }
 
@@ -66,6 +70,22 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
                 .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
+        }
+    }
+
+    fn fetch_witness(&self, source: Source, index: usize) -> Option<PackedBytes> {
+        match source {
+            Source::Group(SourceEntry::Input) => self
+                .group_inputs
+                .get(index)
+                .and_then(|actual_index| self.witnesses.get(*actual_index)),
+            Source::Group(SourceEntry::Output) => self
+                .group_outputs
+                .get(index)
+                .and_then(|actual_index| self.witnesses.get(*actual_index)),
+            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
+            Source::Transaction(SourceEntry::Output) => self.witnesses.get(index),
+            _ => None,
         }
     }
 }
@@ -101,19 +121,40 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
 
         let index = machine.registers()[A0].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A1].to_u64())?;
-        let cell = self.fetch_cell(source, index as usize);
-        if let Err(err) = cell {
-            machine.set_register(A0, Mac::REG::from_u8(err));
-            return Ok(false);
-        }
-        let cell = cell.unwrap();
-        let data = self
-            .data_loader
-            .load_cell_data(cell)
-            .ok_or(VMError::Unexpected)?;
+        let place = machine.registers()[A2].to_u64();
+        let bounds = machine.registers()[A3].to_u64();
+        let offset = bounds as usize >> 32;
+        let length = bounds as u32 as usize;
 
-        let argc = machine.registers()[A2].to_u64();
-        let mut addr = machine.registers()[A3].to_u64();
+        let data = if place == 0 {
+            let cell = self.fetch_cell(source, index as usize);
+            if let Err(err) = cell {
+                machine.set_register(A0, Mac::REG::from_u8(err));
+                return Ok(false);
+            }
+            let cell = cell.unwrap();
+            let data = self
+                .data_loader
+                .load_cell_data(cell)
+                .ok_or(VMError::Unexpected)?;
+            data
+        } else {
+            let witness = self.fetch_witness(source, index as usize);
+            if witness.is_none() {
+                machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
+                return Ok(true);
+            }
+            let witness = witness.unwrap();
+            let data = witness.raw_data();
+            data
+        };
+        let data = if length == 0 {
+            data.slice(offset..data.len())
+        } else {
+            data.slice(offset..offset + length)
+        };
+        let argc = machine.registers()[A4].to_u64();
+        let mut addr = machine.registers()[A5].to_u64();
         let mut argv = Vec::new();
         for _ in 0..argc {
             let target_addr = machine

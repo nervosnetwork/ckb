@@ -21,8 +21,6 @@ static inline long __internal_syscall(long n, long _a0, long _a1, long _a2,
 int main() {
     int argc = 3;
     char *argv[] = {"a", "b", "c"};
-
-    syscall(2043, 1, 3, argc, argv, 0, 0);
-
+    syscall(2043, 0, 1, 1, 0, argc, argv);
     return -1;
 }

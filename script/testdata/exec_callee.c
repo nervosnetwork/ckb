@@ -12,10 +12,4 @@ int main(int argc, char* argv[]) {
     return 4;
   }
   return 0;
-
-    // int sum = 0;
-    // for (int i = 0; i < argc; i++) {
-    //   sum += strlen(argv[i]);
-    // }
-    // return sum;
 }
