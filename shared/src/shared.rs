@@ -70,7 +70,7 @@ pub struct Shared {
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
-    pub(crate) relay_tx_sender: Sender<(PeerIndex, Byte32)>,
+    pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, Byte32)>,
 }
 
 impl Shared {
@@ -425,13 +425,6 @@ impl Shared {
         } else {
             self.ibd_finished.store(true, Ordering::Relaxed);
             false
-        }
-    }
-
-    /// Send tx id to relay channel
-    pub fn relay_tx(&self, peer: PeerIndex, hash: Byte32) {
-        if let Err(e) = self.relay_tx_sender.send((peer, hash)) {
-            ckb_logger::error!("relay_tx error {}", e);
         }
     }
 }

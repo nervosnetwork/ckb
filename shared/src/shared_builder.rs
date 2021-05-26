@@ -181,7 +181,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     table: Option<ProposalTable>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<(PeerIndex, Byte32)>>,
+    relay_tx_receiver: Option<Receiver<(Option<PeerIndex>, Byte32)>>,
 }
 
 impl SharedPackage {
@@ -196,7 +196,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(PeerIndex, Byte32)> {
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(Option<PeerIndex>, Byte32)> {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")

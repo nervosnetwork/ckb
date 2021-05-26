@@ -445,14 +445,11 @@ impl TxPoolService {
         ret: &Result<CacheEntry, Reject>,
     ) {
         let tx_hash = tx.hash();
-        let is_remote = remote.is_some();
-
-        if is_remote {
-            let (declared_cycle, peer) = remote.unwrap();
-            match ret {
+        match remote {
+            Some((declared_cycle, peer)) => match ret {
                 Ok(verified) => {
                     if declared_cycle == verified.cycles {
-                        self.broadcast_tx(peer, tx_hash);
+                        self.broadcast_tx(Some(peer), tx_hash);
                         self.process_orphan_tx(&tx).await;
                     } else {
                         warn!(
@@ -475,9 +472,22 @@ impl TxPoolService {
                         self.ban_malformed(peer, format!("reject {}", reject));
                     }
                 }
+            },
+            None => {
+                match ret {
+                    Ok(_verified) => {
+                        self.broadcast_tx(None, tx_hash);
+                        self.process_orphan_tx(&tx).await;
+                    }
+                    Err(Reject::Duplicated(_)) => {
+                        // re-broadcast tx when it's duplicated and submitted through local rpc
+                        self.broadcast_tx(None, tx_hash);
+                    }
+                    Err(_err) => {
+                        // ignore
+                    }
+                }
             }
-        } else if ret.is_ok() {
-            self.process_orphan_tx(&tx).await;
         }
     }
 
@@ -509,7 +519,7 @@ impl TxPoolService {
                 match self._process_tx(orphan.tx.clone(), None).await {
                     Ok(_) => {
                         self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                        self.broadcast_tx(orphan.peer, orphan.tx.hash());
+                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash());
                         orphan_queue.push_back(orphan.tx);
                     }
                     Err(reject) => {
@@ -532,7 +542,7 @@ impl TxPoolService {
             .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
     }
 
-    pub(crate) fn broadcast_tx(&self, origin: PeerIndex, tx_hash: Byte32) {
+    pub(crate) fn broadcast_tx(&self, origin: Option<PeerIndex>, tx_hash: Byte32) {
         if let Err(e) = self.tx_relay_sender.send((origin, tx_hash)) {
             error!("tx-pool broadcast_tx internal error {}", e);
         }

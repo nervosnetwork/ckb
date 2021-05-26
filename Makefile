@@ -7,6 +7,7 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
+CARGO_TARGET_DIR ?= "../target"
 
 ##@ Testing
 .PHONY: test
@@ -27,7 +28,7 @@ wasm-build-test: ## Build core packages for wasm target
 .PHONY: setup-ckb-test
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
-	rm -rf test/target && ln -snf ../target/ test/target
+	rm -rf test/target && ln -snf ${CARGO_TARGET_DIR} test/target
 
 .PHONY: submodule-init
 submodule-init:
@@ -36,11 +37,11 @@ submodule-init:
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build --features deadlock_detection
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
 .PHONY: doc

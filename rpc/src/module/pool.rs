@@ -2,10 +2,8 @@ use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
 use ckb_logger::error;
-use ckb_network::PeerIndex;
 use ckb_script::IllTransactionChecker;
 use ckb_shared::shared::Shared;
-use ckb_tx_pool::error::Reject;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
@@ -277,24 +275,11 @@ impl PoolRpc for PoolRpcImpl {
             return Err(RPCError::ckb_internal_error(e));
         }
 
-        let broadcast = |tx_hash: packed::Byte32| {
-            // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
-            let peer_index = PeerIndex::new(usize::max_value());
-            self.shared.relay_tx(peer_index, tx_hash);
-        };
         let tx_hash = tx.hash();
         match submit_tx.unwrap() {
-            Ok(_) => {
-                broadcast(tx_hash.clone());
-                Ok(tx_hash.unpack())
-            }
+            Ok(_) => Ok(tx_hash.unpack()),
             Err(e) => match RPCError::downcast_submit_transaction_reject(&e) {
-                Some(reject) => {
-                    if let Reject::Duplicated(_) = reject {
-                        broadcast(tx_hash);
-                    }
-                    Err(RPCError::from_submit_transaction_reject(reject))
-                }
+                Some(reject) => Err(RPCError::from_submit_transaction_reject(reject)),
                 None => Err(RPCError::from_ckb_error(e)),
             },
         }

@@ -288,7 +288,7 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<(PeerIndex, Byte32)>,
+        relay_tx_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
