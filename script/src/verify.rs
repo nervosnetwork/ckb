@@ -300,25 +300,22 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
-            let cycle = self.verify_script_group(group, max_cycles).map_err(|e| {
-                #[cfg(feature = "logging")]
-                info!(
-                    "Error validating script group {} of transaction {}: {}",
-                    group.script.calc_script_hash(),
-                    self.hash(),
-                    e
-                );
-                e.source(group)
-            })?;
-            let current_cycles = cycles
+            // max_cycles must reduce by each group exec
+            let cycle = self
+                .verify_script_group(group, max_cycles - cycles)
+                .map_err(|e| {
+                    #[cfg(feature = "logging")]
+                    info!(
+                        "Error validating script group {} of transaction {}: {}",
+                        group.script.calc_script_hash(),
+                        self.hash(),
+                        e
+                    );
+                    e.source(group)
+                })?;
+            cycles = cycles
                 .checked_add(cycle)
                 .ok_or_else(|| ScriptError::ExceededMaximumCycles(max_cycles).source(group))?;
-            if current_cycles > max_cycles {
-                return Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                    .source(group)
-                    .into());
-            }
-            cycles = current_cycles;
         }
         Ok(cycles)
     }
@@ -1279,9 +1276,11 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
 
+        // two groups need exec, so cycles not TYPE_ID_CYCLES - 1
         assert_error_eq!(
             verifier.verify(TYPE_ID_CYCLES - 1).unwrap_err(),
-            ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - 1).input_type_script(0),
+            ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
+                .input_type_script(0),
         );
     }
 
