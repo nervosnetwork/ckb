@@ -144,18 +144,21 @@ fn test_block_cells_update() {
     for tx in block.transactions()[1..4].iter() {
         for pt in tx.output_pts() {
             // full spent
-            assert_eq!(txn_cell_provider.cell(&pt, false), CellStatus::Unknown);
+            assert_eq!(
+                txn_cell_provider.cell(&pt, false, false),
+                CellStatus::Unknown
+            );
         }
     }
 
     // ensure tx3 outputs is unspent after attach_block_cell
     for pt in block.transactions()[4].output_pts() {
-        assert!(txn_cell_provider.cell(&pt, false).is_live());
+        assert!(txn_cell_provider.cell(&pt, false, false).is_live());
     }
 
     // ensure issue_tx outputs is spent after attach_block_cell
     assert_eq!(
-        txn_cell_provider.cell(&issue_tx.output_pts()[0], false),
+        txn_cell_provider.cell(&issue_tx.output_pts()[0], false, false),
         CellStatus::Unknown
     );
 
@@ -164,12 +167,15 @@ fn test_block_cells_update() {
     // ensure tx0-3 outputs is unknown after detach_block_cell
     for tx in block.transactions()[1..=4].iter() {
         for pt in tx.output_pts() {
-            assert_eq!(txn_cell_provider.cell(&pt, false), CellStatus::Unknown);
+            assert_eq!(
+                txn_cell_provider.cell(&pt, false, false),
+                CellStatus::Unknown
+            );
         }
     }
 
     // ensure issue_tx outputs is back to live after detach_block_cell
     assert!(txn_cell_provider
-        .cell(&issue_tx.output_pts()[0], false)
+        .cell(&issue_tx.output_pts()[0], false, false)
         .is_live());
 }

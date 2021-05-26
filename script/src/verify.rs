@@ -240,6 +240,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
+        allow_cell_data_hash_in_txpool: bool,
     ) -> LoadCell<'a, DL> {
         LoadCell::new(
             &self.data_loader,
@@ -248,6 +249,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             self.resolved_cell_deps(),
             group_inputs,
             group_outputs,
+            allow_cell_data_hash_in_txpool,
         )
     }
 
@@ -428,12 +430,20 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         script_group: &'a ScriptGroup,
     ) -> Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> {
         let current_script_hash = script_group.script.calc_script_hash();
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let allow_cell_data_hash_in_txpool = self
+            .consensus
+            .hardfork_switch()
+            .is_allow_cell_data_hash_in_txpool_enabled(epoch_number);
         vec![
             Box::new(self.build_load_script_hash(current_script_hash.clone())),
             Box::new(self.build_load_tx()),
-            Box::new(
-                self.build_load_cell(&script_group.input_indices, &script_group.output_indices),
-            ),
+            Box::new(self.build_load_cell(
+                &script_group.input_indices,
+                &script_group.output_indices,
+                allow_cell_data_hash_in_txpool,
+            )),
             Box::new(self.build_load_input(&script_group.input_indices)),
             Box::new(self.build_load_header(&script_group.input_indices)),
             Box::new(

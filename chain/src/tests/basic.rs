@@ -115,7 +115,7 @@ fn test_genesis_transaction_spend() {
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(genesis_tx_hash, 0), false),
+            .cell(&OutPoint::new(genesis_tx_hash, 0), false, false),
         CellStatus::Unknown
     );
 }
@@ -142,7 +142,7 @@ fn test_transaction_spend_in_same_block() {
         assert_eq!(
             shared
                 .snapshot()
-                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0), false),
+                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0), false, false),
             CellStatus::Unknown
         );
     }
@@ -171,12 +171,14 @@ fn test_transaction_spend_in_same_block() {
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(last_cellbase_hash, 0), false),
+            .cell(&OutPoint::new(last_cellbase_hash, 0), false, false),
         CellStatus::Unknown
     );
 
     assert_eq!(
-        shared.snapshot().cell(&OutPoint::new(tx1_hash, 0), false),
+        shared
+            .snapshot()
+            .cell(&OutPoint::new(tx1_hash, 0), false, false),
         CellStatus::Unknown
     );
 
@@ -189,7 +191,7 @@ fn test_transaction_spend_in_same_block() {
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(tx2_hash.clone(), 0), false),
+            .cell(&OutPoint::new(tx2_hash.clone(), 0), false, false),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
             data_bytes: tx2_output_data.len() as u64,
@@ -375,7 +377,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new(root_hash, 0);
-    let state = shared.snapshot().cell(&out_point, false);
+    let state = shared.snapshot().cell(&out_point, false, false);
     assert!(state.is_live());
 }
 

@@ -98,6 +98,7 @@ pub struct HardForkSwitch {
     rfc_pr_0222: EpochNumber,
     rfc_pr_0223: EpochNumber,
     rfc_pr_0224: EpochNumber,
+    rfc_pr_0228: EpochNumber,
     rfc_pr_0230: EpochNumber,
 }
 
@@ -125,6 +126,11 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0224: Option<EpochNumber>,
+    /// Let the syscall `load_cell_data_hash` return correct data hash
+    /// for cells which are still in the tx pool and not committed yet.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0228: Option<EpochNumber>,
     /// Allow unknown block versions and transactions versions.
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
@@ -144,6 +150,7 @@ impl HardForkSwitch {
             .rfc_pr_0222(self.rfc_pr_0222())
             .rfc_pr_0223(self.rfc_pr_0223())
             .rfc_pr_0224(self.rfc_pr_0224())
+            .rfc_pr_0228(self.rfc_pr_0228())
             .rfc_pr_0230(self.rfc_pr_0230())
     }
 
@@ -155,6 +162,7 @@ impl HardForkSwitch {
             .disable_rfc_pr_0222()
             .disable_rfc_pr_0223()
             .disable_rfc_pr_0224()
+            .disable_rfc_pr_0228()
             .disable_rfc_pr_0230()
             .build()
             .unwrap()
@@ -190,6 +198,13 @@ define_methods!(
     "RFC PR 0224"
 );
 define_methods!(
+    rfc_pr_0228,
+    allow_cell_data_hash_in_txpool,
+    is_allow_cell_data_hash_in_txpool_enabled,
+    disable_rfc_pr_0228,
+    "RFC PR 0228"
+);
+define_methods!(
     rfc_pr_0230,
     allow_unknown_versions,
     is_allow_unknown_versions_enabled,
@@ -216,12 +231,14 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0222 = try_find!(rfc_pr_0222);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
         let rfc_pr_0224 = try_find!(rfc_pr_0224);
+        let rfc_pr_0228 = try_find!(rfc_pr_0228);
         let rfc_pr_0230 = try_find!(rfc_pr_0230);
         Ok(HardForkSwitch {
             rfc_pr_0221,
             rfc_pr_0222,
             rfc_pr_0223,
             rfc_pr_0224,
+            rfc_pr_0228,
             rfc_pr_0230,
         })
     }

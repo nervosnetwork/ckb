@@ -4,12 +4,13 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_test_chain_utils::load_input_data_hash_cell;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, Capacity, EpochNumberWithFraction,
+        TransactionBuilder, TransactionView,
     },
     packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
     utilities::DIFF_TWO,
@@ -48,7 +49,8 @@ pub(crate) fn create_load_input_data_hash_transaction(
         .build()
 }
 
-// Ensure tx-pool accept tx which calls syscall load_cell_data_hash from input
+// Ensure tx-pool reject or accept tx which calls syscall load_cell_data_hash from input base on
+// hardfork features.
 #[test]
 fn test_load_input_data_hash_cell() {
     let (_, _, load_input_data_hash_script) = load_input_data_hash_cell();
@@ -74,20 +76,57 @@ fn test_load_input_data_hash_cell() {
         .dao(dao)
         .build();
 
-    let consensus = ConsensusBuilder::default()
-        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
-        .genesis_block(genesis_block)
-        .build();
+    {
+        // Test CKB v2019 reject
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
+            .genesis_block(genesis_block.clone())
+            .hardfork_switch(hardfork_switch)
+            .build();
 
-    let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
+        let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
-    let tx0 = create_load_input_data_hash_transaction(&issue_tx, 0);
-    let tx1 = create_load_input_data_hash_transaction(&tx0, 0);
+        let tx0 = create_load_input_data_hash_transaction(&issue_tx, 0);
+        let tx1 = create_load_input_data_hash_transaction(&tx0, 0);
 
-    let tx_pool = shared.tx_pool_controller();
-    let ret = tx_pool.submit_local_tx(tx0).unwrap();
-    assert!(ret.is_ok());
+        let tx_pool = shared.tx_pool_controller();
+        let ret = tx_pool.submit_local_tx(tx0.clone()).unwrap();
+        assert!(ret.is_err());
+        //ValidationFailure(2) missing item
+        assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
 
-    let ret = tx_pool.submit_local_tx(tx1).unwrap();
-    assert!(ret.is_ok());
+        let entry0 = vec![TxEntry::dummy_resolve(tx0, 0, Capacity::shannons(0), 100)];
+        tx_pool.plug_entry(entry0, PlugTarget::Proposed).unwrap();
+
+        // Ensure tx which calls syscall load_cell_data_hash will got reject even previous tx is already in tx-pool
+        let ret = tx_pool.submit_local_tx(tx1).unwrap();
+        assert!(ret.is_err());
+        assert!(format!("{}", ret.err().unwrap()).contains("ValidationFailure(2)"));
+    }
+    {
+        // Test CKB v2021 accept
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0228(0)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
+            .genesis_block(genesis_block)
+            .hardfork_switch(hardfork_switch)
+            .build();
+
+        let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
+
+        let tx0 = create_load_input_data_hash_transaction(&issue_tx, 0);
+        let tx1 = create_load_input_data_hash_transaction(&tx0, 0);
+
+        let tx_pool = shared.tx_pool_controller();
+        let ret = tx_pool.submit_local_tx(tx0).unwrap();
+        assert!(ret.is_ok());
+
+        let ret = tx_pool.submit_local_tx(tx1).unwrap();
+        assert!(ret.is_ok());
+    }
 }
