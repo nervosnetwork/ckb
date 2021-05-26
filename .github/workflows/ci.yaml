@@ -1,8 +1,16 @@
-name: Pull Requests
+name: CI workflow
 
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - "develop"
+      - "master"
+      - "trying"
+      - "staging"
+      - "staging2"
+      - "rc/*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,7 +20,7 @@ env:
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
-  Unit_Test:
+  UnitTest:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -33,6 +41,7 @@ jobs:
       run: ${{ matrix.script_run }}
     env:
       CI: ${{ matrix.CI }}
+      SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
       ImageOS:  ${{ matrix.ImageOS }}
 
   Integration_Test:
@@ -42,9 +51,9 @@ jobs:
         os: [Linux-runner, mac-runner,win-runner]
         include:
           - os: Linux-runner
-            script_run: make integration
+            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
           - os:  mac-runner
-            script_run: make integration
+            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
           - os: win-runner
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             CI: true
@@ -57,7 +66,21 @@ jobs:
       CI: ${{ matrix.CI }}
       SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
 
+  Benchmarks_Test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner, mac-runner]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Benchmarks_Test
+      run: |
+        make bench-test
+
   Linters:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -73,6 +96,9 @@ jobs:
          git diff --exit-code Cargo.lock
 
   Latest_Linters:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -97,6 +123,9 @@ jobs:
         mv rust-toolchain.bak rust-toolchain
 
   Quick_Check:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -113,6 +142,9 @@ jobs:
         devtools/ci/check-cyclic-dependencies.py
 
   Cyclic_dev_dependencies:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -126,6 +158,9 @@ jobs:
         devtools/ci/check-cyclic-dependencies.py --dev
 
   Security_Audit_Licenses:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -142,6 +177,9 @@ jobs:
         make check-licenses
 
   WASM_build:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -154,3 +192,21 @@ jobs:
         export PATH=/usr/lib/llvm-8/bin:$PATH
         rustup target add wasm32-unknown-unknown
         make wasm-build-test
+
+  ci-success:
+    name: ci
+    needs:
+      - UnitTest
+      - Linters
+      - Latest_Linters
+      - Quick_Check
+      - Security_Audit_Licenses
+      - WASM_build
+      - Benchmarks_Test
+      - Integration_Test
+    if: |
+       contains('bors[bot]', github.actor) && success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: CI succeeded
+        run: exit 0
