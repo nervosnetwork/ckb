@@ -8,7 +8,7 @@ use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{self, cell::CellProvider},
     packed::{self, Block, Header},
@@ -892,7 +892,8 @@ pub trait ChainRpc {
     /// ## Returns
     ///
     /// If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
-    /// its rewards have been finalized, return the block rewards analysis for this block.
+    /// its rewards have been finalized, return the block rewards analysis for this block. A special
+    /// case is that the return value for genesis block is null.
     ///
     /// ## Examples
     ///
@@ -1710,7 +1711,10 @@ impl ChainRpc for ChainRpcImpl {
             return Ok(None);
         }
 
-        let median_time = snapshot.block_median_time(&block_hash);
+        let median_time = snapshot.block_median_time(
+            &block_hash,
+            self.shared.consensus().median_time_block_count(),
+        );
         Ok(Some(median_time.into()))
     }
 }

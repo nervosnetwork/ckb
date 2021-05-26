@@ -26,7 +26,7 @@ pub use crate::{
     network::{DefaultExitHandler, ExitHandler, NetworkController, NetworkService, NetworkState},
     peer::{Peer, PeerIdentifyInfo},
     peer_registry::PeerRegistry,
-    peer_store::{types::MultiaddrExt, Score},
+    peer_store::Score,
     protocols::{
         support_protocols::SupportProtocols, CKBProtocol, CKBProtocolContext, CKBProtocolHandler,
         PeerIndex,
@@ -37,6 +37,7 @@ pub use p2p::{
     secio::{PeerId, PublicKey},
     service::{BlockingFlag, ServiceControl, SessionType, TargetSession},
     traits::ServiceProtocol,
+    utils::{extract_peer_id, multiaddr_to_socketaddr},
     ProtocolId,
 };
 pub use tokio;

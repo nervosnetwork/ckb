@@ -1,13 +1,12 @@
 use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, BlockVersionError, CellbaseError,
     CommitError, EpochError, HeaderError, HeaderErrorKind, InvalidParentError, NumberError,
-    PowError, TimestampError, TransactionError, UnclesError, UnknownParentError,
+    PowError, TimestampError, UnclesError, UnknownParentError,
 };
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, ErrorKind,
 };
 
-impl_error_conversion_with_kind!(TransactionError, ErrorKind::Transaction, Error);
 impl_error_conversion_with_kind!(HeaderError, ErrorKind::Header, Error);
 impl_error_conversion_with_kind!(BlockError, ErrorKind::Block, Error);
 

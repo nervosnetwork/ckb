@@ -113,7 +113,7 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_error_eq!(
-        OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 0)]),
+        OutPointError::Unknown(OutPoint::new(tx1_hash, 0)),
         chain_controller
             .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
@@ -169,7 +169,7 @@ fn test_invalid_out_point_index_in_same_block() {
     }
 
     assert_error_eq!(
-        OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
+        OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
             .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
@@ -226,7 +226,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_error_eq!(
-        OutPointError::Unknown(vec![OutPoint::new(tx1_hash, 1)]),
+        OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
             .internal_process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),

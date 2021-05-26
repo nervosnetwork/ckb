@@ -1,7 +1,6 @@
 use ckb_types::{H256, U256};
-use multiaddr::{Multiaddr, Protocol};
+use multiaddr::Multiaddr;
 use rand::Rng;
-use secio::{self, PeerId};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -33,6 +32,9 @@ pub struct Config {
     /// Whether to probe and store local addresses.
     #[serde(default)]
     pub discovery_local_address: bool,
+    /// The interval between discovery announce message checking.
+    #[serde(default)]
+    pub discovery_announce_check_interval_secs: Option<u64>,
     /// Interval between pings in seconds.
     ///
     /// A node pings peer regularly to see whether the connection is alive.
@@ -70,6 +72,9 @@ pub struct Config {
     pub bootnode_mode: bool,
     /// Max send buffer size in bytes.
     pub max_send_buffer: Option<usize>,
+    /// Network use reuse port or not
+    #[serde(default = "default_reuse")]
+    pub reuse: bool,
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
@@ -241,52 +246,13 @@ impl Config {
     }
 
     /// Gets the list of whitelist peers.
-    ///
-    /// ## Error
-    ///
-    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
-    pub fn whitelist_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.whitelist_peers.len());
-        for addr_str in &self.whitelist_peers {
-            let mut addr = addr_str.to_owned();
-            let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec()).map_err(|_| {
-                    Error::new(ErrorKind::InvalidData, "invalid whitelist peers config")
-                })?,
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "invalid whitelist peers config",
-                    ))
-                }
-            };
-            peers.push((peer_id, addr))
-        }
-        Ok(peers)
+    pub fn whitelist_peers(&self) -> Vec<Multiaddr> {
+        self.whitelist_peers.clone()
     }
 
     /// Gets a list of bootnodes.
-    ///
-    /// ## Error
-    ///
-    /// Returns `ErrorKind::InvalidData` when the peer addresses in the config file are invalid.
-    pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.bootnodes.len());
-        for addr_str in &self.bootnodes {
-            let mut addr = addr_str.to_owned();
-            let peer_id = match addr.pop() {
-                Some(Protocol::P2P(key)) => PeerId::from_bytes(key.to_vec())
-                    .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid bootnodes config"))?,
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "invalid bootnodes config",
-                    ))
-                }
-            };
-            peers.push((peer_id, addr));
-        }
-        Ok(peers)
+    pub fn bootnodes(&self) -> Vec<Multiaddr> {
+        self.bootnodes.clone()
     }
 
     /// Checks whether the outbound peer service should be enabled.
@@ -298,4 +264,10 @@ impl Config {
     pub fn dns_seeding_service_enabled(&self) -> bool {
         !self.dns_seeds.is_empty()
     }
+}
+
+/// By default, using reuse port can make any outbound connection of the node become a potential
+/// listen address, which will help the robustness of our network
+const fn default_reuse() -> bool {
+    true
 }

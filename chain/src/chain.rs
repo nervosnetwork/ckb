@@ -19,10 +19,8 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
     U256,
 };
-use ckb_verification::{
-    BlockVerifier, ContextualBlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier,
-    VerifyContext,
-};
+use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
+use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
 use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};

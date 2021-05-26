@@ -5,52 +5,48 @@ use crate::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_traits::HeaderProvider;
 use ckb_types::core::{HeaderView, Version};
 use ckb_verification_traits::Verifier;
 use faketime::unix_time_as_millis;
-use std::marker::PhantomData;
-
-/// Context abstract trait for HeaderVerifier
-pub trait HeaderResolver {
-    /// Header self for check
-    fn header(&self) -> &HeaderView;
-    /// Provide previous header
-    fn parent(&self) -> Option<&HeaderView>;
-}
 
 /// Context-dependent verification checks for block header
 ///
 /// By "context", only mean the previous block headers here.
-pub struct HeaderVerifier<'a, T, M> {
-    block_median_time_context: &'a M,
+pub struct HeaderVerifier<'a, DL> {
+    data_loader: &'a DL,
     consensus: &'a Consensus,
-    _phantom: PhantomData<T>,
 }
 
-impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
+impl<'a, DL: HeaderProvider> HeaderVerifier<'a, DL> {
     /// Crate new HeaderVerifier
-    pub fn new(block_median_time_context: &'a M, consensus: &'a Consensus) -> Self {
+    pub fn new(data_loader: &'a DL, consensus: &'a Consensus) -> Self {
         HeaderVerifier {
             consensus,
-            block_median_time_context,
-            _phantom: PhantomData,
+            data_loader,
         }
     }
 }
 
-impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<'a, T, M> {
-    type Target = T;
-    fn verify(&self, target: &T) -> Result<(), Error> {
-        let header = target.header();
+impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
+    type Target = HeaderView;
+    fn verify(&self, header: &Self::Target) -> Result<(), Error> {
         VersionVerifier::new(header, self.consensus.block_version()).verify()?;
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
-        let parent = target.parent().ok_or_else(|| UnknownParentError {
-            parent_hash: header.parent_hash(),
-        })?;
-        NumberVerifier::new(parent, header).verify()?;
-        TimestampVerifier::new(self.block_median_time_context, header).verify()?;
+        let parent = self
+            .data_loader
+            .get_header(&header.parent_hash())
+            .ok_or_else(|| UnknownParentError {
+                parent_hash: header.parent_hash(),
+            })?;
+        NumberVerifier::new(&parent, header).verify()?;
+        TimestampVerifier::new(
+            self.data_loader,
+            header,
+            self.consensus.median_time_block_count(),
+        )
+        .verify()?;
         Ok(())
     }
 }
@@ -80,17 +76,19 @@ impl<'a> VersionVerifier<'a> {
     }
 }
 
-pub struct TimestampVerifier<'a, M> {
+pub struct TimestampVerifier<'a, DL> {
     header: &'a HeaderView,
-    block_median_time_context: &'a M,
+    data_loader: &'a DL,
+    median_block_count: usize,
     now: u64,
 }
 
-impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
-    pub fn new(block_median_time_context: &'a M, header: &'a HeaderView) -> Self {
+impl<'a, DL: HeaderProvider> TimestampVerifier<'a, DL> {
+    pub fn new(data_loader: &'a DL, header: &'a HeaderView, median_block_count: usize) -> Self {
         TimestampVerifier {
-            block_median_time_context,
+            data_loader,
             header,
+            median_block_count,
             now: unix_time_as_millis(),
         }
     }
@@ -101,9 +99,10 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             return Ok(());
         }
 
-        let min = self
-            .block_median_time_context
-            .block_median_time(&self.header.data().raw().parent_hash());
+        let min = self.data_loader.block_median_time(
+            &self.header.data().raw().parent_hash(),
+            self.median_block_count,
+        );
         if self.header.timestamp() <= min {
             return Err(TimestampError::BlockTimeTooOld {
                 min,

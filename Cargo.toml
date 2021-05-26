@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.41.0"
+version = "0.42.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,11 +10,11 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.41.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.42.0" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.41.0" }
-ckb-bin = { path = "ckb-bin", version = "= 0.41.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.42.0" }
+ckb-bin = { path = "ckb-bin", version = "= 0.42.0" }
 
 [dev-dependencies]
 
@@ -74,13 +74,15 @@ members = [
     "util/snapshot",
     "verification/traits",
     "verification",
+    "verification/contextual",
     "tx-pool",
-    "shared/migration-template",
     "shared",
     "chain",
     "sync",
     "util/instrument",
     "rpc",
+    "util/launcher/migration-template",
+    "util/launcher",
     "ckb-bin"
 ]
 

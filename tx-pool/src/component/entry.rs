@@ -1,52 +1,18 @@
 use crate::component::container::AncestorsScoreSortKey;
 use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
+    core::{cell::ResolvedTransaction, tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
-use ckb_verification::cache::CacheEntry;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
-
-/// An defect entry (conflict or orphan) in the transaction pool.
-#[derive(Debug, Clone)]
-pub struct DefectEntry {
-    /// Transaction
-    pub transaction: TransactionView,
-    /// refs count
-    pub refs_count: usize,
-    /// Cycles and fee
-    pub cache_entry: Option<CacheEntry>,
-    /// tx size
-    pub size: usize,
-    // timestamp
-    pub timestamp: u64,
-}
-
-impl DefectEntry {
-    /// Create new transaction pool entry
-    pub fn new(
-        tx: TransactionView,
-        refs_count: usize,
-        cache_entry: Option<CacheEntry>,
-        size: usize,
-    ) -> DefectEntry {
-        DefectEntry {
-            transaction: tx,
-            refs_count,
-            cache_entry,
-            size,
-            timestamp: faketime::unix_time().as_secs(),
-        }
-    }
-}
 
 /// An entry in the transaction pool.
 #[derive(Debug, Clone, Eq)]
 pub struct TxEntry {
     /// Transaction
-    pub transaction: TransactionView,
+    pub rtx: ResolvedTransaction,
     /// Cycles
     pub cycles: Cycle,
     /// tx size
@@ -61,21 +27,13 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
-    /// related out points (cell deps includes cell group itself)
-    pub related_out_points: Vec<OutPoint>,
 }
 
 impl TxEntry {
     /// Create new transaction pool entry
-    pub fn new(
-        tx: TransactionView,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-        related_out_points: Vec<OutPoint>,
-    ) -> Self {
+    pub fn new(rtx: ResolvedTransaction, cycles: Cycle, fee: Capacity, size: usize) -> Self {
         TxEntry {
-            transaction: tx,
+            rtx,
             cycles,
             size,
             fee,
@@ -83,8 +41,28 @@ impl TxEntry {
             ancestors_fee: fee,
             ancestors_cycles: cycles,
             ancestors_count: 1,
-            related_out_points,
         }
+    }
+
+    /// Create dummy entry from tx, skip resolve
+    pub fn dummy_resolve(tx: TransactionView, cycles: Cycle, fee: Capacity, size: usize) -> Self {
+        let rtx = ResolvedTransaction::dummy_resolve(tx);
+        TxEntry::new(rtx, cycles, fee, size)
+    }
+
+    /// Return related dep out_points
+    pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
+        self.rtx.related_dep_out_points()
+    }
+
+    /// Return reference of transaction
+    pub fn transaction(&self) -> &TransactionView {
+        &self.rtx.transaction
+    }
+
+    /// Return proposal_short_id of transaction
+    pub fn proposal_short_id(&self) -> ProposalShortId {
+        self.transaction().proposal_short_id()
     }
 
     /// Returns a sorted_key
@@ -159,7 +137,7 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
         AncestorsScoreSortKey {
             fee: entry.fee,
             vbytes,
-            id: entry.transaction.proposal_short_id(),
+            id: entry.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
             ancestors_size: entry.ancestors_size,
             ancestors_vbytes,
@@ -169,13 +147,13 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
 
 impl Hash for TxEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Hash::hash(&self.transaction, state);
+        Hash::hash(self.transaction(), state);
     }
 }
 
 impl PartialEq for TxEntry {
     fn eq(&self, other: &TxEntry) -> bool {
-        self.transaction == other.transaction
+        self.rtx.transaction == other.rtx.transaction
     }
 }
 
@@ -229,7 +207,7 @@ impl TxModifiedEntries {
 
     pub fn insert(&mut self, entry: TxEntry) {
         let key = AncestorsScoreSortKey::from(&entry);
-        let short_id = entry.transaction.proposal_short_id();
+        let short_id = entry.proposal_short_id();
         self.entries.insert(short_id, entry);
         self.sort_index.insert(key);
     }

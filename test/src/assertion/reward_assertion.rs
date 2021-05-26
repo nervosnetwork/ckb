@@ -1,199 +1,137 @@
 use crate::Node;
-use ckb_types::core::{BlockEconomicState, BlockNumber, BlockReward, Capacity, MinerReward};
-use ckb_types::packed::{Byte32, OutPoint};
+use ckb_types::core::{BlockEconomicState, BlockView, Capacity, Ratio, TransactionView};
+use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_types::prelude::*;
 use std::collections::HashMap;
 
-// Check the proposed-rewards and committed-rewards is correct
-pub fn assert_chain_rewards(node: &Node) {
-    let mut fee_collector = FeeCollector::build(node);
-    let finalization_delay_length = node.consensus().finalization_delay_length();
+pub fn check_fee(node: &Node) {
     let tip_number = node.get_tip_block_number();
-    assert!(tip_number > finalization_delay_length);
+    let finalization_delay_length = node.consensus().finalization_delay_length();
+    let proposer_reward_ratio = node.consensus().proposer_reward_ratio();
+    let mut checker = RewardChecker::new(proposer_reward_ratio);
 
-    for block_number in finalization_delay_length + 1..=tip_number {
+    for block_number in 0..=tip_number {
+        let block = node.get_block_by_number(block_number);
+        checker.apply_new_block(&block);
+
+        if block_number > finalization_delay_length {
+            let early_number = block_number - finalization_delay_length;
+            let early_block = node.get_block_by_number(early_number);
+            let (txs_fee, committed_fee, proposed_fee) = checker.calc_block_fee(&early_block);
+            checker.remove_committed_proposals(&early_block);
+            let economic : BlockEconomicState = node.rpc_client().get_block_economic_state(early_block.hash()).expect("block that is higher than finalization_delay_length should have economic state").into();
+            assert_eq!(txs_fee, economic.txs_fee.as_u64());
+            assert_eq!(proposed_fee, economic.miner_reward.proposal.as_u64());
+            assert_eq!(committed_fee, economic.miner_reward.committed.as_u64());
+        }
+    }
+
+    for block_number in tip_number.saturating_sub(finalization_delay_length - 1)..tip_number {
         let block_hash = node.rpc_client().get_block_hash(block_number).unwrap();
-        let early_number = block_number - finalization_delay_length;
-        let early_block = node.get_block_by_number(early_number);
-        let target_hash = early_block.hash();
-        let txs_fee: u64 = early_block
-            .transactions()
+        let economic = node.rpc_client().get_block_economic_state(block_hash);
+        assert_eq!(None, economic, "block not finalized has not economic state");
+    }
+}
+
+/// RewardChecker calculates the block reward and compare it with the RPC
+/// `get_block_economic_state` response.
+///
+/// A block reward consists:
+///     - for proposing transactions
+///     - for committing transactions
+///     - epoch primary reward
+///     - epoch secondary reward
+///
+/// As for the proposing transactions reward of a block, it has to wait until the block been finalized.
+#[derive(Debug)]
+pub(crate) struct RewardChecker {
+    proposer_reward_ratio: Ratio,
+
+    // #{ cell.out_point() => cell.capacity() }
+    cells_capacity: HashMap<OutPoint, u64>,
+    // #{ transaction.hash() => transaction.fee() }
+    transactions_fee: HashMap<Byte32, u64>,
+    // #{ transaction.proposal_id() => transaction.fee() }
+    proposals_fee: HashMap<ProposalShortId, u64>,
+}
+
+impl RewardChecker {
+    fn new(proposer_reward_ratio: Ratio) -> Self {
+        Self {
+            proposer_reward_ratio,
+            cells_capacity: Default::default(),
+            transactions_fee: Default::default(),
+            proposals_fee: Default::default(),
+        }
+    }
+
+    fn calc_block_fee(&self, block: &BlockView) -> (u64, u64, u64) {
+        let txs = block.transactions();
+        let txs_fee: u64 = txs
             .iter()
-            .map(|tx| fee_collector.peek(tx.hash()))
+            .skip(1)
+            .map(|tx| self.transactions_fee.get(&tx.hash()).unwrap())
             .sum();
-        let proposed_fee: u64 = early_block
-            .union_proposal_ids_iter()
-            .map(|pid| {
-                let fee = fee_collector.remove(pid);
-                Capacity::shannons(fee)
-                    .safe_mul_ratio(node.consensus().proposer_reward_ratio())
-                    .unwrap()
-                    .as_u64()
-            })
-            .sum();
-        let committed_fee: u64 = early_block
-            .transactions()
+        let committed_fee: u64 = txs
             .iter()
             .skip(1)
             .map(|tx| {
-                let fee = fee_collector.remove(tx.hash());
-                fee - Capacity::shannons(fee)
-                    .safe_mul_ratio(node.consensus().proposer_reward_ratio())
-                    .unwrap()
-                    .as_u64()
+                let tx_fee = self.transactions_fee.get(&tx.hash()).unwrap();
+                *tx_fee
+                    - Capacity::shannons(*tx_fee)
+                        .safe_mul_ratio(self.proposer_reward_ratio)
+                        .unwrap()
+                        .as_u64()
             })
             .sum();
-        assert_proposed_reward(node, block_number, &block_hash, proposed_fee);
-        assert_committed_reward(node, block_number, &block_hash, committed_fee);
-        assert_block_reward(
-            node,
-            early_number,
-            &target_hash,
-            Some((block_hash, txs_fee)),
-        );
+        let proposed_fee: u64 = block
+            .union_proposal_ids_iter()
+            .map(|pid| {
+                self.proposals_fee
+                    .get(&pid)
+                    .map(|tx_fee| {
+                        Capacity::shannons(*tx_fee)
+                            .safe_mul_ratio(self.proposer_reward_ratio)
+                            .unwrap()
+                            .as_u64()
+                    })
+                    .unwrap_or(0)
+            })
+            .sum();
+        (txs_fee, committed_fee, proposed_fee)
     }
-    {
-        let target_number = 0;
-        let target_hash = node.get_header_by_number(target_number).hash();
-        assert_block_reward(node, target_number, &target_hash, None);
+
+    // Apply all the block transactions in order
+    fn apply_new_block(&mut self, block: &BlockView) {
+        block
+            .transactions()
+            .iter()
+            .for_each(|tx| self.apply_new_transaction(tx));
     }
-    for target_number in (tip_number - finalization_delay_length + 1)..=tip_number {
-        let target_hash = node.get_header_by_number(target_number).hash();
-        assert_block_reward(node, target_number, &target_hash, None);
-    }
-}
 
-fn assert_block_reward(
-    node: &Node,
-    block_number: BlockNumber,
-    target_hash: &Byte32,
-    ext: Option<(Byte32, u64)>,
-) {
-    let actual = node
-        .rpc_client()
-        .get_block_economic_state(target_hash.clone());
-    if let Some((block_hash, txs_fee)) = ext {
-        assert!(
-            actual.is_some(),
-            "assert_block_reward failed at block[{}]: should not be none",
-            block_number
-        );
-        let actual: BlockEconomicState = actual.unwrap().into();
-        let expected: BlockReward = node
-            .rpc_client()
-            .get_cellbase_output_capacity_details(block_hash)
-            .unwrap()
-            .into();
-        let expected: MinerReward = expected.into();
-        assert_eq!(
-            expected, actual.miner_reward,
-            "assert_block_reward failed at block[{}]: miner_reward should be same",
-            block_number
-        );
-        assert!(
-            actual.issuance.primary == actual.miner_reward.primary,
-            "assert_block_reward failed at block[{}]: all primary to miner",
-            block_number
-        );
-        assert!(
-            actual.issuance.secondary > actual.miner_reward.secondary,
-            "assert_block_reward failed at block[{}]: not all secondary to miner",
-            block_number
-        );
-        assert_eq!(
-            txs_fee,
-            actual.txs_fee.as_u64(),
-            "assert_block_reward failed at block[{}]: txs_fee should be same",
-            block_number
-        );
-    } else {
-        assert_eq!(
-            actual, None,
-            "assert_block_reward failed at block[{}]: should be none",
-            block_number
-        );
-    }
-}
-
-fn assert_proposed_reward(
-    node: &Node,
-    block_number: BlockNumber,
-    block_hash: &Byte32,
-    expected: u64,
-) {
-    let actual = node
-        .rpc_client()
-        .get_cellbase_output_capacity_details(block_hash.clone())
-        .unwrap()
-        .proposal_reward
-        .value();
-    assert_eq!(
-        expected, actual,
-        "assert_proposed_reward failed at block[{}]",
-        block_number
-    );
-}
-
-fn assert_committed_reward(
-    node: &Node,
-    block_number: BlockNumber,
-    block_hash: &Byte32,
-    expected: u64,
-) {
-    let actual = node
-        .rpc_client()
-        .get_cellbase_output_capacity_details(block_hash.clone())
-        .unwrap()
-        .tx_fee
-        .value();
-    assert_eq!(
-        expected, actual,
-        "assert_committed_reward failed at block[{}]",
-        block_number
-    );
-}
-
-#[derive(Default)]
-struct FeeCollector {
-    inner: HashMap<String, u64>,
-}
-
-impl FeeCollector {
-    fn build(node: &Node) -> Self {
-        let mut this = Self::default();
-        let mut cells = HashMap::new();
-        for number in 0..node.get_tip_block_number() {
-            let block = node.get_block_by_number(number);
-            for (tx_index, tx) in block.transactions().iter().enumerate() {
-                for (index, output) in tx.outputs().into_iter().enumerate() {
-                    let capacity: u64 = output.capacity().unpack();
-                    cells.insert(OutPoint::new(tx.hash(), index as u32), capacity);
-                }
-
-                if tx_index == 0 {
-                    continue;
-                }
-                let outputs_capacity = tx.outputs_capacity().unwrap().as_u64();
-                let inputs_capacity: u64 = tx
-                    .input_pts_iter()
-                    .map(|previous_out_point| *cells.get(&previous_out_point).unwrap())
-                    .sum();
-                let fee = inputs_capacity - outputs_capacity;
-                this.inner.insert(tx.hash().to_string(), fee);
-                this.inner.insert(tx.proposal_short_id().to_string(), fee);
-            }
+    // Apply the transaction
+    fn apply_new_transaction(&mut self, tx: &TransactionView) {
+        for (index, output) in tx.outputs().into_iter().enumerate() {
+            let out_point = OutPoint::new(tx.hash(), index as u32);
+            let capacity: u64 = output.capacity().unpack();
+            self.cells_capacity.insert(out_point, capacity);
         }
-        this
+
+        if !tx.is_cellbase() {
+            let outputs_capacity = tx.outputs_capacity().unwrap().as_u64();
+            let inputs_capacity: u64 = tx
+                .input_pts_iter()
+                .map(|previous_out_point| self.cells_capacity.get(&previous_out_point).unwrap())
+                .sum();
+            let fee = inputs_capacity - outputs_capacity;
+            self.transactions_fee.insert(tx.hash(), fee);
+            self.proposals_fee.insert(tx.proposal_short_id(), fee);
+        }
     }
 
-    fn remove<S: ToString>(&mut self, key: S) -> u64 {
-        self.inner.remove(&key.to_string()).unwrap_or(0u64)
-    }
-
-    fn peek<S: ToString>(&mut self, key: S) -> u64 {
-        self.inner
-            .get(&key.to_string())
-            .map(ToOwned::to_owned)
-            .unwrap_or(0u64)
+    fn remove_committed_proposals(&mut self, block: &BlockView) {
+        block.union_proposal_ids_iter().for_each(|pid| {
+            self.proposals_fee.remove(&pid);
+        });
     }
 }

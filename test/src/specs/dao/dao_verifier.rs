@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::extract_dao_data;
 use ckb_jsonrpc_types::EpochView;
-use ckb_types::core::{BlockNumber, BlockReward, BlockView, Capacity, TransactionView};
+use ckb_types::core::{BlockEconomicState, BlockNumber, BlockView, Capacity, TransactionView};
 use ckb_types::packed::{Byte32, CellOutput, OutPoint};
 use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
@@ -14,10 +14,11 @@ use std::convert::TryFrom;
 #[allow(non_snake_case)]
 pub struct DAOVerifier {
     consensus: Consensus,
+    tip_number: BlockNumber,
     blocks: Vec<BlockView>,
     transactions: HashMap<Byte32, (BlockNumber, TransactionView)>,
     epochs: Vec<EpochView>,
-    blocks_reward: Vec<Option<BlockReward>>,
+    blocks_reward: Vec<Option<BlockEconomicState>>,
 
     cache_C: Mutex<HashMap<BlockNumber, u64>>,
     cache_S: Mutex<HashMap<BlockNumber, u64>>,
@@ -28,6 +29,7 @@ pub struct DAOVerifier {
 impl DAOVerifier {
     pub fn init(node: &Node) -> Self {
         let consensus = node.consensus().clone();
+        let tip_number = node.get_tip_block_number();
         let mut blocks = Vec::new();
         let mut transactions = HashMap::new();
         let mut epochs = Vec::new();
@@ -46,12 +48,13 @@ impl DAOVerifier {
         for block in blocks.iter() {
             blocks_reward.push(
                 node.rpc_client()
-                    .get_cellbase_output_capacity_details(block.hash())
+                    .get_block_economic_state(block.hash())
                     .map(Into::into),
             );
         }
         Self {
             consensus,
+            tip_number,
             blocks,
             transactions,
             epochs,
@@ -382,18 +385,17 @@ impl DAOVerifier {
             let finalization_delay_length = self.consensus.finalization_delay_length();
             let i = block.number();
             let reward = &self.blocks_reward[i as usize];
-            if i <= finalization_delay_length {
+            if i == 0 || i + finalization_delay_length > self.tip_number {
                 assert!(
                     reward.is_none(),
-                    "assert block_reward_{}. First {} blocks should not issue primary reward. actual: {:?}",
+                    "assert block_reward_{}. Non finalized block should has not economic state. actual: {:?}",
                     i,
-                    finalization_delay_length,
                     reward,
                 );
             } else {
                 assert_eq!(
-                    Some(self.p(i - finalization_delay_length)),
-                    reward.as_ref().map(|reward| reward.primary.as_u64()),
+                    Some(self.p(i)),
+                    reward.as_ref().map(|reward| reward.issuance.primary.as_u64()),
                     "assert block_reward_{}",
                     i,
                 );

@@ -21,12 +21,12 @@ use std::convert::TryFrom;
 /// `DaoCalculator` is a facade to calculate the dao field.
 pub struct DaoCalculator<'a, DL> {
     consensus: &'a Consensus,
-    data_loader: DL,
+    data_loader: &'a DL,
 }
 
 impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a, DL> {
     /// Creates a new `DaoCalculator`.
-    pub fn new(consensus: &'a Consensus, data_loader: DL) -> Self {
+    pub fn new(consensus: &'a Consensus, data_loader: &'a DL) -> Self {
         DaoCalculator {
             consensus,
             data_loader,
@@ -97,7 +97,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         // in the cellbase of current block.
         let current_block_epoch = self
             .consensus
-            .next_epoch_ext(&parent, &self.data_loader)
+            .next_epoch_ext(&parent, self.data_loader)
             .ok_or_else(|| DaoError::InvalidHeader)?
             .epoch();
         let current_block_number = parent.number() + 1;
@@ -390,7 +390,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, None);
-        let result = DaoCalculator::new(&consensus, store.as_data_provider())
+        let result = DaoCalculator::new(&consensus, &store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -421,7 +421,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, Some(0));
-        let result = DaoCalculator::new(&consensus, store.as_data_provider())
+        let result = DaoCalculator::new(&consensus, &store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -452,7 +452,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, Some(12340));
-        let result = DaoCalculator::new(&consensus, store.as_data_provider())
+        let result = DaoCalculator::new(&consensus, &store.as_data_provider())
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -483,8 +483,8 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&parent_header, None);
-        let result =
-            DaoCalculator::new(&consensus, store.as_data_provider()).dao_field(&[], &parent_header);
+        let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+            .dao_field(&[], &parent_header);
         assert!(result
             .unwrap_err()
             .to_string()
@@ -529,7 +529,7 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let result = DaoCalculator::new(&consensus, store.as_data_provider())
+        let result = DaoCalculator::new(&consensus, &store.as_data_provider())
             .dao_field(&[rtx], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(result).unwrap();
@@ -588,7 +588,8 @@ mod tests {
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, store.as_data_provider());
+        let data_loader = store.as_data_provider();
+        let calculator = DaoCalculator::new(&consensus, &data_loader);
         let result = calculator.calculate_maximum_withdraw(
             &output,
             Capacity::bytes(data.len()).expect("should not overlfow"),
@@ -638,7 +639,8 @@ mod tests {
         txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, store.as_data_provider());
+        let data_loader = store.as_data_provider();
+        let calculator = DaoCalculator::new(&consensus, &data_loader);
         let result = calculator.calculate_maximum_withdraw(
             &output,
             Capacity::bytes(0).expect("should not overlfow"),

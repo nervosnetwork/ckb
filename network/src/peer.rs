@@ -1,6 +1,6 @@
 use crate::network_group::Group;
 use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
-use p2p::{secio::PeerId, SessionId};
+use p2p::SessionId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -18,8 +18,6 @@ pub struct Peer {
     pub connected_addr: Multiaddr,
     /// Peer listen addresses
     pub listened_addrs: Vec<Multiaddr>,
-    /// Peer id
-    pub peer_id: PeerId,
     /// Peer info from identify protocol message
     pub identify_info: Option<PeerIdentifyInfo>,
     /// Ping/Pong message last received time
@@ -45,7 +43,6 @@ impl Peer {
     pub fn new(
         session_id: SessionId,
         session_type: SessionType,
-        peer_id: PeerId,
         connected_addr: Multiaddr,
         is_whitelist: bool,
     ) -> Self {
@@ -57,7 +54,6 @@ impl Peer {
             last_ping_protocol_message_received_at: None,
             connected_time: Instant::now(),
             is_feeler: false,
-            peer_id,
             session_id,
             session_type,
             protocols: HashMap::with_capacity_and_hasher(1, Default::default()),

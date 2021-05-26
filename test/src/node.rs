@@ -8,6 +8,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_logger::{debug, error};
 use ckb_types::{
+    bytes,
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
         ScriptHashType, TransactionView,
@@ -178,12 +179,16 @@ impl Node {
         self.consensus().genesis_block().transactions()[1].hash()
     }
 
-    pub fn always_success_script(&self) -> Script {
-        let always_success_raw = self.consensus().genesis_block().transactions()[0]
+    pub fn always_success_raw_data(&self) -> bytes::Bytes {
+        self.consensus().genesis_block().transactions()[0]
             .outputs_data()
             .get(SYSTEM_CELL_ALWAYS_SUCCESS_INDEX as usize)
             .unwrap()
-            .raw_data();
+            .raw_data()
+    }
+
+    pub fn always_success_script(&self) -> Script {
+        let always_success_raw = self.always_success_raw_data();
         let always_success_code_hash = CellOutput::calc_data_hash(&always_success_raw);
         Script::new_builder()
             .code_hash(always_success_code_hash)

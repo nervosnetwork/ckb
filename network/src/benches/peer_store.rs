@@ -16,14 +16,18 @@ fn bench(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("add_addr", size), size, |b, i| {
             b.iter_batched(
                 || {
-                    let peer_ids = (0..*i).map(|_| PeerId::random()).collect::<Vec<_>>();
-                    let addr = "/ip4/255.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
-                    (peer_ids, addr)
+                    (0..*i)
+                        .map(|_| {
+                            format!("/ip4/255.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
+                                .parse::<Multiaddr>()
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>()
                 },
-                |(peer_ids, addr)| {
+                |addrs| {
                     let mut peer_store = PeerStore::default();
-                    for peer_id in peer_ids.clone() {
-                        peer_store.add_addr(peer_id, addr.clone()).unwrap();
+                    for addr in addrs {
+                        peer_store.add_addr(addr).unwrap();
                     }
                 },
                 BatchSize::PerIteration,
@@ -38,11 +42,19 @@ fn bench(c: &mut Criterion) {
             |b, i| {
                 b.iter_batched(
                     || {
-                        let peer_ids = (0..*i).map(|_| PeerId::random()).collect::<Vec<_>>();
-                        let addr = "/ip4/255.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
+                        let addrs = (0..*i)
+                            .map(|_| {
+                                format!(
+                                    "/ip4/255.0.0.1/tcp/42/p2p/{}",
+                                    PeerId::random().to_base58()
+                                )
+                                .parse::<Multiaddr>()
+                                .unwrap()
+                            })
+                            .collect::<Vec<_>>();
                         let mut peer_store = PeerStore::default();
-                        for peer_id in peer_ids {
-                            peer_store.add_addr(peer_id, addr.clone()).unwrap();
+                        for addr in addrs {
+                            peer_store.add_addr(addr).unwrap();
                         }
                         peer_store
                     },

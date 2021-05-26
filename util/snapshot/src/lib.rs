@@ -12,11 +12,11 @@ use ckb_freezer::Freezer;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
-use ckb_traits::{BlockMedianTimeContext, HeaderProvider};
+use ckb_traits::HeaderProvider;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
-        cell::{CellProvider, CellStatus, HeaderChecker},
+        cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
         BlockNumber, BlockReward, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint, Script},
@@ -181,6 +181,12 @@ impl CellProvider for Snapshot {
     }
 }
 
+impl CellChecker for Snapshot {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.store.cell_provider().is_live(out_point)
+    }
+}
+
 impl HeaderChecker for Snapshot {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
         match self.get_block_header(block_hash) {
@@ -196,12 +202,6 @@ impl HeaderChecker for Snapshot {
             }
             None => Err(OutPointError::InvalidHeader(block_hash.clone())),
         }
-    }
-}
-
-impl BlockMedianTimeContext for Snapshot {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
     }
 }
 

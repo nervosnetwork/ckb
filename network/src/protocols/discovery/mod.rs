@@ -4,14 +4,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ckb_logger::{debug, error, trace, warn};
+use ckb_logger::{debug, trace, warn};
 use ckb_types::bytes::BytesMut;
 use p2p::{
     bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{is_reachable, multiaddr_to_socketaddr},
     SessionId,
 };
 use rand::seq::SliceRandom;
@@ -31,7 +31,7 @@ mod addr;
 mod protocol;
 mod state;
 
-const CHECK_INTERVAL: Duration = Duration::from_secs(3);
+const ANNOUNCE_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 const ANNOUNCE_THRESHOLD: usize = 10;
 // The maximum number of new addresses to accumulate before announcing.
 const MAX_ADDR_TO_SEND: usize = 1000;
@@ -42,18 +42,15 @@ const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3600 * 24);
 
 pub struct DiscoveryProtocol<M> {
     sessions: HashMap<SessionId, SessionState>,
-    dynamic_query_cycle: Option<Duration>,
+    announce_check_interval: Option<Duration>,
     addr_mgr: M,
-
-    check_interval: Option<Duration>,
 }
 
 impl<M: AddressManager> DiscoveryProtocol<M> {
-    pub fn new(addr_mgr: M) -> DiscoveryProtocol<M> {
+    pub fn new(addr_mgr: M, announce_check_interval: Option<Duration>) -> DiscoveryProtocol<M> {
         DiscoveryProtocol {
             sessions: HashMap::default(),
-            dynamic_query_cycle: Some(Duration::from_secs(7)),
-            check_interval: None,
+            announce_check_interval,
             addr_mgr,
         }
     }
@@ -65,7 +62,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         context
             .set_service_notify(
                 context.proto_id,
-                self.check_interval.unwrap_or(CHECK_INTERVAL),
+                self.announce_check_interval
+                    .unwrap_or(ANNOUNCE_CHECK_INTERVAL),
                 0,
             )
             .expect("set discovery notify fail")
@@ -217,10 +215,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
 
     fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         let now = Instant::now();
-
-        let dynamic_query_cycle = self.dynamic_query_cycle.unwrap_or(ANNOUNCE_INTERVAL);
         let addr_mgr = &self.addr_mgr;
-
         // get announce list
         let announce_list: Vec<_> = self
             .sessions
@@ -230,7 +225,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                 state.send_messages(context, *id);
                 // check timer
                 state
-                    .check_timer(now, dynamic_query_cycle)
+                    .check_timer(now, ANNOUNCE_INTERVAL)
                     .filter(|addr| addr_mgr.is_valid_addr(addr))
                     .cloned()
             })
@@ -301,7 +296,7 @@ pub struct DiscoveryAddressManager {
 }
 
 impl AddressManager for DiscoveryAddressManager {
-    // Register open ping protocol
+    // Register open discovery protocol
     fn register(&self, id: SessionId, pid: ProtocolId, version: &str) {
         self.network_state.with_peer_registry_mut(|reg| {
             reg.get_peer_mut(id).map(|peer| {
@@ -310,7 +305,7 @@ impl AddressManager for DiscoveryAddressManager {
         });
     }
 
-    // remove registered ping protocol
+    // remove registered discovery protocol
     fn unregister(&self, id: SessionId, pid: ProtocolId) {
         self.network_state.with_peer_registry_mut(|reg| {
             let _ = reg.get_peer_mut(id).map(|peer| {
@@ -341,16 +336,14 @@ impl AddressManager for DiscoveryAddressManager {
 
         for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
             trace!("Add discovered address:{:?}", addr);
-            if let Some(peer_id) = extract_peer_id(&addr) {
-                self.network_state.with_peer_store_mut(|peer_store| {
-                    if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
-                        debug!(
-                            "Failed to add discoved address to peer_store {:?} {:?}",
-                            err, peer_id
-                        );
-                    }
-                });
-            }
+            self.network_state.with_peer_store_mut(|peer_store| {
+                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                    debug!(
+                        "Failed to add discoved address to peer_store {:?} {:?}",
+                        err, addr
+                    );
+                }
+            });
         }
     }
 
@@ -369,13 +362,7 @@ impl AddressManager for DiscoveryAddressManager {
                 if !self.is_valid_addr(&paddr.addr) {
                     return None;
                 }
-                match paddr.multiaddr() {
-                    Ok(addr) => Some(addr),
-                    Err(err) => {
-                        error!("return discovery addresses error: {:?}", err);
-                        None
-                    }
-                }
+                Some(paddr.addr)
             })
             .collect();
         trace!("discovery send random addrs: {:?}", addrs);

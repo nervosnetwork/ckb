@@ -53,17 +53,17 @@ impl Spec for GetBlocksTimeout {
 
         let received = wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2, 1);
         assert!(
-            received.is_none(),
-            "Should not received GetBlocks anymore, the timeout could be any number."
+            received.is_some(),
+            "in the case of sparse connections, even if download times out, net should continue to receive GetBlock requests"
         );
 
         let rpc_client = node1.rpc_client();
         let result = wait_until(10, || {
             let peers = rpc_client.get_peers();
-            peers.is_empty()
+            !peers.is_empty()
         });
         if !result {
-            panic!("node1 must disconnect net");
+            panic!("node1 must not disconnect net");
         }
     }
 }

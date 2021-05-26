@@ -101,16 +101,16 @@ pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 /// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
-///   ```text
-///   ProposalWindow (2, 10)
-///       propose
-///          \
-///           \
-///           13 14 [15 16 17 18 19 20 21 22 23]
-///                  \_______________________/
-///                               \
-///                             commit
-///  ```
+/// ```text
+/// ProposalWindow (2, 10)
+///     propose
+///        \
+///         \
+///         13 14 [15 16 17 18 19 20 21 22 23]
+///                \_______________________/
+///                             \
+///                           commit
+/// ```
 ///
 impl ProposalWindow {
     /// The w_close parameter

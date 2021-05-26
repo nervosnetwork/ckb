@@ -47,7 +47,7 @@ impl Spec for FeeOfTransaction {
             txs.get_commit_tx_ids()
         );
 
-        assert_chain_rewards(node);
+        check_fee(node);
     }
 }
 
@@ -100,7 +100,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
         );
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
 
-        assert_chain_rewards(node);
+        check_fee(node);
     }
 }
 
@@ -156,7 +156,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
-        assert_chain_rewards(node);
+        check_fee(node);
     }
 }
 
@@ -237,6 +237,6 @@ impl Spec for ProposeDuplicated {
         mine(node, 2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
-        assert_chain_rewards(node);
+        check_fee(node);
     }
 }

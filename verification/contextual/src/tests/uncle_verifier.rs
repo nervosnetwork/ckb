@@ -1,10 +1,9 @@
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
-use crate::UnclesError;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::{
@@ -14,6 +13,7 @@ use ckb_types::{
     packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
 };
+use ckb_verification::UnclesError;
 use ckb_verification_traits::Switch;
 use rand::random;
 use std::sync::Arc;
@@ -39,9 +39,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
-    let (shared, table) = builder.build().unwrap();
+    let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), table);
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }

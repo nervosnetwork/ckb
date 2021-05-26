@@ -195,7 +195,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         }).collect::<Result<Vec<ResolvedTransaction>>>()?;
 
         let mut update_dao_template = block_template;
-        update_dao_template.dao = DaoCalculator::new(consensus, snapshot.as_data_provider())
+        update_dao_template.dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
             .dao_field(&rtxs, &parent_header)
             .expect("dao calculation should be OK")
             .into();

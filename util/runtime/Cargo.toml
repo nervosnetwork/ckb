@@ -1,6 +1,6 @@
 [package]
 name = "ckb-async-runtime"
-version = "0.41.0"
+version = "0.42.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,6 +10,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.41.0" }
-ckb-logger = { path = "../logger", version = "= 0.41.0" }
-ckb-spawn = {  path = "../spawn", version = "= 0.41.0" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.42.0" }
+ckb-logger = { path = "../logger", version = "= 0.42.0" }
+ckb-spawn = {  path = "../spawn", version = "= 0.42.0" }

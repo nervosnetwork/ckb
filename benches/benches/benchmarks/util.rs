@@ -3,10 +3,7 @@ use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
@@ -77,11 +74,11 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -295,11 +292,11 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let (shared, table) = SharedBuilder::with_temp_db()
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), table);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -500,7 +497,8 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
+    let data_loader = snapshot.as_data_provider();
+    let calculator = DaoCalculator::new(snapshot.consensus(), &data_loader);
     calculator
         .dao_field(&rtxs, &parent)
         .expect("calculator dao_field")
@@ -512,7 +510,8 @@ pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity
     let target_number = shared.consensus().finalize_target(number).unwrap();
     let target_hash = snapshot.get_block_hash(target_number).unwrap();
     let target = snapshot.get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_data_provider());
+    let data_loader = snapshot.as_data_provider();
+    let calculator = DaoCalculator::new(shared.consensus(), &data_loader);
     calculator
         .primary_block_reward(&target)
         .expect("calculate_reward primary_block_reward")

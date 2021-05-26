@@ -8,8 +8,10 @@ pub mod error;
 pub mod pool;
 mod process;
 pub mod service;
+mod util;
 
 pub use component::entry::TxEntry;
+pub use pool::TxPool;
 pub use process::PlugTarget;
 pub use service::{TxPoolController, TxPoolServiceBuilder};
 pub use tokio::sync::RwLock as TokioRwLock;

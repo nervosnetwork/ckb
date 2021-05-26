@@ -4,11 +4,12 @@ use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE,
-    SUSPEND_SYNC_TIME,
+    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
+    POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::AnyError;
 use ckb_logger::{debug, debug_target, error, trace};
@@ -16,30 +17,25 @@ use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
+use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
     H256, U256,
 };
-use ckb_util::shrink_to_fit;
-use ckb_util::LinkedHashSet;
-use ckb_util::{Mutex, MutexGuard};
-use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use ckb_verification::HeaderResolverWrapper;
+use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lru::LruCache;
-use std::cmp;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
-use std::fmt;
 use std::hash::Hash;
-use std::mem;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, fmt, iter, mem};
 
 mod header_map;
 
@@ -565,6 +561,7 @@ pub struct InflightBlocks {
     pub(crate) restart_number: BlockNumber,
     time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
+    pub(crate) protect_num: usize,
 }
 
 impl Default for InflightBlocks {
@@ -577,6 +574,7 @@ impl Default for InflightBlocks {
             restart_number: 0,
             time_analyzer: TimeAnalyzer::default(),
             adjustment: true,
+            protect_num: MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
         }
     }
 }
@@ -683,6 +681,16 @@ impl InflightBlocks {
     pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
         let now = unix_time_as_millis();
         let mut disconnect_list = HashSet::new();
+        // Since statistics are currently disturbed by the processing block time, when the number
+        // of transactions increases, the node will be accidentally evicted.
+        //
+        // Especially on machines with poor CPU performance, the node connection will be frequently
+        // disconnected due to statistics.
+        //
+        // In order to protect the decentralization of the network and ensure the survival of low-performance
+        // nodes, the penalty mechanism will be closed when the number of download nodes is less than the number of protected nodes
+        let should_punish = self.download_schedulers.len() > self.protect_num;
+        let adjustment = self.adjustment;
 
         let trace = &mut self.trace_number;
         let download_schedulers = &mut self.download_schedulers;
@@ -702,7 +710,9 @@ impl InflightBlocks {
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
                 if let Some(set) = download_schedulers.get_mut(&value.peer) {
                     set.hashes.remove(key);
-                    set.punish(2);
+                    if should_punish {
+                        set.punish(2);
+                    }
                 };
                 if !trace.is_empty() {
                     trace.remove(&key);
@@ -742,13 +752,17 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        d.punish(1);
+                        if should_punish {
+                            d.punish(1);
+                        }
                         d.hashes.remove(key);
                     };
                 } else if let Some(v) = compact_inflight.remove(&key.hash) {
-                    for peer in v {
-                        if let Some(d) = download_schedulers.get_mut(&peer) {
-                            d.punish(1);
+                    if should_punish && adjustment {
+                        for peer in v {
+                            if let Some(d) = download_schedulers.get_mut(&peer) {
+                                d.punish(1);
+                            }
                         }
                     }
                 }
@@ -817,6 +831,7 @@ impl InflightBlocks {
     }
 
     pub fn remove_by_block(&mut self, block: BlockNumberAndHash) -> bool {
+        let should_punish = self.download_schedulers.len() > self.protect_num;
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
         let compact = &mut self.compact_reconstruct_inflight;
@@ -835,8 +850,16 @@ impl InflightBlocks {
                         match time_analyzer.push_time(elapsed) {
                             TimeQuantile::MinToFast => set.increase(2),
                             TimeQuantile::FastToNormal => set.increase(1),
-                            TimeQuantile::NormalToUpper => set.decrease(1),
-                            TimeQuantile::UpperToMax => set.decrease(2),
+                            TimeQuantile::NormalToUpper => {
+                                if should_punish {
+                                    set.decrease(1)
+                                }
+                            }
+                            TimeQuantile::UpperToMax => {
+                                if should_punish {
+                                    set.decrease(2)
+                                }
+                            }
                         }
                     }
                     if !trace.is_empty() {
@@ -1176,12 +1199,21 @@ pub struct SyncShared {
 
 impl SyncShared {
     /// only use on test
-    pub fn new(shared: Shared, sync_config: SyncConfig) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None)
+    pub fn new(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared {
+        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
 
     /// Generate a global sync state through configuration
-    pub fn with_tmpdir<P>(shared: Shared, sync_config: SyncConfig, tmpdir: Option<P>) -> SyncShared
+    pub fn with_tmpdir<P>(
+        shared: Shared,
+        sync_config: SyncConfig,
+        tmpdir: Option<P>,
+        tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
+    ) -> SyncShared
     where
         P: AsRef<Path>,
     {
@@ -1215,7 +1247,7 @@ impl SyncShared {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
-            tx_hashes: Mutex::new(HashMap::default()),
+            tx_relay_receiver,
             assume_valid_target: Mutex::new(sync_config.assume_valid_target),
             min_chain_work: sync_config.min_chain_work,
         };
@@ -1423,15 +1455,6 @@ impl SyncShared {
         }
     }
 
-    /// Get header with hash
-    pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
-        self.state
-            .header_map
-            .get(hash)
-            .map(HeaderView::into_inner)
-            .or_else(|| self.store().get_block_header(hash))
-    }
-
     /// Check whether block's parent has been inserted to chain store
     pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
         self.store()
@@ -1443,13 +1466,15 @@ impl SyncShared {
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
         self.store().get_block_epoch(&hash)
     }
+}
 
-    pub(crate) fn new_header_resolver<'a>(
-        &'a self,
-        header: &'a core::HeaderView,
-        parent: core::HeaderView,
-    ) -> HeaderResolverWrapper<'a> {
-        HeaderResolverWrapper::build(header, Some(parent))
+impl HeaderProvider for SyncShared {
+    fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
+        self.state
+            .header_map
+            .get(hash)
+            .map(HeaderView::into_inner)
+            .or_else(|| self.store().get_block_header(hash))
     }
 }
 
@@ -1479,7 +1504,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_hashes: Mutex<HashMap<PeerIndex, LinkedHashSet<Byte32>>>,
+    tx_relay_receiver: Receiver<(PeerIndex, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1535,13 +1560,8 @@ impl SyncState {
         self.inflight_proposals.lock()
     }
 
-    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, LinkedHashSet<Byte32>>> {
-        self.tx_hashes.lock()
-    }
-
-    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, LinkedHashSet<Byte32>> {
-        let mut map = self.tx_hashes.lock();
-        mem::take(&mut *map)
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(PeerIndex, Byte32)> {
+        self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
@@ -1583,14 +1603,17 @@ impl SyncState {
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
-        self.mark_as_known_txs(vec![hash]);
+        self.mark_as_known_txs(iter::once(hash));
     }
 
-    pub fn mark_as_known_txs(&self, hashes: Vec<Byte32>) {
+    // maybe someday we can use
+    // where T: Iterator<Item=Byte32>,
+    // for<'a> &'a T: Iterator<Item=&'a Byte32>,
+    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.iter() {
-                inflight_transactions.pop(hash);
+            for hash in hashes.clone() {
+                inflight_transactions.pop(&hash);
             }
         }
 

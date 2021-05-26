@@ -1,7 +1,7 @@
 use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-use ckb_shared::shared::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockBuilder, BlockExt, BlockView},
@@ -22,8 +22,8 @@ use std::sync::Arc;
 #[test]
 fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -94,8 +94,8 @@ fn test_find_fork_case1() {
 #[test]
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     let genesis = shared
         .store()
@@ -166,8 +166,8 @@ fn test_find_fork_case2() {
 #[test]
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     let genesis = shared
         .store()
@@ -238,8 +238,8 @@ fn test_find_fork_case3() {
 #[test]
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     let genesis = shared
         .store()
@@ -319,11 +319,11 @@ fn repeatedly_switch_fork() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
     let mut fork2 = MockChain::new(genesis, shared.consensus());
 
-    let (shared, table) = SharedBuilder::with_temp_db()
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(Consensus::default())
         .build()
         .unwrap();
-    let mut chain_service = ChainService::new(shared, table);
+    let mut chain_service = ChainService::new(shared, pack.take_proposal_table());
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u128, &mock_store);
@@ -416,8 +416,8 @@ fn test_fork_proposal_table() {
     let mut consensus = Consensus::default();
     consensus.tx_proposal_window = ProposalWindow(2, 3);
 
-    let (shared, table) = builder.consensus(consensus).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), table);
+    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     let genesis = shared
         .store()
