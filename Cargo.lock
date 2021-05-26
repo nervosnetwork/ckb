@@ -579,7 +579,7 @@ name = "ckb-crypto"
 version = "0.43.0-pre"
 dependencies = [
  "ckb-fixed-hash",
- "faster-hex 0.6.0",
+ "faster-hex",
  "lazy_static",
  "rand 0.7.3",
  "secp256k1",
@@ -663,7 +663,7 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "0.43.0-pre"
 dependencies = [
- "faster-hex 0.6.0",
+ "faster-hex",
  "serde",
  "thiserror",
 ]
@@ -720,7 +720,7 @@ name = "ckb-jsonrpc-types"
 version = "0.43.0-pre"
 dependencies = [
  "ckb-types",
- "faster-hex 0.6.0",
+ "faster-hex",
  "jsonrpc-core",
  "lazy_static",
  "proptest",
@@ -922,7 +922,7 @@ dependencies = [
  "ckb-util",
  "criterion",
  "faketime",
- "faster-hex 0.6.0",
+ "faster-hex",
  "futures 0.3.12",
  "ipnetwork",
  "lazy_static",
@@ -1136,7 +1136,7 @@ dependencies = [
  "ckb-types",
  "ckb-vm",
  "ckb-vm-definitions",
- "faster-hex 0.6.0",
+ "faster-hex",
  "goblin",
  "proptest",
  "serde",
@@ -1345,12 +1345,12 @@ dependencies = [
 
 [[package]]
 name = "ckb-system-scripts"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261dd95a93c09ea24397c85b4fbca061e1da2d6573189749aeb99fe840aaf0c9"
+checksum = "cfbce46ad2de7563c7e456888d4a29df3d461106a989836c08627d044409e928"
 dependencies = [
  "blake2b-rs",
- "faster-hex 0.3.1",
+ "faster-hex",
  "includedir",
  "includedir_codegen",
  "phf",
@@ -2051,12 +2051,6 @@ dependencies = [
  "js-sys",
  "tempfile",
 ]
-
-[[package]]
-name = "faster-hex"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5b8cccaafb5aae8c282692e5590f341925edea6c696e8715ff0d973320b2646"
 
 [[package]]
 name = "faster-hex"
@@ -3432,7 +3426,7 @@ checksum = "c58d1147f4d0d51ce72c56a6099ae5dbfd007b250271bb965f82dd10fca2bf02"
 dependencies = [
  "bytes 1.0.1",
  "cfg-if 1.0.0",
- "faster-hex 0.6.0",
+ "faster-hex",
 ]
 
 [[package]]
