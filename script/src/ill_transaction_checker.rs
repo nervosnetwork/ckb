@@ -2,8 +2,8 @@ use crate::ScriptError;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::core::TransactionView;
 use ckb_vm::{
-    instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
-    registers::{RA, ZERO},
+    instructions::{b, extract_opcode, i, m, rvc, Instruction, Itype},
+    registers::ZERO,
 };
 use ckb_vm_definitions::instructions as insts;
 use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
@@ -56,35 +56,19 @@ impl<'a> IllScriptChecker<'a> {
                 let mut pc = section_header.sh_offset;
                 let end = section_header.sh_offset + section_header.sh_size;
                 while pc < end {
-                    match self.decode_instruction(pc) {
-                        (Some(i), len) => {
-                            match extract_opcode(i) {
-                                insts::OP_JALR => {
-                                    let i = Itype(i);
-                                    if i.rs1() == i.rd() && i.rd() != ZERO {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                insts::OP_RVC_JALR => {
-                                    let i = Stype(i);
-                                    if i.rs1() == RA {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                _ => (),
-                            };
-                            pc += len;
-                        }
-                        (None, len) => {
-                            pc += len;
-                        }
+                    let (option_instruction, len) = self.decode_instruction(pc);
+                    if let Some(i) = option_instruction {
+                        if extract_opcode(i) == insts::OP_JALR {
+                            let i = Itype(i);
+                            if i.rs1() == i.rd() && i.rd() != ZERO {
+                                return Err(ScriptError::EncounteredKnownBugs(
+                                    CKB_VM_ISSUE_92.to_string(),
+                                    self.index,
+                                ));
+                            }
+                        };
                     }
+                    pc += len;
                 }
             }
         }
@@ -103,7 +87,12 @@ impl<'a> IllScriptChecker<'a> {
             }
             i = LittleEndian::read_u32(&self.data[pc as usize..]);
         }
-        let factories = [rvc::factory::<u64>, i::factory::<u64>, m::factory::<u64>];
+        let factories = [
+            rvc::factory::<u64>,
+            i::factory::<u64>,
+            m::factory::<u64>,
+            b::factory::<u64>,
+        ];
         for factory in &factories {
             if let Some(instruction) = factory(i) {
                 return (Some(instruction), len);
