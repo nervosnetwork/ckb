@@ -23,6 +23,12 @@ use ckb_types::{
     packed::{Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
     prelude::*,
 };
+#[cfg(not(has_asm))]
+use ckb_vm::{
+    machine::VERSION0, DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError,
+    InstructionCycleFunc, SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory, ISA_B,
+    ISA_IMC,
+};
 #[cfg(has_asm)]
 use ckb_vm::{
     machine::{
@@ -32,18 +38,13 @@ use ckb_vm::{
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
     Syscalls, ISA_B, ISA_IMC,
 };
-#[cfg(not(has_asm))]
-use ckb_vm::{
-    DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
-    SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
-};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
 #[cfg(has_asm)]
 type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
-type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
+type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
 
 enum Binaries {
     Unique((Byte32, Bytes)),
@@ -491,7 +492,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         #[cfg(has_asm)]
         let core_machine = AsmCoreMachine::new(ISA_IMC | ISA_B, VERSION0, max_cycles);
         #[cfg(not(has_asm))]
-        let core_machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new(
+        let core_machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
             ISA_IMC | ISA_B,
             VERSION0,
             max_cycles,
@@ -1984,7 +1985,7 @@ mod tests {
             .build();
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
-            .lock(vm_version_script.clone())
+            .lock(vm_version_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1993,12 +1994,10 @@ mod tests {
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let vm_version_cell = CellMetaBuilder::from_cell_output(
-            vm_version_cell.clone(),
-            vm_version_cell_data.to_owned(),
-        )
-        .transaction_info(default_transaction_info())
-        .build();
+        let vm_version_cell =
+            CellMetaBuilder::from_cell_output(vm_version_cell, vm_version_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
 
         let rtx = ResolvedTransaction {
             transaction,
@@ -2009,8 +2008,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         assert!(verifier.verify(6000).is_ok());
     }
 
@@ -2040,7 +2044,7 @@ mod tests {
             .build();
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
-            .lock(exec_caller_script.clone())
+            .lock(exec_caller_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -2049,19 +2053,15 @@ mod tests {
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let exec_caller_cell = CellMetaBuilder::from_cell_output(
-            exec_caller_cell.clone(),
-            exec_caller_cell_data.to_owned(),
-        )
-        .transaction_info(default_transaction_info())
-        .build();
+        let exec_caller_cell =
+            CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
 
-        let exec_callee_cell = CellMetaBuilder::from_cell_output(
-            exec_callee_cell.clone(),
-            exec_callee_cell_data.to_owned(),
-        )
-        .transaction_info(default_transaction_info())
-        .build();
+        let exec_callee_cell =
+            CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
 
         let rtx = ResolvedTransaction {
             transaction,
@@ -2072,8 +2072,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         assert!(verifier.verify(600000).is_ok());
     }
 
@@ -2101,7 +2106,7 @@ mod tests {
             .build();
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
-            .lock(exec_caller_script.clone())
+            .lock(exec_caller_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -2113,12 +2118,10 @@ mod tests {
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let exec_caller_cell = CellMetaBuilder::from_cell_output(
-            exec_caller_cell.clone(),
-            exec_caller_cell_data.to_owned(),
-        )
-        .transaction_info(default_transaction_info())
-        .build();
+        let exec_caller_cell =
+            CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
 
         let rtx = ResolvedTransaction {
             transaction,
@@ -2129,8 +2132,13 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
+        let consensus = ConsensusBuilder::default().build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         assert!(verifier.verify(600000).is_ok());
     }
 }

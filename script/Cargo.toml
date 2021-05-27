@@ -21,8 +21,8 @@ ckb-traits = { path = "../traits", version = "= 0.43.0-pre" }
 byteorder = "1.3.1"
 ckb-types = {path = "../util/types", version = "= 0.43.0-pre"}
 ckb-hash = {path = "../util/hash", version = "= 0.43.0-pre"}
-ckb-vm-definitions = { git = "https://github.com/mohanson/ckb-vm", branch="develop" }
-ckb-vm = { git = "https://github.com/mohanson/ckb-vm", branch="develop", default-features = false }
+ckb-vm-definitions = "0.20.0-alpha"
+ckb-vm = { version = "0.20.0-alpha", default-features = false }
 faster-hex = "0.4"
 ckb-logger = { path = "../util/logger", version = "= 0.43.0-pre", optional = true }
 serde = { version = "1.0", features = ["derive"] }

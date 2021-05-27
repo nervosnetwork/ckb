@@ -123,7 +123,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
         let source = Source::parse_from_u64(machine.registers()[A1].to_u64())?;
         let place = machine.registers()[A2].to_u64();
         let bounds = machine.registers()[A3].to_u64();
-        let offset = bounds as usize >> 32;
+        let offset = (bounds >> 32) as usize;
         let length = bounds as u32 as usize;
 
         let data = if place == 0 {
@@ -133,11 +133,9 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
                 return Ok(false);
             }
             let cell = cell.unwrap();
-            let data = self
-                .data_loader
+            self.data_loader
                 .load_cell_data(cell)
-                .ok_or(VMError::Unexpected)?;
-            data
+                .ok_or(VMError::Unexpected)?
         } else {
             let witness = self.fetch_witness(source, index as usize);
             if witness.is_none() {
@@ -145,8 +143,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
                 return Ok(true);
             }
             let witness = witness.unwrap();
-            let data = witness.raw_data();
-            data
+            witness.raw_data()
         };
         let data = if length == 0 {
             data.slice(offset..data.len())
