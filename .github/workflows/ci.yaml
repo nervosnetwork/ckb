@@ -105,7 +105,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux-runner]
     needs: Linters
     steps:
     - uses: actions/checkout@v2
@@ -124,7 +124,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux-runner]
     needs: Quick_Check
     steps:
     - uses: actions/checkout@v2
@@ -141,7 +141,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux-runner]
     needs: WASM_build
     steps:
     - uses: actions/checkout@v2
