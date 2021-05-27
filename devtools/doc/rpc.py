@@ -12,6 +12,11 @@ if sys.version_info < (3, 0, 0):
     print("Requires python 3", file=sys.stderr)
     sys.exit(127)
 
+if "CARGO_TARGET_DIR" in os.environ:
+  TARGET_DIR=os.getenv('CARGO_TARGET_DIR')
+else:
+  TARGET_DIR="target"
+
 PREAMBLE = """# CKB JSON-RPC Protocols
 
 <!--**NOTE:** This file is auto-generated from code comments.-->
@@ -690,14 +695,14 @@ class RPCDoc(object):
         ]
 
     def collect(self):
-        for path in sorted(glob.glob("target/doc/ckb_rpc/module/trait.*Rpc.html")):
-            module_name = path.split('.')[1][:-3]
+        for path in sorted(glob.glob(TARGET_DIR+"/doc/ckb_rpc/module/trait.*Rpc.html")):
+            module_name = path.split('trait')[1].split('.')[1][:-3]
             module = RPCModule(module_name)
             self.modules.append(module)
             with open(path) as file:
                 module.feed(file.read())
 
-        with open('target/doc/ckb_rpc/enum.RPCError.html') as file:
+        with open(TARGET_DIR+'/doc/ckb_rpc/enum.RPCError.html') as file:
             self.errors.feed(file.read())
 
         global PENDING_TYPES
@@ -720,8 +725,7 @@ class RPCDoc(object):
     def collect_type(self, path):
         while path.startswith('../'):
             path = path[3:]
-        path = 'target/doc/' + path
-
+        path = TARGET_DIR+'/doc/' + path
         if path in self.parsed_types:
             return
         self.parsed_types.add(path)
@@ -738,7 +742,7 @@ class RPCDoc(object):
             path = content.split('0;URL=')[1].split('"')[0]
             return self.collect_type(path)
 
-        name = path.split('.')[1]
+        name = path.split('/')[-1].split('.')[1]
         if name not in ['U256', 'RationalU256']:
             parser = RPCType(name, path)
             parser.feed(content)
@@ -778,7 +782,7 @@ class RPCDoc(object):
 
 
 def main():
-    if not os.path.exists("target/doc/ckb_rpc/module/index.html"):
+    if not os.path.exists(TARGET_DIR+"/doc/ckb_rpc/module/index.html"):
         print("Please run cargo doc first:\n  cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps", file=sys.stderr)
         sys.exit(128)
 

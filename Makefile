@@ -54,12 +54,9 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	rm -f target/doc/ckb_rpc/module/trait.*.html
+
+	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
 	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
-	echo ${pwd}
-	if fullpath(${CARGO_TARGET_DIR}) != "${pwd}/target": then
-       link ${CARGO_TARGET_DIR} -> ${pwd}/target
-    fi
 	if command -v python3 &> /dev/null; then \
 		python3 ./devtools/doc/rpc.py > rpc/README.md; \
 	else \
