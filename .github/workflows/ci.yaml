@@ -35,6 +35,7 @@ jobs:
             CI: true
             ImageOS: 'windows-2019'
             BUILD_BUILDID: ${{ github.sha }}
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
@@ -58,6 +59,7 @@ jobs:
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             CI: true
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Integration_Test
@@ -71,6 +73,7 @@ jobs:
     strategy:
       matrix:
         os: [Linux-runner, mac-runner]
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Benchmarks_Test
