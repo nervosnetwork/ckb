@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use nohash_hasher::IntSet;
 
 use crate::{
     core::{self, BlockNumber},
@@ -210,7 +210,7 @@ impl packed::CompactBlock {
     /// Builds a `CompactBlock` from block and prefilled transactions indexes.
     pub fn build_from_block(
         block: &core::BlockView,
-        prefilled_transactions_indexes: &HashSet<usize>,
+        prefilled_transactions_indexes: &IntSet<usize>,
     ) -> Self {
         // always prefill cellbase
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
@@ -254,7 +254,7 @@ impl packed::CompactBlock {
             .prefilled_transactions()
             .into_iter()
             .map(|tx_index| tx_index.index().unpack())
-            .collect::<HashSet<usize>>();
+            .collect::<IntSet<usize>>();
 
         let mut index = 0;
         for i in 0..txs_len {
@@ -281,7 +281,7 @@ impl packed::CompactBlock {
 
     /// Collects the short id indexes.
     pub fn short_id_indexes(&self) -> Vec<usize> {
-        let prefilled_indexes: HashSet<usize> = self.prefilled_indexes_iter().collect();
+        let prefilled_indexes: IntSet<usize> = self.prefilled_indexes_iter().collect();
 
         (0..self.txs_len())
             .filter(|index| !prefilled_indexes.contains(&index))

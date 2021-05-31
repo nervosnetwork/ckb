@@ -5,12 +5,12 @@ use ckb_logger::{debug, error, info};
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
+use ckb_util::hasher::IntSet;
 use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -297,7 +297,7 @@ impl MinerRpc for MinerRpcImpl {
                 header.hash(),
                 unix_time_as_millis()
             );
-            let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+            let content = packed::CompactBlock::build_from_block(&block, &IntSet::default());
             let message = packed::RelayMessage::new_builder().set(content).build();
             if let Err(err) = self
                 .network_controller

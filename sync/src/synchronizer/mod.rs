@@ -33,9 +33,9 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
+use ckb_util::hasher::IntSet;
 use faketime::unix_time_as_millis;
 use std::{
-    collections::HashSet,
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
@@ -518,7 +518,7 @@ impl Synchronizer {
     fn get_peers_to_fetch(
         &self,
         ibd: IBDState,
-        disconnect_list: &HashSet<PeerIndex>,
+        disconnect_list: &IntSet<PeerIndex>,
     ) -> Vec<PeerIndex> {
         trace!("poll find_blocks_to_fetch select peers");
         let state = &self
@@ -824,6 +824,7 @@ mod tests {
         utilities::difficulty_to_compact,
         U256,
     };
+    use ckb_util::hasher::IntMap;
     use ckb_util::Mutex;
     use ckb_verification_traits::Switch;
     use futures::future::Future;
@@ -1194,8 +1195,8 @@ mod tests {
 
     #[derive(Clone)]
     struct DummyNetworkContext {
-        pub peers: HashMap<PeerIndex, Peer>,
-        pub disconnected: Arc<Mutex<HashSet<PeerIndex>>>,
+        pub peers: IntMap<PeerIndex, Peer>,
+        pub disconnected: Arc<Mutex<IntSet<PeerIndex>>>,
     }
 
     fn mock_peer_info() -> Peer {

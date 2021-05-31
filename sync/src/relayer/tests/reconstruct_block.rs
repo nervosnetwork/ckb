@@ -7,7 +7,7 @@ use ckb_types::{
     core::{BlockBuilder, Capacity, TransactionView},
     packed::{self, CompactBlockBuilder},
 };
-use std::collections::HashSet;
+use ckb_util::hasher::IntSet;
 
 // There are more test cases in block_transactions_process and compact_block_process.rs
 #[test]
@@ -78,7 +78,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
     let (short_transactions, prefilled) = {
         let short_transactions: Vec<TransactionView> = prepare.iter().step_by(2).cloned().collect();
-        let prefilled: HashSet<usize> = prepare
+        let prefilled: IntSet<usize> = prepare
             .iter()
             .enumerate()
             .skip(1)

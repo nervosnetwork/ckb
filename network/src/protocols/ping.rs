@@ -2,6 +2,7 @@ use crate::network::disconnect_with_message;
 use crate::NetworkState;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_types::{packed, prelude::*};
+use ckb_util::hasher::{IntMap, IntSet};
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
     prelude::*,
@@ -14,7 +15,6 @@ use p2p::{
     SessionId,
 };
 use std::{
-    collections::{HashMap, HashSet},
     pin::Pin,
     str,
     sync::Arc,
@@ -33,7 +33,7 @@ const CONTROL_CHANNEL_BUFFER_SIZE: usize = 2;
 pub struct PingHandler {
     interval: Duration,
     timeout: Duration,
-    connected_session_ids: HashMap<SessionId, PingStatus>,
+    connected_session_ids: IntMap<SessionId, PingStatus>,
     network_state: Arc<NetworkState>,
     control_receiver: Receiver<()>,
     start_time: Instant,
@@ -82,7 +82,7 @@ impl PingHandler {
     fn ping_peers(&mut self, context: &ProtocolContext) {
         let now = Instant::now();
         let send_nonce = nonce(&now, self.start_time);
-        let peers: HashSet<SessionId> = self
+        let peers: IntSet<SessionId> = self
             .connected_session_ids
             .iter_mut()
             .filter_map(|(session_id, ps)| {

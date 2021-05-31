@@ -24,6 +24,7 @@ use ckb_types::{
     prelude::*,
     H256, U256,
 };
+use ckb_util::hasher::{IntMap, IntSet};
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
@@ -240,7 +241,7 @@ impl PeerState {
             disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::new(),
+            tx_ask_for_set: HashSet::default(),
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
@@ -370,7 +371,7 @@ impl<T: Eq + Hash> Filter<T> {
 
 #[derive(Default)]
 pub struct KnownFilter {
-    inner: HashMap<PeerIndex, Filter<Byte32>>,
+    inner: IntMap<PeerIndex, Filter<Byte32>>,
 }
 
 impl KnownFilter {
@@ -387,7 +388,7 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
+    pub state: RwLock<IntMap<PeerIndex, PeerState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -554,10 +555,10 @@ impl DownloadScheduler {
 
 #[derive(Clone)]
 pub struct InflightBlocks {
-    pub(crate) download_schedulers: HashMap<PeerIndex, DownloadScheduler>,
+    pub(crate) download_schedulers: IntMap<PeerIndex, DownloadScheduler>,
     inflight_states: BTreeMap<BlockNumberAndHash, InflightState>,
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
-    compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
+    compact_reconstruct_inflight: HashMap<Byte32, IntSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
     time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
@@ -664,7 +665,7 @@ impl InflightBlocks {
         self.trace_number.retain(|k, _| &k.hash != hash)
     }
 
-    pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&HashSet<PeerIndex>> {
+    pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&IntSet<PeerIndex>> {
         self.compact_reconstruct_inflight.get(hash)
     }
 
@@ -678,9 +679,9 @@ impl InflightBlocks {
         }
     }
 
-    pub fn prune(&mut self, tip: BlockNumber) -> HashSet<PeerIndex> {
+    pub fn prune(&mut self, tip: BlockNumber) -> IntSet<PeerIndex> {
         let now = unix_time_as_millis();
-        let mut disconnect_list = HashSet::new();
+        let mut disconnect_list = IntSet::default();
         // Since statistics are currently disturbed by the processing block time, when the number
         // of transactions increases, the node will be accidentally evicted.
         //
@@ -1186,7 +1187,7 @@ type PendingCompactBlockMap = HashMap<
     Byte32,
     (
         packed::CompactBlock,
-        HashMap<PeerIndex, (Vec<u32>, Vec<u32>)>,
+        IntMap<PeerIndex, (Vec<u32>, Vec<u32>)>,
     ),
 >;
 
@@ -1493,7 +1494,7 @@ pub struct SyncState {
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
-    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, HashSet<PeerIndex>>>,
+    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, IntSet<PeerIndex>>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
     pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
@@ -1684,9 +1685,7 @@ impl SyncState {
         shrink_to_fit!(guard, SHRINK_THRESHOLD);
     }
 
-    pub fn clear_get_block_proposals(
-        &self,
-    ) -> HashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
+    pub fn clear_get_block_proposals(&self) -> HashMap<packed::ProposalShortId, IntSet<PeerIndex>> {
         let mut locked = self.pending_get_block_proposals.lock();
         let old = locked.deref_mut();
         let mut ret = HashMap::default();

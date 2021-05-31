@@ -1,5 +1,5 @@
+use ckb_util::hasher::IntMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -88,7 +88,7 @@ pub trait Callback: Clone + Send {
 /// Identify protocol
 pub struct IdentifyProtocol<T> {
     callback: T,
-    remote_infos: HashMap<SessionId, RemoteInfo>,
+    remote_infos: IntMap<SessionId, RemoteInfo>,
     secio_enabled: bool,
     global_ip_only: bool,
 }
@@ -97,7 +97,7 @@ impl<T: Callback> IdentifyProtocol<T> {
     pub fn new(callback: T) -> IdentifyProtocol<T> {
         IdentifyProtocol {
             callback,
-            remote_infos: HashMap::default(),
+            remote_infos: IntMap::default(),
             secio_enabled: true,
             global_ip_only: true,
         }

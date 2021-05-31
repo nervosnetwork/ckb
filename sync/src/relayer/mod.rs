@@ -38,6 +38,7 @@ use ckb_types::{
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
+use ckb_util::hasher::{IntMap, IntSet};
 use ckb_util::Mutex;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
@@ -288,10 +289,10 @@ impl Relayer {
             );
             let block_hash = boxed.hash();
             self.shared().state().remove_header_view(&block_hash);
-            let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
+            let cb = packed::CompactBlock::build_from_block(&boxed, &IntSet::default());
             let message = packed::RelayMessage::new_builder().set(cb).build();
 
-            let selected_peers: HashSet<PeerIndex> = nc
+            let selected_peers: IntSet<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
                 .filter(|target_peer| peer != *target_peer)
@@ -586,7 +587,7 @@ impl Relayer {
             .shared
             .state()
             .take_relay_tx_hashes(MAX_RELAY_TXS_NUM_PER_BATCH);
-        let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
+        let mut selected: IntMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
             let mut known_txs = self.shared.state().known_txs();
             for (origin_peer, hash) in &tx_hashes {

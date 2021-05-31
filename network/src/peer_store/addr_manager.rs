@@ -1,5 +1,6 @@
 //! Address manager
 use crate::peer_store::types::AddrInfo;
+use ckb_util::hasher::IntMap;
 use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -10,7 +11,7 @@ use std::net::SocketAddr;
 pub struct AddrManager {
     next_id: u64,
     addr_to_id: HashMap<SocketAddr, u64>,
-    id_to_info: HashMap<u64, AddrInfo>,
+    id_to_info: IntMap<u64, AddrInfo>,
     random_ids: Vec<u64>,
 }
 

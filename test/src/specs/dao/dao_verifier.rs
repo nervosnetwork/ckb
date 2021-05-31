@@ -6,6 +6,7 @@ use ckb_jsonrpc_types::EpochView;
 use ckb_types::core::{BlockEconomicState, BlockNumber, BlockView, Capacity, TransactionView};
 use ckb_types::packed::{Byte32, CellOutput, OutPoint};
 use ckb_types::prelude::Unpack;
+use ckb_util::hasher::IntMap;
 use ckb_util::Mutex;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -20,10 +21,10 @@ pub struct DAOVerifier {
     epochs: Vec<EpochView>,
     blocks_reward: Vec<Option<BlockEconomicState>>,
 
-    cache_C: Mutex<HashMap<BlockNumber, u64>>,
-    cache_S: Mutex<HashMap<BlockNumber, u64>>,
-    cache_U: Mutex<HashMap<BlockNumber, u64>>,
-    cache_ar: Mutex<HashMap<BlockNumber, u64>>,
+    cache_C: Mutex<IntMap<BlockNumber, u64>>,
+    cache_S: Mutex<IntMap<BlockNumber, u64>>,
+    cache_U: Mutex<IntMap<BlockNumber, u64>>,
+    cache_ar: Mutex<IntMap<BlockNumber, u64>>,
 }
 
 impl DAOVerifier {

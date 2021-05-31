@@ -1,6 +1,7 @@
 //! CKB utilities.
 //!
 //! Collection of frequently used utilities.
+pub mod hasher;
 mod linked_hash_set;
 mod shrink_to_fit;
 pub mod strings;
