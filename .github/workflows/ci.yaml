@@ -35,6 +35,7 @@ jobs:
             CI: true
             ImageOS: 'windows-2019'
             BUILD_BUILDID: ${{ github.sha }}
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
@@ -58,6 +59,7 @@ jobs:
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             CI: true
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Integration_Test
@@ -71,6 +73,7 @@ jobs:
     strategy:
       matrix:
         os: [Linux-runner, mac-runner]
+    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Benchmarks_Test
@@ -95,9 +98,76 @@ jobs:
          make clippy
          git diff --exit-code Cargo.lock
 
-  Latest_Linters:
+  Quick_Check:
     if: |
       contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner]
+    needs: Linters
+    steps:
+    - uses: actions/checkout@v2
+    - name: Quick_Check
+      run: |
+        make check-cargotoml
+        make check-whitespaces
+        make check-dirty-rpc-doc
+        make check-dirty-hashes-toml
+        devtools/ci/check-cyclic-dependencies.py
+
+  WASM_build:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner]
+    needs: Quick_Check
+    steps:
+    - uses: actions/checkout@v2
+    - name: WASM build
+      run: |
+        rustup target add wasm32-unknown-unknown
+        make wasm-build-test
+
+  Security_Audit_Licenses:
+    if: |
+      contains(github.event_name, 'pull_request') ||
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner]
+    needs: WASM_build
+    steps:
+    - uses: actions/checkout@v2
+    - name: Security Audit & Licenses
+      run: |
+        cargo deny --version || cargo install cargo-deny --locked
+        make security-audit
+        make check-crates
+        make check-licenses
+
+  Cyclic_dev_dependencies:
+    if: |
+      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [Linux-runner, mac-runner]
+    needs: Security_Audit_Licenses
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v2
+    - name: Cyclic_dev_dependencies
+      run: |
+        devtools/ci/check-cyclic-dependencies.py --dev
+
+  Latest_Linters:
+    if: |
       contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
     runs-on: ${{ matrix.os }}
     strategy:
@@ -108,7 +178,7 @@ jobs:
             script_run: rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu &&  rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
           - os:  mac-runner
             script_run: rustup component add rustfmt-preview && rustup component add clippy-preview
-    needs: Linters
+    needs: Cyclic_dev_dependencies
     continue-on-error: true
     steps:
     - uses: actions/checkout@v2
@@ -122,83 +192,11 @@ jobs:
         make clippy
         mv rust-toolchain.bak rust-toolchain
 
-  Quick_Check:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Latest_Linters
-    steps:
-    - uses: actions/checkout@v2
-    - name: Quick_Check
-      run: |
-        make check-cargotoml
-        make check-whitespaces
-        make check-dirty-rpc-doc
-        make check-dirty-hashes-toml
-        devtools/ci/check-cyclic-dependencies.py
-
-  Cyclic_dev_dependencies:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Quick_Check
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v2
-    - name: Cyclic_dev_dependencies
-      run: |
-        devtools/ci/check-cyclic-dependencies.py --dev
-
-  Security_Audit_Licenses:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Cyclic_dev_dependencies
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v2
-    - name: Security Audit & Licenses
-      run: |
-        cargo deny --version || cargo install cargo-deny --locked
-        make security-audit
-        make check-crates
-        make check-licenses
-
-  WASM_build:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Security_Audit_Licenses
-    steps:
-    - uses: actions/checkout@v2
-    - name: WASM build
-      run: |
-        export PATH=/usr/lib/llvm-8/bin:$PATH
-        rustup target add wasm32-unknown-unknown
-        make wasm-build-test
-
   ci-success:
     name: ci
     needs:
       - UnitTest
       - Linters
-      - Latest_Linters
       - Quick_Check
       - Security_Audit_Licenses
       - WASM_build

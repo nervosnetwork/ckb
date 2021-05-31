@@ -7,7 +7,7 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
-CARGO_TARGET_DIR ?= "../target"
+CARGO_TARGET_DIR ?= $(shell pwd)/target
 
 ##@ Testing
 .PHONY: test
@@ -54,8 +54,9 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	rm -f target/doc/ckb_rpc/module/trait.*.html
+	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
 	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+	ln -nsf "${CARGO_TARGET_DIR}" "target"
 	if command -v python3 &> /dev/null; then \
 		python3 ./devtools/doc/rpc.py > rpc/README.md; \
 	else \
