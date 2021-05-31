@@ -1,0 +1,14 @@
+name: 'Terraform'
+
+description: 'Apply Terraform defined Infrastructures on-demand, destroy at job end'
+
+inputs:
+  terraform_dir:
+    description: 'Directory path to Terraform configuration files'
+    required: true
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  entrypoint:      '/terraform/apply.sh'
+  post-entrypoint: '/terraform/cleanup.sh'
