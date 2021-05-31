@@ -17,3 +17,77 @@ jobs:
         age: '1 hour'
         skip-tags: true
         skip-recent: 10
+
+  clean-cargo-target:
+    if: ${{ github.repository_owner == 'nervosnetwork' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - host-001
+          - host-002
+          - host-003
+          - host-004
+          - host-005
+          - host-006
+          - host-007
+          - host-008
+          - host-009
+          - host-010
+          - host-011
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v2
+    - name: Check disk usausedge on Linux
+      id: linux_set_output
+      if: runner.os == 'Linux'
+      run: |
+        disk_used=`df -h |head -2 | awk '{print $5}' | sed -n '2,1p'`
+        max_used=60
+        echo $disk_used
+        if [[ $(echo ${disk_used%%%}) -gt $max_used ]]; then
+           echo "Free disk space is less than 40%"
+           echo "::set-output name=RUN_JOB_CLEAN::true"
+        else
+           echo "Free disk space is more than 40%"
+           exit 0
+        fi
+
+    - name: Check disk used on Windows
+      id: windows_set_output
+      if: runner.os == 'Windows'
+      run: |
+        $size = Get-CimInstance -Class CIM_LogicalDisk | Select-Object @{Name="Size(GB)";Expression={$_.size/1gb}}, @{Name="Free Space(GB)";Expression={$_.freespace/1gb}}, @{Name="percentage_of_free";Expression={"{0,6:P0}" -f(($_.freespace/1gb) / ($_.size/1gb))}}, DeviceID, DriveType | Where-Object DriveType -EQ '3'
+        $least_free_size="40%"
+        if ( [int]$least_free_size.trim('%') -gt [int]$size.percentage_of_free.trim('%')) {
+           echo "Free disk space is less than 40%"
+           echo "::set-output name=RUN_JOB_CLEAN::true"
+        } else {
+          echo "Free disk space is more than 40%"
+          exit 0
+        }
+
+    - name: Check disk usage on macOS
+      id: macOS_set_output
+      if: runner.os == 'macOS'
+      run: |
+        disk_size=`diskutil info / | grep "Total Space" | awk '{ print $4 "\t" }'`
+        free_size=`diskutil info /| grep "Free Space" | awk '{ print $4 "\t" }'`
+        percentage_of_free=`echo "scale=3;${free_size}/${disk_size}*100" |bc`
+        least_free_size=40
+        echo $percentage_of_free
+        if [[ ${least_free_size%.*} -gt ${percentage_of_free%.*} ]]; then
+           echo "Free disk space is less than 40%"
+           echo "::set-output name=RUN_JOB_CLEAN::true"
+        else
+           echo "Free disk space is more than 40%"
+           exit 0
+        fi
+    - name: Remove Cargo target weekly
+      if: |
+       steps.macOS_set_output.outputs.RUN_JOB_CLEAN == 'true' ||
+       steps.linux_set_output.outputs.RUN_JOB_CLEAN == 'true' ||
+       steps.windows_set_output.outputs.RUN_JOB_CLEAN == 'true'
+      run: |
+        cargo clean --target-dir ${CARGO_TARGET_DIR}
