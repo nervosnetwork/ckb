@@ -15,7 +15,7 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
@@ -28,6 +28,7 @@ use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
+use tokio::sync::watch;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
@@ -82,7 +83,6 @@ pub(crate) enum Message {
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), SubmitTxResult>),
     NotifyTxs(Notify<Vec<TransactionView>>),
-    ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
@@ -91,9 +91,7 @@ pub(crate) enum Message {
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
-    /// TODO(doc): @zhangsoledad
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
-    /// TODO(doc): @zhangsoledad
     GetAllIds(Request<(), TxPoolIds>),
 }
 
@@ -103,6 +101,7 @@ pub(crate) enum Message {
 #[derive(Clone)]
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
+    reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
     handle: Handle,
     stop: StopHandler<()>,
 }
@@ -193,12 +192,10 @@ impl TxPoolController {
             detached_proposal_id,
             snapshot,
         ));
-        self.sender
-            .try_send(Message::ChainReorg(notify))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
+        self.reorg_sender.try_send(notify).map_err(|e| {
+            let (_m, e) = handle_try_send_error(e);
+            e.into()
+        })
     }
 
     /// Submit local tx to tx-pool
@@ -412,7 +409,8 @@ pub struct TxPoolServiceBuilder {
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
-    pub(crate) signal_receiver: oneshot::Receiver<()>,
+    pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
+    pub(crate) signal_receiver: watch::Receiver<u8>,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
 }
@@ -429,7 +427,8 @@ impl TxPoolServiceBuilder {
         tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (signal_sender, signal_receiver) = oneshot::channel();
+        let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
 
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
@@ -439,14 +438,16 @@ impl TxPoolServiceBuilder {
             snapshot_mgr,
             callbacks: Callbacks::new(),
             receiver,
+            reorg_receiver,
             signal_receiver,
             handle: handle.clone(),
             tx_relay_sender,
         };
 
-        let stop = StopHandler::new(SignalSender::Tokio(signal_sender), None);
+        let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
         let controller = TxPoolController {
             sender,
+            reorg_sender,
             handle: handle.clone(),
             stop,
         };
@@ -498,17 +499,43 @@ impl TxPoolServiceBuilder {
         };
 
         let mut receiver = self.receiver;
-        let mut signal_receiver = self.signal_receiver;
+        let mut reorg_receiver = self.reorg_receiver;
         let handle_clone = self.handle.clone();
 
+        let process_service = service.clone();
+        let mut signal_receiver = self.signal_receiver.clone();
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
-                        let service_clone = service.clone();
+                        let service_clone = process_service.clone();
                         handle_clone.spawn(process(service_clone, message));
                     },
-                    _ = &mut signal_receiver => break,
+                    _ = signal_receiver.changed() => break,
+                    else => break,
+                }
+            }
+        });
+
+        let mut signal_receiver = self.signal_receiver;
+        self.handle.spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(message) = reorg_receiver.recv() => {
+                        let Notify {
+                            arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+                        } = message;
+                        let service_clone = service.clone();
+                        service_clone
+                        .update_tx_pool_for_reorg(
+                            detached_blocks,
+                            attached_blocks,
+                            detached_proposal_id,
+                            snapshot,
+                        )
+                        .await
+                    },
+                    _ = signal_receiver.changed() => break,
                     else => break,
                 }
             }
@@ -645,18 +672,6 @@ async fn process(mut service: TxPoolService, message: Message) {
             if let Err(e) = responder.send(txs) {
                 error!("responder send fetch_txs_with_cycles failed {:?}", e);
             };
-        }
-        Message::ChainReorg(Notify {
-            arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-        }) => {
-            service
-                .update_tx_pool_for_reorg(
-                    detached_blocks,
-                    attached_blocks,
-                    detached_proposal_id,
-                    snapshot,
-                )
-                .await
         }
         Message::NewUncle(Notify { arguments: uncle }) => {
             if service.block_assembler.is_some() {

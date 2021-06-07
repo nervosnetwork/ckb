@@ -6,6 +6,12 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::sync::oneshot as tokio_oneshot;
+use tokio::sync::watch as tokio_watch;
+
+/// init flags
+pub const WATCH_INIT: u8 = 0;
+/// stop flags
+pub const WATCH_STOP: u8 = 1;
 
 /// TODO(doc): @keroro520
 #[derive(Debug)]
@@ -18,6 +24,8 @@ pub enum SignalSender {
     Std(mpsc::Sender<()>),
     /// TODO(doc): @keroro520
     Tokio(tokio_oneshot::Sender<()>),
+    /// A single-producer, multi-consumer channel that only retains the last sent value.
+    Watch(tokio_watch::Sender<u8>),
 }
 
 impl SignalSender {
@@ -41,6 +49,11 @@ impl SignalSender {
             }
             SignalSender::Tokio(tx) => {
                 if let Err(e) = tx.send(()) {
+                    error!("handler signal send error {:?}", e);
+                };
+            }
+            SignalSender::Watch(tx) => {
+                if let Err(e) = tx.send(WATCH_STOP) {
                     error!("handler signal send error {:?}", e);
                 };
             }
