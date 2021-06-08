@@ -24,13 +24,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner,win-runner]
+        os: [Linux, macOS,Windows]
         include:
-          - os: Linux-runner
+          - os: Linux
             script_run: make test
-          - os:  mac-runner
+          - os:  macOS
             script_run: make test
-          - os: win-runner
+          - os: Windows
             script_run: devtools/windows/make test
             CI: true
     needs: Security_Audit_Licenses
@@ -45,13 +45,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner,win-runner]
+        os: [Linux, macOS,Windows]
         include:
-          - os: Linux-runner
+          - os: Linux
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - os:  mac-runner
+          - os:  macOS
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - os: win-runner
+          - os: Windows
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
     needs: Security_Audit_Licenses
@@ -75,7 +75,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux, macOS]
     needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
@@ -90,7 +90,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux, macOS]
     steps:
     - uses: actions/checkout@v2
     - name: Linters
@@ -108,7 +108,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner]
+        os: [Linux]
     needs: Linters
     steps:
     - uses: actions/checkout@v2
@@ -127,7 +127,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner]
+        os: [Linux]
     needs: Quick_Check
     steps:
     - uses: actions/checkout@v2
@@ -143,7 +143,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner]
+        os: [Linux]
     needs: WASM_build
     steps:
     - uses: actions/checkout@v2
