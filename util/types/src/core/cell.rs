@@ -9,7 +9,7 @@ use crate::{
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
@@ -633,17 +633,26 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     );
     let mut current_inputs = HashSet::new();
 
+    let mut resolved_cells: HashMap<(OutPoint, bool), CellMeta> = HashMap::new();
     let mut resolve_cell =
         |out_point: &OutPoint, with_data: bool| -> Result<CellMeta, OutPointError> {
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
 
-            let cell_status = cell_provider.cell(out_point, with_data);
-            match cell_status {
-                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
-                CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
-                CellStatus::Live(cell_meta) => Ok(cell_meta),
+            match resolved_cells.entry((out_point.clone(), with_data)) {
+                Entry::Occupied(entry) => Ok(entry.get().clone()),
+                Entry::Vacant(entry) => {
+                    let cell_status = cell_provider.cell(out_point, with_data);
+                    match cell_status {
+                        CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
+                        CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
+                        CellStatus::Live(cell_meta) => {
+                            entry.insert(cell_meta.clone());
+                            Ok(cell_meta)
+                        }
+                    }
+                }
             }
         };
 
