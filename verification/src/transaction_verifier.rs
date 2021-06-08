@@ -714,9 +714,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     let base_timestamp = if hardfork_switch
                         .is_block_ts_as_relative_since_start_enabled(epoch_number)
                     {
-                        self.parent_median_time(&info.block_hash)
-                    } else {
                         self.parent_block_time(&info.block_hash)
+                    } else {
+                        self.parent_median_time(&info.block_hash)
                     };
                     let current_median_time = self.block_median_time(&parent_hash);
                     if current_median_time < base_timestamp + timestamp {
