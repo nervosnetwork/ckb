@@ -463,7 +463,7 @@ impl TxPoolService {
                 }
                 Err(reject) => {
                     if is_missing_input(&reject) && self.all_inputs_is_unknown(&tx) {
-                        self.add_orphan(tx, peer).await;
+                        self.add_orphan(tx, peer, declared_cycle).await;
                     } else if reject.is_malformed_tx() {
                         self.ban_malformed(peer, format!("reject {}", reject));
                     }
@@ -487,8 +487,16 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn add_orphan(&self, tx: TransactionView, peer: PeerIndex) {
-        self.orphan.write().await.add_orphan_tx(tx, peer)
+    pub(crate) async fn add_orphan(
+        &self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        declared_cycle: Cycle,
+    ) {
+        self.orphan
+            .write()
+            .await
+            .add_orphan_tx(tx, peer, declared_cycle)
     }
 
     pub(crate) async fn find_orphan_by_previous(
