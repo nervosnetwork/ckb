@@ -202,15 +202,6 @@ pub enum UnclesError {
         actual: u32,
     },
 
-    /// The calculated uncle-hash does not match with the one in the header.
-    #[error("InvalidHash(expected: {expected}, actual: {actual})")]
-    InvalidHash {
-        /// The calculated uncle-hash
-        expected: Byte32,
-        /// The actual uncle-hash
-        actual: Byte32,
-    },
-
     /// There is an uncle whose number is greater than or equal to current block number.
     #[error("InvalidNumber")]
     InvalidNumber,

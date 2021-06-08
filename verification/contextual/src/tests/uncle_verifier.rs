@@ -12,7 +12,7 @@ use ckb_types::{
         BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
         TransactionView, UncleBlockView,
     },
-    packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
+    packed::{CellInput, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_verification::UnclesError;
@@ -131,63 +131,6 @@ fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
         .next_epoch_ext(&chain[index].header(), &snapshot.as_data_provider())
         .unwrap()
         .epoch()
-}
-
-#[test]
-fn test_invalid_uncle_hash_case1() {
-    let (shared, chain1, chain2) = prepare();
-    let dummy_context = dummy_context(&shared);
-
-    // header has uncle_count is 1 but uncles_hash is not Byte32::one()
-    // body has 1 uncles
-    let block = chain1
-        .last()
-        .cloned()
-        .unwrap()
-        .as_advanced_builder()
-        .uncle(chain2.last().cloned().unwrap().as_uncle())
-        .build_unchecked();
-
-    let epoch = epoch(&shared, &chain1, chain1.len() - 2);
-    let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
-    let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        UnclesError::InvalidHash {
-            expected: Byte32::zero(),
-            actual: block.calc_uncles_hash(),
-        },
-    );
-}
-
-#[test]
-fn test_invalid_uncle_hash_case2() {
-    let (shared, chain1, chain2) = prepare();
-    let dummy_context = dummy_context(&shared);
-
-    // header has empty uncles, but the uncles hash is not matched
-    let uncles: UncleBlockVec = vec![chain2.last().cloned().unwrap().data().as_uncle()].pack();
-    let uncles_hash = uncles.calc_uncles_hash();
-    let block = chain1
-        .last()
-        .cloned()
-        .unwrap()
-        .as_advanced_builder()
-        .extra_hash(uncles_hash.clone())
-        .build_unchecked();
-
-    let epoch = epoch(&shared, &chain1, chain1.len() - 2);
-    let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
-    let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        UnclesError::InvalidHash {
-            expected: uncles_hash,
-            actual: Byte32::zero(),
-        },
-    );
 }
 
 // Uncle is ancestor block
