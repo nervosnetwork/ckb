@@ -70,7 +70,7 @@ pub fn start_worker(
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
                 pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
-                pb.set_prefix(&worker_name);
+                pb.set_prefix(worker_name);
 
                 let (worker_tx, worker_rx) = unbounded();
                 let mut worker = Dummy::try_new(config, nonce_tx, worker_rx)
@@ -104,7 +104,7 @@ pub fn start_worker(
                         // since we only show the spinner in console.
                         let pb = mp.add(ProgressBar::new(100));
                         pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
-                        pb.set_prefix(&worker_name);
+                        pb.set_prefix(worker_name.clone());
 
                         let (worker_tx, worker_rx) = unbounded();
                         let nonce_tx = nonce_tx.clone();

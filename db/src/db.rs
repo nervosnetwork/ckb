@@ -177,7 +177,7 @@ impl RocksDB {
     }
 
     /// Traverse database column with the given callback function.
-    pub fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
+    pub fn full_traverse<F>(&self, col: Col, callback: &mut F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
@@ -190,6 +190,36 @@ impl RocksDB {
             callback(&key, &val)?;
         }
         Ok(())
+    }
+
+    /// Traverse database column with the given callback function.
+    pub fn traverse<F>(
+        &self,
+        col: Col,
+        callback: &mut F,
+        mode: IteratorMode,
+        limit: usize,
+    ) -> Result<(usize, Vec<u8>)>
+    where
+        F: FnMut(&[u8], &[u8]) -> Result<()>,
+    {
+        let mut count: usize = 0;
+        let mut next_key: Vec<u8> = vec![];
+        let cf = cf_handle(&self.inner, col)?;
+        let iter = self
+            .inner
+            .full_iterator_cf(cf, mode)
+            .map_err(internal_error)?;
+        for (key, val) in iter {
+            if count > limit {
+                next_key = key.to_vec();
+                break;
+            }
+
+            callback(&key, &val)?;
+            count += 1;
+        }
+        Ok((count, next_key))
     }
 
     /// Set a snapshot at start of transaction by setting set_snapshot=true
@@ -389,11 +419,11 @@ mod tests {
         assert!(db.get_pinned("1", &[2]).unwrap().is_none());
 
         let mut r = HashMap::new();
-        let callback = |k: &[u8], v: &[u8]| -> Result<()> {
+        let mut callback = |k: &[u8], v: &[u8]| -> Result<()> {
             r.insert(k.to_vec(), v.to_vec());
             Ok(())
         };
-        db.traverse("1", callback).unwrap();
+        db.full_traverse("1", &mut callback).unwrap();
         assert!(r.len() == 1);
         assert_eq!(r.get(&vec![1, 1]), Some(&vec![1, 1, 1]));
     }
