@@ -214,12 +214,12 @@ pub(crate) struct DryRunner<'a> {
 }
 
 impl<'a> CellProvider for DryRunner<'a> {
-    fn cell(&self, out_point: &packed::OutPoint, with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &packed::OutPoint, eager_load: bool) -> CellStatus {
         let snapshot = self.shared.snapshot();
         snapshot
             .get_cell(out_point)
             .map(|mut cell_meta| {
-                if with_data {
+                if eager_load {
                     if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
                         cell_meta.mem_cell_data = Some(data);
                         cell_meta.mem_cell_data_hash = Some(data_hash);

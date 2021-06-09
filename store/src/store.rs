@@ -528,10 +528,10 @@ impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
 where
     S: ChainStore<'a>,
 {
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
         match self.0.get_cell(out_point) {
             Some(mut cell_meta) => {
-                if with_data {
+                if eager_load {
                     if let Some((data, data_hash)) = self.0.get_cell_data(out_point) {
                         cell_meta.mem_cell_data = Some(data);
                         cell_meta.mem_cell_data_hash = Some(data_hash);

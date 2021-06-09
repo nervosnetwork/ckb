@@ -73,7 +73,7 @@ impl PendingQueue {
 }
 
 impl CellProvider for PendingQueue {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         let tx_hash = out_point.tx_hash();
         if let Some(entry) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
             match entry

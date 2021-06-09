@@ -71,7 +71,7 @@ impl MockStore {
 }
 
 impl CellProvider for MockStore {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         match self.0.get_transaction(&out_point.tx_hash()) {
             Some((tx, _)) => tx
                 .outputs()

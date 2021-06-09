@@ -97,7 +97,7 @@ pub struct ProposedPool {
 }
 
 impl CellProvider for ProposedPool {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
