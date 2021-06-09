@@ -3,9 +3,9 @@ use crate::data_loader_wrapper::DataLoaderWrapper;
 use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -343,6 +343,42 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         if let Some(cache) = self.cache() {
             ret.map(|cached| {
                 cache.cell_data.lock().put(key, cached.clone());
+                cached
+            })
+        } else {
+            ret
+        }
+    }
+
+    /// TODO(doc): @quake
+    fn get_cell_data_hash(&'a self, out_point: &OutPoint) -> Option<packed::Byte32> {
+        let key = out_point.to_cell_key();
+        if let Some(cache) = self.cache() {
+            if let Some(cached) = cache.cell_data_hash.lock().get(&key) {
+                return Some(cached.clone());
+            }
+        };
+
+        let ret = self.get(COLUMN_CELL_DATA_HASH, &key).map(|raw| {
+            if !raw.as_ref().is_empty() {
+                packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()).to_entity()
+            } else {
+                // impl packed::CellOutput {
+                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
+                //         if data.is_empty() {
+                //             packed::Byte32::zero()
+                //         } else {
+                //             blake2b_256(data).pack()
+                //         }
+                //     }
+                // }
+                packed::Byte32::zero()
+            }
+        });
+
+        if let Some(cache) = self.cache() {
+            ret.map(|cached| {
+                cache.cell_data_hash.lock().put(key, cached.clone());
                 cached
             })
         } else {
