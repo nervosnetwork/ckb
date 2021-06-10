@@ -372,7 +372,7 @@ where
 /// TODO(doc): @quake
 pub trait CellProvider {
     /// TODO(doc): @quake
-    fn cell(&self, out_point: &OutPoint, with_data: bool, allow_in_txpool: bool) -> CellStatus;
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus;
 }
 
 /// TODO(doc): @quake
@@ -400,13 +400,11 @@ where
     A: CellProvider,
     B: CellProvider,
 {
-    fn cell(&self, out_point: &OutPoint, with_data: bool, allow_in_txpool: bool) -> CellStatus {
-        match self.overlay.cell(out_point, with_data, allow_in_txpool) {
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+        match self.overlay.cell(out_point, with_data) {
             CellStatus::Live(cell_meta) => CellStatus::Live(cell_meta),
             CellStatus::Dead => CellStatus::Dead,
-            CellStatus::Unknown => self
-                .cell_provider
-                .cell(out_point, with_data, allow_in_txpool),
+            CellStatus::Unknown => self.cell_provider.cell(out_point, with_data),
         }
     }
 }
@@ -454,7 +452,7 @@ impl<'a> BlockCellProvider<'a> {
 }
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool, _allow_in_txpool: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
         self.output_indices
             .get(&out_point.tx_hash())
             .and_then(|i| {
@@ -534,7 +532,7 @@ impl<'a> TransactionsProvider<'a> {
 }
 
 impl<'a> CellProvider for TransactionsProvider<'a> {
-    fn cell(&self, out_point: &OutPoint, with_data: bool, allow_in_txpool: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
         match self.transactions.get(&out_point.tx_hash()) {
             Some(tx) => tx
                 .outputs()
@@ -545,10 +543,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
-                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
-                    if !allow_in_txpool && !with_data {
-                        cell_meta.mem_cell_data_hash = None;
-                    }
+                    let cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
                     CellStatus::live_cell(cell_meta)
                 })
                 .unwrap_or(CellStatus::Unknown),
@@ -627,7 +622,6 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-    allow_in_txpool: bool,
 ) -> Result<ResolvedTransaction, OutPointError> {
     let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
@@ -641,7 +635,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
             return Err(OutPointError::Dead(out_point.clone()));
         }
 
-        let cell_status = cell_provider.cell(out_point, with_data, allow_in_txpool);
+        let cell_status = cell_provider.cell(out_point, with_data);
         match cell_status {
             CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
             CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
@@ -743,7 +737,7 @@ fn build_cell_meta_from_out_point<CP: CellProvider>(
     cell_provider: &CP,
     out_point: &OutPoint,
 ) -> Result<CellMeta, OutPointError> {
-    let cell_status = cell_provider.cell(out_point, true, false);
+    let cell_status = cell_provider.cell(out_point, true);
     match cell_status {
         CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
         CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
@@ -861,7 +855,7 @@ mod tests {
         cells: HashMap<OutPoint, Option<CellMeta>>,
     }
     impl CellProvider for CellMemoryDb {
-        fn cell(&self, o: &OutPoint, _with_data: bool, _allow_in_txpool: bool) -> CellStatus {
+        fn cell(&self, o: &OutPoint, _with_data: bool) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
@@ -918,9 +912,9 @@ mod tests {
         db.cells.insert(p1.clone(), Some(o.clone()));
         db.cells.insert(p2.clone(), None);
 
-        assert_eq!(CellStatus::Live(o), db.cell(&p1, false, false));
-        assert_eq!(CellStatus::Dead, db.cell(&p2, false, false));
-        assert_eq!(CellStatus::Unknown, db.cell(&p3, false, false));
+        assert_eq!(CellStatus::Live(o), db.cell(&p1, false));
+        assert_eq!(CellStatus::Dead, db.cell(&p2, false));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3, false));
     }
 
     #[test]
@@ -959,7 +953,6 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
-            false,
         )
         .unwrap();
 
@@ -993,7 +986,6 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
-            false,
         );
         assert_error_eq!(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
@@ -1023,7 +1015,6 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
-            false,
         );
         assert_error_eq!(result.unwrap_err(), OutPointError::Unknown(op_unknown),);
     }
@@ -1050,7 +1041,6 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
-            false,
         );
 
         assert!(result.is_ok());
@@ -1077,7 +1067,6 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
-            false,
         );
 
         assert_error_eq!(
@@ -1170,8 +1159,8 @@ mod tests {
             .build();
 
         let mut seen_inputs = HashSet::new();
-        let rtx = resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker, false)
-            .unwrap();
+        let rtx =
+            resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker).unwrap();
 
         assert_eq!(rtx.resolved_cell_deps[0], dummy_cell_meta,);
     }
@@ -1198,22 +1187,12 @@ mod tests {
                 .build();
 
             let mut seen_inputs = HashSet::new();
-            let result1 = resolve_transaction(
-                tx1,
-                &mut seen_inputs,
-                &cell_provider,
-                &header_checker,
-                false,
-            );
+            let result1 =
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
             assert!(result1.is_ok());
 
-            let result2 = resolve_transaction(
-                tx2,
-                &mut seen_inputs,
-                &cell_provider,
-                &header_checker,
-                false,
-            );
+            let result2 =
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
             assert!(result2.is_ok());
         }
 
@@ -1229,23 +1208,13 @@ mod tests {
             let tx2 = TransactionBuilder::default().cell_dep(dep).build();
 
             let mut seen_inputs = HashSet::new();
-            let result1 = resolve_transaction(
-                tx1,
-                &mut seen_inputs,
-                &cell_provider,
-                &header_checker,
-                false,
-            );
+            let result1 =
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
 
             assert!(result1.is_ok());
 
-            let result2 = resolve_transaction(
-                tx2,
-                &mut seen_inputs,
-                &cell_provider,
-                &header_checker,
-                false,
-            );
+            let result2 =
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
             assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point));
         }

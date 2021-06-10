@@ -2,9 +2,7 @@ use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction,
-};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -181,16 +179,12 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
 
-        let allow_in_txpool = consensus
-            .hardfork_switch()
-            .is_allow_cell_data_hash_in_txpool_enabled(block_template.epoch.epoch_number());
         let rtxs = txs.iter().map(|tx| {
             resolve_transaction(
                 tx.clone(),
                 &mut seen_inputs,
                 &overlay_cell_provider,
                 snapshot,
-                allow_in_txpool,
             ).map_err(|err| {
                 error!(
                     "resolve transactions error when generating block with block template, error: {:?}",

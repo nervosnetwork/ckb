@@ -253,7 +253,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
@@ -298,7 +297,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -391,7 +389,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -446,7 +443,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -514,7 +510,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
@@ -569,7 +564,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
@@ -911,7 +905,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());

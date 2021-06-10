@@ -132,8 +132,7 @@ fn bench(c: &mut Criterion) {
                     let mut seen_inputs = HashSet::new();
 
                     for tx in txs.clone() {
-                        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot, false)
-                            .unwrap();
+                        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap();
                     }
 
                     i -= 1;
@@ -159,8 +158,7 @@ fn bench(c: &mut Criterion) {
                     let rtxs: Vec<_> = txs
                         .into_iter()
                         .map(|tx| {
-                            resolve_transaction(tx, &mut seen_inputs, &provider, snapshot, false)
-                                .unwrap()
+                            resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap()
                         })
                         .collect();
 

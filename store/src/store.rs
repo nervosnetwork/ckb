@@ -530,7 +530,7 @@ impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
 where
     S: ChainStore<'a>,
 {
-    fn cell(&self, out_point: &OutPoint, with_data: bool, _allow_in_txpool: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         match self.0.get_cell(out_point) {
             Some(mut cell_meta) => {
                 if with_data {

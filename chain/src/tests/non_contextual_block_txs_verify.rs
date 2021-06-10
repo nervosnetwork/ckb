@@ -50,6 +50,7 @@ pub(crate) fn create_cellbase(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_block(
     parent_header: &HeaderView,
     transactions: Vec<TransactionView>,

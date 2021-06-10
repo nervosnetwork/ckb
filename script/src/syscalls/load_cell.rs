@@ -24,7 +24,6 @@ pub struct LoadCell<'a, DL> {
     resolved_cell_deps: &'a [CellMeta],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
-    allow_cell_data_hash_in_txpool: bool,
 }
 
 impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
@@ -35,7 +34,6 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
         resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-        allow_cell_data_hash_in_txpool: bool,
     ) -> LoadCell<'a, DL> {
         LoadCell {
             data_loader,
@@ -44,7 +42,6 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
             resolved_cell_deps,
             group_inputs,
             group_outputs,
-            allow_cell_data_hash_in_txpool,
         }
     }
 
@@ -105,15 +102,8 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if self.allow_cell_data_hash_in_txpool {
-                    if let Some(bytes) = self.data_loader.load_cell_data_hash(cell) {
-                        (SUCCESS, store_data(machine, &bytes.as_bytes())?)
-                    } else {
-                        (ITEM_MISSING, 0)
-                    }
-                } else if let Some(data_hash) = &cell.mem_cell_data_hash {
-                    let bytes = data_hash.raw_data();
-                    (SUCCESS, store_data(machine, &bytes)?)
+                if let Some(bytes) = self.data_loader.load_cell_data_hash(cell) {
+                    (SUCCESS, store_data(machine, &bytes.as_bytes())?)
                 } else {
                     (ITEM_MISSING, 0)
                 }
