@@ -1,14 +1,9 @@
 use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier};
 use crate::{BlockVersionError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
-use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
-use ckb_types::{
-    core::{hardfork::HardForkSwitch, EpochNumberWithFraction, HeaderBuilder},
-    packed::Header,
-    prelude::*,
-};
+use ckb_types::{constants::BLOCK_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
 use faketime::unix_time_as_millis;
 
 fn mock_median_time_context() -> MockMedianTime {
@@ -19,53 +14,18 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 pub fn test_version() {
-    let fork_at = 10;
-    let default_block_version = ConsensusBuilder::default().build().block_version(fork_at);
-    let epoch = EpochNumberWithFraction::new(fork_at, 0, 10);
-    let header1 = HeaderBuilder::default()
-        .version(default_block_version.pack())
-        .epoch(epoch.pack())
+    let header = HeaderBuilder::default()
+        .version((BLOCK_VERSION + 1).pack())
         .build();
-    let header2 = HeaderBuilder::default()
-        .version((default_block_version + 1).pack())
-        .epoch(epoch.pack())
-        .build();
-    {
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_pr_0230(fork_at + 1)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let result = VersionVerifier::new(&header1, &consensus).verify();
-        assert!(result.is_ok(), "result = {:?}", result);
+    let verifier = VersionVerifier::new(&header, BLOCK_VERSION);
 
-        let result = VersionVerifier::new(&header2, &consensus).verify();
-        assert_error_eq!(
-            result.unwrap_err(),
-            BlockVersionError {
-                expected: default_block_version,
-                actual: default_block_version + 1
-            }
-        );
-    }
-    {
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_pr_0230(fork_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let result = VersionVerifier::new(&header1, &consensus).verify();
-        assert!(result.is_ok(), "result = {:?}", result);
-
-        let result = VersionVerifier::new(&header2, &consensus).verify();
-        assert!(result.is_ok(), "result = {:?}", result);
-    }
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        BlockVersionError {
+            expected: BLOCK_VERSION,
+            actual: BLOCK_VERSION + 1
+        }
+    );
 }
 
 #[cfg(not(disable_faketime))]

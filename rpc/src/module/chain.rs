@@ -1618,9 +1618,8 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_consensus(&self) -> Result<Consensus> {
-        let consensus = self.shared.consensus();
-        let epoch_number = self.shared.snapshot().tip_header().epoch().number();
-        Ok(consensus.to_json(epoch_number))
+        let consensus = self.shared.consensus().clone();
+        Ok(consensus.into())
     }
 
     fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {

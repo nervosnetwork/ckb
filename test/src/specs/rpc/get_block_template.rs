@@ -12,7 +12,7 @@ impl Spec for RpcGetBlockTemplate {
         let node0 = &nodes[0];
         let default_bytes_limit = node0.consensus().max_block_bytes;
         let default_cycles_limit = node0.consensus().max_block_cycles;
-        let default_block_version = node0.consensus().block_version(0);
+        let default_block_version = node0.consensus().block_version;
         let epoch_length = node0.consensus().genesis_epoch_ext().length();
 
         // get block template when tip block is genesis

@@ -22,8 +22,6 @@ pub struct HardForkConfig {
     pub rfc_pr_0224: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0228: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
-    pub rfc_pr_0230: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -71,8 +69,7 @@ impl HardForkConfig {
             .rfc_pr_0222(check_default!(self, rfc_pr_0222, ckb2021))
             .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021))
             .rfc_pr_0224(check_default!(self, rfc_pr_0224, ckb2021))
-            .rfc_pr_0228(check_default!(self, rfc_pr_0228, ckb2021))
-            .rfc_pr_0230(check_default!(self, rfc_pr_0230, ckb2021));
+            .rfc_pr_0228(check_default!(self, rfc_pr_0228, ckb2021));
         Ok(builder)
     }
 
@@ -86,7 +83,6 @@ impl HardForkConfig {
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .rfc_pr_0224(self.rfc_pr_0224.unwrap_or(default))
             .rfc_pr_0228(self.rfc_pr_0228.unwrap_or(default))
-            .rfc_pr_0230(self.rfc_pr_0230.unwrap_or(default))
             .build()
     }
 }
