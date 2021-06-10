@@ -73,7 +73,7 @@ impl PendingQueue {
 }
 
 impl CellProvider for PendingQueue {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
         let tx_hash = out_point.tx_hash();
         if let Some(entry) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
             match entry
@@ -81,9 +81,12 @@ impl CellProvider for PendingQueue {
                 .output_with_data(out_point.index().unpack())
             {
                 Some((output, data)) => {
-                    let cell_meta = CellMetaBuilder::from_cell_output(output, data)
+                    let mut cell_meta = CellMetaBuilder::from_cell_output(output, data)
                         .out_point(out_point.to_owned())
                         .build();
+                    if !with_data {
+                        cell_meta.mem_cell_data_hash = None;
+                    }
                     CellStatus::live_cell(cell_meta)
                 }
                 None => CellStatus::Unknown,

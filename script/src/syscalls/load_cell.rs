@@ -6,7 +6,6 @@ use crate::{
     },
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_traits::CellDataProvider;
 use ckb_types::{
     core::{cell::CellMeta, Capacity},
     packed::CellOutput,
@@ -17,8 +16,7 @@ use ckb_vm::{
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 
-pub struct LoadCell<'a, DL> {
-    data_loader: &'a DL,
+pub struct LoadCell<'a> {
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [CellMeta],
     resolved_cell_deps: &'a [CellMeta],
@@ -26,17 +24,15 @@ pub struct LoadCell<'a, DL> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
+impl<'a> LoadCell<'a> {
     pub fn new(
-        data_loader: &'a DL,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [CellMeta],
         resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, DL> {
+    ) -> LoadCell<'a> {
         LoadCell {
-            data_loader,
             outputs,
             resolved_inputs,
             resolved_cell_deps,
@@ -102,8 +98,9 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if let Some(bytes) = self.data_loader.load_cell_data_hash(cell) {
-                    (SUCCESS, store_data(machine, &bytes.as_bytes())?)
+                if let Some(data_hash) = &cell.mem_cell_data_hash {
+                    let bytes = data_hash.raw_data();
+                    (SUCCESS, store_data(machine, &bytes)?)
                 } else {
                     (ITEM_MISSING, 0)
                 }
@@ -147,7 +144,7 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
     }
 }
 
-impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for LoadCell<'a, DL> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

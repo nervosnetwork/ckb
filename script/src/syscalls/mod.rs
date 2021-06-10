@@ -244,10 +244,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -288,10 +285,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -380,10 +374,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -434,10 +425,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -501,10 +489,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -555,10 +540,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
@@ -896,10 +878,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
         let mut load_cell = LoadCell::new(
-            &data_loader,
             &outputs,
             &resolved_inputs,
             &resolved_cell_deps,
