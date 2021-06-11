@@ -588,11 +588,6 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         self.block_median_time(&parent_hash)
     }
 
-    fn parent_block_time(&self, block_hash: &Byte32) -> u64 {
-        let (timestamp, _, _) = self.data_loader.timestamp_and_parent(block_hash);
-        timestamp
-    }
-
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
         if let Some(median_time) = self.median_timestamps_cache.borrow().peek(block_hash) {
             return *median_time;
@@ -692,7 +687,10 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     let base_timestamp = if hardfork_switch
                         .is_block_ts_as_relative_since_start_enabled(epoch_number)
                     {
-                        self.parent_block_time(&info.block_hash)
+                        self.data_loader
+                            .get_header(&info.block_hash)
+                            .expect("header exist")
+                            .timestamp()
                     } else {
                         self.parent_median_time(&info.block_hash)
                     };
