@@ -22,9 +22,7 @@ impl<'a, T: ChainStore<'a>> CellDataProvider for DataLoaderWrapper<'a, T> {
     }
 
     fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<Byte32> {
-        self.0
-            .get_cell_data(out_point)
-            .map(|(_, data_hash)| data_hash)
+        self.0.get_cell_data_hash(out_point)
     }
 }
 
