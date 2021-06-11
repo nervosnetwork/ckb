@@ -720,7 +720,6 @@ version = "0.43.0-pre"
 dependencies = [
  "ckb-types",
  "faster-hex",
- "jsonrpc-core",
  "lazy_static",
  "proptest",
  "regex",
@@ -888,6 +887,7 @@ dependencies = [
  "hyper 0.12.35",
  "hyper-tls 0.3.2",
  "indicatif",
+ "jsonrpc-core",
  "lru",
  "rand 0.7.3",
  "rand_distr",
@@ -1094,7 +1094,6 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "faketime",
- "futures 0.1.29",
  "jsonrpc-core",
  "jsonrpc-derive",
  "jsonrpc-http-server",

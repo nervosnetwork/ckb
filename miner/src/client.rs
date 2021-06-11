@@ -2,10 +2,7 @@ use crate::Work;
 use ckb_app_config::MinerClientConfig;
 use ckb_channel::Sender;
 use ckb_error::AnyError;
-use ckb_jsonrpc_types::{
-    error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
-    request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
-};
+use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
 use ckb_logger::{debug, error, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{packed::Block, H256};
@@ -15,6 +12,10 @@ use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::rt::{self, Future, Stream};
 use hyper::Uri;
 use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
+use jsonrpc_core::{
+    error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
+    request::MethodCall, response::Output, version::Version,
+};
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::convert::Into;

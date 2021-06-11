@@ -23,7 +23,7 @@ ckb-logger-service = { path = "../util/logger-service", version = "= 0.43.0-pre"
 ckb-network-alert = { path = "../util/network-alert", version = "= 0.43.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.43.0-pre" }
 jsonrpc-core = "17.1"
-jsonrpc-derive = "17.1" # quote requirement conflict
+jsonrpc-derive = "17.1"
 jsonrpc-http-server = "17.1"
 jsonrpc-tcp-server = "17.1"
 jsonrpc-ws-server = "17.1"
@@ -38,7 +38,6 @@ ckb-traits = { path = "../traits", version = "= 0.43.0-pre" }
 ckb-util = { path = "../util", version = "= 0.43.0-pre" }
 faketime = "0.2.0"
 ckb-dao = { path = "../util/dao", version = "= 0.43.0-pre" }
-futures = "0.1"
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }
 ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.43.0-pre" }
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.43.0-pre" }
