@@ -34,6 +34,7 @@ use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
     SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
@@ -42,14 +43,48 @@ type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
 type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum DataGurad {
+    NotLoaded(OutPoint),
+    Loaded(Bytes),
+}
+
+/// LazyData wrapper make sure not-loaded data will be loaded only after one access
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct LazyData(RefCell<DataGurad>);
+
+impl LazyData {
+    fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
+        match &cell_meta.mem_cell_data {
+            Some(data) => LazyData(RefCell::new(DataGurad::Loaded(data.to_owned()))),
+            None => LazyData(RefCell::new(DataGurad::NotLoaded(
+                cell_meta.out_point.clone(),
+            ))),
+        }
+    }
+
+    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
+        let guard = self.0.borrow().to_owned();
+        match guard {
+            DataGurad::NotLoaded(out_point) => {
+                let data = data_loader.get_cell_data(&out_point).expect("cell data");
+                self.0.replace(DataGurad::Loaded(data.to_owned()));
+                data
+            }
+            DataGurad::Loaded(bytes) => bytes,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum Binaries {
-    Unique((Byte32, Bytes)),
-    Duplicate((Byte32, Bytes)),
+    Unique((Byte32, LazyData)),
+    Duplicate((Byte32, LazyData)),
     Multiple,
 }
 
 impl Binaries {
-    fn new(data_hash: Byte32, data: Bytes) -> Self {
+    fn new(data_hash: Byte32, data: LazyData) -> Self {
         Self::Unique((data_hash, data))
     }
 
@@ -83,8 +118,9 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction,
 
-    binaries_by_data_hash: HashMap<Byte32, Bytes>,
+    binaries_by_data_hash: HashMap<Byte32, LazyData>,
     binaries_by_type_hash: HashMap<Byte32, Binaries>,
+
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
 }
@@ -126,19 +162,20 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             })
             .collect();
 
-        let mut binaries_by_data_hash: HashMap<Byte32, Bytes> = HashMap::default();
+        let mut binaries_by_data_hash: HashMap<Byte32, LazyData> = HashMap::default();
         let mut binaries_by_type_hash: HashMap<Byte32, Binaries> = HashMap::default();
         for cell_meta in resolved_cell_deps {
-            let data = data_loader.load_cell_data(cell_meta).expect("cell data");
             let data_hash = data_loader
                 .load_cell_data_hash(cell_meta)
                 .expect("cell data hash");
-            binaries_by_data_hash.insert(data_hash.to_owned(), data.to_owned());
+            let lazy = LazyData::from_cell_meta(&cell_meta);
+            binaries_by_data_hash.insert(data_hash.to_owned(), lazy.to_owned());
+
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
                     .entry(t.calc_script_hash())
                     .and_modify(|bin| bin.merge(&data_hash))
-                    .or_insert_with(|| Binaries::new(data_hash.to_owned(), data.to_owned()));
+                    .or_insert_with(|| Binaries::new(data_hash.to_owned(), lazy.to_owned()));
             }
         }
 
@@ -240,8 +277,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a> {
+    ) -> LoadCell<'a, DL> {
         LoadCell::new(
+            &self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
             self.resolved_cell_deps(),
@@ -299,8 +337,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     pub fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
             ScriptHashType::Data => {
-                if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash()) {
-                    Ok(data.to_owned())
+                if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
+                    Ok(lazy.access(self.data_loader))
                 } else {
                     Err(ScriptError::InvalidCodeHash)
                 }
@@ -308,8 +346,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             ScriptHashType::Type => {
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
-                        Binaries::Unique((_, ref data)) => Ok(data.to_owned()),
-                        Binaries::Duplicate((_, ref data)) => {
+                        Binaries::Unique((_, ref lazy)) => Ok(lazy.access(self.data_loader)),
+                        Binaries::Duplicate((_, ref lazy)) => {
                             let proposal_window = self.consensus.tx_proposal_window();
                             let epoch_number = self.tx_env.epoch_number(proposal_window);
                             if self
@@ -317,7 +355,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                                 .hardfork_switch()
                                 .is_allow_multiple_matches_on_identical_data_enabled(epoch_number)
                             {
-                                Ok(data.to_owned())
+                                Ok(lazy.access(self.data_loader))
                             } else {
                                 Err(ScriptError::MultipleMatches)
                             }

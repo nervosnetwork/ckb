@@ -97,7 +97,7 @@ impl Worker for EaglesongSimple {
                             + u64::from(elapsed.subsec_nanos()))
                             as f64
                             / 1_000_000_000.0;
-                        progress_bar.set_message(&format!(
+                        progress_bar.set_message(format!(
                             "hash rate: {:>10.3} / nonces found: {:>10}",
                             state_update_counter as f64 / elapsed_nanos,
                             self.nonces_found,

@@ -176,8 +176,8 @@ impl<'a> ChainStore<'a> for Snapshot {
 }
 
 impl CellProvider for Snapshot {
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        self.store.cell_provider().cell(out_point, with_data)
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
+        self.store.cell_provider().cell(out_point, eager_load)
     }
 }
 

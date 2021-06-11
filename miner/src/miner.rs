@@ -145,7 +145,7 @@ impl Miner {
                 self.pb
                     .println(format!("Found! #{} {:#x}", block.number(), block_hash));
                 self.pb
-                    .set_message(&format!("Total nonces found: {:>3}", self.nonces_found));
+                    .set_message(format!("Total nonces found: {:>3}", self.nonces_found));
                 self.pb.inc(1);
             }
         }
