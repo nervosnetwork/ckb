@@ -15,7 +15,7 @@ ckb-db = { path = "../db", version = "= 0.43.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.43.0-pre" }
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.43.0-pre" }
-indicatif = "0.15"
+indicatif = "0.16"
 console = ">=0.9.1, <1.0.0"
 
 [dev-dependencies]

@@ -372,7 +372,7 @@ where
 /// TODO(doc): @quake
 pub trait CellProvider {
     /// TODO(doc): @quake
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus;
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus;
 }
 
 /// TODO(doc): @quake
@@ -400,11 +400,11 @@ where
     A: CellProvider,
     B: CellProvider,
 {
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        match self.overlay.cell(out_point, with_data) {
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
+        match self.overlay.cell(out_point, eager_load) {
             CellStatus::Live(cell_meta) => CellStatus::Live(cell_meta),
             CellStatus::Dead => CellStatus::Dead,
-            CellStatus::Unknown => self.cell_provider.cell(out_point, with_data),
+            CellStatus::Unknown => self.cell_provider.cell(out_point, eager_load),
         }
     }
 }
@@ -452,7 +452,7 @@ impl<'a> BlockCellProvider<'a> {
 }
 
 impl<'a> CellProvider for BlockCellProvider<'a> {
-    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         self.output_indices
             .get(&out_point.tx_hash())
             .and_then(|i| {
@@ -532,7 +532,7 @@ impl<'a> TransactionsProvider<'a> {
 }
 
 impl<'a> CellProvider for TransactionsProvider<'a> {
-    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         match self.transactions.get(&out_point.tx_hash()) {
             Some(tx) => tx
                 .outputs()
@@ -543,10 +543,9 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
-                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data).build();
-                    if !with_data {
-                        cell_meta.mem_cell_data_hash = None;
-                    }
+                    let cell_meta = CellMetaBuilder::from_cell_output(cell, data)
+                        .out_point(out_point.to_owned())
+                        .build();
                     CellStatus::live_cell(cell_meta)
                 })
                 .unwrap_or(CellStatus::Unknown),
@@ -603,6 +602,7 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
 fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
     out_point: &OutPoint,
     mut cell_resolver: F,
+    eager_load: bool,
 ) -> Result<(CellMeta, Vec<CellMeta>), OutPointError> {
     let dep_group_cell = cell_resolver(out_point, true)?;
     let data = dep_group_cell
@@ -614,7 +614,7 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
         .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
-        resolved_deps.push(cell_resolver(&sub_out_point, true)?);
+        resolved_deps.push(cell_resolver(&sub_out_point, eager_load)?);
     }
     Ok((dep_group_cell, resolved_deps))
 }
@@ -635,15 +635,15 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
 
     let mut resolved_cells: HashMap<(OutPoint, bool), CellMeta> = HashMap::new();
     let mut resolve_cell =
-        |out_point: &OutPoint, with_data: bool| -> Result<CellMeta, OutPointError> {
+        |out_point: &OutPoint, eager_load: bool| -> Result<CellMeta, OutPointError> {
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
 
-            match resolved_cells.entry((out_point.clone(), with_data)) {
+            match resolved_cells.entry((out_point.clone(), eager_load)) {
                 Entry::Occupied(entry) => Ok(entry.get().clone()),
                 Entry::Vacant(entry) => {
-                    let cell_status = cell_provider.cell(out_point, with_data);
+                    let cell_status = cell_provider.cell(out_point, eager_load);
                     match cell_status {
                         CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
                         CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
@@ -711,6 +711,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
                     cell_resolver,
                     resolved_cell_deps,
                     resolved_dep_groups,
+                    false, // don't eager_load data
                 )?;
             }
         }
@@ -721,6 +722,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
                 cell_resolver,
                 resolved_cell_deps,
                 resolved_dep_groups,
+                false, // don't eager_load data
             )?;
         }
     }
@@ -732,13 +734,15 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
+    eager_load: bool,
 ) -> Result<(), OutPointError> {
     if cell_dep.dep_type() == DepType::DepGroup.into() {
-        let (dep_group, cell_deps) = resolve_dep_group(&cell_dep.out_point(), cell_resolver)?;
+        let (dep_group, cell_deps) =
+            resolve_dep_group(&cell_dep.out_point(), cell_resolver, eager_load)?;
         resolved_dep_groups.push(dep_group);
         resolved_cell_deps.extend(cell_deps);
     } else {
-        resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), true)?);
+        resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), eager_load)?);
     }
     Ok(())
 }
@@ -746,9 +750,9 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
 fn build_cell_meta_from_out_point<CP: CellProvider>(
     cell_provider: &CP,
     out_point: &OutPoint,
-    with_data: bool,
 ) -> Result<CellMeta, OutPointError> {
-    let cell_status = cell_provider.cell(out_point, with_data);
+    // eager_load data for build cache
+    let cell_status = cell_provider.cell(out_point, true);
     match cell_status {
         CellStatus::Dead => Err(OutPointError::Dead(out_point.clone())),
         CellStatus::Unknown => Err(OutPointError::Unknown(out_point.clone())),
@@ -790,29 +794,31 @@ pub fn setup_system_cell_cache<CP: CellProvider>(
 
     let mut cell_deps = HashMap::new();
     let secp_code_dep_cell =
-        build_cell_meta_from_out_point(cell_provider, &secp_code_dep.out_point(), true)
+        build_cell_meta_from_out_point(cell_provider, &secp_code_dep.out_point())
             .expect("resolve secp_code_dep_cell");
     cell_deps.insert(secp_code_dep, ResolvedDep::Cell(secp_code_dep_cell));
 
-    let dao_dep_cell = build_cell_meta_from_out_point(cell_provider, &dao_dep.out_point(), true)
+    let dao_dep_cell = build_cell_meta_from_out_point(cell_provider, &dao_dep.out_point())
         .expect("resolve dao_dep_cell");
     cell_deps.insert(dao_dep, ResolvedDep::Cell(dao_dep_cell));
 
     let secp_data_dep_cell =
-        build_cell_meta_from_out_point(cell_provider, &secp_data_dep.out_point(), true)
+        build_cell_meta_from_out_point(cell_provider, &secp_data_dep.out_point())
             .expect("resolve secp_data_dep_cell");
     cell_deps.insert(secp_data_dep, ResolvedDep::Cell(secp_data_dep_cell));
 
-    let resolve_cell = |out_point: &OutPoint, with_data: bool| -> Result<CellMeta, OutPointError> {
-        build_cell_meta_from_out_point(cell_provider, out_point, with_data)
-    };
+    // eager_load data for build cache
+    let resolve_cell =
+        |out_point: &OutPoint, _eager_load: bool| -> Result<CellMeta, OutPointError> {
+            build_cell_meta_from_out_point(cell_provider, out_point)
+        };
 
-    let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell)
+    let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell, true)
         .expect("resolve secp_group_dep_cell");
     cell_deps.insert(secp_group_dep, ResolvedDep::Group(secp_group_dep_cell));
 
     let multi_sign_secp_group_cell =
-        resolve_dep_group(&multi_sign_secp_group.out_point(), resolve_cell)
+        resolve_dep_group(&multi_sign_secp_group.out_point(), resolve_cell, true)
             .expect("resolve multi_sign_secp_group");
     cell_deps.insert(
         multi_sign_secp_group,
@@ -866,7 +872,7 @@ mod tests {
         cells: HashMap<OutPoint, Option<CellMeta>>,
     }
     impl CellProvider for CellMemoryDb {
-        fn cell(&self, o: &OutPoint, _with_data: bool) -> CellStatus {
+        fn cell(&self, o: &OutPoint, _eager_load: bool) -> CellStatus {
             match self.cells.get(o) {
                 Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
