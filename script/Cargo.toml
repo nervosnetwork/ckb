@@ -10,7 +10,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [features]
-default = ["logging", "asm"]
+default = ["logging", "detect-asm"]
 
 asm = ["ckb-vm/asm"]
 detect-asm = ["ckb-vm/detect-asm"]
