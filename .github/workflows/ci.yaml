@@ -203,7 +203,7 @@ jobs:
       - Benchmarks_Test
       - Integration_Test
     if: |
-       contains('bors[bot]', github.actor) && success()
+        (contains(github.event_name, 'pull_request') || contains('bors[bot]', github.actor)) && success()
     runs-on: ubuntu-latest
     steps:
       - name: CI succeeded
