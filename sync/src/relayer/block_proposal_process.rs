@@ -30,25 +30,24 @@ impl<'a> BlockProposalProcess<'a> {
             }
         }
 
-        let unknown_txs: Vec<core::TransactionView> = self
+        let txs: Vec<core::TransactionView> = self
             .message
             .transactions()
             .iter()
             .map(|x| x.to_entity().into_view())
-            .filter(|tx| !sync_state.already_known_tx(&tx.hash()))
             .collect();
 
-        if unknown_txs.is_empty() {
+        if txs.is_empty() {
             return Status::ignored();
         }
 
-        let proposals: Vec<packed::ProposalShortId> = unknown_txs
+        let proposals: Vec<packed::ProposalShortId> = txs
             .iter()
             .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash()))
             .collect();
         let removes = sync_state.remove_inflight_proposals(&proposals);
         let mut asked_txs = Vec::new();
-        for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
+        for (previously_in, tx) in removes.into_iter().zip(txs) {
             if previously_in {
                 sync_state.mark_as_known_tx(tx.hash());
                 asked_txs.push(tx);
