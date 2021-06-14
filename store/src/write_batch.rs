@@ -105,21 +105,15 @@ impl StoreWriteBatch {
                 .build()
                 .as_slice(),
         )?;
-        let txs_start_key = packed::TransactionKey::new_builder()
-            .block_hash(hash.clone())
-            .index(0u32.pack())
-            .build();
 
-        let txs_end_key = packed::TransactionKey::new_builder()
-            .block_hash(hash.clone())
-            .index(txs_len.pack())
-            .build();
+        let key_range = (0u32..txs_len).map(|i| {
+            packed::TransactionKey::new_builder()
+                .block_hash(hash.clone())
+                .index(i.pack())
+                .build()
+        });
 
-        self.inner.delete_range(
-            COLUMN_BLOCK_BODY,
-            txs_start_key.as_slice(),
-            txs_end_key.as_slice(),
-        )?;
+        self.inner.delete_range(COLUMN_BLOCK_BODY, key_range)?;
         Ok(())
     }
 

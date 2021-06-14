@@ -40,6 +40,8 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.43.0-
 rand = "0.7"
 ckb-dao = { path = "../util/dao", version = "= 0.43.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.43.0-pre" }
+ckb-chain = { path = "../chain", version = "= 0.43.0-pre", features = ["mock"] }
+faux = "^0.1"
 
 [features]
 default = []

@@ -556,7 +556,6 @@ fn test_package_txs_with_deps_priority() {
         }
 
         let block: Block = block_template.clone().into();
-        println!("block proposal len {}", block.proposals().len());
         let block = block.as_advanced_builder().build();
         chain_controller
             .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
