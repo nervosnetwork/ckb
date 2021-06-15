@@ -115,7 +115,9 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
     let config = BlockAssemblerConfig {
         code_hash: h256!("0x0"),
         args: Default::default(),
-        hash_type: ScriptHashType::Data,
+        hash_type: ScriptHashType::Data {
+            vm_version: 0.into(),
+        },
         message: Default::default(),
     };
 

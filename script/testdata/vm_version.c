@@ -19,5 +19,8 @@ static inline long __internal_syscall(long n, long _a0, long _a1, long _a2,
                      (long)(f))
 
 int main() {
-    return syscall(2041, 0, 0, 0, 0, 0, 0);
+    if (syscall(2041, 0, 0, 0, 0, 0, 0) == 1) {
+      return 0;
+    }
+    return 1;
 }

@@ -26,6 +26,14 @@ pub enum ScriptError {
     #[error("Known bugs encountered in output {1}: {0}")]
     EncounteredKnownBugs(String, usize),
 
+    /// InvalidScriptHashType
+    #[error("InvalidScriptHashType: {0}")]
+    InvalidScriptHashType(String),
+
+    /// InvalidVmVersion
+    #[error("Invalid vm version {0}")]
+    InvalidVmVersion(u8),
+
     /// Known bugs are detected in transaction script outputs
     #[error("VM Internal Error: {0}")]
     VMInternalError(String),

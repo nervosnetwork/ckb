@@ -1,7 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{
     BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    Timestamp, Uint128, Uint32, Uint64, Version,
+    Timestamp, Uint128, Uint32, Uint64, Version, VmVersion,
 };
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
@@ -16,24 +16,38 @@ use std::fmt;
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
 /// in the RFC *CKB Transaction Structure*.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields, tag = "hash_type")]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash.
-    Data,
+    Data {
+        /// CKB-VM version.
+        #[serde(default, skip_serializing_if = "VmVersion::is_default")]
+        vm_version: VmVersion,
+    },
     /// Type "type" matches script code via cell type script hash.
+    Type,
+}
+
+#[doc(hidden)]
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptHashTypeShadow {
+    Data,
     Type,
 }
 
 impl Default for ScriptHashType {
     fn default() -> Self {
-        ScriptHashType::Data
+        ScriptHashType::Data {
+            vm_version: Default::default(),
+        }
     }
 }
 
 impl From<ScriptHashType> for core::ScriptHashType {
     fn from(json: ScriptHashType) -> Self {
         match json {
-            ScriptHashType::Data => core::ScriptHashType::Data,
+            ScriptHashType::Data { vm_version } => core::ScriptHashType::Data(vm_version.into()),
             ScriptHashType::Type => core::ScriptHashType::Type,
         }
     }
@@ -42,7 +56,9 @@ impl From<ScriptHashType> for core::ScriptHashType {
 impl From<core::ScriptHashType> for ScriptHashType {
     fn from(core: core::ScriptHashType) -> ScriptHashType {
         match core {
-            core::ScriptHashType::Data => ScriptHashType::Data,
+            core::ScriptHashType::Data(v) => ScriptHashType::Data {
+                vm_version: v.into(),
+            },
             core::ScriptHashType::Type => ScriptHashType::Type,
         }
     }
@@ -51,7 +67,9 @@ impl From<core::ScriptHashType> for ScriptHashType {
 impl fmt::Display for ScriptHashType {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            ScriptHashType::Data => write!(f, "data"),
+            ScriptHashType::Data { vm_version } => {
+                write!(f, "data {{ vm_version: {} }}", vm_version)
+            }
             ScriptHashType::Type => write!(f, "type"),
         }
     }
@@ -71,14 +89,66 @@ impl fmt::Display for ScriptHashType {
 /// # "#).unwrap();
 /// ```
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "ScriptShadow")]
 pub struct Script {
     /// The hash used to match the script code.
     pub code_hash: H256,
     /// Specifies how to use the `code_hash` to match the script code.
+    #[serde(flatten)]
     pub hash_type: ScriptHashType,
     /// Arguments for script.
     pub args: JsonBytes,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScriptShadow {
+    code_hash: H256,
+    #[serde(rename = "hash_type")]
+    hash_type_shadow: ScriptHashTypeShadow,
+    #[serde(rename = "vm_version")]
+    vm_version_opt: Option<VmVersion>,
+    args: JsonBytes,
+}
+
+struct ScriptValidationError(&'static str);
+
+impl std::fmt::Display for ScriptValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl std::convert::TryFrom<ScriptShadow> for Script {
+    type Error = ScriptValidationError;
+    fn try_from(shadow: ScriptShadow) -> Result<Self, Self::Error> {
+        let ScriptShadow {
+            code_hash,
+            hash_type_shadow,
+            vm_version_opt,
+            args,
+        } = shadow;
+        let hash_type = match hash_type_shadow {
+            ScriptHashTypeShadow::Data => {
+                let vm_version = vm_version_opt.unwrap_or_default();
+                ScriptHashType::Data { vm_version }
+            }
+            ScriptHashTypeShadow::Type => {
+                if vm_version_opt.is_some() {
+                    return Err(ScriptValidationError(
+                        "vm version is not allowed for hash-type \"type\".",
+                    ));
+                }
+                ScriptHashType::Type
+            }
+        };
+        let script = Script {
+            code_hash,
+            hash_type,
+            args,
+        };
+        Ok(script)
+    }
 }
 
 impl From<Script> for packed::Script {
@@ -1239,7 +1309,7 @@ pub struct Consensus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, h256, packed::Byte32, H256};
     use lazy_static::lazy_static;
     use proptest::{collection::size_range, prelude::*};
     use regex::Regex;
@@ -1248,7 +1318,7 @@ mod tests {
         packed::ScriptBuilder::default()
             .code_hash(Byte32::zero())
             .args(arg.pack())
-            .hash_type(core::ScriptHashType::Data.into())
+            .hash_type(core::ScriptHashType::Data(0).into())
             .build()
     }
 
@@ -1286,6 +1356,92 @@ mod tests {
             .uncles(vec![mock_uncle()])
             .proposals(vec![packed::ProposalShortId::default()])
             .build()
+    }
+
+    #[test]
+    fn test_script_serialization() {
+        for (original, entity) in &[
+            (
+                "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"type\",\
+                \"args\":\"0x\"\
+             }",
+                Script {
+                    code_hash: h256!("0x0"),
+                    hash_type: ScriptHashType::Type,
+                    args: JsonBytes::default(),
+                },
+            ),
+            (
+                "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"data\",\
+                \"args\":\"0x\"\
+             }",
+                Script {
+                    code_hash: h256!("0x0"),
+                    hash_type: ScriptHashType::Data {
+                        vm_version: VmVersion::default(),
+                    },
+                    args: JsonBytes::default(),
+                },
+            ),
+            (
+                "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"data\",\
+                \"vm_version\":\"0x2\",\
+                \"args\":\"0x\"\
+             }",
+                Script {
+                    code_hash: h256!("0x0"),
+                    hash_type: ScriptHashType::Data {
+                        vm_version: 2.into(),
+                    },
+                    args: JsonBytes::default(),
+                },
+            ),
+        ] {
+            let decoded: Script = serde_json::from_str(&original).unwrap();
+            assert_eq!(&decoded, entity);
+            let encoded = serde_json::to_string(&decoded).unwrap();
+            assert_eq!(&encoded, original);
+        }
+        for malformed in &[
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"type\",\
+                \"vm_version\":\"0x0\",\
+                \"args\":\"0x\"\
+             }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"data\",\
+                \"unknown_field\":\"0x0\",\
+                \"args\":\"0x\"\
+             }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000000\",\
+                \"hash_type\":\"data\",\
+                \"vm_version\":\"0x2\",\
+                \"unknown_field\":\"0x0\",\
+                \"args\":\"0x\"\
+             }",
+        ] {
+            let result: Result<Script, _> = serde_json::from_str(&malformed);
+            assert!(
+                result.is_err(),
+                "should reject malformed json: [{}]",
+                malformed
+            )
+        }
     }
 
     fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {

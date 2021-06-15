@@ -3,9 +3,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_script::IllTransactionChecker;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
-use ckb_verification::{Since, SinceMetric};
+use ckb_verification::{Since, SinceMetric, TxVerifyEnv};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::convert::TryInto;
@@ -258,7 +258,13 @@ impl PoolRpc for PoolRpcImpl {
         }
 
         if self.reject_ill_transactions {
-            if let Err(e) = IllTransactionChecker::new(&tx).check() {
+            let snapshot: &Snapshot = &self.shared.snapshot();
+            let consensus = snapshot.consensus();
+            let tx_env = {
+                let tip_header = snapshot.tip_header();
+                TxVerifyEnv::new_submit(&tip_header)
+            };
+            if let Err(e) = IllTransactionChecker::new(&tx, consensus, &tx_env).check() {
                 return Err(RPCError::custom_with_data(
                     RPCError::PoolRejectedTransactionByIllTransactionChecker,
                     "The transaction is rejected by IllTransactionChecker",
@@ -496,7 +502,7 @@ mod tests {
             assert!(validator.validate(&tx).is_err());
 
             // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
+            let tx = build_tx(&type_hash, core::ScriptHashType::Data(0), vec![1; 20]);
             assert!(validator.validate(&tx).is_err());
 
             // invalid code hash
@@ -528,7 +534,7 @@ mod tests {
             assert!(validator.validate(&tx).is_err());
 
             // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
+            let tx = build_tx(&type_hash, core::ScriptHashType::Data(0), vec![1; 20]);
             assert!(validator.validate(&tx).is_err());
 
             // invalid since args format
@@ -583,7 +589,7 @@ mod tests {
                 core::ScriptHashType::Type,
                 vec![1; 20],
                 &type_type_hash,
-                core::ScriptHashType::Data,
+                core::ScriptHashType::Data(0),
             );
             assert!(validator.validate(&tx).is_err());
 

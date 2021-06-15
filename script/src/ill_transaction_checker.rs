@@ -1,8 +1,9 @@
-use crate::ScriptError;
+use crate::{verify_env::TxVerifyEnv, ScriptError};
 use byteorder::{ByteOrder, LittleEndian};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_types::core::TransactionView;
 use ckb_vm::{
-    instructions::{b, extract_opcode, i, m, rvc, Instruction, Itype},
+    instructions::{extract_opcode, i, m, rvc, Instruction, Itype},
     registers::ZERO,
 };
 use ckb_vm_definitions::instructions as insts;
@@ -13,18 +14,30 @@ const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92
 /// Ill formed transactions checker.
 pub struct IllTransactionChecker<'a> {
     tx: &'a TransactionView,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
 }
 
 impl<'a> IllTransactionChecker<'a> {
     /// Creates the checker for a transaction.
-    pub fn new(tx: &'a TransactionView) -> Self {
-        IllTransactionChecker { tx }
+    pub fn new(tx: &'a TransactionView, consensus: &'a Consensus, tx_env: &'a TxVerifyEnv) -> Self {
+        IllTransactionChecker {
+            tx,
+            consensus,
+            tx_env,
+        }
     }
 
     /// Checks whether the transaction is ill formed.
     pub fn check(&self) -> Result<(), ScriptError> {
-        for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
-            IllScriptChecker::new(&data.raw_data(), i).check()?;
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let hardfork_switch = self.consensus.hardfork_switch();
+        // TODO ckb2021 require-confirmation We couldn't known if user run the code in vm v0 or vm v1.
+        if !hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number) {
+            for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
+                IllScriptChecker::new(&data.raw_data(), i).check()?;
+            }
         }
         Ok(())
     }
@@ -87,12 +100,7 @@ impl<'a> IllScriptChecker<'a> {
             }
             i = LittleEndian::read_u32(&self.data[pc as usize..]);
         }
-        let factories = [
-            rvc::factory::<u64>,
-            i::factory::<u64>,
-            m::factory::<u64>,
-            b::factory::<u64>,
-        ];
+        let factories = [rvc::factory::<u64>, i::factory::<u64>, m::factory::<u64>];
         for factory in &factories {
             if let Some(instruction) = factory(i) {
                 return (Some(instruction), len);
