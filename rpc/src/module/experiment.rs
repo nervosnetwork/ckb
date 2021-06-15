@@ -214,17 +214,12 @@ pub(crate) struct DryRunner<'a> {
 }
 
 impl<'a> CellProvider for DryRunner<'a> {
-    fn cell(
-        &self,
-        out_point: &packed::OutPoint,
-        with_data: bool,
-        _allow_in_txpool: bool,
-    ) -> CellStatus {
+    fn cell(&self, out_point: &packed::OutPoint, eager_load: bool) -> CellStatus {
         let snapshot = self.shared.snapshot();
         snapshot
             .get_cell(out_point)
             .map(|mut cell_meta| {
-                if with_data {
+                if eager_load {
                     if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
                         cell_meta.mem_cell_data = Some(data);
                         cell_meta.mem_cell_data_hash = Some(data_hash);
@@ -249,27 +244,12 @@ impl<'a> DryRunner<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
         let snapshot: &Snapshot = &self.shared.snapshot();
-        let consensus = snapshot.consensus();
-        let tx_env = {
-            let tip_header = snapshot.tip_header();
-            TxVerifyEnv::new_submit(&tip_header)
-        };
-        let allow_in_txpool = {
-            let proposal_window = consensus.tx_proposal_window();
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            consensus
-                .hardfork_switch()
-                .is_allow_cell_data_hash_in_txpool_enabled(epoch_number)
-        };
-        match resolve_transaction(
-            tx.into_view(),
-            &mut HashSet::new(),
-            self,
-            self,
-            allow_in_txpool,
-        ) {
+        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
+                let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
+                let tip_header = snapshot.tip_header();
+                let tx_env = TxVerifyEnv::new_submit(&tip_header);
                 match ScriptVerifier::new(
                     &resolved,
                     consensus,

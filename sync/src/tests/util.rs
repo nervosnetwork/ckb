@@ -63,7 +63,6 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
             &mut HashSet::new(),
             snapshot.as_ref(),
             snapshot.as_ref(),
-            false,
         )
         .unwrap();
         let data_loader = snapshot.as_data_provider();

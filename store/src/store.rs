@@ -4,8 +4,8 @@ use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
-    COLUMN_CELL_DATA, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -388,6 +388,42 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         }
     }
 
+    /// TODO(doc): @quake
+    fn get_cell_data_hash(&'a self, out_point: &OutPoint) -> Option<packed::Byte32> {
+        let key = out_point.to_cell_key();
+        if let Some(cache) = self.cache() {
+            if let Some(cached) = cache.cell_data_hash.lock().get(&key) {
+                return Some(cached.clone());
+            }
+        };
+
+        let ret = self.get(COLUMN_CELL_DATA_HASH, &key).map(|raw| {
+            if !raw.as_ref().is_empty() {
+                packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()).to_entity()
+            } else {
+                // impl packed::CellOutput {
+                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
+                //         if data.is_empty() {
+                //             packed::Byte32::zero()
+                //         } else {
+                //             blake2b_256(data).pack()
+                //         }
+                //     }
+                // }
+                packed::Byte32::zero()
+            }
+        });
+
+        if let Some(cache) = self.cache() {
+            ret.map(|cached| {
+                cache.cell_data_hash.lock().put(key, cached.clone());
+                cached
+            })
+        } else {
+            ret
+        }
+    }
+
     /// Gets current epoch ext
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
@@ -530,10 +566,10 @@ impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
 where
     S: ChainStore<'a>,
 {
-    fn cell(&self, out_point: &OutPoint, with_data: bool, _allow_in_txpool: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
         match self.0.get_cell(out_point) {
             Some(mut cell_meta) => {
-                if with_data {
+                if eager_load {
                     if let Some((data, data_hash)) = self.0.get_cell_data(out_point) {
                         cell_meta.mem_cell_data = Some(data);
                         cell_meta.mem_cell_data_hash = Some(data_hash);

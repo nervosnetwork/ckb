@@ -21,7 +21,7 @@ use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
 };
-use ckb_error::AnyError;
+use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
 use ckb_network::{
@@ -310,7 +310,7 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, AnyError> {
+    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, CKBError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
@@ -845,10 +845,11 @@ mod tests {
         types::{HeaderView, HeadersSyncController, PeerState},
         SyncShared,
     };
-    use ckb_chain::chain::ChainService;
+    use ckb_chain::chain::{ChainController, ChainService};
     use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
+    use ckb_error::InternalErrorKind;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
@@ -935,14 +936,9 @@ mod tests {
         let cellbase = create_cellbase(shared, parent_header, number);
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
-            let resolved_cellbase = resolve_transaction(
-                cellbase.clone(),
-                &mut HashSet::new(),
-                snapshot,
-                snapshot,
-                false,
-            )
-            .unwrap();
+            let resolved_cellbase =
+                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
+                    .unwrap();
             let data_loader = shared.store().as_data_provider();
             DaoCalculator::new(shared.consensus(), &data_loader)
                 .dao_field(&[resolved_cellbase], parent_header)
@@ -1863,5 +1859,43 @@ mod tests {
                 case, last_common, best_known, expected, actual,
             );
         }
+    }
+
+    #[test]
+    fn test_internal_db_error() {
+        use crate::utils::is_internal_db_error;
+
+        let consensus = Consensus::default();
+        let mut builder = SharedBuilder::with_temp_db();
+        builder = builder.consensus(consensus);
+
+        let (shared, mut pack) = builder.build().unwrap();
+
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+        let _chain_controller = chain_service.start::<&str>(None);
+
+        let sync_shared = Arc::new(SyncShared::new(
+            shared,
+            Default::default(),
+            pack.take_relay_tx_receiver(),
+        ));
+
+        let mut chain_controller = ChainController::faux();
+        let block = Arc::new(BlockBuilder::default().build());
+
+        // mock process_block
+        faux::when!(chain_controller.process_block(Arc::clone(&block))).then_return(Err(
+            InternalErrorKind::Database.other("mocked db error").into(),
+        ));
+
+        faux::when!(chain_controller.stop()).then_return(());
+
+        let synchronizer = Synchronizer::new(chain_controller, sync_shared);
+
+        let status = synchronizer
+            .shared()
+            .accept_block(&synchronizer.chain, Arc::clone(&block));
+
+        assert!(is_internal_db_error(&status.err().unwrap()));
     }
 }

@@ -1,0 +1,3 @@
+- src: https://github.com/keroro520/ansible-ckb
+  scm: git
+  version: main

@@ -302,22 +302,11 @@ impl TxPool {
         let pending_and_proposed_provider =
             OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
         let mut seen_inputs = HashSet::new();
-        let allow_in_txpool = {
-            let tip_header = snapshot.tip_header();
-            let consensus = snapshot.consensus();
-            let proposal_window = consensus.tx_proposal_window();
-            let tx_env = TxVerifyEnv::new_submit(tip_header);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            consensus
-                .hardfork_switch()
-                .is_allow_cell_data_hash_in_txpool_enabled(epoch_number)
-        };
         resolve_transaction(
             tx,
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
-            allow_in_txpool,
         )
         .map_err(Reject::Resolve)
     }
@@ -343,24 +332,7 @@ impl TxPool {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        let allow_in_txpool = {
-            let tip_header = snapshot.tip_header();
-            let consensus = snapshot.consensus();
-            let proposal_window = consensus.tx_proposal_window();
-            let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            consensus
-                .hardfork_switch()
-                .is_allow_cell_data_hash_in_txpool_enabled(epoch_number)
-        };
-        resolve_transaction(
-            tx,
-            &mut seen_inputs,
-            &cell_provider,
-            snapshot,
-            allow_in_txpool,
-        )
-        .map_err(Reject::Resolve)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
     }
 
     pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {

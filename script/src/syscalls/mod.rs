@@ -212,8 +212,33 @@ mod tests {
     use proptest::{collection::size_range, prelude::*};
     use std::collections::HashMap;
 
+    #[derive(Default, PartialEq, Eq, Clone)]
+    struct MockDataLoader {
+        headers: HashMap<Byte32, HeaderView>,
+    }
+
+    impl CellDataProvider for MockDataLoader {
+        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+            None
+        }
+
+        fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+            None
+        }
+    }
+
+    impl HeaderProvider for MockDataLoader {
+        fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+            self.headers.get(block_hash).cloned()
+        }
+    }
+
     fn new_store() -> ChainDB {
         ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
+    }
+
+    fn new_mock_data_loader() -> MockDataLoader {
+        MockDataLoader::default()
     }
 
     fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
@@ -256,8 +281,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -265,7 +289,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
@@ -301,8 +324,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -310,7 +332,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -394,8 +415,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -403,7 +423,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -449,8 +468,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -458,7 +476,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         let input_correct_data = input_cell.cell_output.as_slice();
@@ -517,8 +534,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -526,7 +542,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
@@ -572,8 +587,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -581,7 +595,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
@@ -593,26 +606,6 @@ mod tests {
 
         for addr in addr..addr + 100 {
             assert_eq!(machine.memory_mut().load8(&addr), Ok(0));
-        }
-    }
-
-    struct MockDataLoader {
-        headers: HashMap<Byte32, HeaderView>,
-    }
-
-    impl CellDataProvider for MockDataLoader {
-        fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
-            None
-        }
-
-        fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
-            None
-        }
-    }
-
-    impl HeaderProvider for MockDataLoader {
-        fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
-            self.headers.get(block_hash).cloned()
         }
     }
 
@@ -914,8 +907,7 @@ mod tests {
         let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
+        let data_loader = new_mock_data_loader();
         let mut load_cell = LoadCell::new(
             &data_loader,
             &outputs,
@@ -923,7 +915,6 @@ mod tests {
             &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
-            false,
         );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());

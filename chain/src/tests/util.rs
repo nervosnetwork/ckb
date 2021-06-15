@@ -531,13 +531,7 @@ pub fn dao_data(
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(
-            tx.clone(),
-            &mut seen_inputs,
-            &overlay_cell_provider,
-            store,
-            false,
-        );
+        let rtx = resolve_transaction(tx.clone(), &mut seen_inputs, &overlay_cell_provider, store);
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);

@@ -52,6 +52,7 @@ impl DatabaseMigration {
         migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
         migrations.add_migration(Box::new(migrations::CellMigration));
         migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
+        migrations.add_migration(Box::new(migrations::AddExtraDataHash));
 
         DatabaseMigration {
             migrations,

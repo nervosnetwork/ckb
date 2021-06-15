@@ -255,8 +255,10 @@ impl<'a> BlockExtensionVerifier<'a> {
         let epoch_number = block.epoch().number();
         let hardfork_switch = self.consensus.hardfork_switch();
         let extra_fields_count = block.data().count_extra_fields();
+        let is_reuse_uncles_hash_as_extra_hash_enabled =
+            hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number);
 
-        if hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number) {
+        if is_reuse_uncles_hash_as_extra_hash_enabled {
             match extra_fields_count {
                 0 => {}
                 1 => {
@@ -276,13 +278,13 @@ impl<'a> BlockExtensionVerifier<'a> {
                     return Err(BlockErrorKind::UnknownFields.into());
                 }
             }
-
-            let actual_extra_hash = block.calc_extra_hash().extra_hash();
-            if actual_extra_hash != block.extra_hash() {
-                return Err(BlockErrorKind::InvalidExtraHash.into());
-            }
         } else if extra_fields_count > 0 {
             return Err(BlockErrorKind::UnknownFields.into());
+        }
+
+        let actual_extra_hash = block.calc_extra_hash().extra_hash();
+        if actual_extra_hash != block.extra_hash() {
+            return Err(BlockErrorKind::InvalidExtraHash.into());
         }
 
         Ok(())

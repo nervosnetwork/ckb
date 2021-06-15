@@ -1,7 +1,7 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
 use crate::{
-    core, packed,
+    constants, core, packed,
     prelude::*,
     utilities::{merkle_root, DIFF_TWO},
 };
@@ -16,7 +16,7 @@ use crate::{
 ///
 /// [`TransactionView`]: struct.TransactionView.html
 /// [`packed::TransactionBuilder`]: ../packed/struct.TransactionBuilder.html
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TransactionBuilder {
     pub(crate) version: packed::Uint32,
     pub(crate) cell_deps: Vec<packed::CellDep>,
@@ -70,10 +70,24 @@ pub struct BlockBuilder {
  * Implement std traits.
  */
 
+impl ::std::default::Default for TransactionBuilder {
+    fn default() -> Self {
+        Self {
+            version: constants::TX_VERSION.pack(),
+            cell_deps: Default::default(),
+            header_deps: Default::default(),
+            inputs: Default::default(),
+            outputs: Default::default(),
+            witnesses: Default::default(),
+            outputs_data: Default::default(),
+        }
+    }
+}
+
 impl ::std::default::Default for HeaderBuilder {
     fn default() -> Self {
         Self {
-            version: Default::default(),
+            version: constants::BLOCK_VERSION.pack(),
             parent_hash: Default::default(),
             timestamp: Default::default(),
             number: Default::default(),

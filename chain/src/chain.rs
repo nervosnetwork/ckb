@@ -1,4 +1,5 @@
 //! CKB chain service.
+#![allow(missing_docs)]
 
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
@@ -35,6 +36,7 @@ type TruncateRequest = Request<Byte32, Result<(), Error>>;
 /// The controller is internally reference-counted and can be freely cloned.
 ///
 /// A controller can invoke [`ChainService`] methods.
+#[cfg_attr(feature = "mock", faux::create)]
 #[derive(Clone)]
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
@@ -44,11 +46,23 @@ pub struct ChainController {
 
 impl Drop for ChainController {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.stop();
     }
 }
 
+#[cfg_attr(feature = "mock", faux::methods)]
 impl ChainController {
+    pub fn new(
+        process_block_sender: Sender<ProcessBlockRequest>,
+        truncate_sender: Sender<TruncateRequest>,
+        stop: StopHandler<()>,
+    ) -> Self {
+        ChainController {
+            process_block_sender,
+            truncate_sender,
+            stop,
+        }
+    }
     /// Inserts the block into database.
     ///
     /// Expects the block's header to be valid and already verified.
@@ -84,6 +98,10 @@ impl ChainController {
                 .other("Chain service has gone")
                 .into())
         })
+    }
+
+    pub fn stop(&mut self) {
+        self.stop.try_send();
     }
 }
 
@@ -218,11 +236,7 @@ impl ChainService {
             .expect("Start ChainService failed");
         let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
 
-        ChainController {
-            process_block_sender,
-            truncate_sender,
-            stop,
-        }
+        ChainController::new(process_block_sender, truncate_sender, stop)
     }
 
     fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
@@ -684,7 +698,6 @@ impl ChainService {
 
         let verify_context = VerifyContext::new(txn, self.shared.consensus());
         let async_handle = self.shared.tx_pool_controller().handle();
-        let hardfork_switch = self.shared.consensus().hardfork_switch();
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -705,8 +718,6 @@ impl ChainService {
                     };
 
                     let transactions = b.transactions();
-                    let allow_in_txpool = hardfork_switch
-                        .is_allow_cell_data_hash_in_txpool_enabled(b.epoch().number());
                     let resolved = {
                         let txn_cell_provider = txn.cell_provider();
                         let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
@@ -719,7 +730,6 @@ impl ChainService {
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
-                                    allow_in_txpool,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()

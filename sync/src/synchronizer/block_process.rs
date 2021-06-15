@@ -1,7 +1,4 @@
-use crate::{
-    synchronizer::{BlockStatus, Synchronizer},
-    Status, StatusCode,
-};
+use crate::{synchronizer::Synchronizer, utils::is_internal_db_error, Status, StatusCode};
 use ckb_logger::debug;
 use ckb_network::PeerIndex;
 use ckb_types::{packed, prelude::*};
@@ -37,12 +34,13 @@ impl<'a> BlockProcess<'a> {
 
         if state.new_block_received(&block) {
             if let Err(err) = self.synchronizer.process_new_block(block.clone()) {
-                state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
-                return StatusCode::BlockIsInvalid.with_context(format!(
-                    "{}, error: {}",
-                    block.hash(),
-                    err,
-                ));
+                if !is_internal_db_error(&err) {
+                    return StatusCode::BlockIsInvalid.with_context(format!(
+                        "{}, error: {}",
+                        block.hash(),
+                        err,
+                    ));
+                }
             }
         }
 

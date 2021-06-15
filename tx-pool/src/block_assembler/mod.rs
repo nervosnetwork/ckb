@@ -13,8 +13,8 @@ use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockNumber, Capacity, Cycle, EpochExt, EpochNumber, HeaderView, TransactionBuilder,
-        TransactionView, UncleBlockView, Version,
+        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
+        UncleBlockView, Version,
     },
     packed::{self, Byte32, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Transaction},
     prelude::*,
@@ -73,22 +73,16 @@ impl BlockAssembler {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-        epoch_number: EpochNumber,
     ) -> (u64, u64, Version) {
-        let bytes_limit = {
-            let default_bytes_limit = consensus.max_block_bytes();
-            bytes_limit
-                .min(Some(default_bytes_limit))
-                .unwrap_or(default_bytes_limit)
-        };
-        let default_proposals_limit = consensus.max_block_proposals_limit();
+        let bytes_limit = bytes_limit
+            .min(Some(consensus.max_block_bytes()))
+            .unwrap_or_else(|| consensus.max_block_bytes());
         let proposals_limit = proposals_limit
-            .min(Some(default_proposals_limit))
-            .unwrap_or(default_proposals_limit);
-        let default_block_version = consensus.block_version(epoch_number);
+            .min(Some(consensus.max_block_proposals_limit()))
+            .unwrap_or_else(|| consensus.max_block_proposals_limit());
         let version = max_version
-            .min(Some(default_block_version))
-            .unwrap_or(default_block_version);
+            .min(Some(consensus.block_version()))
+            .unwrap_or_else(|| consensus.block_version());
 
         (bytes_limit, proposals_limit, version)
     }

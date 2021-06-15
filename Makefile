@@ -1,13 +1,13 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.7.0
+MOLC_VERSION := 0.7.1
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
-CARGO_TARGET_DIR ?= "../target"
+CARGO_TARGET_DIR ?= $(shell pwd)/target
 
 ##@ Testing
 .PHONY: test
@@ -54,8 +54,9 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	rm -f target/doc/ckb_rpc/module/trait.*.html
+	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
 	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+	ln -nsf "${CARGO_TARGET_DIR}" "target"
 	if command -v python3 &> /dev/null; then \
 		python3 ./devtools/doc/rpc.py > rpc/README.md; \
 	else \
@@ -172,12 +173,15 @@ gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
 
+.PHONY: ${GEN_MOL_OUT_DIR}/blockchain.rs
 ${GEN_MOL_OUT_DIR}/blockchain.rs: ${GEN_MOL_IN_DIR}/blockchain.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
+.PHONY: ${GEN_MOL_OUT_DIR}/extensions.rs
 ${GEN_MOL_OUT_DIR}/extensions.rs: ${GEN_MOL_IN_DIR}/extensions.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 
+.PHONY: ${GEN_MOL_OUT_DIR}/protocols.rs
 ${GEN_MOL_OUT_DIR}/protocols.rs: ${GEN_MOL_IN_DIR}/protocols.mol
 	${MOLC} --language rust --schema-file $< | rustfmt > $@
 

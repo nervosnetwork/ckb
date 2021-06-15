@@ -10,7 +10,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [features]
-default = ["logging", "asm"]
+default = ["logging", "detect-asm"]
 
 asm = ["ckb-vm/asm"]
 detect-asm = ["ckb-vm/detect-asm"]
@@ -23,7 +23,7 @@ ckb-types = {path = "../util/types", version = "= 0.43.0-pre"}
 ckb-hash = {path = "../util/hash", version = "= 0.43.0-pre"}
 ckb-vm-definitions = "0.20.0-alpha"
 ckb-vm = { version = "0.20.0-alpha", default-features = false }
-faster-hex = "0.4"
+faster-hex = "0.6"
 ckb-logger = { path = "../util/logger", version = "= 0.43.0-pre", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }
@@ -35,6 +35,6 @@ proptest = "0.9"
 ckb-db = { path = "../db", version = "= 0.43.0-pre" }
 ckb-store = { path = "../store", version = "= 0.43.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.43.0-pre" }
-tiny-keccak = "2.0"
+tiny-keccak = { version = "2.0", features = ["sha3"] }
 ckb-crypto = { path = "../util/crypto", version = "= 0.43.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.43.0-pre" }

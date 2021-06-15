@@ -7,7 +7,7 @@ trigger:
     - '*'
 
 variables:
-  CKBClientVersion: v0.41.0
+  CKBClientVersion: v0.42.1
 
 jobs:
   - job: UnitTest

@@ -297,16 +297,11 @@ impl TxPoolService {
             let snapshot = self.snapshot();
             let consensus = snapshot.consensus();
             let cycles_limit = consensus.max_block_cycles();
-            let epoch_number_of_next_block = snapshot
-                .tip_header()
-                .epoch()
-                .minimum_epoch_number_after_n_blocks(1);
             let (bytes_limit, proposals_limit, version) = BlockAssembler::transform_params(
                 consensus,
                 bytes_limit,
                 proposals_limit,
                 max_version,
-                epoch_number_of_next_block,
             );
 
             if let Some(cache) = self

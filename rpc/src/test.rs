@@ -110,14 +110,8 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     let dao = {
-        let resolved_cellbase = resolve_transaction(
-            cellbase.clone(),
-            &mut HashSet::new(),
-            snapshot,
-            snapshot,
-            false,
-        )
-        .unwrap();
+        let resolved_cellbase =
+            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         let data_loader = shared.store().as_data_provider();
         DaoCalculator::new(shared.consensus(), &data_loader)
             .dao_field(&[resolved_cellbase], parent)

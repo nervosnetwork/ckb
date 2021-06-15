@@ -26,7 +26,7 @@ futures = "0.1"
 lru = "0.6.0"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.43.0-pre" }
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }
-indicatif = "0.15"
+indicatif = "0.16"
 console = "0.13.0"
 eaglesong = "0.1"
 base64 = "0.13.0"

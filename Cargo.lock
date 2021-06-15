@@ -533,6 +533,7 @@ dependencies = [
  "ckb-verification-contextual",
  "ckb-verification-traits",
  "faketime",
+ "faux",
  "lazy_static",
  "tempfile",
 ]
@@ -580,7 +581,7 @@ name = "ckb-crypto"
 version = "0.43.0-pre"
 dependencies = [
  "ckb-fixed-hash",
- "faster-hex 0.4.1",
+ "faster-hex",
  "lazy_static",
  "rand 0.7.3",
  "secp256k1",
@@ -664,7 +665,7 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "0.43.0-pre"
 dependencies = [
- "faster-hex 0.4.1",
+ "faster-hex",
  "serde",
  "thiserror",
 ]
@@ -721,7 +722,7 @@ name = "ckb-jsonrpc-types"
 version = "0.43.0-pre"
 dependencies = [
  "ckb-types",
- "faster-hex 0.4.1",
+ "faster-hex",
  "jsonrpc-core",
  "lazy_static",
  "proptest",
@@ -762,9 +763,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-librocksdb-sys"
-version = "6.11.6"
+version = "6.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a78d3b9b5fd3b4990ddd2083f6a6d4389b6c8e603a4f2896914165113beed2d"
+checksum = "ffbc8d4e55832ebb78adf5a8ef7303b934983e9fff073c9b49e884c3a2d139f4"
 dependencies = [
  "cc",
  "glob",
@@ -923,7 +924,7 @@ dependencies = [
  "ckb-util",
  "criterion",
  "faketime",
- "faster-hex 0.4.1",
+ "faster-hex",
  "futures 0.3.12",
  "ipnetwork",
  "lazy_static",
@@ -1056,9 +1057,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-rocksdb"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a645f6745c3519bbcbeed80486e59cb3f74d2ac08a1d9621c399b892508aca6e"
+checksum = "09bef4a177960f6f137f02c715acf9e374831036170b1862eedfb9ff2642c078"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
@@ -1137,7 +1138,7 @@ dependencies = [
  "ckb-types",
  "ckb-vm",
  "ckb-vm-definitions",
- "faster-hex 0.4.1",
+ "faster-hex",
  "goblin 0.2.3",
  "proptest",
  "serde",
@@ -1337,6 +1338,7 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "faketime",
+ "faux",
  "futures 0.3.12",
  "governor",
  "lru",
@@ -1346,12 +1348,12 @@ dependencies = [
 
 [[package]]
 name = "ckb-system-scripts"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261dd95a93c09ea24397c85b4fbca061e1da2d6573189749aeb99fe840aaf0c9"
+checksum = "cfbce46ad2de7563c7e456888d4a29df3d461106a989836c08627d044409e928"
 dependencies = [
  "blake2b-rs",
- "faster-hex 0.3.1",
+ "faster-hex",
  "includedir",
  "includedir_codegen",
  "phf",
@@ -1525,7 +1527,7 @@ dependencies = [
  "ansi_term 0.11.0",
  "atty",
  "bitflags",
- "strsim",
+ "strsim 0.8.0",
  "textwrap",
  "unicode-width",
  "vec_map",
@@ -1851,6 +1853,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f2c43f534ea4b0b049015d00269734195e6d3f0f6635cb692251aca6f9f8b3c"
+dependencies = [
+ "darling_core",
+ "darling_macro",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e91455b86830a1c21799d94524df0845183fa55bafd9aa137b01c7d1065fa36"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim 0.10.0",
+ "syn",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29b5acf0dea37a7f66f7b25d2c5e93fd46f8f6968b1a5d7a3e02e97768afc95a"
+dependencies = [
+ "darling_core",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "darwin-libproc"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2013,15 +2050,31 @@ dependencies = [
 
 [[package]]
 name = "faster-hex"
-version = "0.3.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5b8cccaafb5aae8c282692e5590f341925edea6c696e8715ff0d973320b2646"
+checksum = "b02a61fea82de8484f9d7ce99b698b0e190ef8de71035690a961a43d7b18a2ad"
 
 [[package]]
-name = "faster-hex"
-version = "0.4.1"
+name = "faux"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "348138dd23e03bb0018caef99647fb1a5befec5ff4b501991de88f09854d4c28"
+checksum = "40c3668239842a12c1810beec5afa357caa1aca3ee6b7cd9c60514af9787061f"
+dependencies = [
+ "faux_macros",
+ "paste 1.0.5",
+]
+
+[[package]]
+name = "faux_macros"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bba2d3cc6542e349914482eea66e5c5cee9c6acd63b8fda73698b974234869f7"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "fdlimit"
@@ -2724,6 +2777,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ident_case"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
 name = "idna"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2776,9 +2835,9 @@ checksum = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
 
 [[package]]
 name = "indicatif"
-version = "0.15.0"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
+checksum = "2d207dc617c7a380ab07ff572a6e52fa202a2a8f355860ac9c38e23f8196be1b"
 dependencies = [
  "console",
  "lazy_static",
@@ -2869,7 +2928,7 @@ checksum = "c502a5ff9dd2924f1ed32ba96e3b65735d837b4bfd978d3161b1702e66aca4b7"
 dependencies = [
  "jemalloc-sys",
  "libc",
- "paste",
+ "paste 0.1.6",
 ]
 
 [[package]]
@@ -3387,13 +3446,13 @@ dependencies = [
 
 [[package]]
 name = "molecule"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1234a806dbcac181c1fc7cb69757ee22c5935c2dd4a8cb2551519bba44d85c93"
+checksum = "c58d1147f4d0d51ce72c56a6099ae5dbfd007b250271bb965f82dd10fca2bf02"
 dependencies = [
  "bytes 1.0.1",
  "cfg-if 1.0.0",
- "faster-hex 0.4.1",
+ "faster-hex",
 ]
 
 [[package]]
@@ -3523,9 +3582,9 @@ dependencies = [
 
 [[package]]
 name = "number_prefix"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17b02fc0ff9a9e4b35b3342880f48e896ebf69f2967921fe8646bf5b7125956a"
+checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "numext-constructor"
@@ -3747,6 +3806,12 @@ dependencies = [
  "paste-impl",
  "proc-macro-hack",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acbf547ad0c65e31259204bd90935776d1c693cec2f4ff7abb7a1bbbd40dfe58"
 
 [[package]]
 name = "paste-impl"
@@ -4638,6 +4703,12 @@ name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+
+[[package]]
+name = "strsim"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "subtle"

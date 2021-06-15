@@ -71,7 +71,7 @@ impl MockStore {
 }
 
 impl CellProvider for MockStore {
-    fn cell(&self, out_point: &OutPoint, with_data: bool, allow_in_txpool: bool) -> CellStatus {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         match self.0.get_transaction(&out_point.tx_hash()) {
             Some((tx, _)) => tx
                 .outputs()
@@ -82,12 +82,9 @@ impl CellProvider for MockStore {
                         .get(out_point.index().unpack())
                         .expect("output data");
 
-                    let mut cell_meta = CellMetaBuilder::from_cell_output(cell, data.unpack())
+                    let cell_meta = CellMetaBuilder::from_cell_output(cell, data.unpack())
                         .out_point(out_point.to_owned())
                         .build();
-                    if !allow_in_txpool && !with_data {
-                        cell_meta.mem_cell_data_hash = None;
-                    }
 
                     CellStatus::live_cell(cell_meta)
                 })

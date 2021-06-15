@@ -1,5 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
+use crate::utils::is_internal_db_error;
 use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
@@ -11,7 +12,7 @@ use ckb_constant::sync::{
     MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
     POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
-use ckb_error::AnyError;
+use ckb_error::Error as CKBError;
 use ckb_logger::{debug, debug_target, error, trace};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
@@ -1292,7 +1293,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, AnyError> {
+    ) -> Result<bool, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         if !self.is_parent_stored(&block) {
             debug!(
@@ -1349,11 +1350,11 @@ impl SyncShared {
         }
     }
 
-    fn accept_block(
+    pub(crate) fn accept_block(
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, AnyError> {
+    ) -> Result<bool, CKBError> {
         let ret = {
             let mut assume_valid_target = self.state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
@@ -1370,10 +1371,12 @@ impl SyncShared {
                 chain.process_block(Arc::clone(&block))
             }
         };
-        if ret.is_err() {
-            error!("accept block {:?} {:?}", block, ret);
-            self.state
-                .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+        if let Err(ref error) = ret {
+            error!("accept block {:?} {}", block, error);
+            if !is_internal_db_error(&error) {
+                self.state
+                    .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+            }
         } else {
             // Clear the newly inserted block from block_status_map.
             //
@@ -1385,7 +1388,7 @@ impl SyncShared {
             self.state.remove_header_view(&block.as_ref().hash());
         }
 
-        Ok(ret?)
+        ret
     }
 
     /// Sync a new valid header, try insert to sync state

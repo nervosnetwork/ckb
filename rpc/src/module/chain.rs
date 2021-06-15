@@ -1393,10 +1393,7 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
-        let cell_status = self
-            .shared
-            .snapshot()
-            .cell(&out_point.into(), with_data, true);
+        let cell_status = self.shared.snapshot().cell(&out_point.into(), with_data);
         Ok(cell_status.into())
     }
 
@@ -1618,9 +1615,8 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_consensus(&self) -> Result<Consensus> {
-        let consensus = self.shared.consensus();
-        let epoch_number = self.shared.snapshot().tip_header().epoch().number();
-        Ok(consensus.to_json(epoch_number))
+        let consensus = self.shared.consensus().clone();
+        Ok(consensus.into())
     }
 
     fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {

@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-molecule = "=0.7.0"
+molecule = "=0.7.1"
 ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.43.0-pre" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { version="1", features = ["serde"] }

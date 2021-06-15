@@ -159,15 +159,6 @@ pub enum TransactionError {
         actual: Version,
     },
 
-    /// The transaction version is too low, it's deprecated.
-    #[error("DeprecatedVersion: minimum {}, got {}", minimum, actual)]
-    DeprecatedVersion {
-        /// The minimum supported transaction version.
-        minimum: Version,
-        /// The actual transaction version.
-        actual: Version,
-    },
-
     /// The transaction size exceeds limit.
     #[error("ExceededMaximumBlockBytes: expected transaction serialized size ({actual}) < block size limit ({limit})")]
     ExceededMaximumBlockBytes {
@@ -195,8 +186,7 @@ impl TransactionError {
 
             TransactionError::Immature { .. }
             | TransactionError::CellbaseImmaturity { .. }
-            | TransactionError::MismatchedVersion { .. }
-            | TransactionError::DeprecatedVersion { .. } => false,
+            | TransactionError::MismatchedVersion { .. } => false,
         }
     }
 }
