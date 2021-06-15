@@ -677,8 +677,50 @@ impl CKBProtocolHandler for Synchronizer {
         peer_index: PeerIndex,
         data: Bytes,
     ) {
-        let msg = match packed::SyncMessage::from_slice(&data) {
-            Ok(msg) => msg.to_enum(),
+        let msg = match packed::SyncMessageReader::from_compatible_slice(&data) {
+            Ok(msg) => {
+                let item = msg.to_enum();
+                if let packed::SyncMessageUnionReader::SendBlock(ref reader) = item {
+                    if reader.count_extra_fields() > 1 {
+                        info!(
+                            "Peer {} sends us a malformed message: \
+                             too many fields in SendBlock",
+                            peer_index
+                        );
+                        nc.ban_peer(
+                            peer_index,
+                            BAD_MESSAGE_BAN_TIME,
+                            String::from(
+                                "send us a malformed message: \
+                                 too many fields in SendBlock",
+                            ),
+                        );
+                        return;
+                    } else {
+                        item
+                    }
+                } else {
+                    match packed::SyncMessageReader::from_slice(&data) {
+                        Ok(msg) => msg.to_enum(),
+                        _ => {
+                            info!(
+                                "Peer {} sends us a malformed message: \
+                                 too many fields",
+                                peer_index
+                            );
+                            nc.ban_peer(
+                                peer_index,
+                                BAD_MESSAGE_BAN_TIME,
+                                String::from(
+                                    "send us a malformed message: \
+                                     too many fields",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
             _ => {
                 info!("Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(
@@ -702,7 +744,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
 
         let start_time = Instant::now();
-        self.process(nc.as_ref(), peer_index, msg.as_reader());
+        self.process(nc.as_ref(), peer_index, msg);
         debug!(
             "process message={}, peer={}, cost={:?}",
             msg.item_name(),

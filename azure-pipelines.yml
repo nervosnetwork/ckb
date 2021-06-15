@@ -19,7 +19,8 @@ jobs:
             eq(variables['Build.Reason'], 'PullRequest'),
             ne(variables['System.PullRequest.SourceBranch'], 'develop')
           ),
-          eq(variables['Build.SourceBranch'], 'refs/heads/master')
+          eq(variables['Build.SourceBranch'], 'refs/heads/master'),
+          startsWith(variables['Build.SourceBranch'], 'refs/heads/ckb2021')
         )
       )
     pool:
@@ -41,7 +42,8 @@ jobs:
         ne(variables['Build.Reason'], 'PullRequest'),
         or(
           startsWith(variables['Build.SourceBranch'], 'refs/heads/rc/'),
-          in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop', 'refs/heads/staging2', 'refs/heads/trying')
+          in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop', 'refs/heads/staging2', 'refs/heads/trying'),
+          startsWith(variables['Build.SourceBranch'], 'refs/heads/ckb2021')
         )
       )
     pool:

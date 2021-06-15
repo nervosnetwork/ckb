@@ -13,7 +13,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_verification::ScriptVerifier;
+use ckb_verification::{ScriptVerifier, TxVerifyEnv};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -248,8 +248,15 @@ impl<'a> DryRunner<'a> {
             Ok(resolved) => {
                 let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
-                    .verify(max_cycles)
+                let tip_header = snapshot.tip_header();
+                let tx_env = TxVerifyEnv::new_submit(&tip_header);
+                match ScriptVerifier::new(
+                    &resolved,
+                    consensus,
+                    &snapshot.as_data_provider(),
+                    &tx_env,
+                )
+                .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: cycles.into(),

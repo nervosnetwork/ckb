@@ -13,6 +13,7 @@
 
 pub mod cell;
 pub mod error;
+pub mod hardfork;
 pub mod service;
 pub mod tx_pool;
 
@@ -29,7 +30,9 @@ pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
-pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
+pub use views::{
+    BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
+};
 
 pub use ckb_occupied_capacity::{capacity_bytes, Capacity, Ratio, Result as CapacityResult};
 pub use ckb_rational::RationalU256;

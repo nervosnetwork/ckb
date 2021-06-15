@@ -16,8 +16,9 @@ use ckb_types::{
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
-        EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
+        EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
+        TransactionView, Version,
     },
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
@@ -270,6 +271,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
+                hardfork_switch: HardForkSwitch::new_without_any_enabled(),
             },
         }
     }
@@ -390,6 +392,12 @@ impl ConsensusBuilder {
         self
     }
 
+    /// Sets median_time_block_count for the new Consensus.
+    pub fn median_time_block_count(mut self, median_time_block_count: usize) -> Self {
+        self.inner.median_time_block_count = median_time_block_count;
+        self
+    }
+
     /// Sets tx_proposal_window for the new Consensus.
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.inner.tx_proposal_window = proposal_window;
@@ -443,6 +451,12 @@ impl ConsensusBuilder {
     #[must_use]
     pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
         self.inner.max_block_proposals_limit = max_block_proposals_limit;
+        self
+    }
+
+    /// Sets a hard fork switch for the new Consensus.
+    pub fn hardfork_switch(mut self, hardfork_switch: HardForkSwitch) -> Self {
+        self.inner.hardfork_switch = hardfork_switch;
         self
     }
 }
@@ -519,6 +533,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// A switch to select hard fork features base on the epoch number.
+    pub hardfork_switch: HardForkSwitch,
 }
 
 // genesis difficulty should not be zero
@@ -909,6 +925,17 @@ impl Consensus {
             self.primary_epoch_reward(epoch.number() + 1)
         }
     }
+
+    /// Returns the hardfork switch.
+    pub fn hardfork_switch(&self) -> &HardForkSwitch {
+        &self.hardfork_switch
+    }
+}
+
+/// Trait for consensus provider.
+pub trait ConsensusProvider {
+    /// Returns the `Consensus`.
+    fn get_consensus(&self) -> &Consensus;
 }
 
 /// Corresponding epoch information of next block

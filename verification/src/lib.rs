@@ -24,6 +24,7 @@ pub use crate::transaction_verifier::{
     ContextualTransactionVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since,
     SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
 };
+pub use ckb_script::TxVerifyEnv;
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the
 /// current time before the block will be accepted.

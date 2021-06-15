@@ -85,7 +85,7 @@ impl RpcClient {
     pub fn get_tip_header(&self) -> HeaderView {
         self.inner
             .get_tip_header()
-            .expect("rpc call get_block_hash")
+            .expect("rpc call get_tip_header")
     }
 
     pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {

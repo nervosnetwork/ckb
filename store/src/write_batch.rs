@@ -1,7 +1,7 @@
 use ckb_db::RocksDBWriteBatch;
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_NUMBER_HASH,
+    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_NUMBER_HASH,
 };
 use ckb_error::Error;
 use ckb_types::{core::BlockNumber, packed, prelude::*};
@@ -94,6 +94,7 @@ impl StoreWriteBatch {
         txs_len: u32,
     ) -> Result<(), Error> {
         self.inner.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
+        self.inner.delete(COLUMN_BLOCK_EXTENSION, hash.as_slice())?;
         self.inner
             .delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
         self.inner.delete(

@@ -102,6 +102,18 @@ pub enum BlockErrorKind {
 
     /// Total bytes of block exceeds limit.
     ExceededMaximumBlockBytes,
+
+    /// Empty block extension.
+    EmptyBlockExtension,
+
+    /// Total bytes of block extension exceeds limit.
+    ExceededMaximumBlockExtensionBytes,
+
+    /// The block has unknown field.
+    UnknownFields,
+
+    /// The calculated extra-hash does not match with the one in the header.
+    InvalidExtraHash,
 }
 
 def_error_base_on_kind!(
@@ -188,15 +200,6 @@ pub enum UnclesError {
         max: u32,
         /// The actual number of block uncles.
         actual: u32,
-    },
-
-    /// The calculated uncle-hash does not match with the one in the header.
-    #[error("InvalidHash(expected: {expected}, actual: {actual})")]
-    InvalidHash {
-        /// The calculated uncle-hash
-        expected: Byte32,
-        /// The actual uncle-hash
-        actual: Byte32,
     },
 
     /// There is an uncle whose number is greater than or equal to current block number.

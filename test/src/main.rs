@@ -488,7 +488,14 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
-        Box::new(DuplicateCellDeps),
+        // Test hard fork features
+        Box::new(CheckAbsoluteEpochSince),
+        Box::new(CheckRelativeEpochSince),
+        Box::new(CheckBlockExtension),
+        Box::new(DuplicateCellDepsForDataHashTypeLockScript),
+        Box::new(DuplicateCellDepsForDataHashTypeTypeScript),
+        Box::new(DuplicateCellDepsForTypeHashTypeLockScript),
+        Box::new(DuplicateCellDepsForTypeHashTypeTypeScript),
     ];
     specs.shuffle(&mut thread_rng());
     specs

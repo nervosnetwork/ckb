@@ -1,14 +1,15 @@
 use super::super::block_verifier::{
-    BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier, DuplicateVerifier,
-    MerkleRootVerifier,
+    BlockBytesVerifier, BlockExtensionVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
+    DuplicateVerifier, MerkleRootVerifier,
 };
 use crate::{BlockErrorKind, CellbaseError};
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, HeaderBuilder, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, BlockNumber, Capacity,
+        EpochNumberWithFraction, HeaderBuilder, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
@@ -423,5 +424,130 @@ pub fn test_max_proposals_limit_verifier() {
             verifier.verify(&block).unwrap_err(),
             BlockErrorKind::ExceededMaximumProposalsLimit,
         );
+    }
+}
+
+#[test]
+fn test_block_extension_verifier() {
+    let fork_at = 10;
+    let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
+
+    // normal block (no uncles)
+    let header = HeaderBuilder::default().epoch(epoch.pack()).build();
+    let block = BlockBuilder::default().header(header).build();
+
+    // invalid extra hash (no extension)
+    let header1 = block
+        .header()
+        .as_advanced_builder()
+        .extra_hash(h256!("0x1").pack())
+        .build();
+    let block1 = BlockBuilder::default().header(header1).build_unchecked();
+
+    // empty extension
+    let block2 = block
+        .as_advanced_builder()
+        .extension(Some(Default::default()))
+        .build();
+    // extension has only 1 byte
+    let block3 = block
+        .as_advanced_builder()
+        .extension(Some(vec![0u8].pack()))
+        .build();
+    // extension has 96 bytes
+    let block4 = block
+        .as_advanced_builder()
+        .extension(Some(vec![0u8; 96].pack()))
+        .build();
+    // extension has 97 bytes
+    let block5 = block
+        .as_advanced_builder()
+        .extension(Some(vec![0u8; 97].pack()))
+        .build();
+
+    // normal block (with uncles)
+    let block6 = block
+        .as_advanced_builder()
+        .uncle(BlockBuilder::default().build().as_uncle())
+        .build();
+
+    // invalid extra hash (has extension but use uncles hash)
+    let block7 = block6
+        .as_advanced_builder()
+        .extension(Some(vec![0u8; 32].pack()))
+        .build_unchecked();
+
+    {
+        // Test CKB v2019
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0224(fork_at + 1)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block1);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block2);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block3);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block4);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block5);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block6);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block7);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
+    }
+    {
+        // Test CKB v2021
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0224(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block1);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block2);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::EmptyBlockExtension);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block3);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block4);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block5);
+        assert_error_eq!(
+            result.unwrap_err(),
+            BlockErrorKind::ExceededMaximumBlockExtensionBytes
+        );
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block6);
+        assert!(result.is_ok(), "result = {:?}", result);
+
+        let result = BlockExtensionVerifier::new(&consensus).verify(&block7);
+        assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
     }
 }

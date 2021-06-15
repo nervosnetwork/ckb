@@ -428,6 +428,21 @@ impl EpochNumberWithFraction {
         self.0
     }
 
+    /// Estimate the floor limit of epoch number after N blocks.
+    ///
+    /// Since we couldn't know the length of next epoch before reach the next epoch,
+    /// this function could only return `self.number()` or `self.number()+1`.
+    pub fn minimum_epoch_number_after_n_blocks(self, n: BlockNumber) -> EpochNumber {
+        let number = self.number();
+        let length = self.length();
+        let index = self.index();
+        if index + n >= length {
+            number + 1
+        } else {
+            number
+        }
+    }
+
     /// TODO(doc): @quake
     // One caveat here, is that if the user specifies a zero epoch length either
     // deliberately, or by accident, calling to_rational() after that might
@@ -446,5 +461,13 @@ impl EpochNumberWithFraction {
     /// TODO(doc): @quake
     pub fn to_rational(self) -> RationalU256 {
         RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
+    }
+
+    /// Check the data format.
+    ///
+    /// The epoch length should be greater than zero.
+    /// The epoch index should be less than the epoch length.
+    pub fn is_well_formed(self) -> bool {
+        self.length() > 0 && self.length() > self.index()
     }
 }
