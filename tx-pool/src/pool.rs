@@ -451,4 +451,11 @@ impl TxPool {
 
         TxPoolEntryInfo { pending, proposed }
     }
+
+    pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
+        let mut txs = self.proposed.drain();
+        txs.append(&mut self.gap.drain());
+        txs.append(&mut self.pending.drain());
+        txs
+    }
 }

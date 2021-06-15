@@ -70,6 +70,13 @@ impl PendingQueue {
             }
         }
     }
+
+    pub(crate) fn drain(&mut self) -> Vec<TransactionView> {
+        self.inner
+            .values()
+            .map(|entry| entry.transaction().clone())
+            .collect()
+    }
 }
 
 impl CellProvider for PendingQueue {

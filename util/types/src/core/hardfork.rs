@@ -159,6 +159,18 @@ impl HardForkSwitch {
             .build()
             .unwrap()
     }
+
+    /// Returns a vector of epoch numbers, and there are new features which
+    /// require refrese tx-pool caches will be enabled at those epochs.
+    pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {
+        let mut epochs = vec![self.rfc_pr_0237()];
+        // In future, there could be more than one epoch,
+        // we should merge the same epochs and sort all epochs.
+        //epochs.sort_unstable();
+        //epochs.dedup();
+        epochs.retain(|&x| x != 0);
+        epochs
+    }
 }
 
 define_methods!(

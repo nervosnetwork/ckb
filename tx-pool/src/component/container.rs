@@ -3,7 +3,7 @@
 
 use crate::{component::entry::TxEntry, error::Reject};
 use ckb_types::{
-    core::Capacity,
+    core::{Capacity, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
 use std::borrow::Cow;
@@ -183,6 +183,10 @@ impl TxLinksMap {
         self.inner
             .get_mut(short_id)
             .map(|links| links.children.insert(child))
+    }
+
+    fn clear(&mut self) {
+        self.inner.clear();
     }
 }
 
@@ -394,6 +398,17 @@ impl SortedTxMap {
             .iter()
             .rev()
             .map(move |key| self.entries.get(&key.id).expect("consistent"))
+    }
+
+    /// Clear and return all transactions.
+    pub(crate) fn drain(&mut self) -> Vec<TransactionView> {
+        self.sorted_index.clear();
+        self.deps.clear();
+        self.links.clear();
+        self.entries
+            .drain()
+            .map(|(_, entry)| entry.transaction().to_owned())
+            .collect()
     }
 }
 
