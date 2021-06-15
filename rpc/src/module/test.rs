@@ -18,6 +18,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use ckb_util::hasher::IntSet;
 use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -62,7 +63,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .internal_process_block(Arc::clone(&block), Switch::DISABLE_ALL);
 
         if broadcast {
-            let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+            let content = packed::CompactBlock::build_from_block(&block, &IntSet::default());
             let message = packed::RelayMessage::new_builder().set(content).build();
             if let Err(err) = self
                 .network_controller
@@ -207,7 +208,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 impl IntegrationTestRpcImpl {
     fn process_and_announce_block(&self, block: packed::Block) -> Result<H256> {
         let block_view = Arc::new(block.into_view());
-        let content = packed::CompactBlock::build_from_block(&block_view, &HashSet::new());
+        let content = packed::CompactBlock::build_from_block(&block_view, &IntSet::default());
         let message = packed::RelayMessage::new_builder().set(content).build();
 
         // insert block to chain

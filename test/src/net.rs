@@ -11,6 +11,7 @@ use ckb_network::{
     SupportProtocols,
 };
 use ckb_stop_handler::StopHandler;
+use ckb_util::hasher::IntMap;
 use ckb_util::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -185,7 +186,7 @@ pub struct DummyProtocolHandler {
 
     // #{peer_id => receiver}
     // It is shared between multiple protocol handlers.
-    senders: Arc<Mutex<HashMap<PeerIndex, Sender<NetMessage>>>>,
+    senders: Arc<Mutex<IntMap<PeerIndex, Sender<NetMessage>>>>,
 }
 
 impl Clone for DummyProtocolHandler {

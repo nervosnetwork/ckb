@@ -14,9 +14,9 @@ use ckb_logger::{debug, info, trace};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
+use ckb_util::hasher::IntSet;
 use ckb_util::Mutex;
 use lru::LruCache;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 const KNOWN_LIST_SIZE: usize = 64;
@@ -26,7 +26,7 @@ const KNOWN_LIST_SIZE: usize = 64;
 pub struct AlertRelayer {
     notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
-    known_lists: LruCache<PeerIndex, HashSet<u32>>,
+    known_lists: LruCache<PeerIndex, IntSet<u32>>,
 }
 
 impl AlertRelayer {
@@ -63,7 +63,7 @@ impl AlertRelayer {
         match self.known_lists.get_mut(&peer) {
             Some(alert_ids) => alert_ids.insert(alert_id),
             None => {
-                let mut alert_ids = HashSet::new();
+                let mut alert_ids = IntSet::default();
                 alert_ids.insert(alert_id);
                 self.known_lists.put(peer, alert_ids);
                 true
@@ -159,7 +159,7 @@ impl CKBProtocolHandler for AlertRelayer {
         // mark sender as known
         self.mark_as_known(peer_index, alert_id);
         // broadcast message
-        let selected_peers: HashSet<PeerIndex> = nc
+        let selected_peers: IntSet<PeerIndex> = nc
             .connected_peers()
             .into_iter()
             .filter(|peer| self.mark_as_known(*peer, alert_id))

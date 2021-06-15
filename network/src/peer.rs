@@ -1,5 +1,6 @@
 use crate::network_group::Group;
 use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
+use ckb_util::hasher::IntMap;
 use p2p::SessionId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -33,7 +34,7 @@ pub struct Peer {
     /// Session type, Inbound or Outbound
     pub session_type: SessionType,
     /// Opened protocols on this session
-    pub protocols: HashMap<ProtocolId, ProtocolVersion>,
+    pub protocols: IntMap<ProtocolId, ProtocolVersion>,
     /// Whether a whitelist
     pub is_whitelist: bool,
 }

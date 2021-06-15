@@ -2,9 +2,10 @@ use ckb_network::{
     bytes::Bytes, Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId,
     TargetSession,
 };
+use ckb_util::hasher::{IntMap, IntSet};
 use ckb_util::RwLock;
 use futures::future::Future;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
@@ -22,7 +23,7 @@ const DEFAULT_CHANNEL: usize = 128;
 #[derive(Default)]
 struct TestNode {
     pub peers: Vec<PeerIndex>,
-    pub protocols: HashMap<ProtocolId, Arc<RwLock<dyn CKBProtocolHandler + Send + Sync>>>,
+    pub protocols: IntMap<ProtocolId, Arc<RwLock<dyn CKBProtocolHandler + Send + Sync>>>,
     pub msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<Bytes>>,
     pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Bytes>>,
     pub timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
@@ -224,7 +225,7 @@ impl CKBProtocolContext for TestNetworkContext {
                     .keys()
                     .map(|(_, id)| id)
                     .copied()
-                    .collect::<HashSet<PeerIndex>>()
+                    .collect::<IntSet<PeerIndex>>()
                 {
                     if peers(&peer) {
                         self.send_message_to(peer, data.clone()).unwrap();

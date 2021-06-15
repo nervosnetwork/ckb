@@ -2,8 +2,8 @@
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_types::{packed::Alert, prelude::*};
+use ckb_util::hasher::IntMap;
 use lru::LruCache;
-use std::collections::HashMap;
 
 const CANCEL_FILTER_SIZE: usize = 128;
 
@@ -12,7 +12,7 @@ pub struct Notifier {
     /// cancelled alerts
     cancel_filter: LruCache<u32, ()>,
     /// alerts we received
-    received_alerts: HashMap<u32, Alert>,
+    received_alerts: IntMap<u32, Alert>,
     /// alerts that self node should notice
     noticed_alerts: Vec<Alert>,
     client_version: String,

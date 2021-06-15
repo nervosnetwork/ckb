@@ -5,6 +5,7 @@ use crate::{
     extract_peer_id, Peer, PeerId, SessionType,
 };
 use ckb_logger::debug;
+use ckb_util::hasher::IntMap;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -14,7 +15,7 @@ pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 /// Memory records of opened session information
 pub struct PeerRegistry {
-    peers: HashMap<SessionId, Peer>,
+    peers: IntMap<SessionId, Peer>,
     // max inbound limitation
     max_inbound: u32,
     // max outbound limitation
@@ -234,7 +235,7 @@ impl PeerRegistry {
     }
 
     /// Get all connected peers' information
-    pub fn peers(&self) -> &HashMap<SessionId, Peer> {
+    pub fn peers(&self) -> &IntMap<SessionId, Peer> {
         &self.peers
     }
 

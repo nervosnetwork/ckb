@@ -6,6 +6,7 @@ use std::{
 
 use ckb_logger::{debug, trace, warn};
 use ckb_types::bytes::BytesMut;
+use ckb_util::hasher::IntMap;
 use p2p::{
     bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -41,7 +42,7 @@ const MAX_ADDRS: usize = 3;
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3600 * 24);
 
 pub struct DiscoveryProtocol<M> {
-    sessions: HashMap<SessionId, SessionState>,
+    sessions: IntMap<SessionId, SessionState>,
     announce_check_interval: Option<Duration>,
     addr_mgr: M,
 }

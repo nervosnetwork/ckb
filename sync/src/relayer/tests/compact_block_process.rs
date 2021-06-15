@@ -12,8 +12,9 @@ use ckb_types::{
     core::{BlockBuilder, Capacity, HeaderBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
 };
+use ckb_util::hasher::IntSet;
 use faketime::unix_time_as_millis;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::Arc;
 
@@ -34,7 +35,7 @@ fn test_in_block_status_map() {
         .header(header)
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -99,7 +100,7 @@ fn test_unknow_parent() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -152,7 +153,7 @@ fn test_accept_not_a_better_block() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -186,7 +187,7 @@ fn test_already_in_flight() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -228,7 +229,7 @@ fn test_already_pending() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -279,7 +280,7 @@ fn test_header_invalid() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -333,7 +334,7 @@ fn test_inflight_blocks_reach_limit() {
         )
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -395,7 +396,7 @@ fn test_send_missing_indexes() {
         .proposal(proposal_id.clone())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -480,7 +481,7 @@ fn test_accept_block() {
     }
 
     relayer.shared().shared().refresh_snapshot();
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -512,7 +513,7 @@ fn test_ignore_a_too_old_block() {
         .transaction(TransactionBuilder::default().build())
         .build();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -548,7 +549,7 @@ fn test_invalid_transaction_root() {
         .transaction(TransactionBuilder::default().build())
         .build_unchecked();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
@@ -623,7 +624,7 @@ fn test_collision() {
         .proposal(proposal_id.clone())
         .build_unchecked();
 
-    let mut prefilled_transactions_indexes = HashSet::new();
+    let mut prefilled_transactions_indexes = IntSet::default();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
