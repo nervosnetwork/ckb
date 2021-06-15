@@ -9,6 +9,7 @@ jobs:
     name: Build CKB
     runs-on: [ self-hosted, Linux, X64, building ]
     if: |
+      github.repository_owner == 'nervosnetwork' &&
       contains(github.event.review.body, '#sync-mainnet') &&
       contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
 
