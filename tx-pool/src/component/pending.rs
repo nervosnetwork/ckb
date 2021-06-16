@@ -7,7 +7,7 @@ use ckb_types::{
     packed::{OutPoint, ProposalShortId},
     prelude::*,
 };
-use ckb_util::{LinkedHashMap, LinkedHashMapEntries};
+use ckb_util::LinkedHashMap;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -50,8 +50,11 @@ impl PendingQueue {
         self.inner.remove(id)
     }
 
-    pub fn entries(&mut self) -> LinkedHashMapEntries<ProposalShortId, TxEntry> {
-        self.inner.entries()
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&ProposalShortId, &mut TxEntry) -> bool,
+    {
+        self.inner.retain(f)
     }
 
     // fill proposal txs

@@ -784,35 +784,36 @@ fn _update_tx_pool_for_reorg(
 
     // pending ---> gap ----> proposed
     // try move gap to proposed
-    for entry in tx_pool.gap.entries() {
-        if snapshot.proposals().contains_proposed(entry.key()) {
-            let tx_entry = entry.get();
+    tx_pool.gap.retain(|proposal_short_id, tx_entry| {
+        if snapshot.proposals().contains_proposed(proposal_short_id) {
             entries.push((
                 Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
-            entry.remove();
+            false
+        } else {
+            true
         }
-    }
+    });
 
     // try move pending to proposed
-    for entry in tx_pool.pending.entries() {
-        if snapshot.proposals().contains_proposed(entry.key()) {
-            let tx_entry = entry.get();
+    tx_pool.pending.retain(|proposal_short_id, tx_entry| {
+        if snapshot.proposals().contains_proposed(proposal_short_id) {
             entries.push((
                 Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
-            entry.remove();
-        } else if snapshot.proposals().contains_gap(entry.key()) {
-            let tx_entry = entry.get();
+            false
+        } else if snapshot.proposals().contains_gap(proposal_short_id) {
             gaps.push((
                 Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
-            entry.remove();
+            false
+        } else {
+            true
         }
-    }
+    });
 
     for (cycles, entry) in entries {
         let tx_hash = entry.transaction().hash();

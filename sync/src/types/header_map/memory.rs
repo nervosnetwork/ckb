@@ -1,7 +1,7 @@
 use std::{clone, cmp, default, hash};
 
 use ckb_util::shrink_to_fit;
-use ckb_util::LinkedHashMap;
+use ckb_util::{linked_hash_map::RawEntryMut, LinkedHashMap};
 
 use crate::types::SHRINK_THRESHOLD;
 
@@ -32,7 +32,13 @@ where
     }
 
     pub(crate) fn get_refresh(&mut self, key: &K) -> Option<V> {
-        self.0.get_refresh(key).cloned()
+        match self.0.raw_entry_mut().from_key(key) {
+            RawEntryMut::Occupied(mut occupied) => {
+                occupied.to_back();
+                Some(occupied.into_mut().clone())
+            }
+            RawEntryMut::Vacant(_) => None,
+        }
     }
 
     pub(crate) fn insert(&mut self, key: K, value: V) -> Option<V> {
