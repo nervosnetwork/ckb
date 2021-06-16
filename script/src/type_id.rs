@@ -34,13 +34,13 @@ impl<'a> TypeIdSystemScript<'a> {
         // which is the hash of all inputs when creating
         // the cell.
         if self.script_group.script.args().len() != 32 {
-            return Err(ScriptError::ValidationFailure(ERROR_ARGS));
+            return Err(self.validation_failure(ERROR_ARGS));
         }
 
         // There could be at most one input cell and one
         // output cell with current TYPE_ID script.
         if self.script_group.input_indices.len() > 1 || self.script_group.output_indices.len() > 1 {
-            return Err(ScriptError::ValidationFailure(ERROR_TOO_MANY_CELLS));
+            return Err(self.validation_failure(ERROR_TOO_MANY_CELLS));
         }
 
         // If there's only one output cell with current
@@ -55,13 +55,13 @@ impl<'a> TypeIdSystemScript<'a> {
                 .transaction
                 .inputs()
                 .get(0)
-                .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
+                .ok_or_else(|| self.validation_failure(ERROR_ARGS))?;
             let first_output_index: u64 = self
                 .script_group
                 .output_indices
                 .get(0)
                 .map(|output_index| *output_index as u64)
-                .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
+                .ok_or_else(|| self.validation_failure(ERROR_ARGS))?;
 
             let mut blake2b = new_blake2b();
             blake2b.update(first_cell_input.as_slice());
@@ -70,9 +70,13 @@ impl<'a> TypeIdSystemScript<'a> {
             blake2b.finalize(&mut ret);
 
             if ret[..] != self.script_group.script.args().raw_data()[..] {
-                return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH));
+                return Err(self.validation_failure(ERROR_INVALID_INPUT_HASH));
             }
         }
         Ok(TYPE_ID_CYCLES)
+    }
+
+    fn validation_failure(&self, exit_code: i8) -> ScriptError {
+        ScriptError::validation_failure(&self.script_group.script, exit_code)
     }
 }
