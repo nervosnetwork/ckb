@@ -11,9 +11,9 @@ if [ -z "${REL_PKG:-}" ]; then
   fi
 fi
 
-echo "ARCHIVE_NAME=$ARCHIVE_NAME"
 PKG_NAME="ckb_${GIT_TAG_NAME}_${REL_PKG%%.*}"
 ARCHIVE_NAME="ckb_${GIT_TAG_NAME}_${REL_PKG}"
+echo "ARCHIVE_NAME=$ARCHIVE_NAME"
 
 rm -rf releases
 mkdir releases
