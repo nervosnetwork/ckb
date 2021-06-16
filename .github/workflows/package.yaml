@@ -1,5 +1,9 @@
 name: Package
 
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
@@ -150,13 +154,10 @@ jobs:
       run: |
         Set-ExecutionPolicy RemoteSigned -scope CurrentUser
         Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
-        scoop bucket add extras
         scoop install yasm
-    - uses: actions/checkout@v2
-    - name: Set Env
-      run: |
         echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
         echo ("PATH=" + $env:PATH + ";" + $env:USERPROFILE + "\scoop\shims;C:\msys64\mingw64\bin") >> $env:GITHUB_ENV
+    - uses: actions/checkout@v2
     - name: Build
       run: |
         devtools/windows/make prod
