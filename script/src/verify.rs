@@ -521,7 +521,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
-            Err(ScriptError::ValidationFailure(code))
+            Err(ScriptError::validation_failure(&script_group.script, code))
         }
     }
 }
@@ -551,7 +551,7 @@ mod tests {
     use faster_hex::hex_encode;
 
     use ckb_chain_spec::consensus::{
-        ConsensusBuilder, TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES,
+        ConsensusBuilder, TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH,
     };
     use ckb_error::assert_error_eq;
     use ckb_test_chain_utils::{
@@ -572,6 +572,10 @@ mod tests {
         sha3.update(s.as_ref());
         sha3.finalize(&mut output);
         output
+    }
+
+    fn type_id_validation_failure(exit_code: i8) -> ScriptError {
+        ScriptError::ValidationFailure(format!("by-type-hash/{}", TYPE_ID_CODE_HASH), exit_code)
     }
 
     // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate functions
@@ -965,7 +969,7 @@ mod tests {
 
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
-            .lock(script)
+            .lock(script.clone())
             .build();
         let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(default_transaction_info())
@@ -990,7 +994,8 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).input_lock_script(0),
+            ScriptError::ValidationFailure(format!("by-data-hash/{:x}", script.code_hash()), -1)
+                .input_lock_script(0),
         );
     }
 
@@ -1217,7 +1222,12 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).output_type_script(0),
+            ScriptError::ValidationFailure(
+                "by-data-hash/342083c9f5e8f9bb866cb0ff1eafed2e29cfc7edd81e3e274c7b3b86a0fc519f"
+                    .to_string(),
+                -1
+            )
+            .output_type_script(0),
         );
     }
 
@@ -1644,7 +1654,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-3).output_type_script(0),
+            type_id_validation_failure(-3).output_type_script(0),
         );
     }
 
@@ -1729,7 +1739,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(1_001_000).unwrap_err(),
-            ScriptError::ValidationFailure(-1).output_type_script(0),
+            type_id_validation_failure(-1).output_type_script(0),
         );
     }
 
@@ -1803,7 +1813,7 @@ mod tests {
 
         assert_error_eq!(
             verifier.verify(TYPE_ID_CYCLES * 2).unwrap_err(),
-            ScriptError::ValidationFailure(-2).input_type_script(0),
+            type_id_validation_failure(-2).input_type_script(0),
         );
     }
 
