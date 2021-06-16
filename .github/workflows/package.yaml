@@ -1,25 +1,25 @@
-
 name: Package
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
     branches:
       - 'pkg/*'
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v0.40.0
-  QINIU_SECRET_KEY: "${{ secrets.QINIU_SECRET_KEY }}"
-  encrypted_82dff4145bbf_iv: "${{ secrets.encrypted_82dff4145bbf_iv }}"
-  encrypted_82dff4145bbf_key: "${{ secrets.encrypted_82dff4145bbf_key }}"
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  CKB_CLI_VERSION: v0.42.1
 
 jobs:
-  create_release:
+  create-release:
     name: Create release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v2
       - name: Set tag
@@ -27,7 +27,7 @@ jobs:
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Create release
-        id: create_release
+        id: create-release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,8 +39,7 @@ jobs:
 
   package-for-linux:
     name: package-for-linux
-    runs-on: [self-hosted, Linux, X64]
-    needs: create_release
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Set Env
@@ -48,17 +47,21 @@ jobs:
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
     - name: Build CKB and Package CKB
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+        QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        mkdir -p $HOME/.cargo
         docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
-        # Will reeturn the input device is not a TTY if docker run with -it. Follow this comments to solve it https://github.com/actions/runner/issues/241#issuecomment-556626706
-        sudo chmod 777 -R ${{ github.workspace }} $whoami  #Since the tartget build by docker usre, so chamod the target folder to remove the workspace succeed on next workflow
-        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv ${encrypted_82dff4145bbf_iv} -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
-        gpg --import devtools/ci/travis-secret.asc
+        gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+        gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/release/ckb
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
-        if [ -n "${QINIU_SECRET_KEY:-}" ]; then devtools/ci/qput-7z "releases/ckb_${GIT_TAG_NAME}_x86_64-unknown-linux-gnu"; fi
+        devtools/ci/qput-7z "releases/ckb_${GIT_TAG_NAME}_x86_64-unknown-linux-gnu"
     - name: upload-zip-file
       uses: actions/upload-artifact@v2
       with:
@@ -70,14 +73,12 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:xenial-rust-1.46.0
+      BUILDER_IMAGE: nervos/ckb-docker-builder:xenial-rust-1.51.0
       REL_PKG: x86_64-unknown-linux-gnu.tar.gz
 
-
-  package-for-Centos:
-    name: package-for-Centos
-    runs-on: [self-hosted, Linux, X64,centos-runner]
-    needs: create_release
+  package-for-centos:
+    name: package-for-centos
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Set Env
@@ -85,13 +86,15 @@ jobs:
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
     - name: Build CKB and Package CKB
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
-        mkdir -p $HOME/.cargo
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        mkdir -p $HOME/.cargo
         docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo $BUILDER_IMAGE scl enable llvm-toolset-7 'make prod'
-        sudo chmod 777 -R ${{ github.workspace }} $whoami  #Since the tartget build by docker usre, so chamod the target folder to remove the workspace succeed on next workflow
-        openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
-        gpg --import devtools/ci/travis-secret.asc
+        gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+        gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/release/ckb
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
@@ -106,27 +109,27 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.46.0
+      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.51.0
       REL_PKG: x86_64-unknown-centos-gnu.tar.gz
 
   package-for-mac:
     name: package-for-mac
-    runs-on: [self-hosted, macOS, X64,mac-runner]
-    needs: create_release
-    outputs:
-      upload_url: ${{ needs.create_release.outputs.upload_url }}
+    runs-on: macos-latest
     steps:
+    - uses: actions/checkout@v2
     - name: Set Env
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
     - name: Build CKB and Package CKB
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include prod
-        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
-        gpg --import devtools/ci/travis-secret.asc
+        gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+        gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/release/ckb
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
@@ -145,13 +148,16 @@ jobs:
 
   package-for-windows:
     name: package-for-windows
-    runs-on: [self-hosted, Windows, X64,win-runner]
-    needs: create_release
+    runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Set Env
+    - name: Install Dependencies
       run: |
-       echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
+        Set-ExecutionPolicy RemoteSigned -scope CurrentUser
+        Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        scoop install yasm
+        echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
+        echo ("PATH=" + $env:PATH + ";" + $env:USERPROFILE + "\scoop\shims;C:\msys64\mingw64\bin") >> $env:GITHUB_ENV
+    - uses: actions/checkout@v2
     - name: Build
       run: |
         devtools/windows/make prod
@@ -164,24 +170,23 @@ jobs:
         mkdir releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
         cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
         cp devtools/windows/ckb-init-mainnet.bat,devtools/windows/ckb-reinit-mainnet.bat,devtools/windows/ckb-run.bat releases/ckb_${$env:GIT_TAG_NAME}_x86_64-pc-windows-msvc
-        cp rpc/README.md releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc/docs/rpc.md
+        cp rpc/README.md releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc/docs/rpc.md
         expand-archive -path ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip -DestinationPath ${{ github.workspace }}
         mv ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc/ckb-cli.exe releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc/
     - name: Archive Files
       run: |
         $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
         Compress-Archive -Path releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc -DestinationPath releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)
-    - name: Install GPG4Win
-      run: |
-        scoop bucket add extras
-        scoop install gpg4win
-        scoop install openssl
     - name: Sign Archive
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
-        openssl aes-256-cbc -K ${encrypted_82dff4145bbf_key} -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
-        gpg --import devtools/ci/travis-secret.asc
+        $CYGPWD = cygpath -u (Get-Location)
+        gpg --quiet --batch --yes --decrypt --passphrase="$env:LARGE_SECRET_PASSPHRASE" --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
+        gpg --import "$CYGPWD/devtools/ci/signer.asc"
         $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
-        gpg -u "Nervos Azure Builder <bot@nervos.org>" -ab "$($env:github.workspace)/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
+        gpg -u "$env:GPG_SIGNER" -ab "$CYGPWD/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
         mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG) ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG).asc ${{ github.workspace }}
     - name: upload-artifact
@@ -199,32 +204,26 @@ jobs:
 
   Upload_File:
     name: Upload_Zip_File
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [Linux-runner,centos-runner, mac-runner,win-runner]
         include:
-          - os: Linux-runner
-            REL_PKG: x86_64-unknown-linux-gnu.tar.gz
-            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-          - os: centos-runner
-            REL_PKG: x86_64-unknown-centos-gnu.tar.gz
-            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-          - os: mac-runner
-            REL_PKG: x86_64-apple-darwin.zip
-            SET_ENV: export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' ` && echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-          - os: win-runner
-            REL_PKG: x86_64-pc-windows-msvc.zip
-            SET_ENV: echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
+          - REL_PKG: x86_64-unknown-linux-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+          - REL_PKG: x86_64-apple-darwin.zip
+          - REL_PKG: x86_64-pc-windows-msvc.zip
     needs:
+      - create-release
       - package-for-linux
       - package-for-mac
       - package-for-windows
-      - package-for-Centos
+      - package-for-centos
     steps:
     - uses: actions/checkout@v2
     - name: Set tag
-      run: ${{ matrix.SET_ENV }}
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
     - name: Prepare - Download tar
       uses: actions/download-artifact@v2
       with:
@@ -235,15 +234,19 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
     - name: Upload tar assets
       uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ needs.package-for-mac.outputs.upload_url }}
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
         asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
         asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}
         asset_content_type: application/octet-stream
     - name: Upload asc assets
       uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ needs.package-for-mac.outputs.upload_url }}
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
         asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
         asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}.asc
         asset_content_type: application/octet-stream
