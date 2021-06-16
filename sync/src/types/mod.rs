@@ -216,7 +216,6 @@ pub struct PeerState {
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     sync_connected: bool,
-    pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
     tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
@@ -238,7 +237,6 @@ impl PeerState {
             headers_sync_controller: None,
             peer_flags,
             sync_connected: false,
-            disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::new(),

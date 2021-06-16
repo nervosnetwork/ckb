@@ -388,9 +388,8 @@ impl Synchronizer {
             if let Some(ref mut controller) = state.headers_sync_controller {
                 let better_tip_ts = better_tip_header.timestamp();
                 if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
-                    if is_timeout && !state.disconnect {
+                    if is_timeout {
                         eviction.push(*peer);
-                        state.disconnect = true;
                         continue;
                     }
                 } else {
@@ -439,7 +438,6 @@ impl Synchronizer {
                             }
                         } else {
                             eviction.push(*peer);
-                            state.disconnect = true;
                         }
                     } else {
                         state.chain_sync.sent_getheaders = true;
