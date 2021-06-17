@@ -12,7 +12,9 @@ use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
+use crate::types::{
+    HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared, Version,
+};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
@@ -339,7 +341,7 @@ impl Synchronizer {
         BlockFetcher::new(&self, peer, ibd).fetch()
     }
 
-    fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
+    fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex, version: Version) {
         let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
             .map(|peer| (peer.is_outbound(), peer.is_whitelist))
@@ -365,6 +367,7 @@ impl Synchronizer {
                 is_whitelist,
                 is_protect: protect_outbound,
             },
+            version,
         );
     }
 
@@ -751,10 +754,14 @@ impl CKBProtocolHandler for Synchronizer {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        _version: &str,
+        version: &str,
     ) {
         info!("SyncProtocol.connected peer={}", peer_index);
-        self.on_connected(nc.as_ref(), peer_index);
+        let version = match version {
+            "1" => Version::Old,
+            _ => Version::New,
+        };
+        self.on_connected(nc.as_ref(), peer_index, version);
     }
 
     fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
@@ -1255,6 +1262,9 @@ mod tests {
     }
 
     impl CKBProtocolContext for DummyNetworkContext {
+        fn ckb2021(&self) -> bool {
+            false
+        }
         // Interact with underlying p2p service
         fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();
@@ -1396,8 +1406,8 @@ mod tests {
         let mock_nc = mock_network_context(4);
         let peer1: PeerIndex = 1.into();
         let peer2: PeerIndex = 2.into();
-        synchronizer1.on_connected(&mock_nc, peer1);
-        synchronizer1.on_connected(&mock_nc, peer2);
+        synchronizer1.on_connected(&mock_nc, peer1, Version::Old);
+        synchronizer1.on_connected(&mock_nc, peer2, Version::Old);
         assert_eq!(
             HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
             Status::ok(),
@@ -1791,7 +1801,7 @@ mod tests {
             let sendheaders = SendHeadersBuilder::default()
                 .headers(fork_headers.pack())
                 .build();
-            synchronizer.on_connected(&nc, peer);
+            synchronizer.on_connected(&nc, peer, Version::Old);
             assert!(
                 HeadersProcess::new(sendheaders.as_reader(), &synchronizer, peer, &nc)
                     .execute()
@@ -1815,7 +1825,7 @@ mod tests {
         let nc = mock_network_context(cases.len());
         for (case, (last_common, best_known, fix_last_common)) in cases.into_iter().enumerate() {
             let peer: PeerIndex = case.into();
-            synchronizer.on_connected(&nc, peer);
+            synchronizer.on_connected(&nc, peer, Version::Old);
 
             let last_common_header =
                 last_common.map(|key| graph.get(key).cloned().unwrap().header());

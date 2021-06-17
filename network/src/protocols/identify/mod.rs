@@ -48,11 +48,17 @@ pub enum MisbehaveResult {
     Continue,
     /// Disconnect this peer
     Disconnect,
+    /// don't process listen
+    ContinueWithNoListen,
 }
 
 impl MisbehaveResult {
     pub fn is_disconnect(&self) -> bool {
         matches!(self, MisbehaveResult::Disconnect)
+    }
+
+    pub fn is_no_listen(&self) -> bool {
+        matches!(self, MisbehaveResult::ContinueWithNoListen)
     }
 }
 
@@ -277,13 +283,19 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             Some(message) => {
                 // Need to interrupt processing, avoid pollution
                 if self.check_duplicate(&mut context).is_disconnect()
-                    || self
-                        .callback
-                        .received_identify(&mut context, message.identify)
-                        .is_disconnect()
-                    || self
-                        .process_listens(&mut context, message.listen_addrs)
-                        .is_disconnect()
+                    || {
+                        let res = self
+                            .callback
+                            .received_identify(&mut context, message.identify);
+                        if res.is_disconnect() {
+                            false
+                        } else if res.is_no_listen() {
+                            true
+                        } else {
+                            self.process_listens(&mut context, message.listen_addrs)
+                                .is_disconnect()
+                        }
+                    }
                     || self
                         .process_observed(&mut context, message.observed_addr)
                         .is_disconnect()
@@ -386,7 +398,13 @@ impl Callback for IdentifyCallback {
         context: &mut ProtocolContextMutRef,
         identify: &[u8],
     ) -> MisbehaveResult {
-        match self.identify.verify(identify) {
+        let v2 = self.network_state.with_peer_registry(|reg| {
+            reg.get_peer(context.session.id)
+                .and_then(|peer| peer.protocols.get(&context.proto_id))
+                .map(|v| v == "2")
+                .unwrap_or(false)
+        });
+        match self.identify.verify(identify, v2) {
             None => {
                 self.network_state.ban_session(
                     context.control(),
@@ -396,7 +414,7 @@ impl Callback for IdentifyCallback {
                 );
                 MisbehaveResult::Disconnect
             }
-            Some((flags, client_version)) => {
+            Some((flags, client_version, len_match)) => {
                 let registry_client_version = |version: String| {
                     self.network_state.with_peer_registry_mut(|registry| {
                         if let Some(peer) = registry.get_peer_mut(context.session.id) {
@@ -419,11 +437,20 @@ impl Callback for IdentifyCallback {
                     } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
 
+                        let ckb2021 = self
+                            .network_state
+                            .ckb2021
+                            .load(std::sync::atomic::Ordering::SeqCst);
                         // The remote end can support all local protocols.
                         let _ = context.open_protocols(
                             context.session.id,
-                            TargetProtocol::Filter(Box::new(|id| {
-                                id != &SupportProtocols::Feeler.protocol_id()
+                            TargetProtocol::Filter(Box::new(move |id| {
+                                if ckb2021 {
+                                    id != &SupportProtocols::Feeler.protocol_id()
+                                        && id != &SupportProtocols::Relay.protocol_id()
+                                } else {
+                                    id != &SupportProtocols::Feeler.protocol_id()
+                                }
                             })),
                         );
                     } else {
@@ -433,7 +460,11 @@ impl Callback for IdentifyCallback {
                 } else {
                     registry_client_version(client_version);
                 }
-                MisbehaveResult::Continue
+                if len_match {
+                    MisbehaveResult::Continue
+                } else {
+                    MisbehaveResult::ContinueWithNoListen
+                }
             }
         }
     }
@@ -549,11 +580,15 @@ impl Identify {
         &self.encode_data
     }
 
-    fn verify(&self, data: &[u8]) -> Option<(Flags, String)> {
+    fn verify(&self, data: &[u8], v2: bool) -> Option<(Flags, String, bool)> {
         let reader = packed::IdentifyReader::from_slice(data).ok()?;
 
         let name = reader.name().as_utf8().ok()?.to_owned();
-        if self.name != name {
+        // v2 allow adding specific characters after identify name to identify some non-chain nodes connected
+        if v2 && !name.starts_with(&self.name) {
+            debug!("Not the same chain, self: {}, remote: {}", self.name, name);
+            return None;
+        } else if self.name != name {
             debug!("Not the same chain, self: {}, remote: {}", self.name, name);
             return None;
         }
@@ -565,7 +600,11 @@ impl Identify {
 
         let raw_client_version = reader.client_version().as_utf8().ok()?.to_owned();
 
-        Some((Flags::from(flag), raw_client_version))
+        Some((
+            Flags::from(flag),
+            raw_client_version,
+            self.name.len() == name.len(),
+        ))
     }
 }
 

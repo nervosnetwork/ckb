@@ -249,11 +249,24 @@ impl HeadersSyncController {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub enum Version {
+    Old,
+    New,
+}
+
+impl Default for Version {
+    fn default() -> Self {
+        Version::Old
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct PeerState {
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     pub chain_sync: ChainSyncState,
+    pub version: Version,
     // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
     // The last block we both stored
@@ -272,6 +285,7 @@ impl PeerState {
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
+            version: Version::Old,
         }
     }
 
@@ -835,16 +849,18 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
+    pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags, version: Version) {
         self.state
             .entry(peer)
             .and_modify(|state| {
                 state.peer_flags = peer_flags;
                 state.sync_connected();
+                state.version = version;
             })
             .or_insert_with(|| {
                 let mut state = PeerState::new(peer_flags);
                 state.sync_connected();
+                state.version = version;
                 state
             });
     }
@@ -941,6 +957,10 @@ impl Peers {
 
     pub fn get_flag(&self, peer: PeerIndex) -> Option<PeerFlags> {
         self.state.get(&peer).map(|state| state.peer_flags)
+    }
+
+    pub fn get_version(&self, peer: PeerIndex) -> Option<Version> {
+        self.state.get(&peer).map(|state| state.version)
     }
 }
 
@@ -1157,7 +1177,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
@@ -1167,7 +1187,7 @@ impl SyncShared {
         shared: Shared,
         sync_config: SyncConfig,
         tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1517,7 +1537,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+    tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1569,7 +1589,7 @@ impl SyncState {
         &self.inflight_proposals
     }
 
-    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, Byte32)> {
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 

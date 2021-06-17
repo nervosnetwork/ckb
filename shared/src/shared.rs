@@ -68,7 +68,7 @@ pub struct Shared {
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
-    pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, Byte32)>,
+    pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
 }
 
 impl Shared {
@@ -84,7 +84,7 @@ impl Shared {
         async_handle: Handle,
         async_stop: Option<StopHandler<()>>,
         ibd_finished: Arc<AtomicBool>,
-        relay_tx_sender: Sender<(Option<PeerIndex>, Byte32)>,
+        relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
     ) -> Shared {
         Shared {
             store,

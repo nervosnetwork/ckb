@@ -1,8 +1,11 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
+use crate::types::Version;
 use crate::utils::send_message_to;
 use crate::{attempt, Status, StatusCode};
-use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
+use ckb_constant::sync::{
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, NEW_INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
@@ -41,7 +44,19 @@ impl<'a> GetBlocksProcess<'a> {
         }
         let active_chain = self.synchronizer.shared.active_chain();
 
-        for block_hash in block_hashes.iter().take(INIT_BLOCKS_IN_TRANSIT_PER_PEER) {
+        let iter = match active_chain
+            .shared()
+            .state()
+            .peers()
+            .get_version(self.peer)
+            .unwrap_or(Version::New)
+        {
+            Version::Old => block_hashes.iter().take(INIT_BLOCKS_IN_TRANSIT_PER_PEER),
+            Version::New => block_hashes
+                .iter()
+                .take(NEW_INIT_BLOCKS_IN_TRANSIT_PER_PEER),
+        };
+        for block_hash in iter {
             debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
             let block_hash = block_hash.to_entity();
 

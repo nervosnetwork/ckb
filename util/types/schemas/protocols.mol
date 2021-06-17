@@ -1,4 +1,5 @@
 import blockchain;
+import extensions;
 
 // version 0.0.1 Ping message
 union PingPayload {
@@ -18,13 +19,11 @@ table Pong {
     nonce: Uint32,
 }
 
-// discovery 0.0.1
-
 vector NodeVec <Node>;
-array DiscoveryBool [byte; 1];
 array Uint16 [byte; 2];
 option PortOpt (Uint16);
 
+// discovery 0.0.1
 union DiscoveryPayload {
     GetNodes,
     Nodes,
@@ -41,12 +40,35 @@ table GetNodes {
 }
 
 table Nodes {
-    announce: DiscoveryBool,
+    announce: Bool,
     items: NodeVec,
 }
 
 table Node {
     addresses: BytesVec,
+}
+
+// discovery 2
+union DiscoveryPayloadV2 {
+    GetNodesV2,
+    NodesV2,
+}
+
+table DiscoveryMessageV2 {
+    payload: DiscoveryPayloadV2,
+}
+
+table GetNodesV2 {
+    net: Bytes,
+    version: Uint32,
+    count: Uint32,
+    listen_port: PortOpt,
+}
+
+table NodesV2 {
+    net: Bytes,
+    announce: Bool,
+    items: NodeVec,
 }
 
 // identify 0.0.1

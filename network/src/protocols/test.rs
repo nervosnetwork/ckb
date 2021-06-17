@@ -151,8 +151,9 @@ fn net_service_start(name: String) -> Node {
         network_state: Arc::clone(&network_state),
         discovery_local_address: config.discovery_local_address,
     };
+    let dis_name = name.clone();
     let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr, None)))
+        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr, None, dis_name)))
     });
 
     // Identify protocol

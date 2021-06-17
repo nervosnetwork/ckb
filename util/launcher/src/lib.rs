@@ -232,7 +232,7 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        relay_tx_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
@@ -240,8 +240,16 @@ impl Launcher {
             self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
+        let fork_enable = {
+            let epoch = shared.snapshot().tip_header().epoch().number();
+            shared
+                .consensus()
+                .hardfork_switch
+                .is_p2p_network_switch_enabled(epoch)
+        };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
+                .map(|t| NetworkState::ckb2021(t, fork_enable))
                 .expect("Init network state failed"),
         );
         let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
@@ -263,15 +271,15 @@ impl Launcher {
         let alert_notifier = Arc::clone(alert_relayer.notifier());
         let alert_verifier = Arc::clone(alert_relayer.verifier());
 
-        let protocols = vec![
+        let mut protocols = vec![
             CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Sync,
                 Box::new(synchronizer),
                 Arc::clone(&network_state),
             ),
             CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Relay,
-                Box::new(relayer),
+                SupportProtocols::RelayV2,
+                Box::new(relayer.clone().v2()),
                 Arc::clone(&network_state),
             ),
             CKBProtocol::new_with_support_protocol(
@@ -285,6 +293,14 @@ impl Launcher {
                 Arc::clone(&network_state),
             ),
         ];
+
+        if !fork_enable {
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Relay,
+                Box::new(relayer),
+                Arc::clone(&network_state),
+            ))
+        }
 
         let required_protocol_ids = vec![SupportProtocols::Sync.protocol_id()];
 

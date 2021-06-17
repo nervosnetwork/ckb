@@ -81,6 +81,8 @@ pub struct NetworkState {
     /// Node supported protocols
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
+
+    pub(crate) ckb2021: AtomicBool,
 }
 
 impl NetworkState {
@@ -131,7 +133,14 @@ impl NetworkState {
             local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
+            ckb2021: AtomicBool::new(false),
         })
+    }
+
+    /// fork flag
+    pub fn ckb2021(self, init: bool) -> Self {
+        self.ckb2021.store(init, Ordering::SeqCst);
+        self
     }
 
     pub(crate) fn report_session(
@@ -767,12 +776,14 @@ impl<T: ExitHandler> NetworkService<T> {
             network_state: Arc::clone(&network_state),
             discovery_local_address: config.discovery_local_address,
         };
+        let dis_name = name.clone();
         let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
             ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
                 addr_mgr,
                 config
                     .discovery_announce_check_interval_secs
                     .map(Duration::from_secs),
+                dis_name,
             )))
         });
 
@@ -1109,6 +1120,16 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
+    /// set ckb2021 start
+    pub fn init_ckb2021(&self) {
+        self.network_state.ckb2021.store(true, Ordering::SeqCst);
+    }
+
+    /// get ckb2021 flag
+    pub fn load_ckb2021(&self) -> bool {
+        self.network_state.ckb2021.load(Ordering::SeqCst)
+    }
+
     /// Node listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)

@@ -18,11 +18,11 @@ use rand::seq::SliceRandom;
 
 pub use self::{
     addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior},
-    protocol::{DiscoveryMessage, Node, Nodes},
+    protocol::{DiscoveryMessage, DiscoveryMessageV2, Node, Nodes, NodesV2},
     state::SessionState,
 };
 use self::{
-    protocol::{decode, encode},
+    protocol::{decode, decode_v2, encode, encode_v2},
     state::RemoteAddress,
 };
 use crate::{NetworkState, ProtocolId};
@@ -43,14 +43,20 @@ const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(3600 * 24);
 pub struct DiscoveryProtocol<M> {
     sessions: HashMap<SessionId, SessionState>,
     announce_check_interval: Option<Duration>,
+    name: String,
     addr_mgr: M,
 }
 
 impl<M: AddressManager> DiscoveryProtocol<M> {
-    pub fn new(addr_mgr: M, announce_check_interval: Option<Duration>) -> DiscoveryProtocol<M> {
+    pub fn new(
+        addr_mgr: M,
+        announce_check_interval: Option<Duration>,
+        name: String,
+    ) -> DiscoveryProtocol<M> {
         DiscoveryProtocol {
             sessions: HashMap::default(),
             announce_check_interval,
+            name,
             addr_mgr,
         }
     }
@@ -79,8 +85,10 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions
-            .insert(session.id, SessionState::new(context, &self.addr_mgr));
+        self.sessions.insert(
+            session.id,
+            SessionState::new(context, &self.addr_mgr, version == "2", &self.name),
+        );
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -106,108 +114,228 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             }
         };
 
-        match decode(&mut BytesMut::from(data.as_ref())) {
-            Some(item) => {
-                match item {
-                    DiscoveryMessage::GetNodes {
-                        listen_port,
-                        count,
-                        version,
-                    } => {
-                        if let Some(state) = self.sessions.get_mut(&session.id) {
-                            if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
-                                return;
-                            }
+        let v2 = self
+            .sessions
+            .get(&session.id)
+            .map(|state| state.v2)
+            .unwrap_or(false);
 
-                            state.received_get_nodes = true;
-                            // must get the item first, otherwise it is possible to load
-                            // the address of peer listen.
-                            let mut items = self.addr_mgr.get_random(2500);
-
-                            // change client random outbound port to client listen port
-                            debug!("listen port: {:?}", listen_port);
-                            if let Some(port) = listen_port {
-                                state.remote_addr.update_port(port);
-                                state.addr_known.insert(state.remote_addr.to_inner());
-                                // add client listen address to manager
-                                if let RemoteAddress::Listen(ref addr) = state.remote_addr {
-                                    self.addr_mgr.add_new_addr(session.id, addr.clone());
-                                }
-                            } else if version >= state::REUSE_PORT_VERSION {
-                                // after enable reuse port, it can be broadcast
-                                state.remote_addr.change_to_listen();
-                            }
-
-                            let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
-                            if items.len() > max {
-                                items = items
-                                    .choose_multiple(&mut rand::thread_rng(), max)
-                                    .cloned()
-                                    .collect();
-                            }
-
-                            state.addr_known.extend(items.iter());
-
-                            let items = items
-                                .into_iter()
-                                .map(|addr| Node {
-                                    addresses: vec![addr],
-                                })
-                                .collect::<Vec<_>>();
-
-                            let nodes = Nodes {
-                                announce: false,
-                                items,
-                            };
-
-                            let msg = encode(DiscoveryMessage::Nodes(nodes));
-                            if context.send_message(msg).is_err() {
-                                debug!("{:?} send discovery msg Nodes fail", session.id)
-                            }
-                        }
-                    }
-                    DiscoveryMessage::Nodes(nodes) => {
-                        if let Some(misbehavior) = verify_nodes_message(&nodes) {
-                            if check(misbehavior) {
-                                return;
-                            }
-                        }
-
-                        if let Some(state) = self.sessions.get_mut(&session.id) {
-                            if !nodes.announce && state.received_nodes {
-                                warn!("already received Nodes(announce=false) message");
-                                if check(Misbehavior::DuplicateFirstNodes) {
+        if v2 {
+            match decode_v2(&data) {
+                Some(item) => {
+                    match item {
+                        DiscoveryMessageV2::GetNodes {
+                            net,
+                            listen_port,
+                            count,
+                            version,
+                        } => {
+                            if let Some(state) = self.sessions.get_mut(&session.id) {
+                                if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes)
+                                {
                                     return;
                                 }
-                            } else {
-                                let addrs = nodes
-                                    .items
+
+                                state.received_get_nodes = true;
+                                // must get the item first, otherwise it is possible to load
+                                // the address of peer listen.
+                                let mut items = self.addr_mgr.get_random(2500);
+
+                                if self.name == net {
+                                    // change client random outbound port to client listen port
+                                    debug!("listen port: {:?}", listen_port);
+                                    if let Some(port) = listen_port {
+                                        state.remote_addr.update_port(port);
+                                        state.addr_known.insert(state.remote_addr.to_inner());
+                                        // add client listen address to manager
+                                        if let RemoteAddress::Listen(ref addr) = state.remote_addr {
+                                            self.addr_mgr.add_new_addr(session.id, addr.clone());
+                                        }
+                                    } else if version >= state::REUSE_PORT_VERSION {
+                                        // after enable reuse port, it can be broadcast
+                                        state.remote_addr.change_to_listen();
+                                    }
+                                }
+
+                                let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
+                                if items.len() > max {
+                                    items = items
+                                        .choose_multiple(&mut rand::thread_rng(), max)
+                                        .cloned()
+                                        .collect();
+                                }
+
+                                state.addr_known.extend(items.iter());
+
+                                let items = items
                                     .into_iter()
-                                    .flat_map(|node| node.addresses.into_iter())
+                                    .map(|addr| Node {
+                                        addresses: vec![addr],
+                                    })
                                     .collect::<Vec<_>>();
 
-                                state.addr_known.extend(addrs.iter());
-                                // Non-announce nodes can only receive once
-                                // Due to the uncertainty of the other party’s state,
-                                // the announce node may be sent out first, and it must be
-                                // determined to be Non-announce before the state can be changed
-                                if !nodes.announce {
-                                    state.received_nodes = true;
+                                let nodes = NodesV2 {
+                                    net: self.name.clone(),
+                                    announce: false,
+                                    items,
+                                };
+
+                                let msg = encode_v2(DiscoveryMessageV2::Nodes(nodes));
+                                if context.send_message(msg).is_err() {
+                                    debug!("{:?} send discovery msg Nodes fail", session.id)
                                 }
-                                self.addr_mgr.add_new_addrs(session.id, addrs);
+                            }
+                        }
+                        DiscoveryMessageV2::Nodes(nodes) => {
+                            if let Some(misbehavior) = verify_nodes_message_v2(&nodes, &self.name) {
+                                if check(misbehavior) {
+                                    return;
+                                }
+                            }
+
+                            if let Some(state) = self.sessions.get_mut(&session.id) {
+                                if !nodes.announce && state.received_nodes {
+                                    warn!("already received Nodes(announce=false) message");
+                                    if check(Misbehavior::DuplicateFirstNodes) {
+                                        return;
+                                    }
+                                } else {
+                                    let addrs = nodes
+                                        .items
+                                        .into_iter()
+                                        .flat_map(|node| node.addresses.into_iter())
+                                        .collect::<Vec<_>>();
+
+                                    state.addr_known.extend(addrs.iter());
+                                    // Non-announce nodes can only receive once
+                                    // Due to the uncertainty of the other party’s state,
+                                    // the announce node may be sent out first, and it must be
+                                    // determined to be Non-announce before the state can be changed
+                                    if !nodes.announce {
+                                        state.received_nodes = true;
+                                    }
+                                    self.addr_mgr.add_new_addrs(session.id, addrs);
+                                }
                             }
                         }
                     }
                 }
+                None => {
+                    if self
+                        .addr_mgr
+                        .misbehave(session.id, Misbehavior::InvalidData)
+                        .is_disconnect()
+                        && context.disconnect(session.id).is_err()
+                    {
+                        debug!("disconnect {:?} send fail", session.id)
+                    }
+                }
             }
-            None => {
-                if self
-                    .addr_mgr
-                    .misbehave(session.id, Misbehavior::InvalidData)
-                    .is_disconnect()
-                    && context.disconnect(session.id).is_err()
-                {
-                    debug!("disconnect {:?} send fail", session.id)
+        } else {
+            match decode(&mut BytesMut::from(data.as_ref())) {
+                Some(item) => {
+                    match item {
+                        DiscoveryMessage::GetNodes {
+                            listen_port,
+                            count,
+                            version,
+                        } => {
+                            if let Some(state) = self.sessions.get_mut(&session.id) {
+                                if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes)
+                                {
+                                    return;
+                                }
+
+                                state.received_get_nodes = true;
+                                // must get the item first, otherwise it is possible to load
+                                // the address of peer listen.
+                                let mut items = self.addr_mgr.get_random(2500);
+
+                                // change client random outbound port to client listen port
+                                debug!("listen port: {:?}", listen_port);
+                                if let Some(port) = listen_port {
+                                    state.remote_addr.update_port(port);
+                                    state.addr_known.insert(state.remote_addr.to_inner());
+                                    // add client listen address to manager
+                                    if let RemoteAddress::Listen(ref addr) = state.remote_addr {
+                                        self.addr_mgr.add_new_addr(session.id, addr.clone());
+                                    }
+                                } else if version >= state::REUSE_PORT_VERSION {
+                                    // after enable reuse port, it can be broadcast
+                                    state.remote_addr.change_to_listen();
+                                }
+
+                                let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
+                                if items.len() > max {
+                                    items = items
+                                        .choose_multiple(&mut rand::thread_rng(), max)
+                                        .cloned()
+                                        .collect();
+                                }
+
+                                state.addr_known.extend(items.iter());
+
+                                let items = items
+                                    .into_iter()
+                                    .map(|addr| Node {
+                                        addresses: vec![addr],
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let nodes = Nodes {
+                                    announce: false,
+                                    items,
+                                };
+
+                                let msg = encode(DiscoveryMessage::Nodes(nodes));
+                                if context.send_message(msg).is_err() {
+                                    debug!("{:?} send discovery msg Nodes fail", session.id)
+                                }
+                            }
+                        }
+                        DiscoveryMessage::Nodes(nodes) => {
+                            if let Some(misbehavior) = verify_nodes_message(&nodes) {
+                                if check(misbehavior) {
+                                    return;
+                                }
+                            }
+
+                            if let Some(state) = self.sessions.get_mut(&session.id) {
+                                if !nodes.announce && state.received_nodes {
+                                    warn!("already received Nodes(announce=false) message");
+                                    if check(Misbehavior::DuplicateFirstNodes) {
+                                        return;
+                                    }
+                                } else {
+                                    let addrs = nodes
+                                        .items
+                                        .into_iter()
+                                        .flat_map(|node| node.addresses.into_iter())
+                                        .collect::<Vec<_>>();
+
+                                    state.addr_known.extend(addrs.iter());
+                                    // Non-announce nodes can only receive once
+                                    // Due to the uncertainty of the other party’s state,
+                                    // the announce node may be sent out first, and it must be
+                                    // determined to be Non-announce before the state can be changed
+                                    if !nodes.announce {
+                                        state.received_nodes = true;
+                                    }
+                                    self.addr_mgr.add_new_addrs(session.id, addrs);
+                                }
+                            }
+                        }
+                    }
+                }
+                None => {
+                    if self
+                        .addr_mgr
+                        .misbehave(session.id, Misbehavior::InvalidData)
+                        .is_disconnect()
+                        && context.disconnect(session.id).is_err()
+                    {
+                        debug!("disconnect {:?} send fail", session.id)
+                    }
                 }
             }
         }
@@ -276,6 +404,41 @@ fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
             announce: nodes.announce,
             length: nodes.items.len(),
         });
+    }
+
+    if misbehavior.is_none() {
+        for item in &nodes.items {
+            if item.addresses.len() > MAX_ADDRS {
+                misbehavior = Some(Misbehavior::TooManyAddresses(item.addresses.len()));
+                break;
+            }
+        }
+    }
+
+    misbehavior
+}
+
+fn verify_nodes_message_v2(nodes: &NodesV2, name: &str) -> Option<Misbehavior> {
+    let mut misbehavior = None;
+    if nodes.announce {
+        if nodes.items.len() > ANNOUNCE_THRESHOLD {
+            warn!("Nodes items more than {}", ANNOUNCE_THRESHOLD);
+            misbehavior = Some(Misbehavior::TooManyItems {
+                announce: nodes.announce,
+                length: nodes.items.len(),
+            });
+        }
+    } else if nodes.items.len() > MAX_ADDR_TO_SEND {
+        warn!(
+            "Too many items (announce=false) length={}",
+            nodes.items.len()
+        );
+        misbehavior = Some(Misbehavior::TooManyItems {
+            announce: nodes.announce,
+            length: nodes.items.len(),
+        });
+    } else if !nodes.net.starts_with(name) {
+        misbehavior = Some(Misbehavior::InvalidData)
     }
 
     if misbehavior.is_none() {

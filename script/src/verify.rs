@@ -2128,6 +2128,7 @@ mod tests {
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
             .rfc_pr_0237(fork_at)
+            .rfc_pr_0234(fork_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
@@ -2203,6 +2204,7 @@ mod tests {
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
             .rfc_pr_0237(fork_at)
+            .rfc_pr_0234(fork_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
@@ -2274,6 +2276,7 @@ mod tests {
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
             .rfc_pr_0237(fork_at)
+            .rfc_pr_0234(fork_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
