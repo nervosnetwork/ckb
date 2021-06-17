@@ -68,6 +68,8 @@ pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
 /// Command line argument `--ba-hash-type`.
 pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
+/// Command line argument `--ba-vm-version`.
+pub const ARG_BA_VM_VERSION: &str = "ba-vm-version";
 /// Command line argument `--ba-message`.
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
@@ -449,6 +451,13 @@ fn init() -> App<'static, 'static> {
                 .possible_values(&["data", "type"])
                 .default_value("type")
                 .help("Sets hash type in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_VM_VERSION)
+                .long(ARG_BA_VM_VERSION)
+                .value_name("vm_version")
+                .takes_value(true)
+                .help("Sets vm version for data hash-type script in [block_assembler]"),
         )
         .group(
             ArgGroup::with_name(GROUP_BA)

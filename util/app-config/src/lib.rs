@@ -16,7 +16,7 @@ pub use configs::*;
 pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{ScriptHashTypeShadow, VmVersion};
 use ckb_types::{u256, H256, U256};
 use clap::{value_t, ArgMatches, ErrorKind};
 use std::{path::PathBuf, str::FromStr};
@@ -246,7 +246,12 @@ impl Setup {
             .collect();
         let block_assembler_hash_type = matches
             .value_of(cli::ARG_BA_HASH_TYPE)
-            .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
+            .and_then(|hash_type| serde_plain::from_str::<ScriptHashTypeShadow>(hash_type).ok())
+            .unwrap();
+        let block_assembler_vm_version = matches
+            .value_of(cli::ARG_BA_VM_VERSION)
+            .map(|vm_version| serde_plain::from_str::<VmVersion>(vm_version))
+            .transpose()
             .unwrap();
         let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
@@ -272,6 +277,7 @@ impl Setup {
             block_assembler_code_hash,
             block_assembler_args,
             block_assembler_hash_type,
+            block_assembler_vm_version,
             block_assembler_message,
             import_spec,
             customize_spec,

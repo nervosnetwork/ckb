@@ -29,7 +29,7 @@ pub enum ScriptHashType {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashTypeShadow {
     Data,
@@ -71,6 +71,15 @@ impl fmt::Display for ScriptHashType {
                 write!(f, "data {{ vm_version: {} }}", vm_version)
             }
             ScriptHashType::Type => write!(f, "type"),
+        }
+    }
+}
+
+impl fmt::Display for ScriptHashTypeShadow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            ScriptHashTypeShadow::Data => write!(f, "data"),
+            ScriptHashTypeShadow::Type => write!(f, "type"),
         }
     }
 }

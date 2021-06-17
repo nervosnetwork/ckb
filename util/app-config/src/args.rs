@@ -1,6 +1,6 @@
 use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{ScriptHashTypeShadow, VmVersion};
 use ckb_pow::PowEngine;
 use ckb_types::packed::Byte32;
 use faketime::unix_time_as_millis;
@@ -114,7 +114,9 @@ pub struct InitArgs {
     /// Block assembler lock script args.
     pub block_assembler_args: Vec<String>,
     /// Block assembler lock script hash type.
-    pub block_assembler_hash_type: ScriptHashType,
+    pub block_assembler_hash_type: ScriptHashTypeShadow,
+    /// Block assembler lock script vm version when hash type is "data".
+    pub block_assembler_vm_version: Option<VmVersion>,
     /// Block assembler cellbase transaction message.
     pub block_assembler_message: Option<String>,
     /// Import the spec file.

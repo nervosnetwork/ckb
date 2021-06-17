@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use crate::helper::prompt;
 use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{ScriptHashTypeShadow, VmVersion};
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
@@ -48,7 +48,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         let in_block_assembler_code_hash = prompt("code hash: ");
         let in_args = prompt("args: ");
         let in_hash_type = prompt("hash_type: ");
-        let in_message = prompt("message: ");
 
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
@@ -58,12 +57,21 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        args.block_assembler_message = Some(in_message.trim().to_string());
-
-        match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
+        match serde_plain::from_str::<ScriptHashTypeShadow>(in_hash_type.trim()).ok() {
             Some(hash_type) => args.block_assembler_hash_type = hash_type,
             None => eprintln!("Invalid block assembler hash type"),
         }
+
+        if args.block_assembler_hash_type == ScriptHashTypeShadow::Type {
+            let in_vm_version = prompt("vm_version: ");
+            match serde_plain::from_str::<VmVersion>(in_vm_version.trim()).ok() {
+                Some(vm_version) => args.block_assembler_vm_version = Some(vm_version),
+                None => eprintln!("Invalid block assembler vm version"),
+            }
+        }
+
+        let in_message = prompt("message: ");
+        args.block_assembler_message = Some(in_message.trim().to_string());
     }
 
     // Try to find the default secp256k1 from bundled chain spec.
@@ -90,7 +98,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
             if let Some(default_code_hash) = &default_code_hash_option {
-                if ScriptHashType::Type != args.block_assembler_hash_type {
+                if ScriptHashTypeShadow::Type != args.block_assembler_hash_type {
                     eprintln!(
                         "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
                          It will require `ckb run --ba-advanced` to enable this block assembler",
@@ -111,18 +119,35 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     );
                 }
             }
-            format!(
-                "[block_assembler]\n\
-                 code_hash = \"{}\"\n\
-                 args = \"{}\"\n\
-                 hash_type = \"{}\"\n\
-                 message = \"{}\"",
-                hash,
-                args.block_assembler_args.join("\", \""),
-                serde_plain::to_string(&args.block_assembler_hash_type).unwrap(),
-                args.block_assembler_message
-                    .unwrap_or_else(|| "0x".to_string()),
-            )
+            if let Some(default_vm_version) = &args.block_assembler_vm_version {
+                format!(
+                    "[block_assembler]\n\
+                    code_hash = \"{}\"\n\
+                    args = \"{}\"\n\
+                    hash_type = \"{}\"\n\
+                    vm_version = \"{}\"\n\
+                    message = \"{}\"",
+                    hash,
+                    args.block_assembler_args.join("\", \""),
+                    args.block_assembler_hash_type,
+                    serde_plain::to_string(&default_vm_version).unwrap(),
+                    args.block_assembler_message
+                        .unwrap_or_else(|| "0x".to_string()),
+                )
+            } else {
+                format!(
+                    "[block_assembler]\n\
+                    code_hash = \"{}\"\n\
+                    args = \"{}\"\n\
+                    hash_type = \"{}\"\n\
+                    message = \"{}\"",
+                    hash,
+                    args.block_assembler_args.join("\", \""),
+                    args.block_assembler_hash_type,
+                    args.block_assembler_message
+                        .unwrap_or_else(|| "0x".to_string()),
+                )
+            }
         }
         None => {
             eprintln!("WARN: mining feature is disabled because of lacking the block assembler config options");
