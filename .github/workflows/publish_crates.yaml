@@ -1,0 +1,27 @@
+name: Publish crates
+
+# Controls when the action will run. Workflow runs when manually triggered using the UI
+# or API.
+on:
+  workflow_dispatch:
+env:
+  CRATES_TOKEN: ${{secrets.CRATES_TOKEN}}
+
+jobs:
+  publish_crates:
+    name: Publish crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{github.ref}}
+      - name: Publish crates
+        uses: nick-invision/retry@v2
+        with:
+          timeout_seconds: 7200
+          max_attempts: 3
+          shell: bash
+          retry_on: error
+          command: |
+             cargo login ${CRATES_TOKEN}
+             ./devtools/release/publish-crates.sh
