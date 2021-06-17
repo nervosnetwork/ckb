@@ -44,7 +44,6 @@ pub use self::pool::{
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64, Uint8};
-pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
     Timestamp, Version, VmVersion,

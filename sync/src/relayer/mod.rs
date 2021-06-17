@@ -499,10 +499,15 @@ impl Relayer {
     }
 
     fn prune_tx_proposal_request(&self, nc: &dyn CKBProtocolContext) {
-        let get_block_proposals = self.shared().state().clear_get_block_proposals();
+        let get_block_proposals = self.shared().state().drain_get_block_proposals();
         let tx_pool = self.shared.shared().tx_pool_controller();
 
-        let fetch_txs = tx_pool.fetch_txs(get_block_proposals.keys().cloned().collect());
+        let fetch_txs = tx_pool.fetch_txs(
+            get_block_proposals
+                .iter()
+                .map(|kv_pair| kv_pair.key().clone())
+                .collect(),
+        );
         if let Err(err) = fetch_txs {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -539,7 +544,8 @@ impl Relayer {
     /// Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         let state = self.shared().state();
-        for (peer, peer_state) in state.peers().state.write().iter_mut() {
+        for mut kv_pair in state.peers().state.iter_mut() {
+            let (peer, peer_state) = kv_pair.pair_mut();
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
                 .into_iter()

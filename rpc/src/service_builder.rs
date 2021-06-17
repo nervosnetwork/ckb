@@ -186,7 +186,7 @@ impl<'a> ServiceBuilder<'a> {
     {
         rpc_methods.into_iter().for_each(|(name, _method)| {
             let error = Err(RPCError::rpc_module_is_disabled(module));
-            self.io_handler.add_method(
+            self.io_handler.add_sync_method(
                 name.split("deprecated.")
                     .collect::<Vec<&str>>()
                     .last()
@@ -209,7 +209,7 @@ impl<'a> ServiceBuilder<'a> {
                         if enable_deprecated_rpc {
                             method
                         } else {
-                            RemoteProcedure::Method(Arc::new(|_param, _meta| {
+                            RemoteProcedure::Method(Arc::new(|_param, _meta| async {
                                 Err(RPCError::rpc_method_is_deprecated())
                             }))
                         },
@@ -223,7 +223,7 @@ impl<'a> ServiceBuilder<'a> {
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
-        io_handler.add_method("ping", |_| futures::future::ok("pong".into()));
+        io_handler.add_sync_method("ping", |_| Ok("pong".into()));
 
         io_handler
     }

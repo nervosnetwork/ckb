@@ -606,14 +606,8 @@ impl NetRpc for NetRpcImpl {
                     last_ping_duration: peer
                         .ping_rtt
                         .map(|duration| (duration.as_millis() as u64).into()),
-                    sync_state: self
-                        .sync_shared
-                        .state()
-                        .peers()
-                        .state
-                        .read()
-                        .get(&peer_index)
-                        .map(|state| PeerSyncState {
+                    sync_state: self.sync_shared.state().peers().state.get(&peer_index).map(
+                        |state| PeerSyncState {
                             best_known_header_hash: state
                                 .best_known_header
                                 .as_ref()
@@ -638,7 +632,8 @@ impl NetRpc for NetRpcImpl {
                             can_fetch_count: (inflight_blocks.peer_can_fetch_count(*peer_index)
                                 as u64)
                                 .into(),
-                        }),
+                        },
+                    ),
                     protocols: peer
                         .protocols
                         .iter()

@@ -3,7 +3,7 @@
 //! By default, when simply running CKB, CKB will connect to the official public Nervos network.
 //!
 //! In order to run a chain different to the official public one,
-//! with a config file specifying chain = "path" under [ckb].
+//! with a config file specifying `spec = { file = "<the-path-of-spec-file>" }` under `[chain]`.
 //!
 
 // Because the limitation of toml library,

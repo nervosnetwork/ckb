@@ -57,7 +57,7 @@ impl<'a> TransactionsProcess<'a> {
 
         // Remove tx_hash from `tx_ask_for_set`
         {
-            if let Some(peer_state) = shared_state.peers().state.write().get_mut(&self.peer) {
+            if let Some(mut peer_state) = shared_state.peers().state.get_mut(&self.peer) {
                 for (tx, _) in txs.iter() {
                     peer_state.remove_ask_for_tx(&tx.hash());
                 }
