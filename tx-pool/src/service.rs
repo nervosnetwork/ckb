@@ -412,7 +412,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
     pub(crate) signal_receiver: watch::Receiver<u8>,
     pub(crate) handle: Handle,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
 }
 
 impl TxPoolServiceBuilder {
@@ -424,7 +424,7 @@ impl TxPoolServiceBuilder {
         txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
-        tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
+        tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
@@ -555,7 +555,7 @@ pub(crate) struct TxPoolService {
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) network: NetworkController,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
 }
 
 impl TxPoolService {

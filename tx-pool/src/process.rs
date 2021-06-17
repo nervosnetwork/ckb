@@ -441,11 +441,20 @@ impl TxPoolService {
         ret: &Result<CacheEntry, Reject>,
     ) {
         let tx_hash = tx.hash();
+        // The network protocol is switched after tx-pool confirms the cache,
+        // there will be no problem with the current state as the choice of the broadcast protocol.
+        let with_vm_2021 = {
+            let epoch = self.snapshot().tip_header().epoch().number();
+            self.consensus
+                .hardfork_switch
+                .is_vm_version_1_and_syscalls_2_enabled(epoch)
+        };
+
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(verified) => {
                     if declared_cycle == verified.cycles {
-                        self.broadcast_tx(Some(peer), tx_hash);
+                        self.broadcast_tx(Some(peer), tx_hash, with_vm_2021);
                         self.process_orphan_tx(&tx).await;
                     } else {
                         warn!(
@@ -471,13 +480,13 @@ impl TxPoolService {
             },
             None => {
                 match ret {
-                    Ok(_verified) => {
-                        self.broadcast_tx(None, tx_hash);
+                    Ok(_) => {
+                        self.broadcast_tx(None, tx_hash, with_vm_2021);
                         self.process_orphan_tx(&tx).await;
                     }
                     Err(Reject::Duplicated(_)) => {
                         // re-broadcast tx when it's duplicated and submitted through local rpc
-                        self.broadcast_tx(None, tx_hash);
+                        self.broadcast_tx(None, tx_hash, with_vm_2021);
                     }
                     Err(_err) => {
                         // ignore
@@ -514,8 +523,14 @@ impl TxPoolService {
             if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
                 match self._process_tx(orphan.tx.clone(), None).await {
                     Ok(_) => {
+                        let with_vm_2021 = {
+                            let epoch = self.snapshot().tip_header().epoch().number();
+                            self.consensus
+                                .hardfork_switch
+                                .is_vm_version_1_and_syscalls_2_enabled(epoch)
+                        };
                         self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash());
+                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
                         orphan_queue.push_back(orphan.tx);
                     }
                     Err(reject) => {
@@ -538,8 +553,13 @@ impl TxPoolService {
             .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
     }
 
-    pub(crate) fn broadcast_tx(&self, origin: Option<PeerIndex>, tx_hash: Byte32) {
-        if let Err(e) = self.tx_relay_sender.send((origin, tx_hash)) {
+    pub(crate) fn broadcast_tx(
+        &self,
+        origin: Option<PeerIndex>,
+        tx_hash: Byte32,
+        with_vm_2021: bool,
+    ) {
+        if let Err(e) = self.tx_relay_sender.send((origin, with_vm_2021, tx_hash)) {
             error!("tx-pool broadcast_tx internal error {}", e);
         }
     }
@@ -662,6 +682,20 @@ impl TxPoolService {
         {
             let mut orphan = self.orphan.write().await;
             orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+        }
+
+        // update network fork switch each block
+        {
+            if !self.network.load_ckb2021() {
+                let epoch = self.snapshot().tip_header().epoch().number();
+                if self
+                    .consensus
+                    .hardfork_switch
+                    .is_p2p_network_switch_enabled(epoch)
+                {
+                    self.network.init_ckb2021()
+                }
+            }
         }
     }
 

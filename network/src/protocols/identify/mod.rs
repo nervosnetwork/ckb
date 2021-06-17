@@ -419,11 +419,20 @@ impl Callback for IdentifyCallback {
                     } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
 
+                        let ckb2021 = self
+                            .network_state
+                            .ckb2021
+                            .load(std::sync::atomic::Ordering::SeqCst);
                         // The remote end can support all local protocols.
                         let _ = context.open_protocols(
                             context.session.id,
-                            TargetProtocol::Filter(Box::new(|id| {
-                                id != &SupportProtocols::Feeler.protocol_id()
+                            TargetProtocol::Filter(Box::new(move |id| {
+                                if ckb2021 {
+                                    id != &SupportProtocols::Feeler.protocol_id()
+                                        && id != &SupportProtocols::Relay.protocol_id()
+                                } else {
+                                    id != &SupportProtocols::Feeler.protocol_id()
+                                }
                             })),
                         );
                     } else {

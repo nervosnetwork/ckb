@@ -42,6 +42,8 @@ pub enum SupportProtocols {
     ///
     /// [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md#new-block-announcement)
     Relay,
+    /// New Relay
+    RelayV2,
     /// Time: A protocol used for node pairing that warns if there is a large gap between the local time and the remote node.
     Time,
     /// Alert: A protocol reserved by the Nervos Foundation to publish network-wide announcements.
@@ -61,6 +63,7 @@ impl SupportProtocols {
             SupportProtocols::Sync => 100,
             SupportProtocols::Relay => 101,
             SupportProtocols::Time => 102,
+            SupportProtocols::RelayV2 => 103,
             SupportProtocols::Alert => 110,
         }
         .into()
@@ -76,6 +79,7 @@ impl SupportProtocols {
             SupportProtocols::DisconnectMessage => "/ckb/disconnectmsg",
             SupportProtocols::Sync => "/ckb/syn",
             SupportProtocols::Relay => "/ckb/rel",
+            SupportProtocols::RelayV2 => "/ckb/relay",
             SupportProtocols::Time => "/ckb/tim",
             SupportProtocols::Alert => "/ckb/alt",
         }
@@ -88,15 +92,16 @@ impl SupportProtocols {
         // in previous code, so the default 0.0.1 value is used ( https://github.com/nervosnetwork/tentacle/blob/master/src/builder.rs#L312 )
         // have to keep 0.0.1 for compatibility...
         match self {
-            SupportProtocols::Ping => vec!["0.0.1".to_owned()],
-            SupportProtocols::Discovery => vec!["0.0.1".to_owned()],
-            SupportProtocols::Identify => vec!["0.0.1".to_owned()],
-            SupportProtocols::Feeler => vec!["0.0.1".to_owned()],
-            SupportProtocols::DisconnectMessage => vec!["0.0.1".to_owned()],
-            SupportProtocols::Sync => vec!["1".to_owned()],
+            SupportProtocols::Ping => vec!["0.0.1".to_owned(), "2".to_owned()],
+            SupportProtocols::Discovery => vec!["0.0.1".to_owned(), "2".to_owned()],
+            SupportProtocols::Identify => vec!["0.0.1".to_owned(), "2".to_owned()],
+            SupportProtocols::Feeler => vec!["0.0.1".to_owned(), "2".to_owned()],
+            SupportProtocols::DisconnectMessage => vec!["0.0.1".to_owned(), "2".to_owned()],
+            SupportProtocols::Sync => vec!["1".to_owned(), "2".to_owned()],
             SupportProtocols::Relay => vec!["1".to_owned()],
-            SupportProtocols::Time => vec!["1".to_owned()],
-            SupportProtocols::Alert => vec!["1".to_owned()],
+            SupportProtocols::Time => vec!["1".to_owned(), "2".to_owned()],
+            SupportProtocols::Alert => vec!["1".to_owned(), "2".to_owned()],
+            SupportProtocols::RelayV2 => vec!["2".to_owned()],
         }
     }
 
@@ -109,7 +114,7 @@ impl SupportProtocols {
             SupportProtocols::Feeler => 1024,            // 1   KB
             SupportProtocols::DisconnectMessage => 1024, // 1   KB
             SupportProtocols::Sync => 2 * 1024 * 1024,   // 2   MB
-            SupportProtocols::Relay => 4 * 1024 * 1024,  // 4   MB
+            SupportProtocols::Relay | SupportProtocols::RelayV2 => 4 * 1024 * 1024, // 4   MB
             SupportProtocols::Time => 1024,              // 1   KB
             SupportProtocols::Alert => 128 * 1024,       // 128 KB
         }
@@ -129,7 +134,7 @@ impl SupportProtocols {
                 no_blocking_flag.disable_all();
                 no_blocking_flag
             }
-            SupportProtocols::Sync | SupportProtocols::Relay => {
+            SupportProtocols::Sync | SupportProtocols::Relay | SupportProtocols::RelayV2 => {
                 let mut blocking_recv_flag = BlockingFlag::default();
                 blocking_recv_flag.disable_connected();
                 blocking_recv_flag.disable_disconnected();
