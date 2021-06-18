@@ -19,7 +19,7 @@ use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
 use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
 use ckb_types::packed::Byte32;
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::init_cache;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -131,9 +131,7 @@ impl SharedBuilder {
 
         let store = build_store(db, store_config, ancient_path)?;
 
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
+        let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 
         let (snapshot, table) = Shared::init_snapshot(&store, Arc::clone(&consensus))?;
         let snapshot = Arc::new(snapshot);

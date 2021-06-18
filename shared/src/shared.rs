@@ -22,7 +22,7 @@ use ckb_types::{
     prelude::*,
     U256,
 };
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::TxVerificationCache;
 use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
@@ -63,7 +63,7 @@ pub struct Shared {
     pub(crate) store: ChainDB,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
-    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerificationCache>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
@@ -350,7 +350,7 @@ impl Shared {
     }
 
     /// TODO(doc): @quake
-    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
+    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerificationCache>> {
         Arc::clone(&self.txs_verify_cache)
     }
 
