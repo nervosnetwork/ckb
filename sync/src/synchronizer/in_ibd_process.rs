@@ -30,7 +30,7 @@ impl<'a> InIBDProcess<'a> {
             // It is possible that a not-sync-started peer sends us `InIBD` messages:
             //   - Malicious behavior
             //   - Peer sends multiple `InIBD` messages
-            if !state.sync_started {
+            if !state.sync_started() {
                 return Status::ignored();
             }
 
