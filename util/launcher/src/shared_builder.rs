@@ -25,7 +25,7 @@ use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuil
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::init_cache;
 use p2p::SessionId as PeerIndex;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -270,9 +270,7 @@ impl SharedBuilder {
             ExitCode::Failure
         })?;
 
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
+        let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 
         let (snapshot, table) =
             Self::init_snapshot(&store, Arc::clone(&consensus)).map_err(|e| {

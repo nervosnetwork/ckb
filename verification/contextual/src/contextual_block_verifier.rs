@@ -17,7 +17,7 @@ use ckb_types::{
     packed::{Byte32, CellOutput, Script},
     prelude::*,
 };
-use ckb_verification::cache::{CacheEntry, TxVerifyCache};
+use ckb_verification::cache::{CacheEntry, TxVerificationCache};
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, UnknownParentError,
@@ -331,7 +331,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
 
     fn fetched_cache<K: IntoIterator<Item = Byte32> + Send + 'static>(
         &self,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         keys: K,
         handle: &Handle,
     ) -> HashMap<Byte32, CacheEntry> {
@@ -354,7 +354,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
 
     pub fn verify(
         &self,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
@@ -506,7 +506,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
         switch: Switch,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {

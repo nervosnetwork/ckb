@@ -90,14 +90,14 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
+        const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
         TxPool {
             config,
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
-            committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
+            committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,

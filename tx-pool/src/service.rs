@@ -23,7 +23,7 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_verification::cache::{CacheEntry, TxVerifyCache};
+use ckb_verification::cache::{CacheEntry, TxVerificationCache};
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
@@ -405,7 +405,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
     pub(crate) snapshot: Arc<Snapshot>,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
@@ -421,7 +421,7 @@ impl TxPoolServiceBuilder {
         tx_pool_config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
-        txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
         tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
@@ -550,7 +550,7 @@ pub(crate) struct TxPoolService {
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) txs_verify_cache: Arc<RwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
