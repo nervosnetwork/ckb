@@ -6,7 +6,7 @@ use crate::{
         LoadScriptHash, LoadTx, LoadWitness, VMVersion,
     },
     type_id::TypeIdSystemScript,
-    types::{ScriptGroup, ScriptGroupType},
+    types::{ScriptGroup, ScriptGroupType, TransactionSnapshot, VerifyResult},
     verify_env::TxVerifyEnv,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
@@ -36,6 +36,7 @@ use ckb_vm::{DefaultCoreMachine, SparseMemory, TraceMachine, WXorXMemory};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::sync::Arc;
 
 #[cfg(has_asm)]
 type CoreMachineType = Box<AsmCoreMachine>;
@@ -111,29 +112,6 @@ impl Binaries {
             }
         }
     }
-}
-
-/// Struct specifies which script has verified so far.
-/// Use this value when resuming a suspended verify.
-pub struct TransactionSnapshot {
-    /// current suspended script
-    pub current: (ScriptGroupType, Byte32),
-    /// remain script groups to verify
-    pub remain: Vec<(ScriptGroupType, Byte32)>,
-    /// vm snapshot
-    pub snap: Snapshot,
-    /// current consumed cycle
-    pub current_cycles: Cycle,
-    /// limit cycles when snapshot create
-    pub limit_cycles: Cycle,
-}
-
-/// Enum represent resumable verify result
-pub enum VerifyResult {
-    /// Completed total cycles
-    Completed(Cycle),
-    /// Suspended snapshot
-    Suspended(Box<TransactionSnapshot>),
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
@@ -556,7 +534,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     let snap =
                         self.make_snapshot(vm, group, current, remain, cycles, limit_cycles)?;
 
-                    return Ok(VerifyResult::Suspended(Box::new(snap)));
+                    return Ok(VerifyResult::Suspended(Arc::new(snap)));
                 }
                 Err(e) => {
                     return Err(e.source(group).into());
@@ -614,7 +592,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 let remain = snap.remain.to_owned();
                 let snap =
                     self.make_snapshot(vm, &current_group, current, remain, cycles, limit_cycles)?;
-                return Ok(VerifyResult::Suspended(Box::new(snap)));
+                return Ok(VerifyResult::Suspended(Arc::new(snap)));
             }
             Err(e) => {
                 return Err(e.source(&current_group).into());
@@ -663,7 +641,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         cycles,
                         limit_cycles,
                     )?;
-                    return Ok(VerifyResult::Suspended(Box::new(snap)));
+                    return Ok(VerifyResult::Suspended(Arc::new(snap)));
                 }
                 Err(e) => {
                     return Err(e.source(group).into());
@@ -672,6 +650,82 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
 
         Ok(VerifyResult::Completed(cycles))
+    }
+
+    /// Complete an suspended verify
+    ///
+    /// ## Params
+    ///
+    /// * `snap` - Captured transaction verification snapshot.
+    ///
+    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// when the consumed cycles exceed the limit.
+    ///
+    /// ## Returns
+    ///
+    /// It returns the total consumed cycles on completed, Otherwise it returns the verification error.
+    pub fn complete(&self, snap: &TransactionSnapshot, max_cycles: Cycle) -> Result<Cycle, Error> {
+        let mut cycles = snap.current_cycles;
+
+        let current_group = self
+            .find_script_group(snap.current.0, &snap.current.1)
+            .ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+                    .unknown_source()
+            })?;
+
+        if max_cycles < snap.current_cycles {
+            return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .source(current_group)
+                .into());
+        }
+
+        // continue snapshot current script
+        // max_cycles - cycles checked
+        match self.verify_group_with_chunk(&current_group, max_cycles - cycles, Some(&snap.snap)) {
+            Ok(ChunkState::Completed(cycle)) => {
+                cycles = wrapping_cycles_add(cycles, cycle, max_cycles, &current_group)?;
+            }
+            Ok(ChunkState::VM(_)) => {
+                return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                    .source(&current_group)
+                    .into());
+            }
+            Err(e) => {
+                return Err(e.source(&current_group).into());
+            }
+        }
+
+        for (ty, hash) in &snap.remain {
+            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
+                    .unknown_source()
+            })?;
+
+            let step_cycle = max_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::VMInternalError(format!(
+                    "expect invalid cycles {} {}",
+                    max_cycles, cycles
+                ))
+                .source(group)
+            })?;
+
+            match self.verify_group_with_chunk(group, step_cycle, None) {
+                Ok(ChunkState::Completed(cycle)) => {
+                    cycles = wrapping_cycles_add(cycles, cycle, max_cycles, &current_group)?;
+                }
+                Ok(ChunkState::VM(_)) => {
+                    return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                        .source(group)
+                        .into());
+                }
+                Err(e) => {
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(cycles)
     }
 
     /// Runs a single script in current transaction, while this is not useful for
@@ -877,7 +931,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 if code == 0 {
                     Ok(ChunkState::Completed(machine.machine.cycles()))
                 } else {
-                    Err(ScriptError::ValidationFailure(code))
+                    Err(ScriptError::validation_failure(&script_group.script, code))
                 }
             }
             Err(error) => match error {

@@ -17,7 +17,9 @@ use ckb_types::{
     packed::{Byte32, CellOutput, Script},
     prelude::*,
 };
-use ckb_verification::cache::{CacheEntry, TxVerificationCache};
+use ckb_verification::cache::{
+    TxVerificationCache, {CacheEntry, Completed},
+};
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, UnknownParentError,
@@ -357,7 +359,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
         skip_script_verify: bool,
-    ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+    ) -> Result<(Cycle, Vec<Completed>), Error> {
         let timer = Timer::start();
         // We should skip updating tx_verify_cache about the cellbase tx,
         // putting it in cache that will never be used until lru cache expires.
@@ -383,21 +385,42 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 let tx_hash = tx.transaction.hash();
                 let tx_env = TxVerifyEnv::new_commit(&self.header);
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
-                    TimeRelativeTransactionVerifier::new(
-                        &tx,
-                        self.context.consensus,
-                        self.context,
-                        &tx_env,
-                    )
-                    .verify()
-                    .map_err(|error| {
-                        BlockTransactionsError {
-                            index: index as u32,
-                            error,
-                        }
-                        .into()
-                    })
-                    .map(|_| (tx_hash, *cache_entry))
+                    match cache_entry {
+                        CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
+                            &tx,
+                            self.context.consensus,
+                            self.context,
+                            &tx_env,
+                        )
+                        .verify()
+                        .map_err(|error| {
+                            BlockTransactionsError {
+                                index: index as u32,
+                                error,
+                            }
+                            .into()
+                        })
+                        .map(|_| (tx_hash, *completed)),
+                        CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
+                            &tx,
+                            self.context.consensus,
+                            &self.context.store.as_data_provider(),
+                            &tx_env,
+                        )
+                        .complete(
+                            self.context.consensus.max_block_cycles(),
+                            skip_script_verify,
+                            &suspended.snap,
+                        )
+                        .map_err(|error| {
+                            BlockTransactionsError {
+                                index: index as u32,
+                                error,
+                            }
+                            .into()
+                        })
+                        .map(|completed| (tx_hash, completed)),
+                    }
                 } else {
                     ContextualTransactionVerifier::new(
                         &tx,
@@ -416,23 +439,23 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         }
                         .into()
                     })
-                    .map(|cache_entry| (tx_hash, cache_entry))
+                    .map(|completed| (tx_hash, completed))
                 }
             })
             .skip(1)
-            .collect::<Result<Vec<(Byte32, CacheEntry)>, Error>>()?;
+            .collect::<Result<Vec<(Byte32, Completed)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
         let cache_entires = ret
             .iter()
-            .map(|(_, cache_entry)| cache_entry)
+            .map(|(_, completed)| completed)
             .cloned()
             .collect();
         if !ret.is_empty() {
             handle.spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
                 for (k, v) in ret {
-                    guard.put(k, v);
+                    guard.put(k, CacheEntry::Completed(v));
                 }
             });
         }
@@ -509,7 +532,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
         switch: Switch,
-    ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
+    ) -> Result<(Cycle, Vec<Completed>), Error> {
         let timer = Timer::start();
         let parent_hash = block.data().header().raw().parent_hash();
         let header = block.header();

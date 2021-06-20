@@ -386,12 +386,12 @@ impl TxPool {
         self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry) {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }
@@ -417,12 +417,12 @@ impl TxPool {
         self.check_rtx_from_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }
