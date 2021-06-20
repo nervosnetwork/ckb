@@ -121,6 +121,14 @@ impl ScriptError {
             cause: self,
         }
     }
+
+    /// Creates a script error with unknown source, usually a internal error
+    pub fn unknown_source(self) -> TransactionScriptError {
+        TransactionScriptError {
+            source: TransactionScriptErrorSource::Unknown,
+            cause: self,
+        }
+    }
 }
 
 impl From<TransactionScriptError> for Error {
