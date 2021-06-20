@@ -33,7 +33,7 @@ impl SignalSender {
     pub fn send(self) {
         match self {
             SignalSender::Crossbeam(tx) => {
-                if let Err(e) = tx.send(()) {
+                if let Err(e) = tx.try_send(()) {
                     error!("handler signal send error {:?}", e);
                 };
             }

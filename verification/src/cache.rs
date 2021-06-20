@@ -1,6 +1,6 @@
 //! TX verification cache
 
-use ckb_script::{TransactionSnapshot, VerifyResult};
+use ckb_script::TransactionSnapshot;
 use ckb_types::{
     core::{Capacity, Cycle},
     packed::Byte32,
@@ -53,13 +53,5 @@ impl CacheEntry {
     /// Constructs a Suspended CacheEntry
     pub fn suspended(snap: Arc<TransactionSnapshot>, fee: Capacity) -> Self {
         CacheEntry::Suspended(Suspended { snap, fee })
-    }
-
-    ///  Constructs a  CacheEntry from verify result
-    pub fn from_verify_result(ret: VerifyResult, fee: Capacity) -> Self {
-        match ret {
-            VerifyResult::Completed(cycles) => Self::completed(cycles, fee),
-            VerifyResult::Suspended(snap) => Self::suspended(snap, fee),
-        }
     }
 }

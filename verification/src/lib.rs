@@ -21,10 +21,13 @@ pub use crate::error::{
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
-    ContextualTransactionVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since,
-    SinceMetric, TimeRelativeTransactionVerifier, TransactionVerifier,
+    ContextualTransactionVerifier, ContextualWithoutScriptTransactionVerifier,
+    NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
+    TimeRelativeTransactionVerifier, TransactionVerifier,
 };
-pub use ckb_script::TxVerifyEnv;
+pub use ckb_script::{
+    TransactionState as ScriptVerifyState, TxVerifyEnv, VerifyResult as ScriptVerifyResult,
+};
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the
 /// current time before the block will be accepted.

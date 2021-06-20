@@ -1,6 +1,6 @@
 use crate::relayer::Relayer;
 use crate::Status;
-use ckb_logger::{debug_target, error};
+use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Cycle, TransactionView},
@@ -65,28 +65,21 @@ impl<'a> TransactionsProcess<'a> {
         }
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
-        let relayer = self.relayer.clone();
         let peer = self.peer;
-        self.relayer.shared.shared().async_handle().spawn(
-            async move {
+        self.relayer
+            .shared
+            .shared()
+            .async_handle()
+            .spawn(async move {
                 for (tx, declared_cycle) in txs {
-                    if declared_cycle > relayer.max_tx_verify_cycles {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "ignore tx {} which declared cycles({}) is large than max tx verify cycles {}",
-                            tx.hash(),
-                            declared_cycle,
-                            relayer.max_tx_verify_cycles
-                        );
-                        continue;
-                    }
-
-                    if let Err(e) = tx_pool.submit_remote_tx(tx.clone(), declared_cycle, peer).await {
+                    if let Err(e) = tx_pool
+                        .submit_remote_tx(tx.clone(), declared_cycle, peer)
+                        .await
+                    {
                         error!("submit_tx error {}", e);
                     }
                 }
-            }
-        );
+            });
 
         Status::ok()
     }
