@@ -10,8 +10,8 @@ use ckb_types::{
     prelude::*,
     utilities::compact_to_target,
 };
+use ckb_util::LruCache;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use lru::LruCache;
 use std::sync::Arc;
 use std::thread;
 
@@ -91,7 +91,7 @@ impl Miner {
                     Ok(work) => {
                         let pow_hash= work.block.header().calc_pow_hash();
                         let (target, _,) = compact_to_target(work.block.header().raw().compact_target().unpack());
-                        self.works.put(pow_hash.clone(), work);
+                        self.works.insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
                     },
                     _ => {

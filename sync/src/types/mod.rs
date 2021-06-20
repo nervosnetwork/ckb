@@ -25,11 +25,11 @@ use ckb_types::{
     prelude::*,
     H256, U256,
 };
+use ckb_util::LruCache;
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
-use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
@@ -395,11 +395,11 @@ impl<T: Eq + Hash> Filter<T> {
     }
 
     pub fn contains(&self, item: &T) -> bool {
-        self.inner.contains(item)
+        self.inner.peek(item).is_some()
     }
 
     pub fn insert(&mut self, item: T) -> bool {
-        self.inner.put(item, ()).is_none()
+        self.inner.insert(item, ()).is_none()
     }
 }
 
@@ -1642,7 +1642,7 @@ impl SyncState {
         {
             let mut inflight_transactions = self.inflight_transactions.lock();
             for hash in hashes.clone() {
-                inflight_transactions.pop(&hash);
+                inflight_transactions.remove(&hash);
             }
         }
 
@@ -2014,7 +2014,7 @@ impl ActiveChain {
         self.state
             .pending_get_headers
             .write()
-            .put((peer, header.hash()), Instant::now());
+            .insert((peer, header.hash()), Instant::now());
 
         debug!(
             "send_getheaders_to_peer peer={}, hash={}",

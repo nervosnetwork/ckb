@@ -417,7 +417,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in ret {
-                guard.put(k, v);
+                guard.insert(k, v);
             }
         });
 

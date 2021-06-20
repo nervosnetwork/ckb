@@ -19,7 +19,7 @@ use ckb_types::{
     packed::{self, Byte32, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Transaction},
     prelude::*,
 };
-use lru::LruCache;
+use ckb_util::LruCache;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::sync::Mutex;

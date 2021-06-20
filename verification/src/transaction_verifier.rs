@@ -15,7 +15,7 @@ use ckb_types::{
     packed::Byte32,
     prelude::*,
 };
-use lru::LruCache;
+use ckb_util::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
@@ -599,7 +599,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
             .block_median_time(block_hash, median_block_count);
         self.median_timestamps_cache
             .borrow_mut()
-            .put(block_hash.clone(), median_time);
+            .insert(block_hash.clone(), median_time);
         median_time
     }
 

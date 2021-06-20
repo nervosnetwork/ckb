@@ -4,8 +4,8 @@ use ckb_types::{
     core::{HeaderView, TransactionView, UncleBlockVecView},
     packed::{self, Byte32, ProposalShortIdVec},
 };
+use ckb_util::LruCache;
 use ckb_util::Mutex;
-use lru::LruCache;
 
 /// TODO(doc): @quake
 pub struct StoreCache {

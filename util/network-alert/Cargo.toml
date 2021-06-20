@@ -19,7 +19,6 @@ ckb-logger = { path = "../logger", version = "= 0.43.0-pre"}
 ckb-app-config = { path = "../app-config", version = "= 0.43.0-pre" }
 ckb-error = { path = "../../error", version = "= 0.43.0-pre" }
 faketime = "0.2.0"
-lru = "0.6"
 semver = "0.9"
 
 [dev-dependencies]

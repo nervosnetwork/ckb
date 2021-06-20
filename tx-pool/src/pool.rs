@@ -18,9 +18,9 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_util::LruCache;
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
-use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -274,7 +274,7 @@ impl TxPool {
             }
 
             self.committed_txs_hash_cache
-                .put(tx.proposal_short_id(), hash.to_owned());
+                .insert(tx.proposal_short_id(), hash.to_owned());
         }
     }
 

@@ -10,7 +10,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 parking_lot = "0.11"
-hashlink = "0.7"
+hashlink = { git = "https://github.com/quake/hashlink", branch = "retain-order" }
 regex = "1.1.6"
 
 [dev-dependencies]

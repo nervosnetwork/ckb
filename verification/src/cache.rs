@@ -6,7 +6,7 @@ use ckb_types::{
 };
 
 /// TX verification lru cache
-pub type TxVerifyCache = lru::LruCache<Byte32, CacheEntry>;
+pub type TxVerifyCache = ckb_util::LruCache<Byte32, CacheEntry>;
 
 /// TX verification lru entry
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -2,7 +2,7 @@
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_types::{packed::Alert, prelude::*};
-use lru::LruCache;
+use ckb_util::LruCache;
 use std::collections::HashMap;
 
 const CANCEL_FILTER_SIZE: usize = 128;
@@ -102,7 +102,7 @@ impl Notifier {
 
     /// Cancel alert id
     pub fn cancel(&mut self, cancel_id: u32) {
-        self.cancel_filter.put(cancel_id, ());
+        self.cancel_filter.insert(cancel_id, ());
         self.received_alerts.remove(&cancel_id);
         self.noticed_alerts.retain(|a| {
             let id: u32 = a.raw().id().unpack();
@@ -124,7 +124,7 @@ impl Notifier {
 
     /// Whether id received
     pub fn has_received(&self, id: u32) -> bool {
-        self.received_alerts.contains_key(&id) || self.cancel_filter.contains(&id)
+        self.received_alerts.contains_key(&id) || self.cancel_filter.peek(&id).is_some()
     }
 
     /// All unexpired alerts

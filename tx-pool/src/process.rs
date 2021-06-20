@@ -268,7 +268,7 @@ impl TxPoolService {
         txs_updated_at: u64,
         template: BlockTemplate,
     ) {
-        block_assembler.template_caches.lock().await.put(
+        block_assembler.template_caches.lock().await.insert(
             key,
             TemplateCache {
                 time: template.current_time.into(),
@@ -595,7 +595,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, verified);
+                guard.insert(tx_hash, verified);
             });
         }
 

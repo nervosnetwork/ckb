@@ -12,7 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-types = { path = "../util/types", version = "= 0.43.0-pre" }
 ckb-db = { path = "../db", version = "= 0.43.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.43.0-pre" }
-lru = "0.6.0"
 ckb-traits = { path = "../traits", version = "= 0.43.0-pre" }
 ckb-util = { path = "../util", version = "= 0.43.0-pre" }
 ckb-error = { path = "../error", version = "= 0.43.0-pre" }

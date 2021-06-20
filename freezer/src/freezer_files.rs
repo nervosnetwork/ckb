@@ -1,6 +1,6 @@
 use ckb_metrics::metrics;
+use ckb_util::LruCache;
 use fail::fail_point;
-use lru::LruCache;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
 use std::convert::TryInto;
 use std::fs::{self, File};
@@ -307,7 +307,7 @@ impl FreezerFiles {
         for id in self.tail_id..self.head_id {
             self.open_read_only(id)?;
         }
-        self.files.put(self.head_id, self.head.file.try_clone()?);
+        self.files.insert(self.head_id, self.head.file.try_clone()?);
         Ok(())
     }
 
@@ -320,7 +320,7 @@ impl FreezerFiles {
     }
 
     fn release(&mut self, id: FileId) {
-        self.files.pop(&id);
+        self.files.remove(&id);
     }
 
     fn release_all(&mut self) {
@@ -335,7 +335,7 @@ impl FreezerFiles {
             .copied()
             .collect();
         for k in released.iter() {
-            self.files.pop(k);
+            self.files.remove(k);
         }
         self.delete_files_by_id(released.into_iter())
     }
@@ -374,7 +374,7 @@ impl FreezerFiles {
     fn open_file(&mut self, id: FileId, opt: fs::OpenOptions) -> Result<File, IoError> {
         let name = helper::file_name(id);
         let file = opt.open(self.file_path.join(name))?;
-        self.files.put(id, file.try_clone()?);
+        self.files.insert(id, file.try_clone()?);
         Ok(file)
     }
 }

@@ -14,8 +14,8 @@ use ckb_logger::{debug, info, trace};
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
+use ckb_util::LruCache;
 use ckb_util::Mutex;
-use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -65,7 +65,7 @@ impl AlertRelayer {
             None => {
                 let mut alert_ids = HashSet::new();
                 alert_ids.insert(alert_id);
-                self.known_lists.put(peer, alert_ids);
+                self.known_lists.insert(peer, alert_ids);
                 true
             }
         }
