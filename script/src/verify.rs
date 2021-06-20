@@ -1,6 +1,6 @@
 use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
-    error::ScriptError,
+    error::{ScriptError, TransactionScriptError},
     syscalls::{
         CurrentCycles, Debugger, Exec, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript,
         LoadScriptHash, LoadTx, LoadWitness, VMVersion,
@@ -25,6 +25,7 @@ use ckb_types::{
 };
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
+use ckb_vm::snapshot::{make_snapshot, resume, Snapshot};
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
@@ -40,6 +41,16 @@ use std::convert::TryFrom;
 type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
 type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
+
+#[cfg(has_asm)]
+type Machine<'a> = AsmMachine<'a>;
+#[cfg(not(has_asm))]
+type Machine<'a> = TraceMachine<'a, DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>;
+
+pub enum ChunkState<'a> {
+    VM(Machine<'a>),
+    Completed(Cycle),
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum DataGurad {
@@ -100,6 +111,29 @@ impl Binaries {
             }
         }
     }
+}
+
+/// Struct specifies which script has verified so far.
+/// Use this value when resuming a suspended verify.
+pub struct TransactionSnapshot {
+    /// current suspended script
+    pub current: (ScriptGroupType, Byte32),
+    /// remain script groups to verify
+    pub remain: Vec<(ScriptGroupType, Byte32)>,
+    /// vm snapshot
+    pub snap: Snapshot,
+    /// current consumed cycle
+    pub current_cycles: Cycle,
+    /// limit cycles when snapshot create
+    pub limit_cycles: Cycle,
+}
+
+/// Enum represent resumable verify result
+pub enum VerifyResult {
+    /// Completed total cycles
+    Completed(Cycle),
+    /// Suspended snapshot
+    Suspended(Box<TransactionSnapshot>),
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
@@ -434,7 +468,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles: Cycle = 0;
 
         // Now run each script group
-        for group in self.lock_groups.values().chain(self.type_groups.values()) {
+        for (_ty, hash, group) in self.groups() {
             // max_cycles must reduce by each group exec
             let cycle = self
                 .verify_script_group(group, max_cycles - cycles)
@@ -442,7 +476,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     #[cfg(feature = "logging")]
                     info!(
                         "Error validating script group {} of transaction {}: {}",
-                        group.script.calc_script_hash(),
+                        hash,
                         self.hash(),
                         e
                     );
@@ -453,6 +487,191 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 .ok_or_else(|| ScriptError::ExceededMaximumCycles(max_cycles).source(group))?;
         }
         Ok(cycles)
+    }
+
+    fn make_snapshot(
+        &self,
+        mut vm: Machine<'a>,
+        group: &ScriptGroup,
+        current: (ScriptGroupType, Byte32),
+        remain: Vec<(ScriptGroupType, Byte32)>,
+        current_cycles: Cycle,
+        limit_cycles: Cycle,
+    ) -> Result<TransactionSnapshot, Error> {
+        let snap = make_snapshot(&mut vm.machine).map_err::<Error, _>(|e| {
+            ScriptError::VMInternalError(format!("{:?}", e))
+                .source(group)
+                .into()
+        })?;
+
+        Ok(TransactionSnapshot {
+            current,
+            remain,
+            snap,
+            current_cycles,
+            limit_cycles,
+        })
+    }
+
+    /// Performing a resumable verification on the transaction scripts.
+    ///
+    /// ## Params
+    ///
+    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// when the consumed cycles exceed the limit.
+    ///
+    /// ## Returns
+    ///
+    /// It returns the total consumed cycles if verification completed,
+    /// If verify is suspended, a snapshot will retruned.
+    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (idx, (ty, hash, group)) in groups.iter().enumerate() {
+            // vm should early return invalid cycles
+            let step_cycle = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::VMInternalError(format!(
+                    "expect invalid cycles {} {}",
+                    limit_cycles, cycles
+                ))
+                .source(group)
+            })?;
+
+            match self.verify_group_with_chunk(&group, step_cycle, None) {
+                Ok(ChunkState::Completed(cycle)) => {
+                    cycles = wrapping_cycles_add(cycles, cycle, limit_cycles, group)?;
+                }
+                Ok(ChunkState::VM(vm)) => {
+                    cycles = wrapping_cycles_add(cycles, vm.machine.cycles(), limit_cycles, group)?;
+
+                    let current = (*ty, (*hash).to_owned());
+
+                    let remain = groups
+                        .iter()
+                        .skip(idx)
+                        .map(|(ty, hash, _g)| (*ty, (*hash).to_owned()))
+                        .collect();
+
+                    let snap =
+                        self.make_snapshot(vm, group, current, remain, cycles, limit_cycles)?;
+
+                    return Ok(VerifyResult::Suspended(Box::new(snap)));
+                }
+                Err(e) => {
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(cycles))
+    }
+
+    /// Resuming an suspended verify
+    ///
+    /// ## Params
+    ///
+    /// * `snap` - Captured transaction verification snapshot.
+    ///
+    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// when the consumed cycles exceed the limit.
+    ///
+    /// ## Returns
+    ///
+    /// It returns the total consumed cycles if verification completed,
+    /// If verify is suspended, a new snapshot will retruned.
+    pub fn resume(
+        &self,
+        snap: &TransactionSnapshot,
+        limit_cycles: Cycle,
+    ) -> Result<VerifyResult, Error> {
+        let mut cycles = snap.current_cycles;
+
+        let current_group = self
+            .find_script_group(snap.current.0, &snap.current.1)
+            .ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+                    .unknown_source()
+            })?;
+
+        if limit_cycles < snap.current_cycles {
+            return Err(ScriptError::ExceededMaximumCycles(limit_cycles)
+                .source(current_group)
+                .into());
+        }
+
+        // continue snapshot current script
+        // limit_cycles - cycles checked
+        match self.verify_group_with_chunk(&current_group, limit_cycles - cycles, Some(&snap.snap))
+        {
+            Ok(ChunkState::Completed(cycle)) => {
+                cycles = wrapping_cycles_add(cycles, cycle, limit_cycles, &current_group)?;
+            }
+            Ok(ChunkState::VM(vm)) => {
+                cycles =
+                    wrapping_cycles_add(cycles, vm.machine.cycles(), limit_cycles, &current_group)?;
+                let current = snap.current.to_owned();
+                let remain = snap.remain.to_owned();
+                let snap =
+                    self.make_snapshot(vm, &current_group, current, remain, cycles, limit_cycles)?;
+                return Ok(VerifyResult::Suspended(Box::new(snap)));
+            }
+            Err(e) => {
+                return Err(e.source(&current_group).into());
+            }
+        }
+
+        for (idx, (ty, hash)) in snap.remain.iter().enumerate() {
+            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
+                    .unknown_source()
+            })?;
+
+            let step_cycle = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::VMInternalError(format!(
+                    "expect invalid cycles {} {}",
+                    limit_cycles, cycles
+                ))
+                .source(group)
+            })?;
+
+            match self.verify_group_with_chunk(group, step_cycle, None) {
+                Ok(ChunkState::Completed(cycle)) => {
+                    cycles = wrapping_cycles_add(cycles, cycle, limit_cycles, &current_group)?;
+                }
+                Ok(ChunkState::VM(vm)) => {
+                    cycles = wrapping_cycles_add(
+                        cycles,
+                        vm.machine.cycles(),
+                        limit_cycles,
+                        &current_group,
+                    )?;
+
+                    let current = (*ty, hash.to_owned());
+                    let remain = snap
+                        .remain
+                        .iter()
+                        .skip(idx)
+                        .map(|(ty, hash)| (*ty, hash.to_owned()))
+                        .collect();
+
+                    let snap = self.make_snapshot(
+                        vm,
+                        &current_group,
+                        current,
+                        remain,
+                        cycles,
+                        limit_cycles,
+                    )?;
+                    return Ok(VerifyResult::Suspended(Box::new(snap)));
+                }
+                Err(e) => {
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(cycles))
     }
 
     /// Runs a single script in current transaction, while this is not useful for
@@ -485,6 +704,38 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             verifier.verify()
         } else {
             self.run(&group, max_cycles)
+        }
+    }
+    /// Returns all script groups.
+    pub fn groups(&self) -> impl Iterator<Item = (ScriptGroupType, &'_ Byte32, &'_ ScriptGroup)> {
+        self.lock_groups
+            .iter()
+            .map(|(hash, group)| (ScriptGroupType::Lock, hash, group))
+            .chain(
+                self.type_groups
+                    .iter()
+                    .map(|(hash, group)| (ScriptGroupType::Type, hash, group)),
+            )
+    }
+
+    /// Returns all script groups.
+    pub(crate) fn verify_group_with_chunk(
+        &'a self,
+        group: &'a ScriptGroup,
+        max_cycles: Cycle,
+        snap: Option<&Snapshot>,
+    ) -> Result<ChunkState<'a>, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify().map(ChunkState::Completed)
+        } else {
+            self.chunk_run(group, max_cycles, snap)
         }
     }
 
@@ -546,8 +797,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         syscalls
     }
 
-    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
-        let program = self.extract_script(&script_group.script)?;
+    fn build_machine(
+        &'a self,
+        script_group: &'a ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<Machine<'a>, ScriptError> {
         let (isa, version) = self.select_machine_options(&script_group.script)?;
         #[cfg(has_asm)]
         let core_machine = AsmCoreMachine::new(isa, version, max_cycles);
@@ -560,10 +814,18 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
+
         #[cfg(has_asm)]
-        let mut machine = AsmMachine::new(default_machine, None);
+        let machine = AsmMachine::new(default_machine, None);
         #[cfg(not(has_asm))]
-        let mut machine = TraceMachine::new(default_machine);
+        let machine = TraceMachine::new(default_machine);
+
+        Ok(machine)
+    }
+
+    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        let program = self.extract_script(&script_group.script)?;
+        let mut machine = self.build_machine(script_group, max_cycles)?;
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::InvalidCycles => ScriptError::ExceededMaximumCycles(max_cycles),
@@ -584,6 +846,56 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             Err(ScriptError::validation_failure(&script_group.script, code))
         }
     }
+
+    fn chunk_run(
+        &'a self,
+        script_group: &'a ScriptGroup,
+        max_cycles: Cycle,
+        snap: Option<&Snapshot>,
+    ) -> Result<ChunkState<'a>, ScriptError> {
+        let mut machine = self.build_machine(script_group, max_cycles)?;
+
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::InvalidCycles => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(format!("{:?}", error)),
+        };
+
+        if let Some(sp) = snap {
+            resume(&mut machine.machine, sp).map_err(map_vm_internal_error)?;
+        } else {
+            let program = self.extract_script(&script_group.script)?;
+            let bytes = machine
+                .load_program(&program, &[])
+                .map_err(map_vm_internal_error)?;
+            machine
+                .machine
+                .add_cycles(transferred_byte_cycles(bytes))
+                .map_err(map_vm_internal_error)?;
+        }
+        match machine.run() {
+            Ok(code) => {
+                if code == 0 {
+                    Ok(ChunkState::Completed(machine.machine.cycles()))
+                } else {
+                    Err(ScriptError::ValidationFailure(code))
+                }
+            }
+            Err(error) => match error {
+                VMInternalError::InvalidCycles => Ok(ChunkState::VM(machine)),
+                _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
+            },
+        }
+    }
+}
+
+fn wrapping_cycles_add(
+    lhs: Cycle,
+    rhs: Cycle,
+    limit_cycles: Cycle,
+    group: &ScriptGroup,
+) -> Result<Cycle, TransactionScriptError> {
+    lhs.checked_add(rhs)
+        .ok_or_else(|| ScriptError::ExceededMaximumCycles(limit_cycles).source(group))
 }
 
 #[cfg(test)]
@@ -2292,5 +2604,330 @@ mod tests {
 
         let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         assert!(verifier.verify(600000).is_ok());
+    }
+
+    #[test]
+    fn check_type_id_one_in_one_out_chunk() {
+        let (always_success_cell, always_success_cell_data, always_success_script) =
+            always_success_cell();
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
+
+        let type_id_script = Script::new_builder()
+            .args(Bytes::from(h256!("0x1111").as_ref()).pack())
+            .code_hash(TYPE_ID_CODE_HASH.pack())
+            .hash_type(ScriptHashType::Type.into())
+            .build();
+
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
+        let input_cell = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(1000).pack())
+            .lock(always_success_script.clone())
+            .type_(Some(type_id_script.clone()).pack())
+            .build();
+
+        let output_cell = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(990).pack())
+            .lock(always_success_script.clone())
+            .type_(Some(type_id_script).pack())
+            .build();
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .output(output_cell)
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(always_success_out_point.clone())
+                    .build(),
+            )
+            .build();
+
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point)
+        .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![resolved_always_success_cell],
+            resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
+
+        let mut groups: Vec<_> = verifier.groups().collect();
+        let mut cycles = 0;
+        let mut tmp: Option<Machine<'_>> = None;
+
+        loop {
+            if let Some(mut vm) = tmp.take() {
+                cycles += vm.machine.cycles();
+                vm.machine.set_cycles(0);
+                match vm.run() {
+                    Ok(code) => {
+                        if code == 0 {
+                            cycles += vm.machine.cycles();
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    Err(error) => match error {
+                        VMInternalError::InvalidCycles => {
+                            tmp = Some(vm);
+                            continue;
+                        }
+                        _ => unreachable!(),
+                    },
+                }
+            }
+            while let Some((ty, _, group)) = groups.pop() {
+                let max = match ty {
+                    ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
+                    ScriptGroupType::Type => TYPE_ID_CYCLES,
+                };
+                match verifier.verify_group_with_chunk(&group, max, None).unwrap() {
+                    ChunkState::Completed(cycle) => {
+                        cycles += cycle;
+                    }
+                    ChunkState::VM(vm) => {
+                        tmp = Some(vm);
+                        break;
+                    }
+                }
+            }
+
+            if tmp.is_none() {
+                break;
+            }
+        }
+
+        assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
+    }
+
+    #[test]
+    fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+        let consensus = ckb_testnet_consensus();
+        let dep_group_tx_hash = consensus.genesis_block().transactions()[1].hash();
+        let secp_out_point = OutPoint::new(dep_group_tx_hash, 0);
+
+        let cell_dep = CellDep::new_builder()
+            .out_point(secp_out_point)
+            .dep_type(DepType::DepGroup.into())
+            .build();
+
+        let input1 = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 0), 0);
+        let input2 = CellInput::new(OutPoint::new(h256!("0x1111").pack(), 0), 0);
+
+        let mut generator = Generator::non_crypto_safe_prng(42);
+        let privkey = generator.gen_privkey();
+        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg = Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned());
+        let privkey2 = generator.gen_privkey();
+        let pubkey_data2 = privkey2.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg2 = Bytes::from((&blake2b_256(&pubkey_data2)[0..20]).to_owned());
+
+        let lock = Script::new_builder()
+            .args(lock_arg.pack())
+            .code_hash(type_lock_script_code_hash().pack())
+            .hash_type(ScriptHashType::Type.into())
+            .build();
+
+        let lock2 = Script::new_builder()
+            .args(lock_arg2.pack())
+            .code_hash(type_lock_script_code_hash().pack())
+            .hash_type(ScriptHashType::Type.into())
+            .build();
+
+        let output1 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock.clone())
+            .build();
+        let output2 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock2.clone())
+            .build();
+        let tx = TransactionBuilder::default()
+            .cell_dep(cell_dep)
+            .input(input1.clone())
+            .input(input2.clone())
+            .output(output1)
+            .output(output2)
+            .output_data(Default::default())
+            .output_data(Default::default())
+            .build();
+
+        let tx_hash: H256 = tx.hash().unpack();
+        // sign input1
+        let witness = {
+            WitnessArgs::new_builder()
+                .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+                .build()
+        };
+        let witness_len: u64 = witness.as_bytes().len() as u64;
+        let mut hasher = new_blake2b();
+        hasher.update(tx_hash.as_bytes());
+        hasher.update(&witness_len.to_le_bytes());
+        hasher.update(&witness.as_bytes());
+        let message = {
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        let witness = WitnessArgs::new_builder()
+            .lock(Some(Bytes::from(sig.serialize())).pack())
+            .build();
+        // sign input2
+        let witness2 = WitnessArgs::new_builder()
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+            .build();
+        let witness2_len: u64 = witness2.as_bytes().len() as u64;
+        let mut hasher = new_blake2b();
+        hasher.update(tx_hash.as_bytes());
+        hasher.update(&witness2_len.to_le_bytes());
+        hasher.update(&witness2.as_bytes());
+        let message2 = {
+            let mut buf = [0u8; 32];
+            hasher.finalize(&mut buf);
+            H256::from(buf)
+        };
+        let sig2 = privkey2.sign_recoverable(&message2).expect("sign");
+        let witness2 = WitnessArgs::new_builder()
+            .lock(Some(Bytes::from(sig2.serialize())).pack())
+            .build();
+        let tx = tx
+            .as_advanced_builder()
+            .witness(witness.as_bytes().pack())
+            .witness(witness2.as_bytes().pack())
+            .build();
+
+        let serialized_size = tx.data().as_slice().len() as u64;
+
+        assert_eq!(
+            serialized_size, TWO_IN_TWO_OUT_BYTES,
+            "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
+        );
+
+        let (secp256k1_blake160_cell, secp256k1_blake160_cell_data) =
+            secp256k1_blake160_sighash_cell(consensus.clone());
+
+        let (secp256k1_data_cell, secp256k1_data_cell_data) = secp256k1_data_cell(consensus);
+
+        let input_cell1 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock)
+            .build();
+
+        let resolved_input_cell1 =
+            CellMetaBuilder::from_cell_output(input_cell1, Default::default())
+                .out_point(input1.previous_output())
+                .build();
+
+        let input_cell2 = CellOutput::new_builder()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock2)
+            .build();
+
+        let resolved_input_cell2 =
+            CellMetaBuilder::from_cell_output(input_cell2, Default::default())
+                .out_point(input2.previous_output())
+                .build();
+
+        let resolved_secp256k1_blake160_cell = CellMetaBuilder::from_cell_output(
+            secp256k1_blake160_cell,
+            secp256k1_blake160_cell_data,
+        )
+        .build();
+
+        let resolved_secp_data_cell =
+            CellMetaBuilder::from_cell_output(secp256k1_data_cell, secp256k1_data_cell_data)
+                .build();
+
+        let rtx = ResolvedTransaction {
+            transaction: tx,
+            resolved_cell_deps: vec![resolved_secp256k1_blake160_cell, resolved_secp_data_cell],
+            resolved_inputs: vec![resolved_input_cell1, resolved_input_cell2],
+            resolved_dep_groups: vec![],
+        };
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let tx_env = {
+            let header = HeaderView::new_advanced_builder().build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
+
+        let mut groups: Vec<_> = verifier.groups().collect();
+        let mut cycles = 0;
+        let mut tmp: Option<Machine<'_>> = None;
+
+        loop {
+            if let Some(mut vm) = tmp.take() {
+                cycles += vm.machine.cycles();
+                vm.machine.set_cycles(0);
+                match vm.run() {
+                    Ok(code) => {
+                        if code == 0 {
+                            cycles += vm.machine.cycles();
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    Err(error) => match error {
+                        VMInternalError::InvalidCycles => {
+                            tmp = Some(vm);
+                            continue;
+                        }
+                        _ => unreachable!(),
+                    },
+                }
+            }
+            while let Some((_, _, group)) = groups.pop() {
+                match verifier
+                    .verify_group_with_chunk(&group, TWO_IN_TWO_OUT_CYCLES / 10, None)
+                    .unwrap()
+                {
+                    ChunkState::Completed(cycle) => {
+                        cycles += cycle;
+                    }
+                    ChunkState::VM(vm) => {
+                        tmp = Some(vm);
+                        break;
+                    }
+                }
+            }
+
+            if tmp.is_none() {
+                break;
+            }
+        }
+
+        let cycles_once = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
+
+        assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
+        assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+        assert_eq!(cycles, cycles_once);
     }
 }
