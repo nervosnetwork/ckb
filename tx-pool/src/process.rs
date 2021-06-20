@@ -32,7 +32,10 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
+use ckb_verification::{
+    cache::{CacheEntry, Completed},
+    TxVerifyEnv,
+};
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -381,7 +384,7 @@ impl TxPoolService {
 
     async fn submit_entry(
         &self,
-        verified: CacheEntry,
+        verified: Completed,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
@@ -426,7 +429,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<CacheEntry, Reject> {
+    ) -> Result<Completed, Reject> {
         let ret = self._process_tx(tx.clone(), remote.map(|r| r.0)).await;
 
         self.after_process(tx, remote, &ret).await;
@@ -438,7 +441,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-        ret: &Result<CacheEntry, Reject>,
+        ret: &Result<Completed, Reject>,
     ) {
         let tx_hash = tx.hash();
         match remote {
@@ -581,7 +584,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         max_cycles: Option<Cycle>,
-    ) -> Result<CacheEntry, Reject> {
+    ) -> Result<Completed, Reject> {
         let tx_hash = tx.hash();
 
         // non contextual verify first
@@ -593,7 +596,7 @@ impl TxPoolService {
         let max_cycles = max_cycles.unwrap_or(self.tx_pool_config.max_tx_verify_cycles);
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
-        let verified = verify_rtx(&snapshot, &rtx, &tx_env, verify_cache, max_cycles)?;
+        let verified = verify_rtx(&snapshot, &rtx, &tx_env, &verify_cache, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -604,7 +607,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, verified);
+                guard.put(tx_hash, CacheEntry::Completed(verified));
             });
         }
 
@@ -690,7 +693,7 @@ impl TxPoolService {
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
                     if let Ok(verified) =
-                        verify_rtx(snapshot, &rtx, &tx_env, verify_cache, max_cycles)
+                        verify_rtx(snapshot, &rtx, &tx_env, &verify_cache, max_cycles)
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
@@ -836,7 +839,7 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(entry.key()) {
             let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();
@@ -848,14 +851,14 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(entry.key()) {
             let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();
         } else if snapshot.proposals().contains_gap(entry.key()) {
             let tx_entry = entry.get();
             gaps.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();

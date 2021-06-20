@@ -1,11 +1,11 @@
-use crate::cache::CacheEntry;
+use crate::cache::{CacheEntry, Completed};
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_metrics::{metrics, Timer};
-use ckb_script::TransactionScriptsVerifier;
+use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, VerifyResult};
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     core::{
@@ -126,7 +126,7 @@ where
     /// Perform context-dependent verification, return a `Result` to `CacheEntry`
     ///
     /// skip script verify will result in the return value cycle always is zero
-    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
+    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
         let timer = Timer::start();
         self.maturity.verify()?;
         self.capacity.verify()?;
@@ -138,7 +138,79 @@ where
         };
         let fee = self.fee_calculator.transaction_fee()?;
         metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
-        Ok(CacheEntry::new(cycles, fee))
+        Ok(Completed { cycles, fee })
+    }
+
+    /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
+    ///
+    /// skip script verify will result in the return value cycle always is zero
+    pub fn resumable_verify(
+        &self,
+        limit_cycles: Cycle,
+        skip_script_verify: bool,
+    ) -> Result<CacheEntry, Error> {
+        let timer = Timer::start();
+        self.maturity.verify()?;
+        self.capacity.verify()?;
+        self.since.verify()?;
+
+        let fee = self.fee_calculator.transaction_fee()?;
+
+        if skip_script_verify {
+            Ok(CacheEntry::completed(0, fee))
+        } else {
+            let ret = self.script.resumable_verify(limit_cycles)?;
+            metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
+            Ok(CacheEntry::from_verify_result(ret, fee))
+        }
+    }
+
+    /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
+    ///
+    /// skip script verify will result in the return value cycle always is zero
+    pub fn resume(
+        &self,
+        limit_cycles: Cycle,
+        skip_script_verify: bool,
+        snapshot: &TransactionSnapshot,
+    ) -> Result<CacheEntry, Error> {
+        let timer = Timer::start();
+        self.maturity.verify()?;
+        self.capacity.verify()?;
+        self.since.verify()?;
+
+        let fee = self.fee_calculator.transaction_fee()?;
+
+        if skip_script_verify {
+            Ok(CacheEntry::completed(0, fee))
+        } else {
+            let ret = self.script.resume(snapshot, limit_cycles)?;
+            metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
+            Ok(CacheEntry::from_verify_result(ret, fee))
+        }
+    }
+
+    /// Perform complete context-dependent verification, return a `Result` to `CacheEntry`
+    ///
+    /// skip script verify will result in the return value cycle always is zero
+    pub fn complete(
+        &self,
+        max_cycles: Cycle,
+        skip_script_verify: bool,
+        snapshot: &TransactionSnapshot,
+    ) -> Result<Completed, Error> {
+        let timer = Timer::start();
+        self.maturity.verify()?;
+        self.capacity.verify()?;
+        self.since.verify()?;
+        let cycles = if skip_script_verify {
+            0
+        } else {
+            self.script.complete(snapshot, max_cycles)?
+        };
+        let fee = self.fee_calculator.transaction_fee()?;
+        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
+        Ok(Completed { cycles, fee })
     }
 }
 
@@ -167,7 +239,7 @@ impl<'a, DL: HeaderProvider + CellDataProvider + EpochProvider> TransactionVerif
     }
 
     /// Perform all tx verification
-    pub fn verify(&self, max_cycles: Cycle) -> Result<CacheEntry, Error> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Completed, Error> {
         self.non_contextual.verify()?;
         self.contextual.verify(max_cycles, false)
     }
@@ -294,6 +366,58 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         .verify(max_cycles)?;
         metrics!(timing, "ckb.verified_script", timer.stop());
         Ok(cycle)
+    }
+
+    /// Perform resumable script verification
+    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
+        let timer = Timer::start();
+        let ret = TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            self.consensus,
+            self.data_loader,
+            self.tx_env,
+        )
+        .resumable_verify(limit_cycles)?;
+        metrics!(timing, "ckb.resumable_verify_script", timer.stop());
+        Ok(ret)
+    }
+
+    /// Perform verification resume
+    pub fn resume(
+        &self,
+        snapshot: &TransactionSnapshot,
+        limit_cycles: Cycle,
+    ) -> Result<VerifyResult, Error> {
+        let timer = Timer::start();
+
+        let ret = TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            self.consensus,
+            self.data_loader,
+            self.tx_env,
+        )
+        .resume(snapshot, limit_cycles)?;
+        metrics!(timing, "ckb.resume_verify", timer.stop());
+        Ok(ret)
+    }
+
+    /// Perform complete verification
+    pub fn complete(
+        &self,
+        snapshot: &TransactionSnapshot,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, Error> {
+        let timer = Timer::start();
+
+        let ret = TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            self.consensus,
+            self.data_loader,
+            self.tx_env,
+        )
+        .complete(snapshot, max_cycles)?;
+        metrics!(timing, "ckb.complete_verify", timer.stop());
+        Ok(ret)
     }
 }
 

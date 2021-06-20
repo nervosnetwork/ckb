@@ -23,7 +23,7 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_verification::cache::{CacheEntry, TxVerificationCache};
+use ckb_verification::cache::{Completed, TxVerificationCache};
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
@@ -65,7 +65,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxResult = Result<CacheEntry, Error>;
+pub(crate) type SubmitTxResult = Result<Completed, Error>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 

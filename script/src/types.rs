@@ -1,6 +1,11 @@
-use ckb_types::packed::Script;
+use ckb_types::{
+    core::Cycle,
+    packed::{Byte32, Script},
+};
+use ckb_vm::snapshot::Snapshot;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::Arc;
 
 /// A script group is defined as scripts that share the same hash.
 ///
@@ -61,5 +66,40 @@ impl fmt::Display for ScriptGroupType {
             ScriptGroupType::Lock => write!(f, "Lock"),
             ScriptGroupType::Type => write!(f, "Type"),
         }
+    }
+}
+
+/// Struct specifies which script has verified so far.
+/// Use this value when resuming a suspended verify.
+pub struct TransactionSnapshot {
+    /// current suspended script
+    pub current: (ScriptGroupType, Byte32),
+    /// remain script groups to verify
+    pub remain: Vec<(ScriptGroupType, Byte32)>,
+    /// vm snapshot
+    pub snap: Snapshot,
+    /// current consumed cycle
+    pub current_cycles: Cycle,
+    /// limit cycles when snapshot create
+    pub limit_cycles: Cycle,
+}
+
+/// Enum represent resumable verify result
+#[derive(Clone, Debug)]
+pub enum VerifyResult {
+    /// Completed total cycles
+    Completed(Cycle),
+    /// Suspended snapshot
+    Suspended(Arc<TransactionSnapshot>),
+}
+
+impl std::fmt::Debug for TransactionSnapshot {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("TransactionSnapshot")
+            .field("current", &self.current)
+            .field("remain", &self.remain)
+            .field("current_cycles", &self.current_cycles)
+            .field("limit_cycles", &self.limit_cycles)
+            .finish()
     }
 }

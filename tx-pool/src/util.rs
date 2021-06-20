@@ -6,7 +6,8 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
 use ckb_verification::{
-    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    cache::{CacheEntry, Completed},
+    ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use tokio::task::block_in_place;
@@ -75,16 +76,28 @@ pub(crate) fn verify_rtx(
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,
     tx_env: &TxVerifyEnv,
-    cache_entry: Option<CacheEntry>,
+    cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
-) -> Result<CacheEntry, Reject> {
+) -> Result<Completed, Reject> {
     let consensus = snapshot.consensus();
 
-    if let Some(cached) = cache_entry {
-        TimeRelativeTransactionVerifier::new(&rtx, snapshot, tx_env)
-            .verify()
-            .map(|_| cached)
-            .map_err(Reject::Verification)
+    if let Some(ref cached) = cache_entry {
+        match cached {
+            CacheEntry::Completed(completed) => {
+                TimeRelativeTransactionVerifier::new(&rtx, snapshot, tx_env)
+                    .verify()
+                    .map(|_| *completed)
+                    .map_err(Reject::Verification)
+            }
+            CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
+                &rtx,
+                consensus,
+                &snapshot.as_data_provider(),
+                tx_env,
+            )
+            .complete(max_tx_verify_cycles, false, &suspended.snap)
+            .map_err(Reject::Verification),
+        }
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(
