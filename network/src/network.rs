@@ -1306,7 +1306,7 @@ impl NetworkController {
 
 impl Drop for NetworkController {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 

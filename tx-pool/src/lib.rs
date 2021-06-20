@@ -3,6 +3,7 @@
 
 mod block_assembler;
 mod callback;
+mod chunk_process;
 mod component;
 pub mod error;
 pub mod pool;

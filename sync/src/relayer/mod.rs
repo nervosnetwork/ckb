@@ -150,7 +150,7 @@ impl Relayer {
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
                 if reader.check_data() {
-                    TransactionsProcess::new(reader, self, peer).execute()
+                    TransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed
                         .with_context("RelayTransactions is invalid")

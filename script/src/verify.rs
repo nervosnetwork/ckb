@@ -6,7 +6,10 @@ use crate::{
         LoadScriptHash, LoadTx, LoadWitness, VMVersion,
     },
     type_id::TypeIdSystemScript,
-    types::{ScriptGroup, ScriptGroupType, TransactionSnapshot, VerifyResult},
+    types::{
+        set_vm_max_cycles, CoreMachineType, Machine, ScriptGroup, ScriptGroupType,
+        TransactionSnapshot, TransactionState, VerifyResult,
+    },
     verify_env::TxVerifyEnv,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
@@ -23,9 +26,10 @@ use ckb_types::{
     packed::{Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
     prelude::*,
 };
+
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
-use ckb_vm::snapshot::{make_snapshot, resume, Snapshot};
+use ckb_vm::snapshot::{resume, Snapshot};
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
@@ -33,20 +37,10 @@ use ckb_vm::{
 };
 #[cfg(not(has_asm))]
 use ckb_vm::{DefaultCoreMachine, SparseMemory, TraceMachine, WXorXMemory};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::sync::Arc;
-
-#[cfg(has_asm)]
-type CoreMachineType = Box<AsmCoreMachine>;
-#[cfg(not(has_asm))]
-type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
-
-#[cfg(has_asm)]
-type Machine<'a> = AsmMachine<'a>;
-#[cfg(not(has_asm))]
-type Machine<'a> = TraceMachine<'a, DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>;
 
 pub enum ChunkState<'a> {
     VM(Machine<'a>),
@@ -467,28 +461,21 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         Ok(cycles)
     }
 
-    fn make_snapshot(
+    fn build_state(
         &self,
-        mut vm: Machine<'a>,
-        group: &ScriptGroup,
+        vm: Machine<'a>,
         current: (ScriptGroupType, Byte32),
         remain: Vec<(ScriptGroupType, Byte32)>,
         current_cycles: Cycle,
         limit_cycles: Cycle,
-    ) -> Result<TransactionSnapshot, Error> {
-        let snap = make_snapshot(&mut vm.machine).map_err::<Error, _>(|e| {
-            ScriptError::VMInternalError(format!("{:?}", e))
-                .source(group)
-                .into()
-        })?;
-
-        Ok(TransactionSnapshot {
+    ) -> TransactionState<'a> {
+        TransactionState {
             current,
             remain,
-            snap,
+            vm,
             current_cycles,
             limit_cycles,
-        })
+        }
     }
 
     /// Performing a resumable verification on the transaction scripts.
@@ -501,7 +488,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a snapshot will retruned.
+    /// If verify is suspended, a state will retruned.
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
         let mut cycles = 0;
 
@@ -531,10 +518,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .map(|(ty, hash, _g)| (*ty, (*hash).to_owned()))
                         .collect();
 
-                    let snap =
-                        self.make_snapshot(vm, group, current, remain, cycles, limit_cycles)?;
-
-                    return Ok(VerifyResult::Suspended(Arc::new(snap)));
+                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
                     return Err(e.source(group).into());
@@ -545,7 +530,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         Ok(VerifyResult::Completed(cycles))
     }
 
-    /// Resuming an suspended verify
+    /// Resuming an suspended verify from snapshot
     ///
     /// ## Params
     ///
@@ -557,8 +542,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a new snapshot will retruned.
-    pub fn resume(
+    /// If verify is suspended, a borrowed state will retruned.
+    pub fn resume_from_snap(
         &self,
         snap: &TransactionSnapshot,
         limit_cycles: Cycle,
@@ -572,7 +557,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     .unknown_source()
             })?;
 
-        if limit_cycles < snap.current_cycles {
+        if limit_cycles < cycles {
             return Err(ScriptError::ExceededMaximumCycles(limit_cycles)
                 .source(current_group)
                 .into());
@@ -590,9 +575,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     wrapping_cycles_add(cycles, vm.machine.cycles(), limit_cycles, &current_group)?;
                 let current = snap.current.to_owned();
                 let remain = snap.remain.to_owned();
-                let snap =
-                    self.make_snapshot(vm, &current_group, current, remain, cycles, limit_cycles)?;
-                return Ok(VerifyResult::Suspended(Arc::new(snap)));
+                let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
                 return Err(e.source(&current_group).into());
@@ -633,15 +617,131 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .map(|(ty, hash)| (*ty, hash.to_owned()))
                         .collect();
 
-                    let snap = self.make_snapshot(
-                        vm,
-                        &current_group,
-                        current,
-                        remain,
+                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    return Ok(VerifyResult::Suspended(state));
+                }
+                Err(e) => {
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(cycles))
+    }
+
+    /// Resuming an suspended verify from vm state
+    ///
+    /// ## Params
+    ///
+    /// * `state` - vm state.
+    ///
+    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// when the consumed cycles exceed the limit.
+    ///
+    /// ## Returns
+    ///
+    /// It returns the total consumed cycles if verification completed,
+    /// If verify is suspended, a borrowed state will retruned.
+    pub fn resume_from_state(
+        &'a self,
+        state: TransactionState<'a>,
+        limit_cycles: Cycle,
+    ) -> Result<VerifyResult<'a>, Error> {
+        let TransactionState {
+            current,
+            remain,
+            mut vm,
+            current_cycles,
+            ..
+        } = state;
+
+        let mut cycles = current_cycles;
+
+        if limit_cycles < current_cycles {
+            return Err(ScriptError::ExceededMaximumCycles(limit_cycles)
+                .unknown_source()
+                .into());
+        }
+
+        let current_group = self
+            .find_script_group(current.0, &current.1)
+            .ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {:?}", current))
+                    .unknown_source()
+            })?;
+
+        set_vm_max_cycles(&mut vm, limit_cycles - cycles);
+        vm.machine.set_cycles(0);
+        match vm.run() {
+            Ok(code) => {
+                if code == 0 {
+                    cycles = wrapping_cycles_add(
                         cycles,
+                        vm.machine.cycles(),
                         limit_cycles,
+                        &current_group,
                     )?;
-                    return Ok(VerifyResult::Suspended(Arc::new(snap)));
+                } else {
+                    return Err(ScriptError::validation_failure(&current_group.script, code)
+                        .source(&current_group)
+                        .into());
+                }
+            }
+            Err(error) => match error {
+                VMInternalError::InvalidCycles => {
+                    cycles = wrapping_cycles_add(
+                        cycles,
+                        vm.machine.cycles(),
+                        limit_cycles,
+                        &current_group,
+                    )?;
+
+                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    return Ok(VerifyResult::Suspended(state));
+                }
+                error => {
+                    return Err(ScriptError::VMInternalError(format!("{:?}", error))
+                        .source(&current_group)
+                        .into())
+                }
+            },
+        }
+
+        for (idx, (ty, hash)) in remain.iter().enumerate() {
+            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
+                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
+                    .unknown_source()
+            })?;
+
+            let step_cycle = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::VMInternalError(format!(
+                    "expect invalid cycles {} {}",
+                    limit_cycles, cycles
+                ))
+                .source(group)
+            })?;
+
+            match self.verify_group_with_chunk(group, step_cycle, None) {
+                Ok(ChunkState::Completed(cycle)) => {
+                    cycles = wrapping_cycles_add(cycles, cycle, limit_cycles, &current_group)?;
+                }
+                Ok(ChunkState::VM(vm)) => {
+                    cycles = wrapping_cycles_add(
+                        cycles,
+                        vm.machine.cycles(),
+                        limit_cycles,
+                        &current_group,
+                    )?;
+
+                    let current = (*ty, hash.to_owned());
+                    let remain = remain
+                        .iter()
+                        .skip(idx)
+                        .map(|(ty, hash)| (*ty, hash.to_owned()))
+                        .collect();
+
+                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
                     return Err(e.source(group).into());

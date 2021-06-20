@@ -43,14 +43,14 @@ pub struct FreezerClose {
 impl Drop for FreezerClose {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 
 impl Drop for Shared {
     fn drop(&mut self) {
         if let Some(ref mut stop) = self.async_stop {
-            stop.try_send();
+            stop.try_send(());
         }
     }
 }

@@ -2,9 +2,9 @@
 
 use crate::block_assembler::BlockAssembler;
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
-use crate::component::entry::TxEntry;
-use crate::component::orphan::OrphanPool;
-use crate::error::{handle_recv_error, handle_try_send_error};
+use crate::chunk_process::Command;
+use crate::component::{chunk::ChunkQueue, entry::TxEntry, orphan::OrphanPool};
+use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -81,7 +81,7 @@ pub(crate) type ChainReorgArgs = (
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
-    SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), SubmitTxResult>),
+    SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
@@ -102,13 +102,16 @@ pub(crate) enum Message {
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
     reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
+    chunk_tx: ckb_channel::Sender<Command>,
     handle: Handle,
     stop: StopHandler<()>,
+    chunk_stop: StopHandler<Command>,
 }
 
 impl Drop for TxPoolController {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.chunk_stop.try_send(Command::Stop);
+        self.stop.try_send(());
     }
 }
 
@@ -220,7 +223,7 @@ impl TxPoolController {
         tx: TransactionView,
         declared_cycles: Cycle,
         peer: PeerIndex,
-    ) -> Result<SubmitTxResult, AnyError> {
+    ) -> Result<(), AnyError> {
         let (responder, response) = oneshot::channel();
         let request = Request::call((tx, declared_cycles, peer), responder);
         self.sender
@@ -398,6 +401,22 @@ impl TxPoolController {
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
+
+    /// send suspend chunk process cmd
+    pub fn suspend_chunk_process(&self) -> Result<(), AnyError> {
+        self.chunk_tx
+            .try_send(Command::Suspend)
+            .map_err(handle_send_cmd_error)
+            .map_err(Into::into)
+    }
+
+    /// send continue chunk process cmd
+    pub fn continue_chunk_process(&self) -> Result<(), AnyError> {
+        self.chunk_tx
+            .try_send(Command::Continue)
+            .map_err(handle_send_cmd_error)
+            .map_err(Into::into)
+    }
 }
 
 /// A builder used to create TxPoolService.
@@ -413,6 +432,8 @@ pub struct TxPoolServiceBuilder {
     pub(crate) signal_receiver: watch::Receiver<u8>,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
+    pub(crate) chunk_rx: ckb_channel::Receiver<Command>,
+    pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
 }
 
 impl TxPoolServiceBuilder {
@@ -429,6 +450,8 @@ impl TxPoolServiceBuilder {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
+        let (chunk_tx, chunk_rx) = ckb_channel::bounded(12);
+        let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
 
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
@@ -442,13 +465,18 @@ impl TxPoolServiceBuilder {
             signal_receiver,
             handle: handle.clone(),
             tx_relay_sender,
+            chunk_rx,
+            chunk,
         };
 
         let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
+        let chunk_stop = StopHandler::new(SignalSender::Crossbeam(chunk_tx.clone()), None);
         let controller = TxPoolController {
             sender,
             reorg_sender,
             handle: handle.clone(),
+            chunk_stop,
+            chunk_tx,
             stop,
         };
         (builder, controller)
@@ -493,10 +521,19 @@ impl TxPoolServiceBuilder {
             snapshot_mgr: self.snapshot_mgr,
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
+            chunk: self.chunk,
             network,
             consensus,
             last_txs_updated_at,
         };
+
+        let mut chunk_process = crate::chunk_process::TxChunkProcess::new(
+            service.clone(),
+            self.handle.clone(),
+            self.chunk_rx,
+        );
+
+        self.handle.spawn_blocking(move || chunk_process.run());
 
         let mut receiver = self.receiver;
         let mut reorg_receiver = self.reorg_receiver;
@@ -556,6 +593,7 @@ pub(crate) struct TxPoolService {
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
+    pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
 }
 
 impl TxPoolService {
@@ -602,10 +640,19 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: (tx, declared_cycles, peer),
         }) => {
-            let result = service.process_tx(tx, Some((declared_cycles, peer))).await;
-            if let Err(e) = responder.send(result.map_err(Into::into)) {
-                error!("responder send submit_tx result failed {:?}", e);
-            };
+            if declared_cycles > service.tx_pool_config.max_tx_verify_cycles {
+                let _result = service
+                    .enqueue_remote_chunk_tx(tx, (declared_cycles, peer))
+                    .await;
+                if let Err(e) = responder.send(()) {
+                    error!("responder send submit_tx result failed {:?}", e);
+                };
+            } else {
+                let _result = service.process_tx(tx, Some((declared_cycles, peer))).await;
+                if let Err(e) = responder.send(()) {
+                    error!("responder send submit_tx result failed {:?}", e);
+                };
+            }
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {

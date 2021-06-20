@@ -384,7 +384,7 @@ impl TxPoolService {
         }
     }
 
-    async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
+    pub(crate) async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
         guard.peek(hash).cloned()
     }
@@ -401,7 +401,7 @@ impl TxPoolService {
         .collect()
     }
 
-    async fn submit_entry(
+    pub(crate) async fn submit_entry(
         &self,
         verified: Completed,
         pre_resolve_tip: Byte32,
@@ -422,7 +422,7 @@ impl TxPoolService {
         _submit_entry(&mut tx_pool, status, entry, &self.callbacks)
     }
 
-    async fn pre_check(&self, tx: TransactionView) -> Result<PreCheckedTx, Reject> {
+    pub(crate) async fn pre_check(&self, tx: TransactionView) -> Result<PreCheckedTx, Reject> {
         // Acquire read lock for cheap check
         let tx_pool = self.tx_pool.read().await;
         let snapshot = tx_pool.cloned_snapshot();
@@ -442,6 +442,22 @@ impl TxPoolService {
         let fee = check_tx_fee(&tx_pool, &snapshot, &rtx, tx_size)?;
 
         Ok((tip_hash, snapshot, rtx, status, fee, tx_size))
+    }
+
+    pub(crate) async fn enqueue_remote_chunk_tx(
+        &self,
+        tx: TransactionView,
+        remote: (Cycle, PeerIndex),
+    ) -> Result<(), Reject> {
+        // non contextual verify first
+        if let Err(reject) = non_contextual_verify(&self.consensus, &tx) {
+            if reject.is_malformed_tx() {
+                self.ban_malformed(remote.1, format!("reject {}", reject));
+            }
+            return Err(reject);
+        }
+        self.chunk.write().await.add_remote_tx(tx, remote);
+        Ok(())
     }
 
     pub(crate) async fn process_tx(
@@ -551,26 +567,35 @@ impl TxPoolService {
 
         while let Some(previous) = orphan_queue.pop_front() {
             if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
-                match self._process_tx(orphan.tx.clone(), None).await {
-                    Ok(_) => {
-                        let with_vm_2021 = {
-                            let epoch = self.snapshot().tip_header().epoch().number();
-                            self.consensus
-                                .hardfork_switch
-                                .is_vm_version_1_and_syscalls_2_enabled(epoch)
-                        };
-                        self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
-                        orphan_queue.push_back(orphan.tx);
-                    }
-                    Err(reject) => {
-                        if !is_missing_input(&reject) {
+                if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
+                    self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                    orphan_queue.push_back(orphan.tx.clone());
+                    self.chunk
+                        .write()
+                        .await
+                        .add_remote_tx(orphan.tx, (orphan.cycle, orphan.peer));
+                } else {
+                    match self._process_tx(orphan.tx.clone(), None).await {
+                        Ok(_) => {
+                            let with_vm_2021 = {
+                                let epoch = self.snapshot().tip_header().epoch().number();
+                                self.consensus
+                                    .hardfork_switch
+                                    .is_vm_version_1_and_syscalls_2_enabled(epoch)
+                            };
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
+                            orphan_queue.push_back(orphan.tx);
                         }
-                        if reject.is_malformed_tx() {
-                            self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                        Err(reject) => {
+                            if !is_missing_input(&reject) {
+                                self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            }
+                            if reject.is_malformed_tx() {
+                                self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             }
@@ -632,7 +657,7 @@ impl TxPoolService {
         let (tip_hash, snapshot, rtx, status, fee, tx_size) = self.pre_check(tx).await?;
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
-        let max_cycles = max_cycles.unwrap_or(self.tx_pool_config.max_tx_verify_cycles);
+        let max_cycles = max_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
         let verified = verify_rtx(&snapshot, &rtx, &tx_env, &verify_cache, max_cycles)?;
@@ -686,7 +711,13 @@ impl TxPoolService {
 
                 let txs_opt = if hardfork_during_detach || hardfork_during_attach {
                     // The tx_pool is locked, remove all caches if has any hardfork.
-                    self.txs_verify_cache.write().await.clear();
+                    {
+                        self.txs_verify_cache.write().await.clear();
+                    }
+                    {
+                        self.chunk.write().await.clear();
+                    }
+
                     Some(tx_pool.drain_all_transactions())
                 } else {
                     None
@@ -712,6 +743,11 @@ impl TxPoolService {
         {
             let mut orphan = self.orphan.write().await;
             orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+        }
+
+        {
+            let mut chunk = self.chunk.write().await;
+            chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
 
         // update network fork switch each block
