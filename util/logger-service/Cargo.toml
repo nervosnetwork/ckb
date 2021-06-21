@@ -1,6 +1,6 @@
 [package]
 name = "ckb-logger-service"
-version = "0.43.0-pre"
+version = "0.43.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-util = { path = "..", version = "= 0.43.0-pre" }
-ckb-logger-config = { path = "../logger-config", version = "= 0.43.0-pre" }
-ckb-channel = { path = "../channel", version = "= 0.43.0-pre" }
+ckb-util = { path = "..", version = "= 0.43.0" }
+ckb-logger-config = { path = "../logger-config", version = "= 0.43.0" }
+ckb-channel = { path = "../channel", version = "= 0.43.0" }
 ansi_term = "0.12"
 log = "0.4"
 env_logger = "0.6"
