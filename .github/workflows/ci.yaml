@@ -32,14 +32,11 @@ jobs:
             script_run: make test
           - os: win-runner
             script_run: devtools/windows/make test
-            CI: true
     needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
       run: ${{ matrix.script_run }}
-    env:
-      CI: ${{ matrix.CI }}
 
   Integration_Test:
     runs-on: ${{ matrix.os }}
@@ -66,7 +63,6 @@ jobs:
         name: ${{ matrix.os }}_integration.log
         path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
-      CI: true
       SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
       ImageOS: ${{matrix.os}}
       BUILD_BUILDID: ${{ github.run_id }}
