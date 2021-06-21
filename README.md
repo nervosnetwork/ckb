@@ -54,7 +54,7 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb`'s minimum supported rustc version is 1.46.0.
+The crate `ckb`'s minimum supported rustc version is 1.51.0.
 
 ---
 
