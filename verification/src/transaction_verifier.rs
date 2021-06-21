@@ -15,8 +15,6 @@ use ckb_types::{
     packed::Byte32,
     prelude::*,
 };
-use lru::LruCache;
-use std::cell::RefCell;
 use std::collections::HashSet;
 
 /// The time-related TX verification
@@ -563,7 +561,6 @@ pub struct SinceVerifier<'a, DL> {
     consensus: &'a Consensus,
     data_loader: &'a DL,
     tx_env: &'a TxVerifyEnv,
-    median_timestamps_cache: RefCell<LruCache<Byte32, u64>>,
 }
 
 impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
@@ -573,13 +570,11 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         data_loader: &'a DL,
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
-        let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         SinceVerifier {
             rtx,
             consensus,
             data_loader,
             tx_env,
-            median_timestamps_cache,
         }
     }
 
@@ -589,18 +584,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
     }
 
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
-        if let Some(median_time) = self.median_timestamps_cache.borrow().peek(block_hash) {
-            return *median_time;
-        }
-
         let median_block_count = self.consensus.median_time_block_count();
-        let median_time = self
-            .data_loader
-            .block_median_time(block_hash, median_block_count);
-        self.median_timestamps_cache
-            .borrow_mut()
-            .put(block_hash.clone(), median_time);
-        median_time
+        self.data_loader
+            .block_median_time(block_hash, median_block_count)
     }
 
     fn verify_absolute_lock(&self, index: usize, since: Since) -> Result<(), Error> {
