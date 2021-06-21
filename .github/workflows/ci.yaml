@@ -32,7 +32,6 @@ jobs:
             script_run: make test
           - os: win-runner
             script_run: devtools/windows/make test
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
@@ -51,7 +50,6 @@ jobs:
           - os: win-runner
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Integration_Test
@@ -72,7 +70,6 @@ jobs:
     strategy:
       matrix:
         os: [Linux-runner, mac-runner]
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Benchmarks_Test
@@ -101,11 +98,7 @@ jobs:
     if: |
       contains(github.event_name, 'pull_request') ||
       contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner]
-    needs: Linters
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Quick_Check
@@ -124,7 +117,6 @@ jobs:
     strategy:
       matrix:
         os: [Linux-runner]
-    needs: Quick_Check
     steps:
     - uses: actions/checkout@v2
     - name: WASM build
@@ -136,11 +128,7 @@ jobs:
     if: |
       contains(github.event_name, 'pull_request') ||
       contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner]
-    needs: WASM_build
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Security Audit & Licenses
