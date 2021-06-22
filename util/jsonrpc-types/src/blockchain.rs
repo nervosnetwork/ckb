@@ -637,16 +637,20 @@ pub struct Header {
     ///
     /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
     pub proposals_hash: H256,
-    // TODO ckb2021 Returns the extra hash as uncles hash directly since no extension now.
-    // The hash on `uncles` and extension in the block body.
-    //
-    // The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
-    // The extension hash is the hash of the extension.
-    // The extra hash is the hash on uncles hash and extension hash concatenated together.
-    /// The hash on `uncles` in the block body.
+    // TODO ckb2021 Update the rfc number and fix the link, after the proposal is merged.
+    /// The hash on `uncles` and extension in the block body.
     ///
-    /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
-    pub uncles_hash: H256,
+    /// The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    /// The extension hash is the hash of the extension.
+    /// The extra hash is the hash on uncles hash and extension hash concatenated together.
+    ///
+    /// # Notice
+    ///
+    /// This field is renamed from `uncles_hash` since 0.44.0.
+    /// More details can be found in [CKB RFC xxxx].
+    ///
+    /// [CKB RFC xxxx]: https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title
+    pub extra_hash: H256,
     /// DAO fields.
     ///
     /// See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
@@ -676,7 +680,7 @@ pub struct Header {
 ///   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "timestamp": "0x5cd2b117",
 ///   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-///   "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+///   "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "version": "0x0"
 /// }
 /// # "#).unwrap();
@@ -702,7 +706,7 @@ impl From<packed::Header> for Header {
             transactions_root: raw.transactions_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             compact_target: raw.compact_target().unpack(),
-            uncles_hash: raw.extra_hash().unpack(),
+            extra_hash: raw.extra_hash().unpack(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
         }
@@ -736,7 +740,7 @@ impl From<Header> for packed::Header {
             transactions_root,
             proposals_hash,
             compact_target,
-            uncles_hash,
+            extra_hash,
             dao,
             nonce,
         } = json;
@@ -749,7 +753,7 @@ impl From<Header> for packed::Header {
             .transactions_root(transactions_root.pack())
             .proposals_hash(proposals_hash.pack())
             .compact_target(compact_target.pack())
-            .extra_hash(uncles_hash.pack())
+            .extra_hash(extra_hash.pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()
@@ -1302,7 +1306,7 @@ mod tests {
 
     fn header_field_format_check(json: &str) {
         lazy_static! {
-            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|uncles_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
+            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|extra_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
         }
         for caps in RE.captures_iter(json) {
             assert!(&caps["value"].starts_with("0x"));
