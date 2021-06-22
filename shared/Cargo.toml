@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.42.0"
+version = "0.43.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,24 +9,24 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.42.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.42.0" }
-ckb-store = { path = "../store", version = "= 0.42.0" }
-ckb-db = { path = "../db", version = "= 0.42.0" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.42.0" }
+ckb-types = { path = "../util/types", version = "= 0.43.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.43.0" }
+ckb-store = { path = "../store", version = "= 0.43.0" }
+ckb-db = { path = "../db", version = "= 0.43.0" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.43.0" }
 arc-swap = "0.4"
-ckb-error = { path = "../error", version = "= 0.42.0" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.42.0" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.42.0" }
-ckb-verification = { path = "../verification", version = "= 0.42.0" }
-ckb-notify = { path = "../notify", version = "= 0.42.0" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.42.0" }
-ckb-logger = { path = "../util/logger", version = "= 0.42.0" }
-ckb-freezer = { path = "../freezer", version = "= 0.42.0" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.42.0" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.42.0" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.42.0" }
-ckb-channel = { path = "../util/channel", version = "= 0.42.0" }
-ckb-constant = { path = "../util/constant", version = "= 0.42.0" }
-p2p = { version="0.3.8", package="tentacle", features = ["molc"] }
+ckb-error = { path = "../error", version = "= 0.43.0" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.43.0" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.43.0" }
+ckb-verification = { path = "../verification", version = "= 0.43.0" }
+ckb-notify = { path = "../notify", version = "= 0.43.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.43.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.43.0" }
+ckb-freezer = { path = "../freezer", version = "= 0.43.0" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.43.0" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.43.0" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.43.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.43.0" }
+ckb-constant = { path = "../util/constant", version = "= 0.43.0" }
+p2p = { version="0.4.0-alpha.1", package="tentacle" }
 faketime = "0.2.0"

@@ -1,8 +1,8 @@
 use crate::peer_store::types::AddrInfo;
 use crate::NetworkState;
-use ckb_logger::{trace, warn};
+use ckb_logger::trace;
 use faketime::unix_time_as_millis;
-use futures::{Future, Stream};
+use futures::Future;
 use p2p::service::ServiceControl;
 use std::{
     pin::Pin,
@@ -96,8 +96,8 @@ impl Future for OutboundPeerService {
         }
         let mut interval = self.interval.take().unwrap();
         loop {
-            match Pin::new(&mut interval).as_mut().poll_next(cx) {
-                Poll::Ready(Some(_tick)) => {
+            match interval.poll_tick(cx) {
+                Poll::Ready(_) => {
                     let last_connect = self
                         .last_connect
                         .map(|time| time.elapsed())
@@ -123,10 +123,6 @@ impl Future for OutboundPeerService {
                         self.try_dial_observed();
                         self.last_connect = Some(Instant::now());
                     }
-                }
-                Poll::Ready(None) => {
-                    warn!("ckb outbound peer service stopped");
-                    return Poll::Ready(());
                 }
                 Poll::Pending => {
                     self.interval = Some(interval);

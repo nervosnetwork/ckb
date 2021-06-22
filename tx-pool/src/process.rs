@@ -158,11 +158,9 @@ impl TxPoolService {
             &proposals,
         )?;
 
-        let (entries, size, cycles) = CommitTxsScanner::new(guard.proposed()).txs_to_commit(
-            txs_size_limit,
-            max_block_cycles,
-            guard.config.min_fee_rate,
-        );
+        let (entries, size, cycles) =
+            CommitTxsScanner::new(guard.proposed()).txs_to_commit(txs_size_limit, max_block_cycles);
+
         if !entries.is_empty() {
             info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
@@ -196,17 +194,14 @@ impl TxPoolService {
         let mut template_txs = Vec::with_capacity(entries.len());
         let mut seen_inputs = HashSet::new();
 
-        let transactions_checker = TransactionsChecker::new(
-            iter::once(&cellbase).chain(entries.iter().map(|entry| entry.transaction())),
-        );
+        let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
 
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
-        let overlay_cell_checker = OverlayCellChecker::new(&transactions_checker, snapshot);
-
         let rtxs: Vec<_> = block_in_place(|| {
             entries_iter.enumerate().filter_map(|(index, entry)| {
+                let overlay_cell_checker = OverlayCellChecker::new(&transactions_checker, snapshot);
                 if let Err(err) = entry.rtx.check(&mut seen_inputs, &overlay_cell_checker, snapshot) {
                     error!(
                         "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
@@ -215,6 +210,7 @@ impl TxPoolService {
                     None
                 } else {
                     if index != 0 {
+                        transactions_checker.insert(entry.transaction());
                         template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
                     }
                     Some(entry.rtx)
@@ -432,14 +428,11 @@ impl TxPoolService {
         ret: &Result<CacheEntry, Reject>,
     ) {
         let tx_hash = tx.hash();
-        let is_remote = remote.is_some();
-
-        if is_remote {
-            let (declared_cycle, peer) = remote.unwrap();
-            match ret {
+        match remote {
+            Some((declared_cycle, peer)) => match ret {
                 Ok(verified) => {
                     if declared_cycle == verified.cycles {
-                        self.broadcast_tx(peer, tx_hash);
+                        self.broadcast_tx(Some(peer), tx_hash);
                         self.process_orphan_tx(&tx).await;
                     } else {
                         warn!(
@@ -462,9 +455,22 @@ impl TxPoolService {
                         self.ban_malformed(peer, format!("reject {}", reject));
                     }
                 }
+            },
+            None => {
+                match ret {
+                    Ok(_verified) => {
+                        self.broadcast_tx(None, tx_hash);
+                        self.process_orphan_tx(&tx).await;
+                    }
+                    Err(Reject::Duplicated(_)) => {
+                        // re-broadcast tx when it's duplicated and submitted through local rpc
+                        self.broadcast_tx(None, tx_hash);
+                    }
+                    Err(_err) => {
+                        // ignore
+                    }
+                }
             }
-        } else if ret.is_ok() {
-            self.process_orphan_tx(&tx).await;
         }
     }
 
@@ -496,7 +502,7 @@ impl TxPoolService {
                 match self._process_tx(orphan.tx.clone(), None).await {
                     Ok(_) => {
                         self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                        self.broadcast_tx(orphan.peer, orphan.tx.hash());
+                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash());
                         orphan_queue.push_back(orphan.tx);
                     }
                     Err(reject) => {
@@ -519,7 +525,7 @@ impl TxPoolService {
             .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
     }
 
-    pub(crate) fn broadcast_tx(&self, origin: PeerIndex, tx_hash: Byte32) {
+    pub(crate) fn broadcast_tx(&self, origin: Option<PeerIndex>, tx_hash: Byte32) {
         if let Err(e) = self.tx_relay_sender.send((origin, tx_hash)) {
             error!("tx-pool broadcast_tx internal error {}", e);
         }
@@ -714,11 +720,11 @@ fn _submit_entry(
 ) -> Result<(), Reject> {
     match status {
         TxStatus::Fresh => {
-            tx_pool.add_pending(entry.clone())?;
+            tx_pool.add_pending(entry.clone());
             callbacks.call_pending(tx_pool, &entry);
         }
         TxStatus::Gap => {
-            tx_pool.add_gap(entry.clone())?;
+            tx_pool.add_gap(entry.clone());
             callbacks.call_pending(tx_pool, &entry);
         }
         TxStatus::Proposed => {
@@ -754,49 +760,42 @@ fn _update_tx_pool_for_reorg(
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
     tx_pool.remove_committed_txs(txs_iter, callbacks);
-    tx_pool.remove_expired(detached_proposal_id.iter(), callbacks);
+    tx_pool.remove_expired(detached_proposal_id.iter());
 
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
 
     // pending ---> gap ----> proposed
     // try move gap to proposed
-    let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.gap.size());
-    for key in tx_pool.gap.keys_sorted_by_fee_and_relation() {
-        if snapshot.proposals().contains_proposed(&key.id) {
-            let entry = tx_pool.gap.get(&key.id).expect("exists");
+    for entry in tx_pool.gap.entries() {
+        if snapshot.proposals().contains_proposed(entry.key()) {
+            let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.clone(),
+                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                tx_entry.clone(),
             ));
-            removed.push(key.id.clone());
+            entry.remove();
         }
     }
-    removed.into_iter().for_each(|id| {
-        tx_pool.gap.remove_entry(&id);
-    });
 
     // try move pending to proposed
-    let mut removed: Vec<ProposalShortId> = Vec::with_capacity(tx_pool.pending.size());
-    for key in tx_pool.pending.keys_sorted_by_fee_and_relation() {
-        let entry = tx_pool.pending.get(&key.id).expect("exists");
-        if snapshot.proposals().contains_proposed(&key.id) {
+    for entry in tx_pool.pending.entries() {
+        if snapshot.proposals().contains_proposed(entry.key()) {
+            let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.clone(),
+                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                tx_entry.clone(),
             ));
-            removed.push(key.id.clone());
-        } else if snapshot.proposals().contains_gap(&key.id) {
+            entry.remove();
+        } else if snapshot.proposals().contains_gap(entry.key()) {
+            let tx_entry = entry.get();
             gaps.push((
-                Some(CacheEntry::new(entry.cycles, entry.fee)),
-                entry.clone(),
+                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                tx_entry.clone(),
             ));
-            removed.push(key.id.clone());
+            entry.remove();
         }
     }
-    removed.into_iter().for_each(|id| {
-        tx_pool.pending.remove_entry(&id);
-    });
 
     for (cycles, entry) in entries {
         let tx_hash = entry.transaction().hash();

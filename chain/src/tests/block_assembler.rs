@@ -275,7 +275,7 @@ fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> 
         .build()
 }
 
-fn check_txs(block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>) {
+fn check_txs(block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>, format_arg: &str) {
     assert_eq!(
         block_template
             .transactions
@@ -285,7 +285,9 @@ fn check_txs(block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>) 
         expect_txs
             .iter()
             .map(|tx| format!("{}", Unpack::<H256>::unpack(&tx.hash())))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        "{}",
+        format_arg
     );
 }
 
@@ -340,21 +342,33 @@ fn test_package_basic() {
         .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3]);
+    check_txs(
+        &block_template,
+        vec![&tx2_1, &tx2_2, &tx2_3],
+        "300 size best scored txs",
+    );
 
     // 400 size best scored txs
     let block_template = tx_pool
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1]);
+    check_txs(
+        &block_template,
+        vec![&tx2_1, &tx2_2, &tx2_3, &tx1],
+        "400 size best scored txs",
+    );
 
     // 500 size best scored txs
     let block_template = tx_pool
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2]);
+    check_txs(
+        &block_template,
+        vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2],
+        "500 size best scored txs",
+    );
 
     // 600 size best scored txs
     let block_template = tx_pool
@@ -364,6 +378,7 @@ fn test_package_basic() {
     check_txs(
         &block_template,
         vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2, &tx3],
+        "600 size best scored txs",
     );
 
     // 700 size best scored txs
@@ -374,6 +389,7 @@ fn test_package_basic() {
     check_txs(
         &block_template,
         vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2, &tx3],
+        "700 size best scored txs",
     );
 
     // 800 size best scored txs
@@ -381,14 +397,18 @@ fn test_package_basic() {
         .get_block_template(Some(800 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx3, &tx4],
+        "800 size best scored txs",
+    );
 
     // none package txs
     let block_template = tx_pool
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![]);
+    check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
     let block_template = tx_pool
@@ -398,6 +418,7 @@ fn test_package_basic() {
     check_txs(
         &block_template,
         vec![&tx1, &tx2, &tx3, &tx4, &tx2_1, &tx2_2, &tx2_3],
+        "best scored txs",
     );
 }
 
@@ -461,35 +482,51 @@ fn test_package_multi_best_scores() {
         .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx3]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx3],
+        "250 size best scored txs",
+    );
 
     // 400 size best scored txs
     let block_template = tx_pool
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx2_1, &tx2_2],
+        "400 size best scored txs",
+    );
 
     // 500 size best scored txs
     let block_template = tx_pool
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2, &tx2_3]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx2_1, &tx2_2, &tx2_3],
+        "500 size best scored txs",
+    );
 
     // 900 size best scored txs
     let block_template = tx_pool
         .get_block_template(Some(900 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx2_1]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx3, &tx4, &tx2_1],
+        "900 size best scored txs",
+    );
 
     // none package txs
     let block_template = tx_pool
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![]);
+    check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
     let block_template = tx_pool
@@ -501,6 +538,7 @@ fn test_package_multi_best_scores() {
         vec![
             &tx1, &tx2, &tx3, &tx4, &tx2_1, &tx2_2, &tx2_3, &tx2_4, &tx4_1, &tx3_1,
         ],
+        "best scored txs",
     );
 }
 
@@ -549,67 +587,9 @@ fn test_package_low_fee_decendants() {
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
-    check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx5]);
-}
-
-#[test]
-fn test_package_txs_lower_than_min_fee_rate() {
-    let mut consensus = Consensus::default();
-    consensus.genesis_epoch_ext.set_length(5);
-    let epoch = consensus.genesis_epoch_ext().clone();
-
-    let (chain_controller, shared) = start_chain(Some(consensus));
-
-    let genesis = shared
-        .store()
-        .get_block_header(&shared.store().get_block_hash(0).unwrap())
-        .unwrap();
-
-    let mut parent_header = genesis;
-    let mut blocks = vec![];
-    for _i in 0..4 {
-        let block = gen_block(&parent_header, 11, &epoch);
-        chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
-            .unwrap();
-        parent_header = block.header().to_owned();
-        blocks.push(block);
-    }
-
-    let tx0 = &blocks[0].transactions()[0];
-    let tx1 = build_tx(tx0, &[0], 2);
-    let tx2 = build_tx(&tx1, &[0], 2);
-    let tx3 = build_tx(&tx2, &[0], 2);
-    let tx4 = build_tx(&tx3, &[0], 2);
-    let tx5 = build_tx(&tx4, &[0], 2);
-
-    let tx_pool = shared.tx_pool_controller();
-    let entries = vec![
-        TxEntry::dummy_resolve(tx1.clone(), 0, Capacity::shannons(1000), 100),
-        TxEntry::dummy_resolve(tx2, 0, Capacity::shannons(80), 100),
-        TxEntry::dummy_resolve(tx3, 0, Capacity::shannons(50), 100),
-        TxEntry::dummy_resolve(tx4, 0, Capacity::shannons(20), 100),
-        TxEntry::dummy_resolve(tx5, 0, Capacity::shannons(0), 100),
-    ];
-    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
-
-    let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>| {
-        assert_eq!(
-            block_template
-                .transactions
-                .iter()
-                .map(|tx| format!("{}", tx.hash))
-                .collect::<Vec<_>>(),
-            expect_txs
-                .iter()
-                .map(|tx| format!("{}", Unpack::<H256>::unpack(&tx.hash())))
-                .collect::<Vec<_>>()
-        );
-    };
-    // best scored txs
-    let block_template = tx_pool
-        .get_block_template(None, None, None)
-        .unwrap()
-        .unwrap();
-    check_txs(&block_template, vec![&tx1]);
+    check_txs(
+        &block_template,
+        vec![&tx1, &tx2, &tx3, &tx4, &tx5],
+        "best scored txs",
+    );
 }

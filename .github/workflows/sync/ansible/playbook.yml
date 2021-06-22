@@ -1,0 +1,103 @@
+---
+- hosts: all
+  name: sync-mainnet
+  gather_facts: yes
+  tasks:
+    - include_vars: vars/all.yml
+      tags: [ always ]
+    - name: Operate CKB Via Ansible-CKB
+      include_role:
+        name: ansible-ckb
+        public: false
+      tags:
+        - ckb_install
+        - ckb_configure
+        - ckb_restart
+        - ckb_start
+        - ckb_stop
+        - ckb_status
+        - ckb_miner_restart
+        - ckb_miner_start
+        - ckb_miner_stop
+
+    - name: Wait For CKB Synchronization
+      block:
+        - name: Query Mainnet Tip Number From api.explorer.nervos.org
+          uri:
+            url: https://api.explorer.nervos.org/api/v1/statistics/tip_block_number
+            headers:
+              Accept: "application/vnd.api+json"
+              Content-Type: "application/vnd.api+json"
+          register: explorer_tip
+          when:
+            - ckb_sync_target_number is not defined or ckb_sync_target_number == ''
+        - name: Use api.explorer.nervos.org Tip Block Number As Synchronization Target Number
+          set_fact:
+            ckb_sync_target_number: "{{ explorer_tip.json.data.attributes.tip_block_number }}"
+          when:
+            - ckb_sync_target_number is not defined or ckb_sync_target_number == ''
+        - name: Wait Until CKB Reach Tip Number `{{ ckb_sync_target_number }}`
+          wait_for:
+            path: "{{ ckb_data_dir }}/logs/run.log"
+            search_regex: "(?P<line>.* ChainService INFO ckb_chain::chain  block: {{ ckb_sync_target_number }}, .*)"
+            timeout: 18000 # 5 hours
+          register: wait_until_reach_explorer_tip
+        - debug:
+            msg: "{{ wait_until_reach_explorer_tip['match_groupdict']['line'] }}"
+        - name: Calculate Synchronization Time Cost According to Logfiles
+          become: true
+          environment:
+            CKB_NETWORK_NAME: "{{ ckb_network_name | default('unknown') }}"
+          script:
+            chdir: "{{ ckb_data_dir }}"
+            cmd: "{{ playbook_dir }}/files/produce-report.sh logs/run.log >> logs/report.yml"
+        - name: Archive CKB Logfiles
+          archive:
+            format: xz
+            dest: "{{ ckb_workspace }}/{{ inventory_hostname }}.tar.xz"
+            path:
+              - "{{ ckb_workspace }}/ckb.toml"
+              - "{{ ckb_data_dir }}/logs/run.log"
+              - "{{ ckb_data_dir }}/logs/report.yml"
+      tags:
+        - wait_ckb_synchronization
+
+    - name: Upload CKB Logfiles Into Qiniu Cloud Storage
+      block:
+        - name: Download qshell
+          get_url:
+            url: https://devtools.qiniu.com/qshell-v2.5.1-linux-386.tar.gz
+            dest: /tmp/qshell.tar.gz
+        - name: Unarchive qshell
+          unarchive:
+            remote_src: true
+            src: /tmp/qshell.tar.gz
+            dest: /tmp/
+        - name: Set Fact - Qiniu Cloud Uploading Directory
+          set_fact:
+            cloud_dir: "{{ ansible_play_name }}/{{ prefix }}"
+        - name: Upload CKB Logfiles To Qiniu Cloud
+          become: true # use root user to execute qshell
+          vars:
+            qiniu_access_key: "{{ lookup('env', 'QINIU_ACCESS_KEY') }}"
+            qiniu_secret_key: "{{ lookup('env', 'QINIU_SECRET_KEY') }}"
+          shell: |
+            /tmp/qshell account {{ qiniu_access_key }} {{ qiniu_secret_key }} ckb
+            /tmp/qshell rput ckb-bin \
+              {{ cloud_dir }}/{{ inventory_hostname }}.tar.xz \
+              {{ ckb_workspace }}/{{ inventory_hostname }}.tar.xz
+      tags:
+        - process_result
+
+    - name: Integrate Report Files
+      block:
+        - name: Fetch Report Files
+          fetch:
+            flat: true
+            src: "{{ ckb_data_dir }}/logs/report.yml"
+            dest: "{{ inventory_hostname }}.report.yml"
+        - name: Integrate Report Files
+          delegate_to: localhost
+          shell: "cat {{ inventory_hostname }}.report.yml >> report.yml"
+      tags:
+        - process_result

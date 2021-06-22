@@ -1,6 +1,6 @@
 use crate::NetworkState;
 use ckb_logger::{debug, warn};
-use futures::{Future, Stream};
+use futures::Future;
 use std::{
     pin::Pin,
     sync::Arc,
@@ -52,13 +52,9 @@ impl Future for DumpPeerStoreService {
         }
         let mut interval = self.interval.take().unwrap();
         loop {
-            match Pin::new(&mut interval).as_mut().poll_next(cx) {
-                Poll::Ready(Some(_tick)) => {
+            match interval.poll_tick(cx) {
+                Poll::Ready(_) => {
                     self.dump_peer_store();
-                }
-                Poll::Ready(None) => {
-                    warn!("ckb dump peer store service stopped");
-                    return Poll::Ready(());
                 }
                 Poll::Pending => {
                     self.interval = Some(interval);

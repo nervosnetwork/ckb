@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
 
 
 ## Table of Contents
@@ -44,7 +44,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
         * [Method `get_tip_block_number`](#method-get_tip_block_number)
         * [Method `get_current_epoch`](#method-get_current_epoch)
         * [Method `get_epoch_by_number`](#method-get_epoch_by_number)
-        * [Method `get_cellbase_output_capacity_details`](#method-get_cellbase_output_capacity_details)
         * [Method `get_block_economic_state`](#method-get_block_economic_state)
         * [Method `get_transaction_proof`](#method-get_transaction_proof)
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
@@ -52,11 +51,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
         * [Method `get_consensus`](#method-get_consensus)
         * [Method `get_block_median_time`](#method-get_block_median_time)
     * [Module Experiment](#module-experiment)
-        * [Method `compute_transaction_hash`](#method-compute_transaction_hash)
-        * [Method `compute_script_hash`](#method-compute_script_hash)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
-        * [Method `estimate_fee_rate`](#method-estimate_fee_rate)
     * [Module Miner](#module-miner)
         * [Method `get_block_template`](#method-get_block_template)
         * [Method `submit_block`](#method-submit_block)
@@ -92,7 +88,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
     * [Type `BlockIssuance`](#type-blockissuance)
     * [Type `BlockNumber`](#type-blocknumber)
-    * [Type `BlockReward`](#type-blockreward)
     * [Type `BlockTemplate`](#type-blocktemplate)
     * [Type `BlockView`](#type-blockview)
     * [Type `Byte32`](#type-byte32)
@@ -112,8 +107,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.46.0.
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
-    * [Type `EstimateResult`](#type-estimateresult)
-    * [Type `FeeRate`](#type-feerate)
     * [Type `H256`](#type-h256)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
@@ -999,63 +992,6 @@ Response
 }
 ```
 
-#### Method `get_cellbase_output_capacity_details`
-* `get_cellbase_output_capacity_details(block_hash)`
-    * `block_hash`: [`H256`](#type-h256)
-* result: [`BlockReward`](#type-blockreward) `|` `null`
-
-👎 Deprecated since 0.36.0:
-Please use the RPC method [`get_block_economic_state`](#method-get_block_economic_state) instead
-
-
-
-Returns each component of the created CKB in the block's cellbase.
-
-This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
-
-CKB delays CKB creation for miners. The output cells in the cellbase of block N are for the miner creating block `N - 1 - ProposalWindow.farthest`.
-
-In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for miner creating block 89.
-
-##### Params
-
-*   `block_hash` - Specifies the block hash which cellbase outputs should be analyzed.
-
-##### Returns
-
-If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and its block number is N, return the block rewards analysis for block `N - 1 - ProposalWindow.farthest`.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "get_cellbase_output_capacity_details",
-  "params": [
-    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": {
-    "primary": "0x18ce922bca",
-    "proposal_reward": "0x0",
-    "secondary": "0x17b93605",
-    "total": "0x18e64b61cf",
-    "tx_fee": "0x0"
-  }
-}
-```
-
 #### Method `get_block_economic_state`
 * `get_block_economic_state(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
@@ -1429,122 +1365,6 @@ RPC Module Experiment for experimenting methods.
 
 The methods here may be removed or changed in future releases without prior notifications.
 
-#### Method `compute_transaction_hash`
-* `compute_transaction_hash(tx)`
-    * `tx`: [`Transaction`](#type-transaction)
-* result: [`H256`](#type-h256)
-
-👎 Deprecated since 0.36.0:
-Please implement molecule and compute the transaction hash in clients.
-
-
-
-Returns the transaction hash for the given transaction.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "_compute_transaction_hash",
-  "params": [
-    {
-      "cell_deps": [
-        {
-          "dep_type": "code",
-          "out_point": {
-            "index": "0x0",
-            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-          }
-        }
-      ],
-      "header_deps": [
-        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-      ],
-      "inputs": [
-        {
-          "previous_output": {
-            "index": "0x0",
-            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-          },
-          "since": "0x0"
-        }
-      ],
-      "outputs": [
-        {
-          "capacity": "0x2540be400",
-          "lock": {
-            "args": "0x",
-            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
-          },
-          "type": null
-        }
-      ],
-      "outputs_data": [
-        "0x"
-      ],
-      "version": "0x0",
-      "witnesses": []
-    }
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
-}
-```
-
-#### Method `compute_script_hash`
-* `compute_script_hash(script)`
-    * `script`: [`Script`](#type-script)
-* result: [`H256`](#type-h256)
-
-👎 Deprecated since 0.36.0:
-Please implement molecule and compute the script hash in clients.
-
-
-
-Returns the script hash for the given script.
-
-##### Examples
-
-Request
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "method": "_compute_script_hash",
-  "params": [
-    {
-      "args": "0x",
-      "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-      "hash_type": "data"
-    }
-  ]
-}
-```
-
-Response
-
-```
-{
-  "id": 42,
-  "jsonrpc": "2.0",
-  "result": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
-}
-```
-
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
@@ -1681,18 +1501,6 @@ Response
   "result": "0x4a8b4e8a4"
 }
 ```
-
-#### Method `estimate_fee_rate`
-* `estimate_fee_rate(expect_confirm_blocks)`
-    * `expect_confirm_blocks`: [`Uint64`](#type-uint64)
-* result: [`EstimateResult`](#type-estimateresult)
-
-👎 Deprecated since 0.34.0:
-This method is deprecated because of the performance issue. It always returns an error now.
-
-
-
-Estimates a fee rate (capacity/KB) for a transaction that to be committed within the expect number of blocks.
 
 ### Module Miner
 
@@ -3173,31 +2981,6 @@ Consecutive block number starting from 0.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
-### Type `BlockReward`
-
-Breakdown of miner rewards issued by block cellbase transaction.
-
-#### Fields
-
-`BlockReward` is a JSON object with the following fields.
-
-*   `total`: [`Capacity`](#type-capacity) - The total block reward.
-
-*   `primary`: [`Capacity`](#type-capacity) - The primary base block reward allocated to miners.
-
-*   `secondary`: [`Capacity`](#type-capacity) - The secondary base block reward allocated to miners.
-
-*   `tx_fee`: [`Capacity`](#type-capacity) - The transaction fees that are rewarded to miners because the transaction is committed in the block.
-
-    **Attention**, this is not the total transaction fee in the block.
-
-    Miners get 60% of the transaction fee for each transaction committed in the block.
-
-*   `proposal_reward`: [`Capacity`](#type-capacity) - The transaction fees that are rewarded to miners because the transaction is proposed in the block or its uncles.
-
-    Miners get 40% of the transaction fee for each transaction proposed in the block and committed later in its active commit window.
-
-
 ### Type `BlockTemplate`
 
 A block template for miners.
@@ -3710,25 +3493,6 @@ CKB adjusts difficulty based on epochs.
 
 *   `compact_target`: [`Uint32`](#type-uint32) - The difficulty target for any block in this epoch.
 
-
-### Type `EstimateResult`
-
-The estimated fee rate.
-
-#### Fields
-
-`EstimateResult` is a JSON object with the following fields.
-
-*   `fee_rate`: [`FeeRate`](#type-feerate) - The estimated fee rate.
-
-
-### Type `FeeRate`
-
-The fee rate is the ratio between fee and transaction weight in unit Shannon per 1,000 bytes.
-
-Based on the context, the weight is either the transaction virtual bytes or serialization size in the block.
-
-This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
 ### Type `H256`
 

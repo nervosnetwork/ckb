@@ -997,53 +997,6 @@ impl EpochView {
     }
 }
 
-/// Breakdown of miner rewards issued by block cellbase transaction.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct BlockReward {
-    /// The total block reward.
-    pub total: Capacity,
-    /// The primary base block reward allocated to miners.
-    pub primary: Capacity,
-    /// The secondary base block reward allocated to miners.
-    pub secondary: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is committed in the block.
-    ///
-    /// **Attention**, this is not the total transaction fee in the block.
-    ///
-    /// Miners get 60% of the transaction fee for each transaction committed in the block.
-    pub tx_fee: Capacity,
-    /// The transaction fees that are rewarded to miners because the transaction is proposed in the block or
-    /// its uncles.
-    ///
-    /// Miners get 40% of the transaction fee for each transaction proposed in the block and
-    /// committed later in its active commit window.
-    pub proposal_reward: Capacity,
-}
-
-impl From<core::BlockReward> for BlockReward {
-    fn from(core: core::BlockReward) -> Self {
-        Self {
-            total: core.total.into(),
-            primary: core.primary.into(),
-            secondary: core.secondary.into(),
-            tx_fee: core.tx_fee.into(),
-            proposal_reward: core.proposal_reward.into(),
-        }
-    }
-}
-
-impl From<BlockReward> for core::BlockReward {
-    fn from(json: BlockReward) -> Self {
-        Self {
-            total: json.total.into(),
-            primary: json.primary.into(),
-            secondary: json.secondary.into(),
-            tx_fee: json.tx_fee.into(),
-            proposal_reward: json.proposal_reward.into(),
-        }
-    }
-}
-
 /// Block base rewards.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockIssuance {

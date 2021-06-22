@@ -98,7 +98,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         let current_block_epoch = self
             .consensus
             .next_epoch_ext(&parent, self.data_loader)
-            .ok_or_else(|| DaoError::InvalidHeader)?
+            .ok_or(DaoError::InvalidHeader)?
             .epoch();
         let current_block_number = parent.number() + 1;
         let current_g2 = current_block_epoch.secondary_block_issuance(

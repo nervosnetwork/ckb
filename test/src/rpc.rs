@@ -6,9 +6,9 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, EstimateResult,
-    HeaderView, JsonBytes, LocalNode, OutPoint, RemoteNode, Script, Timestamp, Transaction,
-    TransactionProof, TransactionWithStatus, TxPoolInfo, Uint64, Version,
+    CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
+    LocalNode, OutPoint, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
+    TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -256,12 +256,6 @@ impl RpcClient {
             .get_block_economic_state(hash.unpack())
             .expect("rpc call get_block_economic_state")
     }
-
-    pub fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> EstimateResult {
-        self.inner()
-            .estimate_fee_rate(expect_confirm_blocks)
-            .expect("rpc call estimate_fee_rate")
-    }
 }
 
 jsonrpc!(pub struct Inner {
@@ -299,7 +293,6 @@ jsonrpc!(pub struct Inner {
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
     pub fn get_blockchain_info(&self) -> ChainInfo;
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
-    pub fn compute_transaction_hash(&self, tx: Transaction) -> H256;
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
@@ -318,5 +311,4 @@ jsonrpc!(pub struct Inner {
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
     pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
-    pub fn estimate_fee_rate(&self, expect_confirm_blocks: Uint64) -> EstimateResult;
 });

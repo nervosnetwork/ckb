@@ -62,7 +62,7 @@ impl Version {
 
     /// Tells whether this is a pre-release version.
     pub fn is_pre(&self) -> bool {
-        self.dash_pre != ""
+        !self.dash_pre.is_empty()
     }
 
     /// Tells whether this version is build from a dirty git working directory.

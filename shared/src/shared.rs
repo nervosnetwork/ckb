@@ -70,7 +70,7 @@ pub struct Shared {
     // async stop handle, only test will be assigned
     pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
-    pub(crate) relay_tx_sender: Sender<(PeerIndex, Byte32)>,
+    pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, Byte32)>,
 }
 
 impl Shared {
@@ -277,13 +277,11 @@ impl Shared {
                     )
                     .take_while(|(key, _)| key.starts_with(prefix))
                 {
-                    let reader =
-                        packed::NumberHashReader::from_slice_should_be_ok(&key.as_ref()[..]);
+                    let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
                     let block_hash = reader.block_hash().to_entity();
                     if &block_hash != hash {
                         let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(&value.as_ref()[..])
-                                .unpack();
+                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).unpack();
                         side.insert(block_hash, (reader.number().to_entity(), txs));
                     }
                 }
@@ -427,13 +425,6 @@ impl Shared {
         } else {
             self.ibd_finished.store(true, Ordering::Relaxed);
             false
-        }
-    }
-
-    /// Send tx id to relay channel
-    pub fn relay_tx(&self, peer: PeerIndex, hash: Byte32) {
-        if let Err(e) = self.relay_tx_sender.send((peer, hash)) {
-            ckb_logger::error!("relay_tx error {}", e);
         }
     }
 }

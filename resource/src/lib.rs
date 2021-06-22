@@ -140,10 +140,7 @@ impl Resource {
 
     /// Returns `true` if this is a bundled resource.
     pub fn is_bundled(&self) -> bool {
-        match self {
-            Resource::Bundled { .. } => true,
-            _ => false,
-        }
+        matches!(self, Resource::Bundled { .. })
     }
 
     /// Returns `true` if the resource exists.

@@ -30,18 +30,20 @@ use p2p::{
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
-    multiaddr::{self, Multiaddr},
+    multiaddr::{Multiaddr, Protocol},
     secio::{self, error::SecioError, PeerId},
     service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
     traits::ServiceHandle,
-    utils::extract_peer_id,
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     yamux::config::Config as YamuxConfig,
     SessionId,
 };
+use rand::prelude::IteratorRandom;
 #[cfg(feature = "with_sentry")]
 use sentry::{capture_message, with_scope, Level};
 use std::sync::mpsc;
 use std::{
+    borrow::Cow,
     cmp::max,
     collections::{HashMap, HashSet},
     pin::Pin,
@@ -86,12 +88,23 @@ impl NetworkState {
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
+        let local_peer_id = local_private_key.peer_id();
         // set max score to public addresses
         let public_addrs: HashSet<Multiaddr> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
+            .filter_map(|mut addr| {
+                multiaddr_to_socketaddr(&addr)
+                    .filter(|addr| is_reachable(addr.ip()))
+                    .and({
+                        if extract_peer_id(&addr).is_none() {
+                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                        }
+                        Some(addr)
+                    })
+            })
             .collect();
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
@@ -114,8 +127,8 @@ impl NetworkState {
             public_addrs: RwLock::new(public_addrs),
             listened_addrs: RwLock::new(Vec::new()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
-            local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.public_key().peer_id(),
+            local_private_key,
+            local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
         })
@@ -175,13 +188,11 @@ impl NetworkState {
                 reason
             );
             if let Some(peer) = self.with_peer_registry_mut(|reg| reg.remove_peer(session_id)) {
-                if let Err(err) = self.peer_store.lock().ban_addr(
+                self.peer_store.lock().ban_addr(
                     &peer.connected_addr,
                     duration.as_millis() as u64,
                     reason,
-                ) {
-                    debug!("Failed to ban peer {:?} {:?}", err, peer);
-                }
+                );
                 let message = format!("Ban for {} seconds", duration.as_secs());
                 if let Err(err) =
                     disconnect_with_message(p2p_control, peer.session_id, message.as_str())
@@ -298,7 +309,7 @@ impl NetworkState {
             .collect::<Vec<_>>()
     }
 
-    pub(crate) fn can_dial(&self, addr: &Multiaddr, allow_dial_to_self: bool) -> bool {
+    pub(crate) fn can_dial(&self, addr: &Multiaddr) -> bool {
         let peer_id = extract_peer_id(addr);
         if peer_id.is_none() {
             error!("Do not dial addr without peer id, addr: {}", addr);
@@ -306,11 +317,11 @@ impl NetworkState {
         }
         let peer_id = peer_id.as_ref().unwrap();
 
-        if !allow_dial_to_self && self.local_peer_id() == peer_id {
+        if self.local_peer_id() == peer_id {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if !allow_dial_to_self && self.public_addrs.read().contains(&addr) {
+        if self.public_addrs.read().contains(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -380,13 +391,12 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         addr: Multiaddr,
         target: TargetProtocol,
-        allow_dial_to_self: bool,
     ) -> Result<(), Error> {
-        if !self.can_dial(&addr, allow_dial_to_self) {
+        if !self.can_dial(&addr) {
             return Err(Error::Dial(format!("ignore dialing addr {}", addr)));
         }
 
-        debug!("dialing {} with {:?}", addr, target);
+        debug!("dialing {}", addr);
         p2p_control.dial(addr.clone(), target)?;
         self.dialing_addrs.write().insert(
             extract_peer_id(&addr).expect("verified addr"),
@@ -401,7 +411,6 @@ impl NetworkState {
             p2p_control,
             addr,
             TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-            false,
         ) {
             debug!("dial_identify error: {}", err);
         }
@@ -413,7 +422,6 @@ impl NetworkState {
             p2p_control,
             addr.clone(),
             TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-            false,
         ) {
             debug!("dial_feeler error {}", err);
         } else {
@@ -426,19 +434,29 @@ impl NetworkState {
     /// this method is intent to check observed addr by dial to self
     pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        let public_addrs = { self.public_addrs.read().clone() };
-        for addr in pending_observed_addrs
-            .drain()
-            .chain(public_addrs.into_iter())
-        {
-            trace!("try dial observed addr: {:?}", addr);
-            if let Err(err) = self.dial_inner(
-                p2p_control,
-                addr,
-                TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-                true,
-            ) {
-                debug!("try_dial_observed_addrs error {}", err);
+        if pending_observed_addrs.is_empty() {
+            let addrs = self.public_addrs.read();
+            if addrs.is_empty() {
+                return;
+            }
+            // random get addr
+            if let Some(addr) = addrs.iter().choose(&mut rand::thread_rng()) {
+                if let Err(err) = p2p_control.dial(
+                    addr.clone(),
+                    TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+                ) {
+                    trace!("try_dial_observed_addrs fail {} on public address", err)
+                }
+            }
+        } else {
+            for addr in pending_observed_addrs.drain() {
+                trace!("try dial observed addr: {:?}", addr);
+                if let Err(err) = p2p_control.dial(
+                    addr,
+                    TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+                ) {
+                    trace!("try_dial_observed_addrs fail {} on pending observed", err)
+                }
             }
         }
     }
@@ -446,10 +464,7 @@ impl NetworkState {
     /// add observed address for identify protocol
     pub(crate) fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        for addr in iter {
-            trace!("pending observed addr: {:?}", addr,);
-            pending_observed_addrs.insert(addr);
-        }
+        pending_observed_addrs.extend(iter)
     }
 
     /// Network message processing controller, default is true, if false, discard any received messages
@@ -528,31 +543,26 @@ impl<T> EventHandler<T> {
 impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
-            ServiceError::DialerError {
-                ref address,
-                ref error,
-            } => {
+            ServiceError::DialerError { address, error } => {
                 debug!("DialerError({}) {}", address, error);
 
                 let mut public_addrs = self.network_state.public_addrs.write();
-                let addr = address
-                    .iter()
-                    .filter(|proto| match proto {
-                        multiaddr::Protocol::P2P(_) => false,
-                        _ => true,
-                    })
-                    .collect();
 
                 if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
                     SecioError::ConnectSelf,
                 )) = error
                 {
                     debug!("dial observed address success: {:?}", address);
-                    public_addrs.insert(addr);
+                    if let Some(ip) = multiaddr_to_socketaddr(&address) {
+                        if is_reachable(ip.ip()) {
+                            public_addrs.insert(address);
+                        }
+                    }
+                    return;
                 } else {
-                    public_addrs.remove(&addr);
+                    public_addrs.remove(&address);
                 }
-                self.network_state.dial_failed(address);
+                self.network_state.dial_failed(&address);
             }
             ServiceError::ProtocolError {
                 id,
@@ -776,7 +786,7 @@ impl<T: ExitHandler> NetworkService<T> {
         // Feeler protocol
         let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
             let network_state = Arc::clone(&network_state);
-            move || ProtocolHandle::Both(Box::new(Feeler::new(Arc::clone(&network_state))))
+            move || ProtocolHandle::Callback(Box::new(Feeler::new(Arc::clone(&network_state))))
         });
 
         let disconnect_message_state = Arc::clone(&network_state);
@@ -799,8 +809,10 @@ impl<T: ExitHandler> NetworkService<T> {
         protocol_metas.push(identify_meta);
 
         let mut service_builder = ServiceBuilder::default();
-        let mut yamux_config = YamuxConfig::default();
-        yamux_config.max_stream_count = protocol_metas.len();
+        let yamux_config = YamuxConfig {
+            max_stream_count: protocol_metas.len(),
+            ..Default::default()
+        };
         for meta in protocol_metas.into_iter() {
             network_state
                 .protocols
@@ -835,7 +847,7 @@ impl<T: ExitHandler> NetworkService<T> {
                     let mut iter = addr.iter();
 
                     iter.find_map(|proto| {
-                        if let multiaddr::Protocol::Ws = proto {
+                        if let p2p::multiaddr::Protocol::Ws = proto {
                             Some(TransportType::Ws)
                         } else {
                             None
@@ -1160,7 +1172,7 @@ impl NetworkController {
     }
 
     /// Ban an ip
-    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
+    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) {
         self.network_state
             .peer_store
             .lock()
@@ -1195,18 +1207,22 @@ impl NetworkController {
     fn try_broadcast(
         &self,
         quick: bool,
-        target: TargetSession,
+        target: Option<SessionId>,
         proto_id: ProtocolId,
         data: Bytes,
     ) -> Result<(), SendErrorKind> {
         let now = Instant::now();
         loop {
+            let target = target
+                .clone()
+                .map(TargetSession::Single)
+                .unwrap_or(TargetSession::All);
             let result = if quick {
                 self.p2p_control
-                    .quick_filter_broadcast(target.clone(), proto_id, data.clone())
+                    .quick_filter_broadcast(target, proto_id, data.clone())
             } else {
                 self.p2p_control
-                    .filter_broadcast(target.clone(), proto_id, data.clone())
+                    .filter_broadcast(target, proto_id, data.clone())
             };
             match result {
                 Ok(()) => {
@@ -1229,16 +1245,12 @@ impl NetworkController {
 
     /// Broadcast a message to all connected peers
     pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids);
-        self.try_broadcast(false, target, proto_id, data)
+        self.try_broadcast(false, None, proto_id, data)
     }
 
     /// Broadcast a message to all connected peers through quick queue
     pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), SendErrorKind> {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        let target = TargetSession::Multi(session_ids);
-        self.try_broadcast(true, target, proto_id, data)
+        self.try_broadcast(true, None, proto_id, data)
     }
 
     /// Send message to one connected peer
@@ -1248,8 +1260,7 @@ impl NetworkController {
         proto_id: ProtocolId,
         data: Bytes,
     ) -> Result<(), SendErrorKind> {
-        let target = TargetSession::Single(session_id);
-        self.try_broadcast(false, target, proto_id, data)
+        self.try_broadcast(false, Some(session_id), proto_id, data)
     }
 
     /// network message processing controller, always true, if false, discard any received messages
@@ -1296,47 +1307,4 @@ pub(crate) fn disconnect_with_message(
         )?;
     }
     control.disconnect(peer_index)
-}
-
-#[cfg(test)]
-mod test {
-    use super::NetworkState;
-    use crate::peer_registry::PeerRegistry;
-    use crate::peer_store::PeerStore;
-    use ckb_app_config::NetworkConfig;
-    use ckb_util::{Mutex, RwLock};
-    use p2p::{multiaddr::MultiAddr, secio::SecioKeyPair};
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::atomic::AtomicBool,
-    };
-
-    #[test]
-    fn test_can_dail_self() {
-        let local_private_key = SecioKeyPair::secp256k1_generated();
-        let mut public_addrs = HashSet::new();
-        let addr: MultiAddr = format!(
-            "/ip4/127.0.0.1/tcp/8114/p2p/{}",
-            local_private_key.peer_id().to_base58()
-        )
-        .parse()
-        .unwrap();
-        public_addrs.insert(addr.clone());
-        let state = NetworkState {
-            peer_store: Mutex::new(PeerStore::default()),
-            config: NetworkConfig::default(),
-            bootnodes: Vec::new(),
-            peer_registry: RwLock::new(PeerRegistry::new(1, 1, false, Vec::default())),
-            dialing_addrs: RwLock::new(HashMap::default()),
-            public_addrs: RwLock::new(public_addrs),
-            listened_addrs: RwLock::new(Vec::new()),
-            pending_observed_addrs: RwLock::new(HashSet::default()),
-            local_private_key: local_private_key.clone(),
-            local_peer_id: local_private_key.public_key().peer_id(),
-            active: AtomicBool::new(true),
-            protocols: RwLock::new(Vec::new()),
-        };
-
-        assert!(state.can_dial(&addr, true));
-    }
 }

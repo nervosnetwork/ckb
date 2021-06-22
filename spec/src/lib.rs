@@ -1081,8 +1081,10 @@ pub mod test {
         "#;
 
         let params: Params = toml::from_str(&test_params).unwrap();
-        let mut expected = Params::default();
-        expected.genesis_epoch_length = Some(100);
+        let expected = Params {
+            genesis_epoch_length: Some(100),
+            ..Default::default()
+        };
 
         assert_eq!(params, expected);
 
@@ -1091,8 +1093,10 @@ pub mod test {
         "#;
 
         let params: Params = toml::from_str(&test_params).unwrap();
-        let mut expected = Params::default();
-        expected.max_block_bytes = Some(100);
+        let expected = Params {
+            max_block_bytes: Some(100),
+            ..Default::default()
+        };
 
         assert_eq!(params, expected);
 
@@ -1101,8 +1105,10 @@ pub mod test {
         "#;
 
         let params: Params = toml::from_str(&test_params).unwrap();
-        let mut expected = Params::default();
-        expected.max_block_proposals_limit = Some(100);
+        let expected = Params {
+            max_block_proposals_limit: Some(100),
+            ..Default::default()
+        };
 
         assert_eq!(params, expected);
 
@@ -1111,8 +1117,10 @@ pub mod test {
         "#;
 
         let params: Params = toml::from_str(&test_params).unwrap();
-        let mut expected = Params::default();
-        expected.orphan_rate_target = Some((1, 40));
+        let expected = Params {
+            orphan_rate_target: Some((1, 40)),
+            ..Default::default()
+        };
 
         assert_eq!(params, expected);
     }

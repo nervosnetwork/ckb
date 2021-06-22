@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -10,7 +11,7 @@ use p2p::{
     secio::PeerId,
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
-    utils::{is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     ProtocolId, SessionId,
 };
 
@@ -51,10 +52,7 @@ pub enum MisbehaveResult {
 
 impl MisbehaveResult {
     pub fn is_disconnect(&self) -> bool {
-        match self {
-            MisbehaveResult::Disconnect => true,
-            _ => false,
-        }
+        matches!(self, MisbehaveResult::Disconnect)
     }
 }
 
@@ -251,17 +249,8 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             .cloned()
             .collect();
 
-        let observed_addr = session
-            .address
-            .iter()
-            .filter(|proto| match proto {
-                Protocol::P2P(_) => false,
-                _ => true,
-            })
-            .collect::<Multiaddr>();
-
         let identify = self.callback.identify();
-        let data = IdentifyMessage::new(listen_addrs, observed_addr, identify).encode();
+        let data = IdentifyMessage::new(listen_addrs, session.address.clone(), identify).encode();
         let _ = context.quick_send_message(data);
     }
 
@@ -431,12 +420,12 @@ impl Callback for IdentifyCallback {
                         registry_client_version(client_version);
 
                         // The remote end can support all local protocols.
-                        let protos = self
-                            .network_state
-                            .get_protocol_ids(|id| id != SupportProtocols::Feeler.protocol_id());
-
-                        let _ = context
-                            .open_protocols(context.session.id, TargetProtocol::Multi(protos));
+                        let _ = context.open_protocols(
+                            context.session.id,
+                            TargetProtocol::Filter(Box::new(|id| {
+                                id != &SupportProtocols::Feeler.protocol_id()
+                            })),
+                        );
                     } else {
                         // The remote end cannot support all local protocols.
                         return MisbehaveResult::Disconnect;
@@ -477,7 +466,7 @@ impl Callback for IdentifyCallback {
     fn add_observed_addr(
         &mut self,
         peer_id: &PeerId,
-        addr: Multiaddr,
+        mut addr: Multiaddr,
         ty: SessionType,
     ) -> MisbehaveResult {
         debug!(
@@ -498,19 +487,27 @@ impl Callback for IdentifyCallback {
             return MisbehaveResult::Continue;
         }
 
+        if extract_peer_id(&addr).is_none() {
+            addr.push(Protocol::P2P(Cow::Borrowed(
+                self.network_state.local_peer_id().as_bytes(),
+            )))
+        }
+
+        let source_addr = addr.clone();
         let observed_addrs_iter = self
             .listen_addrs()
             .into_iter()
             .filter_map(|listen_addr| multiaddr_to_socketaddr(&listen_addr))
             .map(|socket_addr| {
                 addr.iter()
-                    .filter_map(|proto| match proto {
-                        Protocol::P2P(_) => None,
-                        Protocol::TCP(_) => Some(Protocol::TCP(socket_addr.port())),
-                        value => Some(value),
+                    .map(|proto| match proto {
+                        Protocol::Tcp(_) => Protocol::Tcp(socket_addr.port()),
+                        value => value,
                     })
                     .collect::<Multiaddr>()
-            });
+            })
+            .chain(::std::iter::once(source_addr));
+
         self.network_state.add_observed_addrs(observed_addrs_iter);
         // NOTE: for future usage
         MisbehaveResult::Continue
@@ -552,7 +549,7 @@ impl Identify {
         &self.encode_data
     }
 
-    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, String)> {
+    fn verify(&self, data: &[u8]) -> Option<(Flags, String)> {
         let reader = packed::IdentifyReader::from_slice(data).ok()?;
 
         let name = reader.name().as_utf8().ok()?.to_owned();

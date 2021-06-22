@@ -91,7 +91,7 @@ impl PeerStore {
                     addr,
                     self.score_config.ban_timeout_ms,
                     format!("report behaviour {:?}", behaviour),
-                )?;
+                );
                 return Ok(ReportResult::Banned);
             }
         }
@@ -165,26 +165,14 @@ impl PeerStore {
     }
 
     /// Ban an addr
-    pub(crate) fn ban_addr(
-        &mut self,
-        addr: &Multiaddr,
-        timeout_ms: u64,
-        ban_reason: String,
-    ) -> Result<()> {
+    pub(crate) fn ban_addr(&mut self, addr: &Multiaddr, timeout_ms: u64, ban_reason: String) {
         if let Some(addr) = multiaddr_to_socketaddr(addr) {
             let network = ip_to_network(addr.ip());
             self.ban_network(network, timeout_ms, ban_reason)
-        } else {
-            Ok(())
         }
     }
 
-    pub(crate) fn ban_network(
-        &mut self,
-        network: IpNetwork,
-        timeout_ms: u64,
-        ban_reason: String,
-    ) -> Result<()> {
+    pub(crate) fn ban_network(&mut self, network: IpNetwork, timeout_ms: u64, ban_reason: String) {
         let now_ms = faketime::unix_time_as_millis();
         let ban_addr = BannedAddr {
             address: network,
@@ -193,7 +181,6 @@ impl PeerStore {
             ban_reason,
         };
         self.mut_ban_list().ban(ban_addr);
-        Ok(())
     }
 
     /// Whether the address is banned

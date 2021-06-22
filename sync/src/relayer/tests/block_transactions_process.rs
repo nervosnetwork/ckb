@@ -13,7 +13,7 @@ use ckb_types::{
         IndexTransaction, OutPoint,
     },
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ fn test_accept_block() {
         .transactions(vec![tx1, tx2.clone()])
         .uncle(uncle.as_uncle())
         .build();
-    let prefilled = HashSet::from_iter(vec![0usize].into_iter());
+    let prefilled = vec![0usize].into_iter().collect();
 
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
     let hash = compact_block.header().calc_header_hash();
@@ -115,7 +115,7 @@ fn test_unknown_request() {
         .transactions(vec![tx1, tx2.clone()])
         .build();
 
-    let prefilled = HashSet::from_iter(vec![0usize].into_iter());
+    let prefilled = vec![0usize].into_iter().collect();
 
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 
@@ -266,7 +266,7 @@ fn test_collision_and_send_missing_indexes() {
         .transactions(vec![tx1, tx2.clone(), fake_tx])
         .build_unchecked();
 
-    let prefilled = HashSet::from_iter(vec![0usize].into_iter());
+    let prefilled = vec![0usize].into_iter().collect();
 
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 
@@ -285,7 +285,7 @@ fn test_collision_and_send_missing_indexes() {
             hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
+                vec![(peer_index, (vec![1], vec![]))].into_iter().collect(),
             ),
         );
     }
@@ -380,7 +380,7 @@ fn test_missing() {
         .transactions(vec![tx1, tx2.clone(), tx3])
         .build();
 
-    let prefilled = HashSet::from_iter(vec![0usize].into_iter());
+    let prefilled = vec![0usize].into_iter().collect();
 
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 

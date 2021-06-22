@@ -87,7 +87,7 @@ impl ChainDB {
         self.db
             .get_pinned_default(CHAIN_SPEC_HASH_KEY)
             .expect("db operation should be ok")
-            .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(&raw.as_ref()[..]).to_entity())
+            .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
     }
 
     /// TODO(doc): @quake

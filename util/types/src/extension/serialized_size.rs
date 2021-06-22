@@ -15,11 +15,18 @@ macro_rules! impl_serialized_size_for_entity {
             $entity,
             $func,
             concat!(
-                "[`", stringify!($entity), "::", stringify!($func), "(..)`](struct.",
-                stringify!($entity), "Reader.html#method.", stringify!($func), ")."
+                "[`",
+                stringify!($entity),
+                "::",
+                stringify!($func),
+                "(..)`](struct.",
+                stringify!($entity),
+                "Reader.html#method.",
+                stringify!($func),
+                ")."
             )
         );
-    }
+    };
 }
 
 impl<'r> packed::TransactionReader<'r> {

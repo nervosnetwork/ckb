@@ -23,8 +23,7 @@ impl ReadOnlyDB {
             |err| {
                 let err_str = err.as_ref();
                 // notice: err msg difference
-                if err_str.starts_with("NotFound")
-                    && err_str.ends_with("does not exist")
+                if err_str.starts_with("IO error: No such file or directory")
                 {
                     Ok(None)
                 } else if err_str.starts_with("Corruption:") {

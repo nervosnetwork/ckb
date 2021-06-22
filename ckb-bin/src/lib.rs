@@ -8,6 +8,7 @@ mod subcommand;
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
+use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
 
 #[cfg(feature = "with_sentry")]
@@ -49,6 +50,8 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     let (handle, _stop) = new_global_runtime();
     let setup = Setup::from_matches(&app_matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone())?;
+
+    raise_fd_limit();
 
     match app_matches.subcommand() {
         (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version, handle),

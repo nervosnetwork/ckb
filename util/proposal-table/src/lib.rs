@@ -160,7 +160,7 @@ impl ProposalTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::{self, FromIterator};
+    use std::iter;
 
     #[test]
     fn test_finalize() {
@@ -190,10 +190,7 @@ mod tests {
         let (removed_ids, mut view) = table.finalize(&ProposalView::default(), 1);
         assert!(removed_ids.is_empty());
         assert!(view.set().is_empty());
-        assert_eq!(
-            view.gap(),
-            &HashSet::from_iter(iter::once(proposals[1].clone()))
-        );
+        assert_eq!(view.gap(), &iter::once(proposals[1].clone()).collect());
 
         // in window
         for i in 2..=10usize {
@@ -201,13 +198,13 @@ mod tests {
             let c = i + 1;
             assert_eq!(
                 new_view.gap(),
-                &HashSet::from_iter(proposals[(c - 2 + 1)..=i].iter().cloned())
+                &proposals[(c - 2 + 1)..=i].iter().cloned().collect()
             );
 
             let s = ::std::cmp::max(1, c.saturating_sub(10));
             assert_eq!(
                 new_view.set(),
-                &HashSet::from_iter(proposals[s..=(c - 2)].iter().cloned())
+                &proposals[s..=(c - 2)].iter().cloned().collect()
             );
 
             assert!(removed_ids.is_empty());
@@ -216,28 +213,16 @@ mod tests {
 
         // finalize 11
         let (removed_ids, new_view) = table.finalize(&view, 11);
-        assert_eq!(
-            removed_ids,
-            HashSet::from_iter(iter::once(proposals[1].clone()))
-        );
-        assert_eq!(
-            new_view.set(),
-            &HashSet::from_iter(proposals[2..=10].iter().cloned())
-        );
+        assert_eq!(removed_ids, iter::once(proposals[1].clone()).collect());
+        assert_eq!(new_view.set(), &proposals[2..=10].iter().cloned().collect());
         assert!(new_view.gap().is_empty());
 
         view = new_view;
 
         // finalize 12
         let (removed_ids, new_view) = table.finalize(&view, 12);
-        assert_eq!(
-            removed_ids,
-            HashSet::from_iter(iter::once(proposals[2].clone()))
-        );
-        assert_eq!(
-            new_view.set(),
-            &HashSet::from_iter(proposals[3..=10].iter().cloned())
-        );
+        assert_eq!(removed_ids, iter::once(proposals[2].clone()).collect());
+        assert_eq!(new_view.set(), &proposals[3..=10].iter().cloned().collect());
         assert!(new_view.gap().is_empty());
     }
 }

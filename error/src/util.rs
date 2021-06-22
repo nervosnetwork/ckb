@@ -172,15 +172,23 @@ macro_rules! def_error_base_on_kind {
             $error,
             $error_kind,
             $comment_error,
-            concat!("Creates `", stringify!($error), "` base on `", stringify!($error_kind), "` with an error as the reason."),
-            concat!("Creates `", stringify!($error), "` base on `", stringify!($error_kind), "` with a simple string as the reason.")
+            concat!(
+                "Creates `",
+                stringify!($error),
+                "` base on `",
+                stringify!($error_kind),
+                "` with an error as the reason."
+            ),
+            concat!(
+                "Creates `",
+                stringify!($error),
+                "` base on `",
+                stringify!($error_kind),
+                "` with a simple string as the reason."
+            )
         );
     };
     ($error:ident, $error_kind:ty) => {
-        def_error_base_on_kind!(
-            $error,
-            $error_kind,
-            "/// TODO(doc): @keroro520"
-        );
+        def_error_base_on_kind!($error, $error_kind, "/// TODO(doc): @keroro520");
     };
 }

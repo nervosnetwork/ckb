@@ -108,17 +108,15 @@ impl Relayer {
         &self.shared
     }
 
-    fn try_process<'r>(
+    fn try_process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: packed::RelayMessageUnionReader<'r>,
+        message: packed::RelayMessageUnionReader<'_>,
     ) -> Status {
         // CompactBlock will be verified by POW, it's OK to skip rate limit checking.
-        let should_check_rate = match message {
-            packed::RelayMessageUnionReader::CompactBlock(_) => false,
-            _ => true,
-        };
+        let should_check_rate =
+            !matches!(message, packed::RelayMessageUnionReader::CompactBlock(_));
 
         if should_check_rate
             && self
@@ -168,11 +166,11 @@ impl Relayer {
         }
     }
 
-    fn process<'r>(
+    fn process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: packed::RelayMessageUnionReader<'r>,
+        message: packed::RelayMessageUnionReader<'_>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
@@ -293,15 +291,16 @@ impl Relayer {
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
 
-            let selected_peers: Vec<PeerIndex> = nc
+            let selected_peers: HashSet<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
                 .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
-            if let Err(err) =
-                nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), message.as_bytes())
-            {
+            if let Err(err) = nc.quick_filter_broadcast(
+                TargetSession::Filter(Box::new(move |id| selected_peers.contains(id))),
+                message.as_bytes(),
+            ) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send block when accept block error: {:?}",
@@ -592,11 +591,24 @@ impl Relayer {
             let mut known_txs = self.shared.state().known_txs();
             for (origin_peer, hash) in &tx_hashes {
                 for target in &connected_peers {
-                    if known_txs.insert(*target, hash.clone()) && (origin_peer != target) {
-                        let hashes = selected
-                            .entry(*target)
-                            .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                        hashes.push(hash.clone());
+                    match origin_peer {
+                        Some(origin) => {
+                            // broadcast tx hash to all connected peers except origin peer
+                            if known_txs.insert(*target, hash.clone()) && (origin != target) {
+                                let hashes = selected
+                                    .entry(*target)
+                                    .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                                hashes.push(hash.clone());
+                            }
+                        }
+                        None => {
+                            // since this tx is submitted through local rpc, it is assumed to be a new tx for all connected peers
+                            let hashes = selected
+                                .entry(*target)
+                                .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                            hashes.push(hash.clone());
+                            self.shared.state().mark_as_known_tx(hash.clone());
+                        }
                     }
                 }
             }

@@ -4,7 +4,7 @@ use ckb_network::{
 };
 use ckb_util::RwLock;
 use futures::future::Future;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
@@ -218,9 +218,17 @@ impl CKBProtocolContext for TestNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         match target {
             TargetSession::Single(peer) => self.send_message_to(peer, data).unwrap(),
-            TargetSession::Multi(peers) => {
-                for peer in peers {
-                    self.send_message_to(peer, data.clone()).unwrap();
+            TargetSession::Filter(peers) => {
+                for peer in self
+                    .msg_senders
+                    .keys()
+                    .map(|(_, id)| id)
+                    .copied()
+                    .collect::<HashSet<PeerIndex>>()
+                {
+                    if peers(&peer) {
+                        self.send_message_to(peer, data.clone()).unwrap();
+                    }
                 }
             }
             TargetSession::All => {

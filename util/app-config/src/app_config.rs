@@ -231,7 +231,7 @@ impl AppConfig {
 
 impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
-        self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+        self.data_dir = canonicalize_data_dir(self.data_dir, root_dir);
 
         self.db.adjust(root_dir, &self.data_dir, "db");
         self.ancient = mkdir(path_specified_or_else(&self.ancient, || {
@@ -270,7 +270,7 @@ impl CKBAppConfig {
 
 impl MinerAppConfig {
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
-        self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir)?)?;
+        self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir))?;
         self.logger.log_dir = self.data_dir.join("logs");
         self.logger.file = self.logger.log_dir.join("miner.log");
         if self.logger.log_to_file {
@@ -283,14 +283,12 @@ impl MinerAppConfig {
     }
 }
 
-fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, ExitCode> {
-    let path = if data_dir.is_absolute() {
+fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> PathBuf {
+    if data_dir.is_absolute() {
         data_dir
     } else {
         root_dir.join(data_dir)
-    };
-
-    Ok(path)
+    }
 }
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
@@ -371,8 +369,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
-                .unwrap_or_else(|err| panic!(err));
-            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let ckb_config = app_config
+                .into_ckb()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 ckb_config.chain.spec,
@@ -390,8 +390,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
-                .unwrap_or_else(|err| panic!(err));
-            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let miner_config = app_config
+                .into_miner()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 miner_config.chain.spec,
@@ -420,8 +422,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
-                .unwrap_or_else(|err| panic!(err));
-            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let ckb_config = app_config
+                .into_ckb()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(ckb_config.logger.log_to_file, false);
             assert_eq!(ckb_config.logger.log_to_stdout, true);
         }
@@ -430,8 +434,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
-                .unwrap_or_else(|err| panic!(err));
-            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let miner_config = app_config
+                .into_miner()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(miner_config.logger.log_to_file, false);
             assert_eq!(miner_config.logger.log_to_stdout, true);
         }
@@ -456,8 +462,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
-                .unwrap_or_else(|err| panic!(err));
-            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let ckb_config = app_config
+                .into_ckb()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 ckb_config.chain.spec,
@@ -475,8 +483,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
-                .unwrap_or_else(|err| panic!(err));
-            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let miner_config = app_config
+                .into_miner()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 miner_config.chain.spec,
@@ -505,8 +515,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
-                .unwrap_or_else(|err| panic!(err));
-            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let ckb_config = app_config
+                .into_ckb()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(
                 ckb_config.chain.spec,
                 Resource::file_system(dir.path().join("specs").join("integration.toml"))
@@ -522,8 +534,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
-                .unwrap_or_else(|err| panic!(err));
-            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let miner_config = app_config
+                .into_miner()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(
                 miner_config.chain.spec,
                 Resource::file_system(dir.path().join("specs").join("integration.toml"))
@@ -552,8 +566,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
-                .unwrap_or_else(|err| panic!(err));
-            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let ckb_config = app_config
+                .into_ckb()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 ckb_config.chain.spec,
@@ -571,8 +587,10 @@ mod tests {
                 .export(&context, dir.path())
                 .expect("export config files");
             let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
-                .unwrap_or_else(|err| panic!(err));
-            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+                .unwrap_or_else(|err| std::panic::panic_any(err));
+            let miner_config = app_config
+                .into_miner()
+                .unwrap_or_else(|err| std::panic::panic_any(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
             assert_eq!(
                 miner_config.chain.spec,

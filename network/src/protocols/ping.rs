@@ -14,7 +14,7 @@ use p2p::{
     SessionId,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     pin::Pin,
     str,
     sync::Arc,
@@ -82,7 +82,7 @@ impl PingHandler {
     fn ping_peers(&mut self, context: &ProtocolContext) {
         let now = Instant::now();
         let send_nonce = nonce(&now, self.start_time);
-        let peers: Vec<SessionId> = self
+        let peers: HashSet<SessionId> = self
             .connected_session_ids
             .iter_mut()
             .filter_map(|(session_id, ps)| {
@@ -101,7 +101,11 @@ impl PingHandler {
             let ping_msg = PingMessage::build_ping(send_nonce);
             let proto_id = context.proto_id;
             if context
-                .filter_broadcast(TargetSession::Multi(peers), proto_id, ping_msg)
+                .filter_broadcast(
+                    TargetSession::Filter(Box::new(move |id| peers.contains(id))),
+                    proto_id,
+                    ping_msg,
+                )
                 .is_err()
             {
                 debug!("send message fail");
