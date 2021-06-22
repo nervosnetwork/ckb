@@ -1,6 +1,6 @@
 [package]
 name = "ckb-error"
-version = "0.43.0-pre"
+version = "0.44.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,5 +11,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 thiserror = "1.0.22"
 anyhow = "1.0.34"
-ckb-occupied-capacity = { path = "../util/occupied-capacity", version = "= 0.43.0-pre" }
+ckb-occupied-capacity = { path = "../util/occupied-capacity", version = "= 0.44.0-pre" }
 derive_more = { version = "0.99.0", default-features = false, features = ["display"] }
