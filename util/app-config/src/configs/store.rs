@@ -16,8 +16,6 @@ pub struct Config {
     /// The maximum number of blocks which extension section is cached.
     #[serde(default = "default_block_extensions_cache_size")]
     pub block_extensions_cache_size: usize,
-    /// The maximum number of blocks which cellbase transaction is cached.
-    pub cellbase_cache_size: usize,
     /// whether enable freezer
     #[serde(default = "default_freezer_enable")]
     pub freezer_enable: bool,
@@ -40,7 +38,6 @@ impl Default for Config {
             block_tx_hashes_cache_size: 30,
             block_uncles_cache_size: 30,
             block_extensions_cache_size: default_block_extensions_cache_size(),
-            cellbase_cache_size: 30,
             freezer_enable: false,
         }
     }

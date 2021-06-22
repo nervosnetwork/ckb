@@ -138,7 +138,6 @@ cell_data_cache_size       = 128
 block_proposals_cache_size = 30
 block_tx_hashes_cache_size = 30
 block_uncles_cache_size    = 30
-cellbase_cache_size        = 30
 
 # [notifier]
 # # Execute command when the new tip block changes, first arg is block hash.
