@@ -241,11 +241,11 @@ dependencies = [
 
 [[package]]
 name = "bloom-filters"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8f839ff06ae3857c2ea753094186de8d54d9b88a782eeba06b10bb714bc03ef"
+checksum = "4f178e62ed3e8b7338f2cb581fc19bebcbc0814e009f305ab1d6954ff15a4b99"
 dependencies = [
- "rand 0.6.5",
+ "rand 0.8.3",
 ]
 
 [[package]]
