@@ -26,8 +26,7 @@ jobs:
           && ( contains('refs/heads/master,
                          refs/heads/develop,
                          refs/heads/trying,
-                         refs/heads/staging,
-                         refs/heads/staging2', github.ref)
+                         refs/heads/staging', github.ref)
               || startsWith(github.ref, 'refs/heads/rc/')))
       || contains(github.event.head_commit.message, 'enable self-hosted ci')
     runs-on: ubuntu-latest
@@ -42,8 +41,8 @@ jobs:
       contains(github.event_name, 'pull_request')
       || contains('refs/heads/master,
                    refs/heads/trying,
-                   refs/heads/staging,
-                   refs/heads/staging2', github.ref)
+                   refs/heads/staging', github.ref)
+      || (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]')
       || contains(github.event.head_commit.message, 'enable self-hosted ci')
     runs-on: ubuntu-latest
     steps:
