@@ -28,5 +28,6 @@ ckb-metrics = { path = "../../util/metrics", version = "= 0.43.0" }
 [dev-dependencies]
 ckb-chain = { path = "../../chain", version = "= 0.43.0" }
 ckb-shared = { path = "../../shared", version = "= 0.43.0" }
+ckb-launcher = { path = "../../util/launcher", version = "= 0.43.0" }
 ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.43.0" }
 rand = "0.7"
