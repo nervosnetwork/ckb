@@ -1,5 +1,8 @@
 name: CI workflow
 
+concurrency:
+  group: ci-${{ github.ref }}
+
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
