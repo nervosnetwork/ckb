@@ -1,5 +1,5 @@
 //! Top-level Pool type, methods, and tests
-use super::component::TxEntry;
+use super::component::{commit_txs_scanner::CommitTxsScanner, TxEntry};
 use crate::callback::Callbacks;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
@@ -453,7 +453,13 @@ impl TxPool {
     }
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
-        let mut txs = self.proposed.drain();
+        let mut txs = CommitTxsScanner::new(&self.proposed)
+            .txs_to_commit(self.total_tx_size, self.total_tx_cycles)
+            .0
+            .into_iter()
+            .map(|tx_entry| tx_entry.rtx.transaction)
+            .collect::<Vec<_>>();
+        self.proposed.clear();
         txs.append(&mut self.gap.drain());
         txs.append(&mut self.pending.drain());
         txs

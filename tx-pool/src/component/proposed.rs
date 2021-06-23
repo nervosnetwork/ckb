@@ -314,9 +314,9 @@ impl ProposedPool {
         self.inner.calc_descendants(&tx_short_id)
     }
 
-    pub(crate) fn drain(&mut self) -> Vec<TransactionView> {
+    pub(crate) fn clear(&mut self) {
         self.edges.clear();
-        self.inner.drain()
+        self.inner.clear();
     }
 }
 

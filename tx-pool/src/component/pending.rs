@@ -72,10 +72,13 @@ impl PendingQueue {
     }
 
     pub(crate) fn drain(&mut self) -> Vec<TransactionView> {
-        self.inner
+        let txs = self
+            .inner
             .values()
             .map(|entry| entry.transaction().clone())
-            .collect()
+            .collect::<Vec<_>>();
+        self.inner.clear();
+        txs
     }
 }
 
