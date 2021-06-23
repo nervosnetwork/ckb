@@ -24,6 +24,7 @@ use std::convert::Into;
 use std::thread;
 use std::time;
 use tokio::sync::{mpsc, oneshot};
+use tokio_compat_02::FutureExt;
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
 
@@ -68,6 +69,7 @@ impl Rpc {
                         }
                         let request = match client
                             .request(req)
+                            .compat()
                             .await
                             .map(|res|res.into_body())
                         {

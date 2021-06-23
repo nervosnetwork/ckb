@@ -895,6 +895,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio 1.7.0",
+ "tokio-compat-02",
 ]
 
 [[package]]
@@ -4836,6 +4837,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-compat-02"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7d4237822b7be8fff0a7a27927462fad435dcb6650f95cea9e946bf6bdc7e07"
+dependencies = [
+ "bytes 0.5.6",
+ "once_cell",
+ "pin-project-lite 0.2.4",
+ "tokio 0.2.25",
+ "tokio 1.7.0",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-macros"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4844,6 +4859,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8864d706fdb3cc0843a49647ac892720dac98a6eeb818b77190592cf4994066"
+dependencies = [
+ "futures-core",
+ "pin-project-lite 0.2.4",
+ "tokio 1.7.0",
 ]
 
 [[package]]
