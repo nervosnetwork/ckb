@@ -1,17 +1,19 @@
 use crate::Work;
 use ckb_app_config::MinerClientConfig;
+use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
 use ckb_logger::{debug, error, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{packed::Block, H256};
-use futures::sync::{mpsc, oneshot};
-use hyper::error::Error as HyperError;
-use hyper::header::{HeaderValue, CONTENT_TYPE};
-use hyper::rt::{self, Future, Stream};
-use hyper::Uri;
-use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
+use futures::prelude::*;
+use hyper::{
+    body::{Bytes, HttpBody},
+    error::Error as HyperError,
+    header::{HeaderValue, CONTENT_TYPE},
+    Body, Client as HttpClient, Method, Request, Uri,
+};
 use jsonrpc_core::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version,
@@ -21,8 +23,10 @@ use serde_json::{self, json, Value};
 use std::convert::Into;
 use std::thread;
 use std::time;
+use tokio::sync::{mpsc, oneshot};
+use tokio_compat_02::FutureExt;
 
-type RpcRequest = (oneshot::Sender<Result<Chunk, RpcError>>, MethodCall);
+type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
 
 #[derive(Debug)]
 pub enum RpcError {
@@ -30,6 +34,8 @@ pub enum RpcError {
     Canceled, //oneshot canceled
     Json(JsonError),
     Fail(RpcFail),
+    SendError,
+    NoRespData,
 }
 
 #[derive(Debug, Clone)]
@@ -39,54 +45,58 @@ pub struct Rpc {
 }
 
 impl Rpc {
-    pub fn new(url: Uri) -> Rpc {
-        let (sender, receiver) = mpsc::channel(65_535);
-        let (stop, stop_rx) = oneshot::channel::<()>();
+    pub fn new(url: Uri, handle: Handle) -> Rpc {
+        let (sender, mut receiver) = mpsc::channel(65_535);
+        let (stop, mut stop_rx) = oneshot::channel::<()>();
 
-        let thread = thread::spawn(move || {
-            // 1 is number of blocking DNS threads, this connector will use plain HTTP if the URL provded uses the HTTP scheme.
-            let https =
-                hyper_tls::HttpsConnector::new(1).expect("init https connector should be OK");
-            let client = HttpClient::builder().keep_alive(true).build(https);
-
-            let stream = receiver.for_each(move |(sender, call): RpcRequest| {
-                let req_url = url.clone();
-                let request_json = serde_json::to_vec(&call).expect("valid rpc call");
-
-                let mut req = Request::new(Body::from(request_json));
-                *req.method_mut() = Method::POST;
-                *req.uri_mut() = req_url;
-                req.headers_mut()
-                    .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                if let Some(value) = parse_authorization(&url) {
-                    req.headers_mut()
-                        .append(hyper::header::AUTHORIZATION, value);
+        let https = hyper_tls::HttpsConnector::new();
+        let client = HttpClient::builder().build(https);
+        handle.spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(item) = receiver.recv() => {
+                        let (sender, call): RpcRequest = item;
+                        let req_url = url.clone();
+                        let request_json = serde_json::to_vec(&call).expect("valid rpc call");
+                        let mut req = Request::new(Body::from(request_json));
+                        *req.method_mut() = Method::POST;
+                        *req.uri_mut() = req_url;
+                        req.headers_mut()
+                            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                        if let Some(value) = parse_authorization(&url) {
+                            req.headers_mut()
+                                .append(hyper::header::AUTHORIZATION, value);
+                        }
+                        let request = match client
+                            .request(req)
+                            .compat()
+                            .await
+                            .map(|res|res.into_body())
+                        {
+                            Ok(mut body) => body
+                                .data()
+                                .await
+                                .ok_or(RpcError::NoRespData)
+                                .and_then(|res| res.map_err(RpcError::Http)),
+                            Err(err) => Err(RpcError::Http(err)),
+                        };
+                        if sender.send(request).is_err() {
+                            break;
+                        }
+                    },
+                    _ = &mut stop_rx => break,
+                    else => break
                 }
-
-                let request = client
-                    .request(req)
-                    .and_then(|res| res.into_body().concat2())
-                    .then(|res| sender.send(res.map_err(RpcError::Http)))
-                    .map_err(|_| ());
-
-                rt::spawn(request);
-                Ok(())
-            });
-
-            rt::run(stream.select2(stop_rx).map(|_| ()).map_err(|_| ()));
+            }
         });
 
         Rpc {
             sender,
-            stop: StopHandler::new(SignalSender::Future(stop), Some(thread)),
+            stop: StopHandler::new(SignalSender::Tokio(stop), None),
         }
     }
 
-    pub fn request(
-        &self,
-        method: String,
-        params: Vec<Value>,
-    ) -> impl Future<Item = Output, Error = RpcError> {
+    pub async fn request(&self, method: String, params: Vec<Value>) -> Result<Output, RpcError> {
         let (tx, rev) = oneshot::channel();
 
         let call = MethodCall {
@@ -97,10 +107,12 @@ impl Rpc {
         };
 
         let req = (tx, call);
-        let mut sender = self.sender.clone();
-        let _ = sender.try_send(req);
+        self.sender
+            .send(req)
+            .map_err(|_| RpcError::SendError)
+            .await?;
         rev.map_err(|_| RpcError::Canceled)
-            .flatten()
+            .await?
             .and_then(|chunk| serde_json::from_slice(&chunk).map_err(RpcError::Json))
     }
 }
@@ -122,38 +134,42 @@ pub struct Client {
     pub config: MinerClientConfig,
     /// TODO(doc): @quake
     pub rpc: Rpc,
+    handle: Handle,
 }
 
 impl Client {
     /// TODO(doc): @quake
-    pub fn new(new_work_tx: Sender<Work>, config: MinerClientConfig) -> Client {
+    pub fn new(new_work_tx: Sender<Work>, config: MinerClientConfig, handle: Handle) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
         Client {
             current_work_id: None,
-            rpc: Rpc::new(uri),
+            rpc: Rpc::new(uri, handle.clone()),
             new_work_tx,
             config,
+            handle,
         }
     }
 
-    fn send_submit_block_request(
+    async fn send_submit_block_request(
         &self,
         work_id: &str,
         block: Block,
-    ) -> impl Future<Item = Output, Error = RpcError> {
+    ) -> Result<Output, RpcError> {
         let block: JsonBlock = block.into();
         let method = "submit_block".to_owned();
         let params = vec![json!(work_id), json!(block)];
 
-        self.rpc.request(method, params)
+        self.rpc.request(method, params).await
     }
 
     /// TODO(doc): @quake
     pub fn submit_block(&self, work_id: &str, block: Block) {
-        let future = self.send_submit_block_request(work_id, block);
+        let future = self
+            .send_submit_block_request(work_id, block)
+            .and_then(parse_response);
         if self.config.block_on_submit {
-            let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
+            let ret: Result<Option<H256>, RpcError> = self.handle.block_on(future);
             match ret {
                 Ok(hash) => {
                     if hash.is_none() {
@@ -178,7 +194,7 @@ impl Client {
 
     /// TODO(doc): @quake
     pub fn try_update_block_template(&mut self) {
-        match self.get_block_template().wait() {
+        match self.handle.block_on(self.get_block_template()) {
             Ok(block_template) => {
                 if self.current_work_id != Some(block_template.work_id.into()) {
                     self.current_work_id = Some(block_template.work_id.into());
@@ -208,11 +224,14 @@ impl Client {
         }
     }
 
-    fn get_block_template(&self) -> impl Future<Item = BlockTemplate, Error = RpcError> {
+    async fn get_block_template(&self) -> Result<BlockTemplate, RpcError> {
         let method = "get_block_template".to_owned();
         let params = vec![];
 
-        self.rpc.request(method, params).and_then(parse_response)
+        self.rpc
+            .request(method, params)
+            .and_then(parse_response)
+            .await
     }
 
     fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), AnyError> {
@@ -222,7 +241,7 @@ impl Client {
     }
 }
 
-fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, RpcError> {
+async fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, RpcError> {
     match output {
         Output::Success(success) => {
             serde_json::from_value::<T>(success.result).map_err(RpcError::Json)
@@ -232,7 +251,7 @@ fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, R
 }
 
 fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
-    let a: Vec<&str> = url.authority_part()?.as_str().split('@').collect();
+    let a: Vec<&str> = url.authority()?.as_str().split('@').collect();
     if a.len() >= 2 {
         if a[0].is_empty() {
             return None;

@@ -1,6 +1,5 @@
 //! TODO(doc): @keroro520
 use ckb_logger::error;
-use futures::sync::oneshot;
 use parking_lot::Mutex;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -16,8 +15,6 @@ pub const WATCH_STOP: u8 = 1;
 /// TODO(doc): @keroro520
 #[derive(Debug)]
 pub enum SignalSender {
-    /// TODO(doc): @keroro520
-    Future(oneshot::Sender<()>),
     /// TODO(doc): @keroro520
     Crossbeam(ckb_channel::Sender<()>),
     /// TODO(doc): @keroro520
@@ -38,11 +35,6 @@ impl SignalSender {
                 };
             }
             SignalSender::Std(tx) => {
-                if let Err(e) = tx.send(()) {
-                    error!("handler signal send error {:?}", e);
-                };
-            }
-            SignalSender::Future(tx) => {
                 if let Err(e) = tx.send(()) {
                     error!("handler signal send error {:?}", e);
                 };

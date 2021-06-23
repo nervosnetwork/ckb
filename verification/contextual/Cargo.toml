@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification-contextual"
-version = "0.43.0-pre"
+version = "0.44.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,24 +9,24 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../../util/types", version = "= 0.43.0-pre" }
-ckb-store = { path = "../../store", version = "= 0.43.0-pre" }
+ckb-types = { path = "../../util/types", version = "= 0.44.0-pre" }
+ckb-store = { path = "../../store", version = "= 0.44.0-pre" }
 faketime = "0.2.0"
 rayon = "1.0"
-ckb-traits = { path = "../../traits", version = "= 0.43.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.43.0-pre" }
-ckb-dao = { path = "../../util/dao", version = "= 0.43.0-pre" }
-ckb-logger = {path = "../../util/logger", version = "= 0.43.0-pre"}
-ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.43.0-pre" }
-ckb-error = { path = "../../error", version = "= 0.43.0-pre" }
+ckb-traits = { path = "../../traits", version = "= 0.44.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.44.0-pre" }
+ckb-dao = { path = "../../util/dao", version = "= 0.44.0-pre" }
+ckb-logger = {path = "../../util/logger", version = "= 0.44.0-pre"}
+ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.44.0-pre" }
+ckb-error = { path = "../../error", version = "= 0.44.0-pre" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
-ckb-async-runtime = { path = "../../util/runtime", version = "= 0.43.0-pre" }
-ckb-verification-traits = { path = "../traits", version = "= 0.43.0-pre" }
-ckb-verification = { path = "..", version = "= 0.43.0-pre" }
-ckb-metrics = { path = "../../util/metrics", version = "= 0.43.0-pre" }
+ckb-async-runtime = { path = "../../util/runtime", version = "= 0.44.0-pre" }
+ckb-verification-traits = { path = "../traits", version = "= 0.44.0-pre" }
+ckb-verification = { path = "..", version = "= 0.44.0-pre" }
+ckb-metrics = { path = "../../util/metrics", version = "= 0.44.0-pre" }
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.43.0-pre" }
-ckb-shared = { path = "../../shared", version = "= 0.43.0-pre" }
-ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.43.0-pre" }
+ckb-chain = { path = "../../chain", version = "= 0.44.0-pre" }
+ckb-shared = { path = "../../shared", version = "= 0.44.0-pre" }
+ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.44.0-pre" }
 rand = "0.7"

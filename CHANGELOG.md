@@ -1,3 +1,30 @@
+# [v0.43.0](https://github.com/nervosnetwork/ckb/compare/v0.42.0...v0.43.0) (2021-06-21)
+
+### Features
+
+* #2663: Try to increase file descriptor soft limit (@zhangsoledad)
+* #2647: Sort txs in pool by indirect dep (@zhangsoledad)
+* #2746: Update tx-pool for reorg synchronously (@zhangsoledad)
+
+### Bug Fixes
+
+* #2655: Don't remove peer id on addr (@driftluo)
+
+    if no peer id on addr, it will always output an error log when trying to dial the observed addr.
+
+* #2716: Fix cycles set wrong (@driftluo)
+
+### Improvements
+
+* #2665: Add CPU requirements in platform support (@doitian)
+* #2662: Shortcut return proposal reward when `target_proposals` is empty (@quake)
+
+    This PR will reduce the rocksdb query especially `get_block_txs_hashes` in the `committed_idx_proc`, which is a slow query according to profiler result.
+
+* #2691: Skip fresh proposal id checking in TransactionHashes message (@quake)
+* #2748: Upgrade rocksdb (@zhangsoledad)
+
+
 # [v0.42.0](https://github.com/nervosnetwork/ckb/compare/v0.41.0...v0.42.0) (2021-05-25)
 
 ### Features
