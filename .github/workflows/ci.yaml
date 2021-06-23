@@ -59,14 +59,10 @@ jobs:
             script_run: make test
           - os: Windows
             script_run: devtools/windows/make test
-            CI: true
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
       run: ${{ matrix.script_run }}
-    env:
-      CI: ${{ matrix.CI }}
 
   Integration_Test:
     runs-on: ${{ matrix.os }}
@@ -76,12 +72,11 @@ jobs:
         include:
           - os: Linux
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - os:  macOS
+          - os: macOS
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
           - os: Windows
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Integration_Test
@@ -93,7 +88,6 @@ jobs:
         name: ${{ matrix.os }}_integration.log
         path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
-      CI: true
       SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
       ImageOS: ${{matrix.os}}
       BUILD_BUILDID: ${{ github.run_id }}
@@ -103,7 +97,6 @@ jobs:
     strategy:
       matrix:
         os: [Linux, macOS]
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Benchmarks_Test
@@ -127,11 +120,8 @@ jobs:
          git diff --exit-code Cargo.lock
 
   Quick_Check:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux]
-    needs: [if-simple-tests-enabled, Linters]
+    runs-on: ubuntu-latest
+    needs: if-simple-tests-enabled
     steps:
     - uses: actions/checkout@v2
     - name: Quick_Check
@@ -143,11 +133,8 @@ jobs:
         devtools/ci/check-cyclic-dependencies.py
 
   WASM_build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux]
-    needs: [if-simple-tests-enabled, Quick_Check]
+    runs-on: ubuntu-latest
+    needs: if-simple-tests-enabled
     steps:
     - uses: actions/checkout@v2
     - name: WASM build
@@ -156,11 +143,8 @@ jobs:
         make wasm-build-test
 
   Security_Audit_Licenses:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux]
-    needs: [if-simple-tests-enabled, WASM_build]
+    runs-on: ubuntu-latest
+    needs: if-simple-tests-enabled
     steps:
     - uses: actions/checkout@v2
     - name: Security Audit & Licenses
