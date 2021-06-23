@@ -6,7 +6,7 @@
 
 master | develop
 -------|----------
-[![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=master)](https://travis-ci.com/nervosnetwork/ckb) | [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
+[![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml) | [![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml)
 
 ---
 
