@@ -359,12 +359,20 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<CacheEntry>), Error> {
         let timer = Timer::start();
-        let keys: Vec<Byte32> = self
-            .resolved
-            .iter()
-            .map(|rtx| rtx.transaction.hash())
-            .collect();
-        let fetched_cache = self.fetched_cache(Arc::clone(&txs_verify_cache), keys, handle);
+        // We should skip updating tx_verify_cache about the cellbase tx,
+        // putting it in cache that will never be used until lru cache expires.
+        let fetched_cache = if self.resolved.len() > 1 {
+            let keys: Vec<Byte32> = self
+                .resolved
+                .iter()
+                .skip(1)
+                .map(|rtx| rtx.transaction.hash())
+                .collect();
+
+            self.fetched_cache(Arc::clone(&txs_verify_cache), keys, handle)
+        } else {
+            HashMap::new()
+        };
 
         // make verifiers orthogonal
         let ret = self
@@ -406,6 +414,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                     .map(|cache_entry| (tx_hash, cache_entry))
                 }
             })
+            .skip(1)
             .collect::<Result<Vec<(Byte32, CacheEntry)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
@@ -414,12 +423,14 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .map(|(_, cache_entry)| cache_entry)
             .cloned()
             .collect();
-        handle.spawn(async move {
-            let mut guard = txs_verify_cache.write().await;
-            for (k, v) in ret {
-                guard.put(k, v);
-            }
-        });
+        if !ret.is_empty() {
+            handle.spawn(async move {
+                let mut guard = txs_verify_cache.write().await;
+                for (k, v) in ret {
+                    guard.put(k, v);
+                }
+            });
+        }
 
         metrics!(timing, "ckb.contextual_verified_block_txs", timer.stop());
         if sum > self.context.consensus.max_block_cycles() {

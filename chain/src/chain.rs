@@ -745,11 +745,8 @@ impl ChainService {
                                 switch,
                             ) {
                                 Ok((cycles, cache_entries)) => {
-                                    let txs_fees = cache_entries
-                                        .into_iter()
-                                        .skip(1)
-                                        .map(|entry| entry.fee)
-                                        .collect();
+                                    let txs_fees =
+                                        cache_entries.into_iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
                                     let mut mut_ext = ext.clone();
