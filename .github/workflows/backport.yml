@@ -5,6 +5,7 @@ on:
 
 jobs:
   backport:
+    if: ${{ github.repository_owner == 'nervosnetwork' }}
     runs-on: ubuntu-18.04
     name: Backport
     steps:

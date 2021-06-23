@@ -13,6 +13,7 @@ env:
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
   UnitTest:
+    if: ${{ github.repository_owner == 'nervosnetwork' }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
