@@ -1,0 +1,250 @@
+name: Basic Checks
+
+on:
+  repository_dispatch:
+    types: [ basic-checks ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+
+jobs:
+
+  bootstrap:
+    name: Bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.repos.createCommitStatus({
+              state: 'pending',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              context: '${{ github.workflow }}',
+              sha: '${{ github.event.client_payload.github.sha }}',
+              target_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            })
+
+  clippy:
+    name: Clippy
+    needs: [ bootstrap ]
+    runs-on: ${{ github.event.client_payload.env.linux_os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ github.event.client_payload.env.rust_toolchain }}
+          components: clippy
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-cargo-
+      - uses: actions/cache@v2
+        with:
+          path: target/
+          key: ${{ runner.os }}-clippy-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-clippy-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-clippy-
+      - run: make clippy
+
+  bench-test:
+    name: Compile Benches
+    needs: [ bootstrap ]
+    runs-on: ${{ github.event.client_payload.env.linux_os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ github.event.client_payload.env.rust_toolchain }}
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-cargo-
+      - uses: actions/cache@v2
+        with:
+          path: target/
+          key: ${{ runner.os }}-bench-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-bench-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-bench-
+      - run: make bench-test
+
+  check-docs:
+    name: Check Docs
+    needs: [ bootstrap ]
+    runs-on: ${{ github.event.client_payload.env.linux_os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ github.event.client_payload.env.rust_toolchain }}
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-cargo-
+      - uses: actions/cache@v2
+        with:
+          path: target/doc
+          key: ${{ runner.os }}-doc-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-doc-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-doc-
+      - env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          rm -f doc/ckb_rpc/module/*.html
+          cargo doc --all --no-deps
+          python ./devtools/doc/rpc.py > rpc/README.md;
+          git diff --exit-code rpc/README.md
+
+  check-codes:
+    name: Check Generated Codes
+    needs: [ bootstrap ]
+    runs-on: ${{ github.event.client_payload.env.linux_os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - uses: actions/cache@v2
+        id: restore-moleculec
+        with:
+          path: |
+            ~/.cargo/bin/moleculec
+            ~/.cargo/bin/moleculec-rust
+          key: ${{ runner.os }}-moleculec-v${{ github.event.client_payload.env.molc_version }}
+      - if: steps.restore-moleculec.outputs.cache-hit != 'true'
+        run: cargo install moleculec --locked
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ github.event.client_payload.env.rust_toolchain }}
+          components: rustfmt
+      - run: |
+          make gen
+          git diff --exit-code util/types/src/generated/
+
+  lint-deps:
+    name: Lint Dependencies
+    needs: [ bootstrap ]
+    runs-on: ${{ github.event.client_payload.env.linux_os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - id: cache-key
+        run: echo "::set-output name=yyyymm::$(/bin/date -u '+%Y%m')"
+      - uses: actions/cache@v2
+        id: restore-cargo-deny
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-${{ steps.cache-key.outputs.yyyymm }}
+      - if: steps.restore-cargo-deny.outputs.cache-hit != 'true'
+        run: cargo install cargo-deny --locked
+      - run: |
+          cargo deny --version
+          make security-audit
+          make check-crates
+          make check-licenses
+
+  wasm32-build:
+    name: WASM32 Build
+    needs: [ bootstrap ]
+    runs-on: ubuntu-16.04
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.client_payload.github.sha }}
+      - run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/llvm.gpg add -
+          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-8 main" | sudo tee -a /etc/apt/sources.list.d/llvm.list
+          sudo apt update --yes
+          sudo apt upgrade --yes
+          sudo apt install --yes clang-8
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ github.event.client_payload.env.rust_toolchain }}
+          target: wasm32-unknown-unknown
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-wasm32-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-wasm32-cargo-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-wasm32-cargo-
+      - uses: actions/cache@v2
+        with:
+          path: wasm-build-test/target/
+          key: ${{ runner.os }}-wasm32-build-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+               ${{ runner.os }}-wasm32-build-${{ hashFiles('rust-toolchain') }}-
+               ${{ runner.os }}-wasm32-build-
+      - run: make wasm-build-test
+
+  finally:
+    name: Finally
+    needs: [ clippy, bench-test, check-docs, check-codes, lint-deps, wasm32-build ]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(join(needs.*.result, ';'), 'failure') || contains(join(needs.*.result, ';'), 'cancelled')
+        run: exit 1
+      - uses: actions/github-script@v4
+        if: ${{ always() }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.repos.createCommitStatus({
+              state: '${{ job.status }}',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              context: '${{ github.workflow }}',
+              sha: '${{ github.event.client_payload.github.sha }}',
+              target_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            })
+
+  trigger-next-checks:
+    name: Trigger Next Checks
+    needs: [ finally ]
+    if: ${{ github.event.client_payload.env.trigger_next_checks }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          event-type: unit-tests-checks
+          client-payload: ${{ toJSON(github.event.client_payload) }}
