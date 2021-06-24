@@ -844,11 +844,12 @@ mod tests {
     use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
     use ckb_error::InternalErrorKind;
+    use ckb_launcher::SharedBuilder;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
-    use ckb_shared::{Shared, SharedBuilder, Snapshot};
+    use ckb_shared::{Shared, Snapshot};
     use ckb_store::ChainStore;
     use ckb_types::{
         core::{

@@ -47,6 +47,7 @@ ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.44.0-pre"
 [dev-dependencies]
 reqwest = { version = "0.10.9", features = ["blocking", "json"] }
 serde = { version = "1.0", features = ["derive"] }
+ckb-launcher = { path = "../util/launcher", version = "= 0.44.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.44.0-pre" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"

@@ -10,7 +10,7 @@ use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
     DBPinnableSlice, RocksDB,
 };
-use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY};
+use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
@@ -88,6 +88,13 @@ impl ChainDB {
             .get_pinned_default(CHAIN_SPEC_HASH_KEY)
             .expect("db operation should be ok")
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
+    }
+
+    /// Return the chain spec hash
+    pub fn get_migration_verson(&self) -> Option<DBPinnableSlice> {
+        self.db
+            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .expect("db operation should be ok")
     }
 
     /// TODO(doc): @quake

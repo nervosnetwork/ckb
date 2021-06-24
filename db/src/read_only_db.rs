@@ -1,7 +1,8 @@
 //! ReadOnlyDB wrapper base on rocksdb read_only_open mode
 use crate::{internal_error, Result};
+use ckb_db_schema::Col;
 use ckb_logger::info;
-use rocksdb::ops::{GetPinned, Open};
+use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, OpenCF};
 use rocksdb::{DBPinnableSlice, Options, ReadOnlyDB as RawReadOnlyDB};
 use std::path::Path;
 use std::sync::Arc;
@@ -17,9 +18,14 @@ impl ReadOnlyDB {
     /// One big difference is that when opening the DB as read-only,
     /// you don't need to specify all Column Families
     /// -- you can only open a subset of Column Families.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Option<Self>> {
+    pub fn open_cf<P, I, N>(path: P, cf_names: I) -> Result<Option<Self>>
+    where
+        P: AsRef<Path>,
+        I: IntoIterator<Item = N>,
+        N: AsRef<str>,
+    {
         let opts = Options::default();
-        RawReadOnlyDB::open(&opts, path).map_or_else(
+        RawReadOnlyDB::open_cf(&opts, path, cf_names).map_or_else(
             |err| {
                 let err_str = err.as_ref();
                 // notice: err msg difference
@@ -56,6 +62,16 @@ impl ReadOnlyDB {
     pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         self.inner.get_pinned(&key).map_err(internal_error)
     }
+
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
+    /// so as to avoid unnecessary memory copy.
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+        let cf = self
+            .inner
+            .cf_handle(col)
+            .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
+        self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
+    }
 }
 
 #[cfg(test)]
@@ -69,7 +85,12 @@ mod tests {
             .tempdir()
             .unwrap();
 
-        let db = ReadOnlyDB::open(&tmp_dir);
-        assert!(matches!(db, Ok(x) if x.is_none()))
+        let cfs: Vec<&str> = vec![];
+        let db = ReadOnlyDB::open_cf(&tmp_dir, cfs);
+        assert!(matches!(db, Ok(x) if x.is_none()));
+
+        let cfs: Vec<&str> = vec!["0"];
+        let db = ReadOnlyDB::open_cf(&tmp_dir, cfs);
+        assert!(matches!(db, Ok(x) if x.is_none()));
     }
 }

@@ -42,6 +42,7 @@ rand = "0.7"
 ckb-dao = { path = "../util/dao", version = "= 0.44.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.44.0-pre" }
 ckb-chain = { path = "../chain", version = "= 0.44.0-pre", features = ["mock"] }
+ckb-launcher = { path = "../util/launcher", version = "= 0.44.0-pre" }
 faux = "^0.1"
 
 [features]
