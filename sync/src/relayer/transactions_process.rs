@@ -49,20 +49,7 @@ impl<'a> TransactionsProcess<'a> {
             return Status::ok();
         }
 
-        // Insert tx_hash into `already_known`
-        // Remove tx_hash from `inflight_transactions`
-        {
-            shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
-        }
-
-        // Remove tx_hash from `tx_ask_for_set`
-        {
-            if let Some(mut peer_state) = shared_state.peers().state.get_mut(&self.peer) {
-                for (tx, _) in txs.iter() {
-                    peer_state.remove_ask_for_tx(&tx.hash());
-                }
-            }
-        }
+        shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
         let relayer = self.relayer.clone();

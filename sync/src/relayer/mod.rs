@@ -543,23 +543,7 @@ impl Relayer {
 
     /// Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
-        let state = self.shared().state();
-        for mut kv_pair in state.peers().state.iter_mut() {
-            let (peer, peer_state) = kv_pair.pair_mut();
-            let tx_hashes = peer_state
-                .pop_ask_for_txs()
-                .into_iter()
-                .filter(|tx_hash| {
-                    let already_known = state.already_known_tx(&tx_hash);
-                    if already_known {
-                        // Remove tx_hash from `tx_ask_for_set`
-                        peer_state.remove_ask_for_tx(&tx_hash);
-                    }
-                    !already_known
-                })
-                .take(MAX_RELAY_TXS_NUM_PER_BATCH)
-                .collect::<Vec<_>>();
-
+        for (peer, mut tx_hashes) in self.shared().state().pop_ask_for_txs() {
             if !tx_hashes.is_empty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -567,11 +551,12 @@ impl Relayer {
                     tx_hashes.len(),
                     peer,
                 );
+                tx_hashes.truncate(MAX_RELAY_TXS_NUM_PER_BATCH);
                 let content = packed::GetRelayTransactions::new_builder()
                     .tx_hashes(tx_hashes.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to(nc, *peer, &message);
+                let status = send_message_to(nc, peer, &message);
                 if !status.is_ok() {
                     ckb_logger::error!("break asking for transactions, status: {:?}", status);
                 }

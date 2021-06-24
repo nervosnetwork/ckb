@@ -13,7 +13,7 @@ use ckb_constant::sync::{
     POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
-use ckb_logger::{debug, debug_target, error, trace};
+use ckb_logger::{debug, error, trace};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -29,6 +29,7 @@ use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLock
 use ckb_verification_traits::Switch;
 use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
+use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
@@ -44,13 +45,11 @@ use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
-const MAX_ASK_MAP_SIZE: usize = 50000;
-const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
+const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const TX_FILTER_SIZE: usize = 50000;
-const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
@@ -255,10 +254,6 @@ pub struct PeerState {
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     pub chain_sync: ChainSyncState,
-    // The key is a `timeout`, means do not ask the tx before `timeout`.
-    tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
-    tx_ask_for_set: HashSet<Byte32>,
-
     // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
     // The last block we both stored
@@ -274,8 +269,6 @@ impl PeerState {
             headers_sync_controller: None,
             peer_flags,
             chain_sync: ChainSyncState::default(),
-            tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::new(),
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
@@ -309,71 +302,6 @@ impl PeerState {
 
     pub(crate) fn stop_headers_sync(&mut self) {
         self.headers_sync_controller = None;
-    }
-
-    pub fn add_ask_for_tx(
-        &mut self,
-        tx_hash: Byte32,
-        last_ask_timeout: Option<Instant>,
-    ) -> Option<Instant> {
-        if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_map is full, ignore {}",
-                tx_hash
-            );
-            return None;
-        }
-        if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_set is full, ignore {}",
-                tx_hash
-            );
-            return None;
-        }
-        // This peer already register asked for this tx
-        if self.tx_ask_for_set.contains(&tx_hash) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer already register ask tx({})",
-                tx_hash
-            );
-            return None;
-        }
-
-        // Retry ask tx `RETRY_ASK_TX_TIMEOUT_INCREASE` later
-        //  NOTE: last_ask_timeout is some when other peer already asked for this tx_hash
-        let next_ask_timeout = last_ask_timeout
-            .map(|time| cmp::max(time + RETRY_ASK_TX_TIMEOUT_INCREASE, Instant::now()))
-            .unwrap_or_else(Instant::now);
-        self.tx_ask_for_map
-            .entry(next_ask_timeout)
-            .or_default()
-            .push(tx_hash.clone());
-        self.tx_ask_for_set.insert(tx_hash);
-        Some(next_ask_timeout)
-    }
-
-    pub fn remove_ask_for_tx(&mut self, tx_hash: &Byte32) {
-        self.tx_ask_for_set.remove(tx_hash);
-    }
-
-    pub fn pop_ask_for_txs(&mut self) -> Vec<Byte32> {
-        let mut all_txs = Vec::new();
-        let mut timeouts = Vec::new();
-        let now = Instant::now();
-        for (timeout, txs) in &self.tx_ask_for_map {
-            if *timeout >= now {
-                break;
-            }
-            timeouts.push(*timeout);
-            all_txs.extend(txs.clone());
-        }
-        for timeout in timeouts {
-            self.tx_ask_for_map.remove(&timeout);
-        }
-        all_txs
     }
 }
 
@@ -1265,13 +1193,13 @@ impl SyncShared {
             header_map,
             block_status_map: DashMap::new(),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
+            unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
             known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
             inflight_proposals: DashSet::new(),
-            inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
@@ -1507,6 +1435,60 @@ impl HeaderProvider for SyncShared {
     }
 }
 
+#[derive(Eq, PartialEq, Clone)]
+pub struct UnknownTxHashPriority {
+    request_time: Instant,
+    peers: Vec<PeerIndex>,
+    requested: bool,
+}
+
+impl UnknownTxHashPriority {
+    pub fn should_request(&self, now: Instant) -> bool {
+        self.next_request_at() < now
+    }
+
+    pub fn next_request_at(&self) -> Instant {
+        if self.requested {
+            self.request_time + RETRY_ASK_TX_TIMEOUT_INCREASE
+        } else {
+            self.request_time
+        }
+    }
+
+    pub fn next_request_peer(&mut self) -> Option<PeerIndex> {
+        if self.requested {
+            if self.peers.len() > 1 {
+                self.request_time = Instant::now();
+                self.peers.swap_remove(0);
+                self.peers.get(0).cloned()
+            } else {
+                None
+            }
+        } else {
+            self.requested = true;
+            self.peers.get(0).cloned()
+        }
+    }
+
+    pub fn push_peer(&mut self, peer_index: PeerIndex) {
+        self.peers.push(peer_index);
+    }
+}
+
+impl Ord for UnknownTxHashPriority {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.next_request_at()
+            .cmp(&other.next_request_at())
+            .reverse()
+    }
+}
+
+impl PartialOrd for UnknownTxHashPriority {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 pub struct SyncState {
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
@@ -1516,6 +1498,9 @@ pub struct SyncState {
     header_map: HeaderMap,
     block_status_map: DashMap<Byte32, BlockStatus>,
     tx_filter: Mutex<Filter<Byte32>>,
+
+    // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
+    unknown_tx_hashes: Mutex<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>>,
 
     /* Status relevant to peers */
     peers: Peers,
@@ -1529,7 +1514,6 @@ pub struct SyncState {
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: DashSet<packed::ProposalShortId>,
-    inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
@@ -1571,10 +1555,6 @@ impl SyncState {
 
     pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
         self.pending_compact_blocks.lock()
-    }
-
-    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<Byte32, Instant>> {
-        self.inflight_transactions.lock()
     }
 
     pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
@@ -1639,17 +1619,69 @@ impl SyncState {
     // where T: Iterator<Item=Byte32>,
     // for<'a> &'a T: Iterator<Item=&'a Byte32>,
     pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
-        {
-            let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.clone() {
-                inflight_transactions.pop(&hash);
-            }
-        }
-
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
         let mut tx_filter = self.tx_filter.lock();
 
         for hash in hashes {
+            unknown_tx_hashes.remove(&hash);
             tx_filter.insert(hash);
+        }
+    }
+
+    pub fn pop_ask_for_txs(&self) -> HashMap<PeerIndex, Vec<Byte32>> {
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+        let mut result: HashMap<PeerIndex, Vec<Byte32>> = HashMap::new();
+        let now = Instant::now();
+
+        if !unknown_tx_hashes
+            .peek()
+            .map(|(_tx_hash, priority)| priority.should_request(now))
+            .unwrap_or_default()
+        {
+            return result;
+        }
+
+        while let Some((tx_hash, mut priority)) = unknown_tx_hashes.pop() {
+            if priority.should_request(now) {
+                if let Some(peer_index) = priority.next_request_peer() {
+                    result
+                        .entry(peer_index)
+                        .and_modify(|hashes| hashes.push(tx_hash.clone()))
+                        .or_insert_with(|| vec![tx_hash.clone()]);
+                    unknown_tx_hashes.push(tx_hash, priority);
+                }
+            } else {
+                unknown_tx_hashes.push(tx_hash, priority);
+                break;
+            }
+        }
+        result
+    }
+
+    pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) {
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE {
+            return;
+        }
+
+        for tx_hash in tx_hashes
+            .into_iter()
+            .take(MAX_UNKNOWN_TX_HASHES_SIZE - unknown_tx_hashes.len())
+        {
+            match unknown_tx_hashes.entry(tx_hash) {
+                keyed_priority_queue::Entry::Occupied(entry) => {
+                    let mut priority = entry.get_priority().clone();
+                    priority.push_peer(peer_index);
+                    entry.set_priority(priority);
+                }
+                keyed_priority_queue::Entry::Vacant(entry) => {
+                    entry.set_priority(UnknownTxHashPriority {
+                        request_time: Instant::now(),
+                        peers: vec![peer_index],
+                        requested: false,
+                    })
+                }
+            }
         }
     }
 
