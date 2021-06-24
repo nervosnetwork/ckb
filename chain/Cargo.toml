@@ -34,6 +34,7 @@ ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.43.0" }
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.43.0" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.43.0" }
 ckb-network = { path = "../network", version = "= 0.43.0" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.43.0" }
 lazy_static = "1.4"
 tempfile = "3.0"
 

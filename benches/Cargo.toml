@@ -32,6 +32,7 @@ ckb-verification-traits = { path = "../verification/traits", version = "= 0.43.0
 ckb-app-config = { path = "../util/app-config", version = "= 0.43.0" }
 ckb-resource = { path = "../resource", version = "= 0.43.0" }
 ckb-network = { path = "../network", version = "= 0.43.0" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.43.0" }
 tempfile = "3.0"
 
 [[bench]]
