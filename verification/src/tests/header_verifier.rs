@@ -1,9 +1,18 @@
-use crate::header_verifier::{NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier};
-use crate::{BlockVersionError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME};
+use crate::header_verifier::{
+    EpochVerifier, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
+};
+use crate::{
+    BlockVersionError, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
+};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
-use ckb_types::{constants::BLOCK_VERSION, core::HeaderBuilder, packed::Header, prelude::*};
+use ckb_types::{
+    constants::BLOCK_VERSION,
+    core::{EpochNumberWithFraction, HeaderBuilder},
+    packed::Header,
+    prelude::*,
+};
 use faketime::unix_time_as_millis;
 
 fn mock_median_time_context() -> MockMedianTime {
@@ -117,6 +126,119 @@ fn test_number() {
             actual: 10,
         },
     );
+}
+
+#[test]
+fn test_epoch() {
+    {
+        let parent = HeaderBuilder::default().number(1u64.pack()).build();
+        let epochs_malformed = vec![
+            EpochNumberWithFraction::new_unchecked(1, 0, 0),
+            EpochNumberWithFraction::new_unchecked(1, 10, 0),
+            EpochNumberWithFraction::new_unchecked(1, 10, 5),
+            EpochNumberWithFraction::new_unchecked(1, 10, 10),
+        ];
+
+        for epoch_malformed in epochs_malformed {
+            let malformed = HeaderBuilder::default()
+                .epoch(epoch_malformed.pack())
+                .build();
+            let result = EpochVerifier::new(&parent, &malformed).verify();
+            assert!(result.is_err(), "input: {:#}", epoch_malformed);
+            assert_error_eq!(
+                result.unwrap_err(),
+                EpochError::Malformed {
+                    value: epoch_malformed
+                },
+            );
+        }
+    }
+    {
+        let epochs = vec![
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(1, 5, 11),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(2, 5, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(1, 6, 11),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(2, 6, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 9, 10),
+                EpochNumberWithFraction::new_unchecked(2, 1, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 9, 10),
+                EpochNumberWithFraction::new_unchecked(3, 0, 10),
+            ),
+        ];
+
+        for (epoch_parent, epoch_current) in epochs {
+            let parent = HeaderBuilder::default()
+                .number(1u64.pack())
+                .epoch(epoch_parent.pack())
+                .build();
+            let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
+
+            let result = EpochVerifier::new(&parent, &current).verify();
+            assert!(
+                result.is_err(),
+                "current: {:#}, parent: {:#}",
+                current,
+                parent
+            );
+            assert_error_eq!(
+                result.unwrap_err(),
+                EpochError::NonContinuous {
+                    current: epoch_current,
+                    parent: epoch_parent,
+                },
+            );
+        }
+    }
+    {
+        let epochs = vec![
+            (
+                EpochNumberWithFraction::new_unchecked(1, 5, 10),
+                EpochNumberWithFraction::new_unchecked(1, 6, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 9, 10),
+                EpochNumberWithFraction::new_unchecked(2, 0, 10),
+            ),
+            (
+                EpochNumberWithFraction::new_unchecked(1, 9, 10),
+                EpochNumberWithFraction::new_unchecked(2, 0, 11),
+            ),
+        ];
+        for (epoch_parent, epoch_current) in epochs {
+            let parent = HeaderBuilder::default()
+                .number(1u64.pack())
+                .epoch(epoch_parent.pack())
+                .build();
+            let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
+
+            let result = EpochVerifier::new(&parent, &current).verify();
+            assert!(
+                result.is_ok(),
+                "current: {:#}, parent: {:#}",
+                current,
+                parent
+            );
+        }
+    }
 }
 
 struct FakePowEngine;
