@@ -90,6 +90,12 @@ members = [
 [profile.release]
 overflow-checks = true
 
+[profile.release.build-override]
+opt-level = 3
+
+[profile.bench.build-override]
+opt-level = 3
+
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
