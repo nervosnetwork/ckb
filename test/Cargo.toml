@@ -42,3 +42,9 @@ jsonrpc-core = "17.1"
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.bench.build-override]
+opt-level = 3
