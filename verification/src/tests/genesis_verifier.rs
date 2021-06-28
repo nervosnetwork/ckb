@@ -1,7 +1,7 @@
 use crate::{genesis_verifier::GenesisVerifier, NumberError, UnknownParentError};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
-use ckb_types::prelude::*;
+use ckb_types::{core::EpochNumberWithFraction, prelude::*};
 use ckb_verification_traits::Verifier;
 
 #[test]
@@ -10,6 +10,7 @@ pub fn test_genesis_non_zero_number() {
     let genesis_block = genesis_block
         .as_advanced_builder()
         .number(42.pack())
+        .epoch(EpochNumberWithFraction::from_full_value(0).pack())
         .build();
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)

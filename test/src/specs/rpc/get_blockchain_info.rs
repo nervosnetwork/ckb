@@ -34,9 +34,9 @@ impl Spec for RpcGetBlockchainInfo {
             genesis_blockchain_info.epoch.epoch_index()
         );
         assert_eq!(
-            1,
+            1000,
             genesis_blockchain_info.epoch.epoch_length(),
-            "Epoch length of genesis block should be 1, but got {}",
+            "Epoch length of genesis block should be 1000, but got {}",
             genesis_blockchain_info.epoch.epoch_length()
         );
         check_median_time(genesis_blockchain_info, node0);

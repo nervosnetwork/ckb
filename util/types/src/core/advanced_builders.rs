@@ -95,7 +95,7 @@ impl ::std::default::Default for HeaderBuilder {
             proposals_hash: Default::default(),
             compact_target: DIFF_TWO.pack(),
             extra_hash: Default::default(),
-            epoch: Default::default(),
+            epoch: core::EpochNumberWithFraction::new(0, 0, 1).pack(),
             dao: Default::default(),
             nonce: Default::default(),
         }
@@ -278,6 +278,14 @@ impl HeaderBuilder {
         debug_assert!(
             Unpack::<u32>::unpack(&compact_target) > 0,
             "[HeaderBuilder] compact_target should greater than zero"
+        );
+        debug_assert!(
+            Unpack::<core::BlockNumber>::unpack(&number) == 0
+                || Unpack::<core::EpochNumberWithFraction>::unpack(&epoch).is_well_formed(),
+            "[HeaderBuilder] epoch {:x} should be well formed, \
+            unless it's in the genesis block (number: {:x})",
+            epoch,
+            number
         );
         let raw = packed::RawHeader::new_builder()
             .version(version)

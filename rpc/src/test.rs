@@ -56,6 +56,7 @@ fn always_success_consensus() -> Consensus {
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
         .compact_target(GENESIS_TARGET.pack())
+        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
