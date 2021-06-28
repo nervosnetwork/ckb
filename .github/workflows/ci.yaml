@@ -66,6 +66,11 @@ jobs:
     - uses: actions/checkout@v2
     - name: UnitTest
       run: ${{ matrix.script_run }}
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Integration_Test:
     needs: if-simple-tests-enabled
@@ -85,6 +90,11 @@ jobs:
     - uses: actions/checkout@v2
     - name: Integration_Test
       run: ${{ matrix.script_run }}
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
     - name: Post Run - Upload integration Result when failed
       if: ${{ failure() }}
       uses: actions/upload-artifact@v2
@@ -107,6 +117,11 @@ jobs:
     - name: Benchmarks_Test
       run: |
         make bench-test
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Linters:
     needs: if-simple-tests-enabled
@@ -123,6 +138,11 @@ jobs:
          make fmt
          make clippy
          git diff --exit-code Cargo.lock
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Quick_Check:
     needs: if-simple-tests-enabled
@@ -136,6 +156,11 @@ jobs:
         make check-dirty-rpc-doc
         make check-dirty-hashes-toml
         devtools/ci/check-cyclic-dependencies.py
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   WASM_build:
     needs: if-simple-tests-enabled
@@ -146,6 +171,11 @@ jobs:
       run: |
         rustup target add wasm32-unknown-unknown
         make wasm-build-test
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Security_Audit_Licenses:
     needs: if-simple-tests-enabled
@@ -158,6 +188,11 @@ jobs:
         make security-audit
         make check-crates
         make check-licenses
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   ci-success:
     name: ci

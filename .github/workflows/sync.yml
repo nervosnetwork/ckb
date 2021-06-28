@@ -11,7 +11,7 @@ jobs:
     if: |
       github.repository_owner == 'nervosnetwork' &&
       contains(github.event.review.body, '#sync-mainnet') &&
-      contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+      contains(fromJson( '[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]' ), github.actor)
 
     env:
       CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
@@ -27,6 +27,11 @@ jobs:
         with:
           name: ckb.tar.xz
           path: ckb.tar.xz
+      - uses: doitian/available-space@v1
+        if: ${{ always() }}
+        with:
+          clean-threshold: 40000
+          clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   sync:
     name: Sync
