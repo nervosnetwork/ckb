@@ -4,15 +4,14 @@ use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_chain_spec::SpecError;
 use ckb_channel::Sender;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::Error;
 use ckb_notify::NotifyController;
-use ckb_proposal_table::{ProposalTable, ProposalView};
+use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_tx_pool::{TokioRwLock, TxPoolController};
@@ -26,7 +25,6 @@ use ckb_verification::cache::TxVerifyCache;
 use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -74,92 +72,33 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn init_snapshot(
-        store: &ChainDB,
+    /// Construct new Shared
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        store: ChainDB,
+        tx_pool_controller: TxPoolController,
+        notify_controller: NotifyController,
+        txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
         consensus: Arc<Consensus>,
-    ) -> Result<(Snapshot, ProposalTable), Error> {
-        let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
-        let total_difficulty = store
-            .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
-            .total_difficulty;
-        let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
-
-        let snapshot = Snapshot::new(
-            tip_header,
-            total_difficulty,
-            epoch,
-            store.get_snapshot(),
-            proposal_view,
+        snapshot_mgr: Arc<SnapshotMgr>,
+        async_handle: Handle,
+        async_stop: Option<StopHandler<()>>,
+        ibd_finished: Arc<AtomicBool>,
+        relay_tx_sender: Sender<(Option<PeerIndex>, Byte32)>,
+    ) -> Shared {
+        Shared {
+            store,
+            tx_pool_controller,
+            notify_controller,
+            txs_verify_cache,
             consensus,
-        );
-
-        Ok((snapshot, proposal_table))
-    }
-
-    pub(crate) fn init_proposal_table(
-        store: &ChainDB,
-        consensus: &Consensus,
-    ) -> (ProposalTable, ProposalView) {
-        let proposal_window = consensus.tx_proposal_window();
-        let tip_number = store.get_tip_header().expect("store inited").number();
-        let mut proposal_ids = ProposalTable::new(proposal_window);
-        let proposal_start = tip_number.saturating_sub(proposal_window.farthest());
-        for bn in proposal_start..=tip_number {
-            if let Some(hash) = store.get_block_hash(bn) {
-                let mut ids_set = HashSet::new();
-                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
-                    ids_set.extend(ids)
-                }
-
-                if let Some(us) = store.get_block_uncles(&hash) {
-                    for u in us.data().into_iter() {
-                        ids_set.extend(u.proposals().into_iter());
-                    }
-                }
-                proposal_ids.insert(bn, ids_set);
-            }
-        }
-        let dummy_proposals = ProposalView::default();
-        let (_, proposals) = proposal_ids.finalize(&dummy_proposals, tip_number);
-        (proposal_ids, proposals)
-    }
-
-    pub(crate) fn init_store(
-        store: &ChainDB,
-        consensus: &Consensus,
-    ) -> Result<(HeaderView, EpochExt), Error> {
-        match store
-            .get_tip_header()
-            .and_then(|header| store.get_current_epoch_ext().map(|epoch| (header, epoch)))
-        {
-            Some((tip_header, epoch)) => {
-                if let Some(genesis_hash) = store.get_block_hash(0) {
-                    let expect_genesis_hash = consensus.genesis_hash();
-                    if genesis_hash == expect_genesis_hash {
-                        Ok((tip_header, epoch))
-                    } else {
-                        Err(SpecError::GenesisMismatch {
-                            expected: expect_genesis_hash,
-                            actual: genesis_hash,
-                        }
-                        .into())
-                    }
-                } else {
-                    Err(InternalErrorKind::Database
-                        .other("genesis does not exist in database")
-                        .into())
-                }
-            }
-            None => store.init(&consensus).map(|_| {
-                (
-                    consensus.genesis_block().header(),
-                    consensus.genesis_epoch_ext().to_owned(),
-                )
-            }),
+            snapshot_mgr,
+            async_handle,
+            async_stop,
+            ibd_finished,
+            relay_tx_sender,
         }
     }
-
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
     pub fn spawn_freeze(&self) -> Option<FreezerClose> {
         if let Some(freezer) = self.store.freezer() {

@@ -6,10 +6,11 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
@@ -55,6 +56,7 @@ fn always_success_consensus() -> Consensus {
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
         .compact_target(GENESIS_TARGET.pack())
+        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();

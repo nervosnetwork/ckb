@@ -178,6 +178,7 @@ impl Default for ConsensusBuilder {
 
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())
+            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
             .dao(dao)
             .transaction(cellbase)
             .build();

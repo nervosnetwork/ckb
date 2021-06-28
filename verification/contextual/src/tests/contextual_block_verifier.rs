@@ -3,14 +3,16 @@ use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_launcher::SharedBuilder;
+use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes, cell::ResolvedTransaction, BlockBuilder, BlockNumber, BlockView, Capacity,
-        EpochExt, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView, UncleBlockView,
+        EpochExt, EpochNumberWithFraction, HeaderBuilder, HeaderView, TransactionBuilder,
+        TransactionView, UncleBlockView,
     },
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
@@ -158,7 +160,8 @@ pub fn test_should_have_no_output_in_cellbase_no_finalization_target() {
 
 #[test]
 fn test_epoch_number() {
-    let block = BlockBuilder::default().epoch(2u64.pack()).build();
+    let actual_epoch = EpochNumberWithFraction::new(2, 0, 1);
+    let block = BlockBuilder::default().epoch(actual_epoch.pack()).build();
     let mut epoch = EpochExt::default();
     epoch.set_length(1);
 

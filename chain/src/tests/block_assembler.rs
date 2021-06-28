@@ -5,8 +5,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_launcher::SharedBuilder;
+use ckb_shared::Shared;
 use ckb_shared::Snapshot;
-use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::{
@@ -102,7 +103,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
         .parent_hash(parent_header.hash())
         .timestamp((parent_header.timestamp() + 10).pack())
         .number(number.pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)

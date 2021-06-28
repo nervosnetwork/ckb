@@ -480,26 +480,13 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// Gets cellbase by block hash
     fn get_cellbase(&'a self, hash: &packed::Byte32) -> Option<TransactionView> {
-        if let Some(cache) = self.cache() {
-            if let Some(data) = cache.cellbase.lock().get(hash) {
-                return Some(data.clone());
-            }
-        };
         let key = packed::TransactionKey::new_builder()
             .block_hash(hash.to_owned())
             .build();
-        let ret = self.get(COLUMN_BLOCK_BODY, key.as_slice()).map(|slice| {
+        self.get(COLUMN_BLOCK_BODY, key.as_slice()).map(|slice| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(&slice.as_ref());
             Unpack::<TransactionView>::unpack(&reader)
-        });
-        if let Some(cache) = self.cache() {
-            ret.map(|data| {
-                cache.cellbase.lock().put(hash.clone(), data.clone());
-                data
-            })
-        } else {
-            ret
-        }
+        })
     }
 
     /// TODO(doc): @quake

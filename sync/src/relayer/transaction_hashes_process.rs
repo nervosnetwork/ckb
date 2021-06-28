@@ -1,11 +1,7 @@
 use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
 use crate::{Status, StatusCode};
-use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
-use ckb_types::{
-    packed::{self, Byte32},
-    prelude::*,
-};
+use ckb_types::{packed, prelude::*};
 
 pub struct TransactionHashesProcess<'a> {
     message: packed::RelayTransactionHashesReader<'a>,
@@ -39,7 +35,7 @@ impl<'a> TransactionHashesProcess<'a> {
             }
         }
 
-        let transit_hashes: Vec<Byte32> = {
+        let tx_hashes: Vec<_> = {
             let tx_filter = state.tx_filter();
             self.message
                 .tx_hashes()
@@ -49,30 +45,7 @@ impl<'a> TransactionHashesProcess<'a> {
                 .collect()
         };
 
-        if transit_hashes.is_empty() {
-            return Status::ok();
-        }
-
-        if let Some(mut peer_state) = state.peers().state.get_mut(&self.peer) {
-            let mut inflight_transactions = state.inflight_transactions();
-
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "transaction({:?}) from {} not known, get it from the peer",
-                &transit_hashes,
-                self.peer,
-            );
-
-            for tx_hash in transit_hashes {
-                let last_ask_timeout = inflight_transactions.get(&tx_hash).cloned();
-
-                if let Some(next_ask_timeout) =
-                    peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout)
-                {
-                    inflight_transactions.put(tx_hash, next_ask_timeout);
-                }
-            }
-        }
+        state.add_ask_for_txs(self.peer, tx_hashes);
 
         Status::ok()
     }

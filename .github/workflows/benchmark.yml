@@ -30,6 +30,11 @@ jobs:
         with:
           name: ckb.tar.xz
           path: ckb.tar.xz
+      - uses: doitian/available-space@v1
+        if: ${{ always() }}
+        with:
+          clean-threshold: 40000
+          clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   benchmark:
     name: Benchmark

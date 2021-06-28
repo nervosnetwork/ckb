@@ -19,7 +19,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let miner_enable = block_assembler_config.is_some();
     let exit_handler = DefaultExitHandler::default();
 
-    launcher.migrate_guard()?;
     let (shared, mut pack) = launcher.build_shared(block_assembler_config)?;
 
     // spawn freezer background process
