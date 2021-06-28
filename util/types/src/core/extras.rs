@@ -507,4 +507,11 @@ impl EpochNumberWithFraction {
     pub fn is_well_formed(self) -> bool {
         self.length() > 0 && self.length() > self.index()
     }
+
+    /// Check the data format as an increment.
+    ///
+    /// The epoch index should be less than the epoch length or both of them are zero.
+    pub fn is_well_formed_increment(self) -> bool {
+        self.length() > self.index() || (self.length() == 0 && self.index() == 0)
+    }
 }
