@@ -154,6 +154,6 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches<'_>) -> Result<(), Ex
 }
 
 fn to_config_error(err: Box<dyn std::error::Error>) -> ExitCode {
-    eprintln!("{:?}", err);
+    eprintln!("ERROR: {}", err);
     ExitCode::Config
 }
