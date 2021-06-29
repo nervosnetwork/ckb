@@ -104,5 +104,12 @@ genesis_epoch_length = 1000
 # Keep difficulty be permanent if the pow is Dummy. (default: false)
 permanent_difficulty_in_dummy = true
 
+[params.hardfork]
+rfc_pr_0221 = 0
+rfc_pr_0222 = 0
+rfc_pr_0223 = 0
+rfc_pr_0224 = 0
+rfc_pr_0237 = 0
+
 [pow]
 func = "Dummy"

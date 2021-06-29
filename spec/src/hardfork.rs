@@ -13,32 +13,34 @@ use serde::{Deserialize, Serialize};
 pub struct HardForkConfig {
     // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0221: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0222: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0223: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0224: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0237: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
     ($config:ident, $feature:ident, $expected:expr) => {
-        match $config.$feature {
-            Some(input) if input != $expected => {
-                let errmsg = format!(
-                    "The value for hard fork feature \"{}\" is incorrect, actual: {}, expected: {}.
-                    Don't set it for mainnet or testnet, or set it as a correct value.",
-                    stringify!($feature),
-                    input,
-                    $expected,
-                );
-                Err(errmsg)
-            },
-            _ => Ok($expected),
-        }?
+        if $config.$feature.is_some() {
+            let errmsg = format!(
+                "Found the hard fork feature parameter \"{}\" is the chain specification file.
+                Don't set any hard fork parameters for \"mainnet\" or \"testnet\".",
+                stringify!($feature),
+            );
+            return Err(errmsg);
+        } else {
+            $expected
+        }
     };
 }
 
