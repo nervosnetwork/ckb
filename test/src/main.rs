@@ -493,6 +493,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
         Box::new(CheckBlockExtension),
+        Box::new(CheckVmVersion),
         Box::new(DuplicateCellDepsForDataHashTypeLockScript),
         Box::new(DuplicateCellDepsForDataHashTypeTypeScript),
         Box::new(DuplicateCellDepsForTypeHashTypeLockScript),

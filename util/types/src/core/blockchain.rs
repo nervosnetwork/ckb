@@ -1,3 +1,4 @@
+use ckb_constant::MAX_VM_VERSION;
 use ckb_error::OtherError;
 use std::convert::TryFrom;
 
@@ -23,7 +24,17 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 
     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
         match Into::<u8>::into(v) {
-            x if x % 2 == 0 => Ok(ScriptHashType::Data(x / 2)),
+            x if x % 2 == 0 => {
+                let vm_version = x / 2;
+                if vm_version > MAX_VM_VERSION {
+                    Err(OtherError::new(format!(
+                        "The maximum vm version currently supported is {}, but got {}",
+                        MAX_VM_VERSION, vm_version
+                    )))
+                } else {
+                    Ok(ScriptHashType::Data(vm_version))
+                }
+            }
             1 => Ok(ScriptHashType::Type),
             _ => Err(OtherError::new(format!("Invalid script hash type {}", v))),
         }
@@ -33,7 +44,7 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 impl ScriptHashType {
     #[inline]
     pub(crate) fn verify_value(v: u8) -> bool {
-        v % 2 == 0 || v == 1
+        v == 1 || ((v % 2 == 0) && (v / 2 <= MAX_VM_VERSION))
     }
 }
 

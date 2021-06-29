@@ -33,7 +33,7 @@ pub enum ScriptError {
     InvalidScriptHashType(String),
 
     /// InvalidVmVersion
-    #[error("Invalid vm version {0}")]
+    #[error("Invalid VM Version: {0}")]
     InvalidVmVersion(u8),
 
     /// Known bugs are detected in transaction script outputs

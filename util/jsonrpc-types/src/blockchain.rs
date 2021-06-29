@@ -3,6 +3,7 @@ use crate::{
     BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
     Timestamp, Uint128, Uint32, Uint64, Version, VmVersion,
 };
+use ckb_constant::MAX_VM_VERSION;
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -46,15 +47,15 @@ pub enum ScriptHashTypeKind {
     Type,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ScriptHashTypeShadow {
     kind: ScriptHashTypeKind,
-    #[serde(rename = "vm_version", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "vm_version")]
     vm_version_opt: Option<VmVersion>,
 }
 
-struct ScriptHashTypeValidationError(&'static str);
+struct ScriptHashTypeValidationError(String);
 
 impl std::fmt::Display for ScriptHashTypeValidationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -72,17 +73,24 @@ impl std::convert::TryFrom<ScriptHashTypeShadow> for ScriptHashType {
         match kind {
             ScriptHashTypeKind::Data => {
                 if let Some(vm_version) = vm_version_opt {
-                    Ok(ScriptHashType::Data { vm_version })
+                    if vm_version > MAX_VM_VERSION {
+                        Err(ScriptHashTypeValidationError(format!(
+                            "the maximum vm version currently supported is {}, but got {}.",
+                            MAX_VM_VERSION, vm_version
+                        )))
+                    } else {
+                        Ok(ScriptHashType::Data { vm_version })
+                    }
                 } else {
                     Err(ScriptHashTypeValidationError(
-                        "vm version should be provided for hash-type \"data\".",
+                        "vm version should be provided for hash-type \"data\".".to_owned(),
                     ))
                 }
             }
             ScriptHashTypeKind::Type => {
                 if vm_version_opt.is_some() {
                     Err(ScriptHashTypeValidationError(
-                        "vm version is not allowed for hash-type \"type\".",
+                        "vm version is not allowed for hash-type \"type\".".to_owned(),
                     ))
                 } else {
                     Ok(ScriptHashType::Type)
@@ -1401,12 +1409,12 @@ mod tests {
                     \"args\":\"0x\",\
                     \"hash_type\":{\
                         \"kind\":\"data\",\
-                        \"vm_version\":2\
+                        \"vm_version\":1\
                     }\
                 }",
                 Script {
                     code_hash: h256!("0x1"),
-                    hash_type: ScriptHashType::Data { vm_version: 2 },
+                    hash_type: ScriptHashType::Data { vm_version: 1 },
                     args: JsonBytes::default(),
                 },
             ),
@@ -1472,6 +1480,15 @@ mod tests {
                 },\
                 \"unknown_field\":0,\
                 \"args\":\"0x\"\
+            }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000001\",\
+                \"args\":\"0x\",\
+                \"hash_type\":{\
+                    \"kind\":\"data\",\
+                    \"vm_version\":2\
+                }\
             }",
         ] {
             let result: Result<Script, _> = serde_json::from_str(&malformed);
