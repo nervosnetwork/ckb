@@ -34,9 +34,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let config = BlockAssemblerConfig {
         code_hash: h256!("0x0"),
         args: Default::default(),
-        hash_type: ScriptHashType::Data {
-            vm_version: 0.into(),
-        },
+        hash_type: ScriptHashType::Data { vm_version: 0 },
         message: Default::default(),
     };
     let (shared, mut pack) = builder

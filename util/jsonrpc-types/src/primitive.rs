@@ -1,4 +1,4 @@
-use crate::{Uint32, Uint64, Uint8};
+use crate::{Uint32, Uint64};
 use ckb_types::core::EpochNumberWithFraction as CkbEpochNumberWithFraction;
 
 /// Consecutive block number starting from 0.
@@ -47,10 +47,7 @@ pub type Timestamp = Uint64;
 pub type Version = Uint32;
 
 /// The ckb-vm version.
-///
-/// This is a 8-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
-/// See examples of [Uint8](type.Uint8.html#examples).
-pub type VmVersion = Uint8;
+pub type VmVersion = u8;
 
 /// This trait is a restriction for type `Uint64`, so we can only get epoch_number, epoch_index
 /// and epoch_length from the type `EpochNumberWithFraction` instead of all `Uint64`

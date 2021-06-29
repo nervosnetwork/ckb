@@ -39,10 +39,10 @@ pub enum WorkerConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
     pub code_hash: H256,
-    pub hash_type: ScriptHashType,
     pub args: Vec<JsonBytes>,
     #[serde(default)]
     pub message: JsonBytes,
+    pub hash_type: ScriptHashType,
 }
 
 /// Dummy worker config options.

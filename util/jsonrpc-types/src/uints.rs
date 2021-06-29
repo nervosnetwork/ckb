@@ -166,23 +166,15 @@ macro_rules! impl_pack_and_unpack {
     };
 }
 
-def_json_uint!(Uint8, u8, "8-bit");
 def_json_uint!(Uint32, u32, "32-bit");
 def_json_uint!(Uint64, u64, "64-bit");
 def_json_uint!(Uint128, u128, "128-bit");
-impl_serde_deserialize!(Uint8Visitor, u8);
 impl_serde_deserialize!(Uint32Visitor, u32);
 impl_serde_deserialize!(Uint64Visitor, u64);
 impl_serde_deserialize!(Uint128Visitor, u128);
 impl_pack_and_unpack!(Uint32, u32);
 impl_pack_and_unpack!(Uint64, u64);
 impl_pack_and_unpack!(Uint128, u128);
-
-impl Uint8 {
-    pub(crate) fn is_default(&self) -> bool {
-        self.0 == 0
-    }
-}
 
 impl From<core::Capacity> for JsonUint<u64> {
     fn from(value: core::Capacity) -> Self {
@@ -276,7 +268,6 @@ mod tests {
         };
     }
 
-    test_json_uint!(uint8, Uint8, u8);
     test_json_uint!(uint32, Uint32, u32);
     test_json_uint!(uint64, Uint64, u64);
     test_json_uint!(uint128, Uint128, u128);

@@ -24,7 +24,7 @@ pub use self::block_template::{
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
     DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow,
-    Script, ScriptHashType, ScriptHashTypeShadow, Status, Transaction, TransactionProof,
+    Script, ScriptHashType, ScriptHashTypeKind, Status, Transaction, TransactionProof,
     TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
@@ -45,7 +45,7 @@ pub use self::pool::{
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
-pub use self::uints::{Uint128, Uint32, Uint64, Uint8};
+pub use self::uints::{Uint128, Uint32, Uint64};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
     Timestamp, Version, VmVersion,

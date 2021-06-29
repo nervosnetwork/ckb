@@ -323,7 +323,10 @@ Response
             "lock": {
               "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": {
+                "kind": "data",
+                "vm_version": 0
+              }
             },
             "type": null
           }
@@ -439,7 +442,10 @@ Response
             "lock": {
               "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": {
+                "kind": "data",
+                "vm_version": 0
+              }
             },
             "type": null
           }
@@ -684,7 +690,10 @@ Response
           "lock": {
             "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": {
+              "kind": "data",
+              "vm_version": 0
+            }
           },
           "type": null
         }
@@ -868,7 +877,10 @@ Response
         "lock": {
           "args": "0x",
           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-          "hash_type": "data"
+          "hash_type": {
+            "kind": "data",
+            "vm_version": 0
+          }
         },
         "type": null
       }
@@ -1225,7 +1237,10 @@ Response
             "lock": {
               "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": {
+                "kind": "data",
+                "vm_version": 0
+              }
             },
             "type": null
           }
@@ -1420,7 +1435,10 @@ Request
           "lock": {
             "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": {
+              "kind": "data",
+              "vm_version": 0
+            }
           },
           "type": null
         }
@@ -1572,7 +1590,10 @@ Response
             "lock": {
               "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": {
+                "kind": "data",
+                "vm_version": 0
+              }
             },
             "type": null
           }
@@ -1682,7 +1703,10 @@ Request
               "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
+                "hash_type": {
+                  "kind": "data",
+                  "vm_version": 0
+                }
               },
               "type": null
             }
@@ -2334,7 +2358,10 @@ Request
           "lock": {
             "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": {
+              "kind": "data",
+              "vm_version": 0
+            }
           },
           "type": null
         }
@@ -3164,7 +3191,10 @@ The JSON view of a cell combining the fields in cell output and cell data.
     "lock": {
       "args": "0x",
       "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "hash_type": "data"
+      "hash_type": {
+        "kind": "data",
+        "vm_version": 0
+      }
     },
     "type": null
   }
@@ -3225,7 +3255,10 @@ The fields of an output cell except the cell data.
   "lock": {
     "args": "0x",
     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    "hash_type": "data"
+    "hash_type": {
+      "kind": "data",
+      "vm_version": 0
+    }
   },
   "type": null
 }
@@ -3266,7 +3299,10 @@ The JSON view of a cell with its status information.
       "lock": {
         "args": "0x",
         "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "hash_type": "data"
+        "hash_type": {
+          "kind": "data",
+          "vm_version": 0
+        }
       },
       "type": null
     }
@@ -4045,7 +4081,10 @@ Describes the lock script and type script for a cell.
 {
   "args": "0x",
   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-  "hash_type": "data"
+  "hash_type": {
+    "kind": "data",
+    "vm_version": 0
+  }
 }
 ```
 
@@ -4056,16 +4095,16 @@ Describes the lock script and type script for a cell.
 
 *   `code_hash`: [`H256`](#type-h256) - The hash used to match the script code.
 
-*   `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
-
 *   `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
+
+*   `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
 
 
 ### Type `ScriptHashType`
 
 Specifies how the script `code_hash` is used to match the script code.
 
-Allowed values: "data" and "type".
+Allowed kinds: "data" and "type". If the kind is "data", the "vm_version" must be provided. If the kind is "type", specifying "vm_version" is not allowed.
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
@@ -4265,7 +4304,10 @@ This structure is serialized into a JSON object with field `hash` and all the fi
       "lock": {
         "args": "0x",
         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-        "hash_type": "data"
+        "hash_type": {
+          "kind": "data",
+          "vm_version": 0
+        }
       },
       "type": null
     }

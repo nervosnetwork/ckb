@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use crate::helper::prompt;
 use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::{ScriptHashTypeShadow, VmVersion};
+use ckb_jsonrpc_types::{ScriptHashTypeKind, VmVersion};
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
@@ -57,17 +57,25 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        match serde_plain::from_str::<ScriptHashTypeShadow>(in_hash_type.trim()).ok() {
-            Some(hash_type) => args.block_assembler_hash_type = hash_type,
-            None => eprintln!("Invalid block assembler hash type"),
-        }
+        args.block_assembler_hash_type_kind =
+            match serde_plain::from_str::<ScriptHashTypeKind>(in_hash_type.trim()).ok() {
+                Some(hash_type) => hash_type,
+                None => {
+                    eprintln!("Invalid block assembler hash type");
+                    return Err(ExitCode::Failure);
+                }
+            };
 
-        if args.block_assembler_hash_type == ScriptHashTypeShadow::Type {
+        if args.block_assembler_hash_type_kind == ScriptHashTypeKind::Data {
             let in_vm_version = prompt("vm_version: ");
-            match serde_plain::from_str::<VmVersion>(in_vm_version.trim()).ok() {
-                Some(vm_version) => args.block_assembler_vm_version = Some(vm_version),
-                None => eprintln!("Invalid block assembler vm version"),
-            }
+            args.block_assembler_hash_type_vm_version =
+                match serde_plain::from_str::<VmVersion>(in_vm_version.trim()).ok() {
+                    Some(vm_version) => Some(vm_version),
+                    None => {
+                        eprintln!("Invalid block assembler vm version");
+                        return Err(ExitCode::Failure);
+                    }
+                };
         }
 
         let in_message = prompt("message: ");
@@ -98,11 +106,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
             if let Some(default_code_hash) = &default_code_hash_option {
-                if ScriptHashTypeShadow::Type != args.block_assembler_hash_type {
+                if ScriptHashTypeKind::Type != args.block_assembler_hash_type_kind {
                     eprintln!(
                         "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
                          It will require `ckb run --ba-advanced` to enable this block assembler",
-                        DEFAULT_LOCK_SCRIPT_HASH_TYPE, args.block_assembler_hash_type
+                        DEFAULT_LOCK_SCRIPT_HASH_TYPE, args.block_assembler_hash_type_kind
                     );
                 } else if *default_code_hash != *hash {
                     eprintln!(
@@ -119,31 +127,39 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     );
                 }
             }
-            if let Some(default_vm_version) = &args.block_assembler_vm_version {
+            if let Some(vm_version) = &args.block_assembler_hash_type_vm_version {
+                if ScriptHashTypeKind::Type == args.block_assembler_hash_type_kind {
+                    eprintln!("VM version is not allowed for hash-type \"type\".");
+                    return Err(ExitCode::Failure);
+                }
                 format!(
                     "[block_assembler]\n\
                     code_hash = \"{}\"\n\
                     args = \"{}\"\n\
-                    hash_type = \"{}\"\n\
-                    vm_version = \"{}\"\n\
+                    hash_type.kind = \"{}\"\n\
+                    hash_type.vm_version = {}\n\
                     message = \"{}\"",
                     hash,
                     args.block_assembler_args.join("\", \""),
-                    args.block_assembler_hash_type,
-                    serde_plain::to_string(&default_vm_version).unwrap(),
+                    args.block_assembler_hash_type_kind,
+                    vm_version,
                     args.block_assembler_message
                         .unwrap_or_else(|| "0x".to_string()),
                 )
             } else {
+                if ScriptHashTypeKind::Data == args.block_assembler_hash_type_kind {
+                    eprintln!("VM version should be provided for hash-type \"data\".");
+                    return Err(ExitCode::Failure);
+                }
                 format!(
                     "[block_assembler]\n\
                     code_hash = \"{}\"\n\
                     args = \"{}\"\n\
-                    hash_type = \"{}\"\n\
+                    hash_type.kind = \"{}\"\n\
                     message = \"{}\"",
                     hash,
                     args.block_assembler_args.join("\", \""),
-                    args.block_assembler_hash_type,
+                    args.block_assembler_hash_type_kind,
                     args.block_assembler_message
                         .unwrap_or_else(|| "0x".to_string()),
                 )
@@ -156,7 +172,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  # [block_assembler]\n\
                  # code_hash = \"{}\"\n\
                  # args = \"ckb-cli util blake2b --prefix-160 <compressed-pubkey>\"\n\
-                 # hash_type = \"{}\"\n\
+                 # hash_type.kind = \"{}\"\n\
                  # message = \"A 0x-prefixed hex string\"",
                 default_code_hash_option.unwrap_or_default(),
                 DEFAULT_LOCK_SCRIPT_HASH_TYPE,
