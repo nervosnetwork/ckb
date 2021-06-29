@@ -14,6 +14,7 @@ use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
     SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TYPE_ID_CODE_HASH,
 };
+use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::{ChainEdition, Script};
@@ -496,8 +497,8 @@ impl ChainSpec {
     fn build_hardfork_switch(&self) -> Result<HardForkSwitch, Box<dyn Error>> {
         let config = self.params.hardfork.as_ref().cloned().unwrap_or_default();
         match self.name.as_str() {
-            "mainnet" => config.complete_mainnet(),
-            "testnet" => config.complete_testnet(),
+            mainnet::CHAIN_SPEC_NAME => config.complete_mainnet(),
+            testnet::CHAIN_SPEC_NAME => config.complete_testnet(),
             _ => config.complete_with_default(EpochNumber::MAX),
         }
         .map_err(Into::into)
@@ -863,7 +864,10 @@ impl ChainSpec {
 
     /// If the CKB block chain specification is for an public chain.
     pub fn is_public_chain(&self) -> bool {
-        matches!(self.name.as_str(), "mainnet" | "testnet")
+        matches!(
+            self.name.as_str(),
+            mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
+        )
     }
 
     /// If the CKB block chain specification is loaded from a legacy format file.
