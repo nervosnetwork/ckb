@@ -4,16 +4,21 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+pub(crate) mod legacy;
 #[cfg(feature = "with_sentry")]
 mod sentry_config;
 
-pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
+pub use app_config::{
+    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
+};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
+#[cfg(feature = "with_sentry")]
+pub use sentry_config::SentryConfig;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::{ScriptHashTypeShadow, VmVersion};

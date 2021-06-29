@@ -7,6 +7,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::TxPoolInfo;
 use ckb_logger::{debug, error};
+use ckb_resource::Resource;
 use ckb_types::{
     bytes,
     core::{
@@ -85,7 +86,7 @@ impl Node {
         let app_config_path = self.working_dir().join("ckb.toml");
         let mut app_config: CKBAppConfig = {
             let toml = fs::read(&app_config_path).unwrap();
-            toml::from_slice(&toml).unwrap()
+            CKBAppConfig::load_from_slice(&toml).unwrap()
         };
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
@@ -97,28 +98,26 @@ impl Node {
     where
         M: Fn(&mut ChainSpec),
     {
-        let ckb_spec_path = self.working_dir().join("specs/integration.toml");
-        let mut chain_spec = {
-            let toml = fs::read(&ckb_spec_path).unwrap();
-            toml::from_slice(&toml).unwrap()
-        };
+        let chain_spec_path = self.working_dir().join("specs/integration.toml");
+        let chain_spec_res = Resource::file_system(chain_spec_path.clone());
+        let mut chain_spec = ChainSpec::load_from(&chain_spec_res).unwrap();
         modifier(&mut chain_spec);
-        fs::write(&ckb_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
+        fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
         *self = Self::init(self.working_dir());
     }
 
     // Initialize Node instance based on working directory
     fn init(working_dir: PathBuf) -> Self {
-        let app_config: CKBAppConfig = {
+        let app_config = {
             let app_config_path = working_dir.join("ckb.toml");
             let toml = fs::read(app_config_path).unwrap();
-            toml::from_slice(&toml).unwrap()
+            CKBAppConfig::load_from_slice(&toml).unwrap()
         };
         let mut chain_spec: ChainSpec = {
             let chain_spec_path = working_dir.join("specs/integration.toml");
-            let toml = fs::read(chain_spec_path).unwrap();
-            toml::from_slice(&toml).unwrap()
+            let chain_spec_res = Resource::file_system(chain_spec_path);
+            ChainSpec::load_from(&chain_spec_res).unwrap()
         };
 
         let p2p_listen = app_config.network.listen_addresses[0].to_string();

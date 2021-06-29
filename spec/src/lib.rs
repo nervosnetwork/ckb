@@ -16,7 +16,7 @@ use crate::consensus::{
 };
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_jsonrpc_types::Script;
+use ckb_jsonrpc_types::{ChainEdition, Script};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
     Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
@@ -46,6 +46,7 @@ pub use hardfork::HardForkConfig;
 pub mod consensus;
 mod error;
 mod hardfork;
+mod legacy;
 
 // Just a random secp256k1 secret key for dep group input cell's lock
 const SPECIAL_CELL_PRIVKEY: H256 =
@@ -65,6 +66,8 @@ pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 pub struct ChainSpec {
     /// The spec name, also used identify network
     pub name: String,
+    /// The edition of CKB block chain specification
+    pub edition: ChainEdition,
     /// The genesis block information
     pub genesis: Genesis,
     /// The block chain parameters
@@ -75,6 +78,8 @@ pub struct ChainSpec {
     #[serde(skip)]
     /// Hash of blake2b_256 spec content bytes, used for check consistency between database and config
     pub hash: packed::Byte32,
+    #[serde(skip)]
+    legacy: bool,
 }
 
 /// The default_params mod defines the default parameters for CKB Mainnet
@@ -439,16 +444,33 @@ impl ChainSpec {
             return Err(SpecLoadError::file_not_found());
         }
         let config_bytes = resource.get()?;
-        let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
 
-        if let Some(parent) = resource.parent() {
-            for r in spec.genesis.system_cells.iter_mut() {
-                r.file.absolutize(parent)
+        let partial_spec: legacy::PartialChainSpec = toml::from_slice(&config_bytes)?;
+
+        let spec = match partial_spec.edition {
+            None | Some(ChainEdition::V2019) => {
+                let mut spec: legacy::v2019::ChainSpec = toml::from_slice(&config_bytes)?;
+                if let Some(parent) = resource.parent() {
+                    for r in spec.genesis.system_cells.iter_mut() {
+                        r.file.absolutize(parent)
+                    }
+                }
+                spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
+                spec.into()
             }
-        }
+            Some(ChainEdition::V2021) => {
+                let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
+                if let Some(parent) = resource.parent() {
+                    for r in spec.genesis.system_cells.iter_mut() {
+                        r.file.absolutize(parent)
+                    }
+                }
+                // leverage serialize for sanitizing
+                spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
+                spec
+            }
+        };
 
-        // leverage serialize for sanitizing
-        spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
         Ok(spec)
     }
 
@@ -837,6 +859,16 @@ impl ChainSpec {
             .outputs_data(outputs_data)
             .witness(witness)
             .build())
+    }
+
+    /// If the CKB block chain specification is for an public chain.
+    pub fn is_public_chain(&self) -> bool {
+        matches!(self.name.as_str(), "mainnet" | "testnet")
+    }
+
+    /// If the CKB block chain specification is loaded from a legacy format file.
+    pub fn is_legacy(&self) -> bool {
+        self.legacy
     }
 }
 
