@@ -16,6 +16,7 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
+use std::convert::TryInto;
 
 /// The time-related TX verification
 ///
@@ -92,11 +93,13 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
+/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<'a, DL> {
+    pub(crate) compatible: CompatibleVerifier<'a>,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
     pub(crate) script: ScriptVerifier<'a, DL>,
@@ -115,6 +118,7 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualTransactionVerifier {
+            compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
             time_relative: TimeRelativeTransactionVerifier::new(
                 &rtx,
                 consensus,
@@ -132,6 +136,7 @@ where
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         let timer = Timer::start();
+        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -323,6 +328,72 @@ impl<'a> EmptyVerifier<'a> {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Check compatible between different versions CKB clients.
+///
+/// When a new client with hardfork features released, before the hardfork started, the old CKB
+/// clients will still be able to work.
+/// So, the new CKB client have to add several necessary checks to avoid fork attacks.
+///
+/// After hardfork, the old clients will be no longer available. Then we can delete all code in
+/// this verifier until next hardfork.
+pub struct CompatibleVerifier<'a> {
+    rtx: &'a ResolvedTransaction,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
+}
+
+impl<'a> CompatibleVerifier<'a> {
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        tx_env: &'a TxVerifyEnv,
+    ) -> Self {
+        Self {
+            rtx,
+            consensus,
+            tx_env,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        if !self
+            .consensus
+            .hardfork_switch()
+            .is_vm_version_1_and_syscalls_2_enabled(epoch_number)
+        {
+            for ht in self
+                .rtx
+                .transaction
+                .outputs()
+                .into_iter()
+                .map(|output| output.lock().hash_type())
+            {
+                let hash_type: ScriptHashType = ht.try_into().map_err(|_| {
+                    let val: u8 = ht.into();
+                    // This couldn't happen, because we already check it.
+                    TransactionError::Internal {
+                        description: format!("unknown hash type {:02x}", val),
+                    }
+                })?;
+                match hash_type {
+                    ScriptHashType::Data(vm_version) => {
+                        if vm_version > 0 {
+                            return Err(TransactionError::Compatible {
+                                feature: "VM Version 1",
+                            }
+                            .into());
+                        }
+                    }
+                    ScriptHashType::Type => {}
+                }
+            }
+        }
+        Ok(())
     }
 }
 

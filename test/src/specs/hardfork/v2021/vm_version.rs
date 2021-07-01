@@ -36,6 +36,7 @@ struct NewScript {
 #[derive(Debug, Clone, Copy)]
 enum ExpectedResult {
     ShouldBePassed,
+    IncompatibleVmV1,
     RpcInvalidVmVersion,
     LockInvalidVmVersion,
     TypeInvalidVmVersion,
@@ -189,6 +190,11 @@ impl ExpectedResult {
     fn error_message(self) -> Option<&'static str> {
         match self {
             Self::ShouldBePassed => None,
+            Self::IncompatibleVmV1 => Some(
+                "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
+                 Verification failed Transaction(Compatible: \
+                 the feature \\\"VM Version 1\\\"",
+            ),
             Self::RpcInvalidVmVersion => Some(
                 "{\"code\":-32602,\"message\":\"\
                  Invalid params: the maximum vm version currently supported is",
@@ -307,9 +313,10 @@ impl<'a> CheckVmVersionTestRunner<'a> {
         max_vm_version: u8,
     ) {
         for vm_version in 0..=RPC_MAX_VM_VERSION {
-            // TODO ckb2021 Should NOT pass if vm_version is greater than the max_vm_version?
-            let res = if vm_version <= MAX_VM_VERSION {
+            let res = if vm_version <= max_vm_version {
                 ExpectedResult::ShouldBePassed
+            } else if vm_version <= MAX_VM_VERSION {
+                ExpectedResult::IncompatibleVmV1
             } else {
                 ExpectedResult::RpcInvalidVmVersion
             };
