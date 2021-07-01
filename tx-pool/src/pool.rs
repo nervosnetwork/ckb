@@ -202,7 +202,7 @@ impl TxPool {
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id) || self.proposed.contains_key(id)
+        self.pending.contains_key(id) || self.gap.contains_key(id) || self.proposed.contains_key(id)
     }
 
     /// Returns tx with cycles corresponding to the id.

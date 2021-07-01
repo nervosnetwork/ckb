@@ -11,6 +11,7 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
+        self,
         cell::{
             resolve_transaction_with_options, OverlayCellProvider, ResolveOptions,
             ResolvedTransaction, TransactionsProvider,
@@ -42,6 +43,9 @@ pub trait IntegrationTestRpc {
         block_assembler_script: Option<Script>,
         block_assembler_message: Option<JsonBytes>,
     ) -> Result<H256>;
+
+    #[rpc(name = "notify_transaction")]
+    fn notify_transaction(&self, transaction: Transaction) -> Result<H256>;
 
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
@@ -163,6 +167,18 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         } else {
             Ok(hash.unpack())
         }
+    }
+
+    fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
+        let tx: packed::Transaction = tx.into();
+        let tx: core::TransactionView = tx.into_view();
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_hash = tx.hash();
+        if let Err(e) = tx_pool.notify_txs(vec![tx]) {
+            error!("send notify_txs request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        }
+        Ok(tx_hash.unpack())
     }
 
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {

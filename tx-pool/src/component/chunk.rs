@@ -38,6 +38,10 @@ impl ChunkQueue {
         self.inner.is_empty()
     }
 
+    pub fn is_full(&self) -> bool {
+        self.len() > DEFAULT_MAX_CHUNK_TRANSACTIONS
+    }
+
     #[allow(dead_code)]
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.inner.contains_key(id)
@@ -92,6 +96,19 @@ impl ChunkQueue {
                 remote: Some(remote),
             },
         );
+    }
+
+    /// If the queue did not have this tx present, true is returned.
+    ///
+    /// If the queue did have this tx present, false is returned.
+    pub fn add_tx(&mut self, tx: TransactionView) -> bool {
+        if self.inner.contains_key(&tx.proposal_short_id()) {
+            return false;
+        }
+
+        self.inner
+            .insert(tx.proposal_short_id(), Entry { tx, remote: None })
+            .is_none()
     }
 
     pub fn clear(&mut self) {

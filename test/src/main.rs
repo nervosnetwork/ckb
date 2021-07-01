@@ -400,6 +400,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
+        Box::new(NotifyLargeCyclesTx::new()),
+        Box::new(LoadProgramFailedTx::new()),
         Box::new(TxsRelayOrder),
         Box::new(SendTxChain),
         Box::new(DifferentTxsWithSameInput),

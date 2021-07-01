@@ -256,6 +256,13 @@ impl RpcClient {
             .get_block_economic_state(hash.unpack())
             .expect("rpc call get_block_economic_state")
     }
+
+    pub fn notify_transaction(&self, tx: Transaction) -> Byte32 {
+        self.inner()
+            .notify_transaction(tx)
+            .expect("rpc call send_transaction")
+            .pack()
+    }
 }
 
 jsonrpc!(pub struct Inner {
@@ -311,4 +318,5 @@ jsonrpc!(pub struct Inner {
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
     pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
+    pub fn notify_transaction(&self, tx: Transaction) -> H256;
 });

@@ -5,6 +5,7 @@ use ckb_types::{
     packed::{Byte32, Script},
 };
 use ckb_vm::snapshot::{make_snapshot, Snapshot};
+use ckb_vm::SupportMachine;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -24,6 +25,37 @@ pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemo
 pub(crate) type Machine<'a> = AsmMachine<'a>;
 #[cfg(not(has_asm))]
 pub(crate) type Machine<'a> = TraceMachine<'a, CoreMachineType>;
+
+pub struct ResumableMachine<'a> {
+    pub(crate) machine: Machine<'a>,
+    pub(crate) program_loaded: bool,
+}
+
+impl<'a> ResumableMachine<'a> {
+    pub(crate) fn new(machine: Machine<'a>, program_loaded: bool) -> Self {
+        ResumableMachine {
+            machine,
+            program_loaded,
+        }
+    }
+
+    pub(crate) fn cycles(&self) -> Cycle {
+        self.machine.machine.cycles()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cycles(&mut self, cycles: Cycle) {
+        self.machine.machine.set_cycles(cycles)
+    }
+
+    pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
+        set_vm_max_cycles(&mut self.machine, cycles)
+    }
+
+    pub fn program_loaded(&self) -> bool {
+        self.program_loaded
+    }
+}
 
 #[cfg(has_asm)]
 pub(crate) fn set_vm_max_cycles(vm: &mut Machine<'_>, cycles: Cycle) {
@@ -105,7 +137,7 @@ pub struct TransactionSnapshot {
     /// remain script groups to verify
     pub remain: Vec<(ScriptGroupType, Byte32)>,
     /// vm snapshot
-    pub snap: Snapshot,
+    pub snap: Option<Snapshot>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -120,7 +152,7 @@ pub struct TransactionState<'a> {
     /// remain script groups to verify
     pub remain: Vec<(ScriptGroupType, Byte32)>,
     /// vm state
-    pub vm: Machine<'a>,
+    pub vm: ResumableMachine<'a>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
@@ -139,8 +171,15 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
             limit_cycles,
         } = state;
 
-        let snap = make_snapshot(&mut vm.machine)
-            .map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)).unknown_source())?;
+        // we should not capture snapshot if load program failed by exceeded cycles
+        let snap =
+            if vm.program_loaded {
+                Some(make_snapshot(&mut vm.machine.machine).map_err(|e| {
+                    ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                })?)
+            } else {
+                None
+            };
 
         Ok(TransactionSnapshot {
             current,

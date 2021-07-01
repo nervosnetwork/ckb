@@ -171,7 +171,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
 
         match machine.load_elf(&data, true) {
             Ok(size) => {
-                machine.add_cycles(transferred_byte_cycles(size))?;
+                machine.add_cycles_no_checking(transferred_byte_cycles(size))?;
             }
             Err(_) => {
                 machine.set_register(A0, Mac::REG::from_u8(WRONG_FORMAT));
@@ -185,7 +185,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             DEFAULT_STACK_SIZE as u64,
         ) {
             Ok(size) => {
-                machine.add_cycles(transferred_byte_cycles(size))?;
+                machine.add_cycles_no_checking(transferred_byte_cycles(size))?;
             }
             Err(_) => {
                 machine.set_register(A0, Mac::REG::from_u8(WRONG_FORMAT));

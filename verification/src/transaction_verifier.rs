@@ -131,6 +131,18 @@ where
         }
     }
 
+    /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
+    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<(VerifyResult, Capacity), Error> {
+        let timer = Timer::start();
+        self.compatible.verify()?;
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        let fee = self.fee_calculator.transaction_fee()?;
+        let ret = self.script.resumable_verify(limit_cycles)?;
+        metrics!(timing, "ckb.resumable_verify", timer.stop());
+        Ok((ret, fee))
+    }
+
     /// Perform context-dependent verification, return a `Result` to `CacheEntry`
     ///
     /// skip script verify will result in the return value cycle always is zero
@@ -364,6 +376,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         let ret = self.inner.complete(snapshot, max_cycles)?;
         metrics!(timing, "ckb.complete_verify", timer.stop());
         Ok(ret)
+    }
+
+    /// Explicitly dereferencing operation
+    pub fn inner(&self) -> &TransactionScriptsVerifier<'a, DL> {
+        &self.inner
     }
 }
 
@@ -888,13 +905,13 @@ impl<'a> OutputsDataVerifier<'a> {
 /// Context-dependent checks exclude script
 ///
 /// Contains:
-/// [`MaturityVerifier`](./struct.MaturityVerifier.html)
-/// [`SinceVerifier`](./struct.SinceVerifier.html)
+/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
+/// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualWithoutScriptTransactionVerifier<'a, DL> {
-    pub(crate) maturity: MaturityVerifier<'a>,
-    pub(crate) since: SinceVerifier<'a, DL>,
+    pub(crate) compatible: CompatibleVerifier<'a>,
+    pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
     pub(crate) fee_calculator: FeeCalculator<'a, DL>,
 }
@@ -904,7 +921,6 @@ where
     DL: CellDataProvider + HeaderProvider + EpochProvider,
 {
     /// Creates a new ContextualWithoutScriptTransactionVerifier
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
         consensus: &'a Consensus,
@@ -912,9 +928,14 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualWithoutScriptTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
+            compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
+            time_relative: TimeRelativeTransactionVerifier::new(
+                &rtx,
+                consensus,
+                data_loader,
+                tx_env,
+            ),
             capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
-            since: SinceVerifier::new(rtx, consensus, data_loader, tx_env),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
     }
@@ -922,9 +943,9 @@ where
     /// Perform verification
     pub fn verify(&self) -> Result<Capacity, Error> {
         let timer = Timer::start();
-        self.maturity.verify()?;
+        self.compatible.verify()?;
+        self.time_relative.verify()?;
         self.capacity.verify()?;
-        self.since.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
         metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(fee)

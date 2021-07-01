@@ -26,7 +26,8 @@ pub use crate::transaction_verifier::{
     TimeRelativeTransactionVerifier, TransactionVerifier,
 };
 pub use ckb_script::{
-    TransactionState as ScriptVerifyState, TxVerifyEnv, VerifyResult as ScriptVerifyResult,
+    ScriptError, ScriptGroupType, TransactionState as ScriptVerifyState, TxVerifyEnv,
+    VerifyResult as ScriptVerifyResult,
 };
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the

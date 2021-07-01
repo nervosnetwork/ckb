@@ -1,18 +1,19 @@
-use ckb_async_runtime::Handle;
-use ckb_channel::{select, Receiver};
-use ckb_store::ChainStore;
-use ckb_types::core::Cycle;
-use ckb_verification::{
-    cache::{CacheEntry, Completed},
-    ContextualWithoutScriptTransactionVerifier, ScriptVerifier, ScriptVerifyResult,
-    ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
-};
-use std::convert::TryInto;
-use std::{cmp, sync::Arc};
-
 use crate::component::chunk::Entry;
 use crate::component::entry::TxEntry;
 use crate::{error::Reject, service::TxPoolService};
+use ckb_async_runtime::Handle;
+use ckb_channel::{select, Receiver};
+use ckb_error::Error;
+use ckb_store::ChainStore;
+use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_types::{core::Cycle, packed::Byte32};
+use ckb_verification::{
+    cache::{CacheEntry, Completed},
+    ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptGroupType, ScriptVerifier,
+    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
+};
+use std::convert::TryInto;
+use std::sync::Arc;
 
 const MIN_STEP_CYCLE: Cycle = 10_000_000;
 
@@ -164,7 +165,6 @@ impl TxChunkProcess {
         } else {
             consensus.max_block_cycles()
         };
-        let current_cycles = init_snap.as_ref().map(|s| s.current_cycles).unwrap_or(0);
 
         let completed: Completed = loop {
             // Should get here until there is no command, otherwise there maybe have a very large delay
@@ -192,18 +192,46 @@ impl TxChunkProcess {
                 }
             }
 
-            let step_cycle = cmp::min(MIN_STEP_CYCLE, max_cycles - current_cycles);
-
+            let mut last_step = false;
             let ret = if let Some(ref snap) = init_snap {
-                let ret = script_verifier.resume_from_snap(snap, step_cycle);
+                if snap.current_cycles > max_cycles {
+                    let error =
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, &snap.current);
+                    return Err(Reject::Verification(error));
+                }
+                let remain = max_cycles - snap.current_cycles;
+                let step_cycles = snap.limit_cycles + MIN_STEP_CYCLE;
+
+                let limit_cycles = if step_cycles < remain {
+                    step_cycles
+                } else {
+                    last_step = true;
+                    remain
+                };
+                let ret = script_verifier.resume_from_snap(snap, limit_cycles);
                 init_snap = None;
                 ret
             } else if let Some(state) = tmp_state {
                 // once we start loop from state, clean tmp snap.
                 init_snap = None;
-                script_verifier.resume_from_state(state, step_cycle)
+                if state.current_cycles > max_cycles {
+                    let error =
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, &state.current);
+                    return Err(Reject::Verification(error));
+                }
+
+                let remain = max_cycles - state.current_cycles;
+                let step_cycles = state.limit_cycles + MIN_STEP_CYCLE;
+
+                let limit_cycles = if step_cycles < remain {
+                    step_cycles
+                } else {
+                    last_step = true;
+                    remain
+                };
+                script_verifier.resume_from_state(state, limit_cycles)
             } else {
-                script_verifier.resumable_verify(step_cycle)
+                script_verifier.resumable_verify(MIN_STEP_CYCLE)
             }
             .map_err(Reject::Verification)?;
 
@@ -212,6 +240,14 @@ impl TxChunkProcess {
                     break Completed { cycles, fee };
                 }
                 ScriptVerifyResult::Suspended(state) => {
+                    if last_step {
+                        let error = exceeded_maximum_cycles_error(
+                            &script_verifier,
+                            max_cycles,
+                            &state.current,
+                        );
+                        return Err(Reject::Verification(error));
+                    }
                     tmp_state = Some(state);
                 }
             }
@@ -228,11 +264,27 @@ impl TxChunkProcess {
         self.handle.block_on(self.remove_front());
 
         let txs_verify_cache = Arc::clone(&self.service.txs_verify_cache);
-        tokio::spawn(async move {
+        self.handle.block_on(async move {
             let mut guard = txs_verify_cache.write().await;
             guard.put(tx_hash, CacheEntry::Completed(completed));
         });
 
         Ok(false)
     }
+}
+
+fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider>(
+    verifier: &ScriptVerifier<'_, DL>,
+    max_cycles: Cycle,
+    current: &(ScriptGroupType, Byte32),
+) -> Error {
+    verifier
+        .inner()
+        .find_script_group(current.0, &current.1)
+        .map(|group| ScriptError::ExceededMaximumCycles(max_cycles).source(&group))
+        .unwrap_or_else(|| {
+            ScriptError::VMInternalError(format!("suspended state group missing {:?}", current))
+                .unknown_source()
+        })
+        .into()
 }
