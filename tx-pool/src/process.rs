@@ -211,23 +211,40 @@ impl TxPoolService {
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
+        let no_immature_header_deps = snapshot
+            .consensus()
+            .hardfork_switch()
+            .is_remove_header_deps_immature_rule_enabled(current_epoch.number());
+
         let rtxs: Vec<_> = block_in_place(|| {
-            entries_iter.enumerate().filter_map(|(index, entry)| {
-                let overlay_cell_checker = OverlayCellChecker::new(&transactions_checker, snapshot);
-                if let Err(err) = entry.rtx.check(&mut seen_inputs, &overlay_cell_checker, snapshot) {
-                    error!(
-                        "resolve transactions when build block template, tip_number: {}, tip_hash: {}, error: {:?}",
-                        tip_header.number(), tip_hash, err
-                    );
-                    None
-                } else {
-                    if index != 0 {
-                        transactions_checker.insert(entry.transaction());
-                        template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
+            entries_iter
+                .enumerate()
+                .filter_map(|(index, entry)| {
+                    let overlay_cell_checker =
+                        OverlayCellChecker::new(&transactions_checker, snapshot);
+                    if let Err(err) = entry.rtx.check(
+                        &mut seen_inputs,
+                        &overlay_cell_checker,
+                        snapshot,
+                        no_immature_header_deps,
+                    ) {
+                        error!(
+                            "resolve transactions when build block template, \
+                             tip_number: {}, tip_hash: {}, error: {:?}",
+                            tip_header.number(),
+                            tip_hash,
+                            err
+                        );
+                        None
+                    } else {
+                        if index != 0 {
+                            transactions_checker.insert(entry.transaction());
+                            template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
+                        }
+                        Some(entry.rtx)
                     }
-                    Some(entry.rtx)
-                }
-            }).collect()
+                })
+                .collect()
         });
 
         // Generate DAO fields here
@@ -770,36 +787,63 @@ fn check_rtx(
     rtx: &ResolvedTransaction,
 ) -> Result<TxStatus, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
+    let tip_header = snapshot.tip_header();
+    let proposal_window = snapshot.consensus().tx_proposal_window();
+    let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
+        let no_immature_header_deps = {
+            let tx_env = TxStatus::Proposed.with_env(tip_header);
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+        };
         tx_pool
-            .check_rtx_from_proposed(rtx)
+            .check_rtx_from_proposed(rtx, no_immature_header_deps)
             .map(|_| TxStatus::Proposed)
     } else {
-        tx_pool.check_rtx_from_pending_and_proposed(rtx).map(|_| {
-            if snapshot.proposals().contains_gap(&short_id) {
-                TxStatus::Gap
-            } else {
-                TxStatus::Fresh
-            }
-        })
+        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
+            TxStatus::Gap
+        } else {
+            TxStatus::Fresh
+        };
+        let no_immature_header_deps = {
+            let tx_env = tx_status.with_env(tip_header);
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+        };
+        tx_pool
+            .check_rtx_from_pending_and_proposed(rtx, no_immature_header_deps)
+            .map(|_| tx_status)
     }
 }
 
 fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> ResolveResult {
     let short_id = tx.proposal_short_id();
+    let tip_header = snapshot.tip_header();
+    let proposal_window = snapshot.consensus().tx_proposal_window();
+    let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
+        let no_immature_header_deps = {
+            let tx_env = TxStatus::Proposed.with_env(tip_header);
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+        };
         tx_pool
-            .resolve_tx_from_proposed(tx)
+            .resolve_tx_from_proposed(tx, no_immature_header_deps)
             .map(|rtx| (rtx, TxStatus::Proposed))
     } else {
-        tx_pool.resolve_tx_from_pending_and_proposed(tx).map(|rtx| {
-            let status = if snapshot.proposals().contains_gap(&short_id) {
-                TxStatus::Gap
-            } else {
-                TxStatus::Fresh
-            };
-            (rtx, status)
-        })
+        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
+            TxStatus::Gap
+        } else {
+            TxStatus::Fresh
+        };
+        let no_immature_header_deps = {
+            let tx_env = tx_status.with_env(tip_header);
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+        };
+        tx_pool
+            .resolve_tx_from_pending_and_proposed(tx, no_immature_header_deps)
+            .map(|rtx| (rtx, tx_status))
     }
 }
 

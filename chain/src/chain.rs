@@ -13,7 +13,10 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
+        cell::{
+            resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
+            ResolvedTransaction,
+        },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
@@ -718,6 +721,11 @@ impl ChainService {
                     };
 
                     let transactions = b.transactions();
+                    let no_immature_header_deps = self
+                        .shared
+                        .consensus()
+                        .hardfork_switch()
+                        .is_remove_header_deps_immature_rule_enabled(b.epoch().number());
                     let resolved = {
                         let txn_cell_provider = txn.cell_provider();
                         let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
@@ -725,11 +733,12 @@ impl ChainService {
                             .iter()
                             .cloned()
                             .map(|x| {
-                                resolve_transaction(
+                                resolve_transaction_with_options(
                                     x,
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
+                                    no_immature_header_deps,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()

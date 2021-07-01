@@ -2,7 +2,9 @@ use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction};
+use ckb_jsonrpc_types::{
+    AsEpochNumberWithFraction, Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction,
+};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -10,7 +12,8 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
-            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
+            resolve_transaction_with_options, OverlayCellProvider, ResolvedTransaction,
+            TransactionsProvider,
         },
         BlockView,
     },
@@ -178,21 +181,31 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
+        let current_epoch_number = block_template.epoch.epoch_number();
+        let no_immature_header_deps = consensus
+            .hardfork_switch()
+            .is_remove_header_deps_immature_rule_enabled(current_epoch_number);
 
-        let rtxs = txs.iter().map(|tx| {
-            resolve_transaction(
-                tx.clone(),
-                &mut seen_inputs,
-                &overlay_cell_provider,
-                snapshot,
-            ).map_err(|err| {
-                error!(
-                    "resolve transactions error when generating block with block template, error: {:?}",
-                    err
-                );
-                RPCError::invalid_params(err.to_string())
+        let rtxs = txs
+            .iter()
+            .map(|tx| {
+                resolve_transaction_with_options(
+                    tx.clone(),
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    snapshot,
+                    no_immature_header_deps,
+                )
+                .map_err(|err| {
+                    error!(
+                        "resolve transactions error when generating block \
+                         with block template, error: {:?}",
+                        err
+                    );
+                    RPCError::invalid_params(err.to_string())
+                })
             })
-        }).collect::<Result<Vec<ResolvedTransaction>>>()?;
+            .collect::<Result<Vec<ResolvedTransaction>>>()?;
 
         let mut update_dao_template = block_template;
         update_dao_template.dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())

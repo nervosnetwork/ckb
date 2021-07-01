@@ -6,7 +6,7 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         self,
-        cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+        cell::{resolve_transaction_with_options, CellProvider, CellStatus, HeaderChecker},
         error::OutPointError,
     },
     packed,
@@ -247,12 +247,25 @@ impl<'a> DryRunner<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
         let snapshot: &Snapshot = &self.shared.snapshot();
-        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
+        let consensus = snapshot.consensus();
+        let tip_header = snapshot.tip_header();
+        let tx_env = TxVerifyEnv::new_submit(&tip_header);
+        let no_immature_header_deps = {
+            let proposal_window = consensus.tx_proposal_window();
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            consensus
+                .hardfork_switch()
+                .is_remove_header_deps_immature_rule_enabled(epoch_number)
+        };
+        match resolve_transaction_with_options(
+            tx.into_view(),
+            &mut HashSet::new(),
+            self,
+            self,
+            no_immature_header_deps,
+        ) {
             Ok(resolved) => {
-                let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                let tip_header = snapshot.tip_header();
-                let tx_env = TxVerifyEnv::new_submit(&tip_header);
                 match ScriptVerifier::new(
                     &resolved,
                     consensus,

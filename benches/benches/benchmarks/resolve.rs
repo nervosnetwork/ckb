@@ -166,7 +166,8 @@ fn bench(c: &mut Criterion) {
                     while i > 0 {
                         let mut seen_inputs = HashSet::new();
                         for rtx in &rtxs {
-                            rtx.check(&mut seen_inputs, &provider, snapshot).unwrap();
+                            rtx.check(&mut seen_inputs, &provider, snapshot, false)
+                                .unwrap();
                         }
                         i -= 1;
                     }

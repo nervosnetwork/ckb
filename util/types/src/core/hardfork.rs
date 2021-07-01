@@ -100,6 +100,7 @@ pub struct HardForkSwitch {
     rfc_pr_0224: EpochNumber,
     rfc_pr_0234: EpochNumber,
     rfc_pr_0237: EpochNumber,
+    rfc_pr_0240: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -134,6 +135,10 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0237: Option<EpochNumber>,
+    /// Remove the header deps immature rule.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0240: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -151,6 +156,7 @@ impl HardForkSwitch {
             .rfc_pr_0224(self.rfc_pr_0224())
             .rfc_pr_0234(self.rfc_pr_0234())
             .rfc_pr_0237(self.rfc_pr_0237())
+            .rfc_pr_0240(self.rfc_pr_0240())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
@@ -163,6 +169,7 @@ impl HardForkSwitch {
             .disable_rfc_pr_0224()
             .disable_rfc_pr_0234()
             .disable_rfc_pr_0237()
+            .disable_rfc_pr_0240()
             .build()
             .unwrap()
     }
@@ -215,6 +222,13 @@ define_methods!(
     disable_rfc_pr_0237,
     "RFC PR 0237"
 );
+define_methods!(
+    rfc_pr_0240,
+    remove_header_deps_immature_rule,
+    is_remove_header_deps_immature_rule_enabled,
+    disable_rfc_pr_0240,
+    "RFC PR 0240"
+);
 
 define_methods!(
     rfc_pr_0234,
@@ -245,6 +259,7 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0224 = try_find!(rfc_pr_0224);
         let rfc_pr_0234 = try_find!(rfc_pr_0234);
         let rfc_pr_0237 = try_find!(rfc_pr_0237);
+        let rfc_pr_0240 = try_find!(rfc_pr_0240);
 
         if rfc_pr_0234 != rfc_pr_0237 {
             return Err(format!(
@@ -260,6 +275,7 @@ impl HardForkSwitchBuilder {
             rfc_pr_0224,
             rfc_pr_0234,
             rfc_pr_0237,
+            rfc_pr_0240,
         })
     }
 }
