@@ -1,7 +1,7 @@
 use crate::cache::CacheEntry;
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
-use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_metrics::{metrics, Timer};
@@ -27,10 +27,14 @@ pub struct TimeRelativeTransactionVerifier<'a, M> {
     pub(crate) since: SinceVerifier<'a, M>,
 }
 
-impl<'a, DL: HeaderProvider + ConsensusProvider> TimeRelativeTransactionVerifier<'a, DL> {
+impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
     /// Creates a new TimeRelativeTransactionVerifier
-    pub fn new(rtx: &'a ResolvedTransaction, data_loader: &'a DL, tx_env: &'a TxVerifyEnv) -> Self {
-        let consensus = data_loader.get_consensus();
+    pub fn new(
+        rtx: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        data_loader: &'a DL,
+        tx_env: &'a TxVerifyEnv,
+    ) -> Self {
         TimeRelativeTransactionVerifier {
             maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
             since: SinceVerifier::new(rtx, consensus, data_loader, tx_env),
@@ -88,14 +92,12 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
-/// [`MaturityVerifier`](./struct.MaturityVerifier.html)
-/// [`SinceVerifier`](./struct.SinceVerifier.html)
+/// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<'a, DL> {
-    pub(crate) maturity: MaturityVerifier<'a>,
-    pub(crate) since: SinceVerifier<'a, DL>,
+    pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
     pub(crate) script: ScriptVerifier<'a, DL>,
     pub(crate) fee_calculator: FeeCalculator<'a, DL>,
@@ -113,10 +115,14 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
+            time_relative: TimeRelativeTransactionVerifier::new(
+                &rtx,
+                consensus,
+                data_loader,
+                tx_env,
+            ),
             script: ScriptVerifier::new(rtx, consensus, data_loader, tx_env),
             capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
-            since: SinceVerifier::new(rtx, consensus, data_loader, tx_env),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
     }
@@ -126,9 +132,8 @@ where
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<CacheEntry, Error> {
         let timer = Timer::start();
-        self.maturity.verify()?;
+        self.time_relative.verify()?;
         self.capacity.verify()?;
-        self.since.verify()?;
         let cycles = if skip_script_verify {
             0
         } else {
