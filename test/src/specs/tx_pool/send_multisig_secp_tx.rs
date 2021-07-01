@@ -141,7 +141,7 @@ fn type_lock_script_code_hash() -> H256 {
 }
 
 fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> BlockAssemblerConfig {
-    let code_hash = if hash_type == ScriptHashType::Data {
+    let code_hash = if hash_type == ScriptHashType::Data(0) {
         CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL.clone()
     } else {
         type_lock_script_code_hash()

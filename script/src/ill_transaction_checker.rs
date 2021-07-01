@@ -1,9 +1,10 @@
-use crate::ScriptError;
+use crate::{verify_env::TxVerifyEnv, ScriptError};
 use byteorder::{ByteOrder, LittleEndian};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_types::core::TransactionView;
 use ckb_vm::{
-    instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
-    registers::{RA, ZERO},
+    instructions::{extract_opcode, i, m, rvc, Instruction, Itype},
+    registers::ZERO,
 };
 use ckb_vm_definitions::instructions as insts;
 use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
@@ -13,18 +14,30 @@ const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92
 /// Ill formed transactions checker.
 pub struct IllTransactionChecker<'a> {
     tx: &'a TransactionView,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
 }
 
 impl<'a> IllTransactionChecker<'a> {
     /// Creates the checker for a transaction.
-    pub fn new(tx: &'a TransactionView) -> Self {
-        IllTransactionChecker { tx }
+    pub fn new(tx: &'a TransactionView, consensus: &'a Consensus, tx_env: &'a TxVerifyEnv) -> Self {
+        IllTransactionChecker {
+            tx,
+            consensus,
+            tx_env,
+        }
     }
 
     /// Checks whether the transaction is ill formed.
     pub fn check(&self) -> Result<(), ScriptError> {
-        for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
-            IllScriptChecker::new(&data.raw_data(), i).check()?;
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let hardfork_switch = self.consensus.hardfork_switch();
+        // TODO ckb2021 require-confirmation We couldn't known if user run the code in vm v0 or vm v1.
+        if !hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number) {
+            for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
+                IllScriptChecker::new(&data.raw_data(), i).check()?;
+            }
         }
         Ok(())
     }
@@ -56,35 +69,19 @@ impl<'a> IllScriptChecker<'a> {
                 let mut pc = section_header.sh_offset;
                 let end = section_header.sh_offset + section_header.sh_size;
                 while pc < end {
-                    match self.decode_instruction(pc) {
-                        (Some(i), len) => {
-                            match extract_opcode(i) {
-                                insts::OP_JALR => {
-                                    let i = Itype(i);
-                                    if i.rs1() == i.rd() && i.rd() != ZERO {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                insts::OP_RVC_JALR => {
-                                    let i = Stype(i);
-                                    if i.rs1() == RA {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                _ => (),
-                            };
-                            pc += len;
-                        }
-                        (None, len) => {
-                            pc += len;
-                        }
+                    let (option_instruction, len) = self.decode_instruction(pc);
+                    if let Some(i) = option_instruction {
+                        if extract_opcode(i) == insts::OP_JALR {
+                            let i = Itype(i);
+                            if i.rs1() == i.rd() && i.rd() != ZERO {
+                                return Err(ScriptError::EncounteredKnownBugs(
+                                    CKB_VM_ISSUE_92.to_string(),
+                                    self.index,
+                                ));
+                            }
+                        };
                     }
+                    pc += len;
                 }
             }
         }

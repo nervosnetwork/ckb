@@ -98,6 +98,7 @@ pub struct HardForkSwitch {
     rfc_pr_0222: EpochNumber,
     rfc_pr_0223: EpochNumber,
     rfc_pr_0224: EpochNumber,
+    rfc_pr_0237: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -124,6 +125,10 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
     pub rfc_pr_0224: Option<EpochNumber>,
+    /// CKB VM version selection, vm version 1 and syscalls 2.
+    ///
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    pub rfc_pr_0237: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -139,6 +144,7 @@ impl HardForkSwitch {
             .rfc_pr_0222(self.rfc_pr_0222())
             .rfc_pr_0223(self.rfc_pr_0223())
             .rfc_pr_0224(self.rfc_pr_0224())
+            .rfc_pr_0237(self.rfc_pr_0237())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
@@ -149,8 +155,21 @@ impl HardForkSwitch {
             .disable_rfc_pr_0222()
             .disable_rfc_pr_0223()
             .disable_rfc_pr_0224()
+            .disable_rfc_pr_0237()
             .build()
             .unwrap()
+    }
+
+    /// Returns a vector of epoch numbers, and there are new features which
+    /// require refrese tx-pool caches will be enabled at those epochs.
+    pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {
+        let mut epochs = vec![self.rfc_pr_0237()];
+        // In future, there could be more than one epoch,
+        // we should merge the same epochs and sort all epochs.
+        //epochs.sort_unstable();
+        //epochs.dedup();
+        epochs.retain(|&x| x != 0);
+        epochs
     }
 }
 
@@ -182,6 +201,13 @@ define_methods!(
     disable_rfc_pr_0224,
     "RFC PR 0224"
 );
+define_methods!(
+    rfc_pr_0237,
+    vm_version_1_and_syscalls_2,
+    is_vm_version_1_and_syscalls_2_enabled,
+    disable_rfc_pr_0237,
+    "RFC PR 0237"
+);
 
 impl HardForkSwitchBuilder {
     /// Build a new [`HardForkSwitch`].
@@ -202,11 +228,13 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0222 = try_find!(rfc_pr_0222);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
         let rfc_pr_0224 = try_find!(rfc_pr_0224);
+        let rfc_pr_0237 = try_find!(rfc_pr_0237);
         Ok(HardForkSwitch {
             rfc_pr_0221,
             rfc_pr_0222,
             rfc_pr_0223,
             rfc_pr_0224,
+            rfc_pr_0237,
         })
     }
 }

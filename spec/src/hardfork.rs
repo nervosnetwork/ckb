@@ -13,30 +13,34 @@ use serde::{Deserialize, Serialize};
 pub struct HardForkConfig {
     // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0221: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0222: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0223: Option<EpochNumber>,
     /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0224: Option<EpochNumber>,
+    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rfc_pr_0237: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
     ($config:ident, $feature:ident, $expected:expr) => {
-        match $config.$feature {
-            Some(input) if input != $expected => {
-                let errmsg = format!(
-                    "The value for hard fork feature \"{}\" is incorrect, actual: {}, expected: {}.
-                    Don't set it for mainnet or testnet, or set it as a correct value.",
-                    stringify!($feature),
-                    input,
-                    $expected,
-                );
-                Err(errmsg)
-            },
-            _ => Ok($expected),
-        }?
+        if $config.$feature.is_some() {
+            let errmsg = format!(
+                "Found the hard fork feature parameter \"{}\" is the chain specification file.
+                Don't set any hard fork parameters for \"mainnet\" or \"testnet\".",
+                stringify!($feature),
+            );
+            return Err(errmsg);
+        } else {
+            $expected
+        }
     };
 }
 
@@ -66,7 +70,8 @@ impl HardForkConfig {
             .rfc_pr_0221(check_default!(self, rfc_pr_0221, ckb2021))
             .rfc_pr_0222(check_default!(self, rfc_pr_0222, ckb2021))
             .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021))
-            .rfc_pr_0224(check_default!(self, rfc_pr_0224, ckb2021));
+            .rfc_pr_0224(check_default!(self, rfc_pr_0224, ckb2021))
+            .rfc_pr_0237(check_default!(self, rfc_pr_0237, ckb2021));
         Ok(builder)
     }
 
@@ -79,6 +84,7 @@ impl HardForkConfig {
             .rfc_pr_0222(self.rfc_pr_0222.unwrap_or(default))
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .rfc_pr_0224(self.rfc_pr_0224.unwrap_or(default))
+            .rfc_pr_0237(self.rfc_pr_0237.unwrap_or(default))
             .build()
     }
 }

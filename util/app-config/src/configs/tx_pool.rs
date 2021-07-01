@@ -55,10 +55,10 @@ impl Default for TxPoolConfig {
 pub struct BlockAssemblerConfig {
     /// The miner lock script code hash.
     pub code_hash: H256,
-    /// The miner lock script hash type.
-    pub hash_type: ScriptHashType,
     /// The miner lock script args.
     pub args: JsonBytes,
     /// An arbitrary message to be added into the cellbase transaction.
     pub message: JsonBytes,
+    /// The miner lock script hash type.
+    pub hash_type: ScriptHashType,
 }

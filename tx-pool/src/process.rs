@@ -24,6 +24,7 @@ use ckb_types::{
             get_related_dep_out_points, OverlayCellChecker, ResolvedTransaction,
             TransactionsChecker,
         },
+        hardfork::HardForkSwitch,
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
@@ -611,6 +612,11 @@ impl TxPoolService {
     ) {
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
+        let hardfork_switch = snapshot.consensus().hardfork_switch();
+        let hardfork_during_detach =
+            check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
+        let hardfork_during_attach =
+            check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().into_iter().skip(1))
@@ -624,16 +630,33 @@ impl TxPoolService {
         let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
 
         {
-            let mut tx_pool = self.tx_pool.write().await;
-            _update_tx_pool_for_reorg(
-                &mut tx_pool,
-                &attached,
-                detached_proposal_id,
-                snapshot,
-                &self.callbacks,
-            );
+            let txs_opt = {
+                // This closure is used to limit the lifetime of mutable tx_pool.
+                let mut tx_pool = self.tx_pool.write().await;
 
-            self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache)
+                let txs_opt = if hardfork_during_detach || hardfork_during_attach {
+                    // The tx_pool is locked, remove all caches if has any hardfork.
+                    self.txs_verify_cache.write().await.clear();
+                    Some(tx_pool.drain_all_transactions())
+                } else {
+                    None
+                };
+
+                _update_tx_pool_for_reorg(
+                    &mut tx_pool,
+                    &attached,
+                    detached_proposal_id,
+                    snapshot,
+                    &self.callbacks,
+                );
+                self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache);
+
+                txs_opt
+            };
+
+            if let Some(txs) = txs_opt {
+                self.try_process_txs(txs).await;
+            }
         }
 
         {
@@ -669,6 +692,23 @@ impl TxPoolService {
                 }
             }
         }
+    }
+
+    // # Notice
+    //
+    // This method assumes that the inputs transactions are sorted.
+    async fn try_process_txs(&self, txs: Vec<TransactionView>) {
+        if txs.is_empty() {
+            return;
+        }
+        let total = txs.len();
+        let mut count = 0usize;
+        for tx in txs {
+            if self._process_tx(tx, None).await.is_err() {
+                count += 1;
+            }
+        }
+        info!("{}/{} transactions are failed to process", count, total);
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
@@ -830,6 +870,34 @@ fn _update_tx_pool_for_reorg(
         if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
             callbacks.call_reject(tx_pool, &entry, e.clone());
+        }
+    }
+}
+
+// # Notice
+//
+// This method assumes that the inputs blocks are sorted.
+fn check_if_hardfork_during_blocks(
+    hardfork_switch: &HardForkSwitch,
+    blocks: &VecDeque<BlockView>,
+) -> bool {
+    if blocks.is_empty() {
+        false
+    } else {
+        // This method assumes that the hardfork epochs are sorted and unique.
+        let hardfork_epochs = hardfork_switch.script_result_changed_at();
+        if hardfork_epochs.is_empty() {
+            false
+        } else {
+            let epoch_first = blocks.front().unwrap().epoch().number();
+            let epoch_next = blocks
+                .back()
+                .unwrap()
+                .epoch()
+                .minimum_epoch_number_after_n_blocks(1);
+            hardfork_epochs
+                .into_iter()
+                .any(|hardfork_epoch| epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next)
         }
     }
 }

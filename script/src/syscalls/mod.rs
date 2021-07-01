@@ -1,4 +1,6 @@
+mod current_cycles;
 mod debugger;
+mod exec;
 mod load_cell;
 mod load_cell_data;
 mod load_header;
@@ -8,8 +10,11 @@ mod load_script_hash;
 mod load_tx;
 mod load_witness;
 mod utils;
+mod vm_version;
 
+pub use self::current_cycles::CurrentCycles;
 pub use self::debugger::Debugger;
+pub use self::exec::Exec;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
@@ -18,6 +23,7 @@ pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
+pub use self::vm_version::VMVersion;
 
 use ckb_vm::Error;
 
@@ -29,7 +35,11 @@ pub const SUCCESS: u8 = 0;
 pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
+pub const WRONG_FORMAT: u8 = 4;
 
+pub const VM_VERSION: u64 = 2041;
+pub const CURRENT_CYCLES: u64 = 2042;
+pub const EXEC: u64 = 2043;
 pub const LOAD_TRANSACTION_SYSCALL_NUMBER: u64 = 2051;
 pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2052;
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
@@ -188,11 +198,13 @@ mod tests {
         prelude::*,
         H256,
     };
-    use ckb_vm::machine::DefaultCoreMachine;
+    use ckb_vm::{machine::DefaultCoreMachine, SupportMachine};
     use ckb_vm::{
-        memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
+        machine::{VERSION0, VERSION1},
+        memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
-        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
+        CoreMachine, Error as VMError, Memory, SparseMemory, Syscalls, WXorXMemory, ISA_IMC,
+        RISCV_PAGESIZE,
     };
     use proptest::{collection::size_range, prelude::*};
     use std::collections::HashMap;
@@ -237,7 +249,11 @@ mod tests {
     }
 
     fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -285,7 +301,11 @@ mod tests {
     }
 
     fn _test_load_cell_all(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -376,7 +396,11 @@ mod tests {
     }
 
     fn _test_load_cell_length(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -428,7 +452,11 @@ mod tests {
     }
 
     fn _test_load_cell_partial(data: &[u8], offset: u64) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -488,7 +516,11 @@ mod tests {
     }
 
     fn _test_load_cell_capacity(capacity: Capacity) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -550,7 +582,11 @@ mod tests {
 
     #[test]
     fn test_load_missing_contract() {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -591,7 +627,11 @@ mod tests {
     }
 
     fn _test_load_header(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -655,7 +695,11 @@ mod tests {
     }
 
     fn _test_load_epoch_number(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -716,7 +760,11 @@ mod tests {
     }
 
     fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -760,7 +808,11 @@ mod tests {
     }
 
     fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -804,7 +856,11 @@ mod tests {
     }
 
     fn _test_load_current_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -815,7 +871,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(Bytes::from(data.to_owned()).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let hash = script.calc_script_hash();
         let data = hash.raw_data();
@@ -856,7 +912,11 @@ mod tests {
     }
 
     fn _test_load_input_lock_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -870,7 +930,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(Bytes::from(data.to_owned()).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let h = script.calc_script_hash();
         let hash = h.as_bytes();
@@ -922,7 +982,11 @@ mod tests {
     }
 
     fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -977,7 +1041,11 @@ mod tests {
     }
 
     fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -1032,7 +1100,11 @@ mod tests {
     }
 
     fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 0;
         let addr: u64 = 100;
 
@@ -1078,7 +1150,12 @@ mod tests {
     }
 
     fn _test_load_cell_data_as_code(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
+
         let addr = 4096;
         let addr_size = 4096;
 
@@ -1113,7 +1190,7 @@ mod tests {
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        let flags = FLAG_EXECUTABLE | FLAG_FREEZED;
+        let flags = FLAG_EXECUTABLE | FLAG_FREEZED | FLAG_DIRTY;
         prop_assert_eq!(
             machine
                 .memory_mut()
@@ -1132,7 +1209,11 @@ mod tests {
     }
 
     fn _test_load_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let size_addr: u64 = 100;
         let addr = 4096;
         let addr_size = 4096;
@@ -1167,7 +1248,7 @@ mod tests {
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        let flags = FLAG_WRITABLE;
+        let flags = FLAG_WRITABLE | FLAG_DIRTY;
         prop_assert_eq!(
             machine
                 .memory_mut()
@@ -1203,7 +1284,11 @@ mod tests {
     #[test]
     fn test_load_overflowed_cell_data_as_code() {
         let data = vec![0, 1, 2, 3, 4, 5];
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let addr = 4096;
         let addr_size = 4096;
 
@@ -1243,7 +1328,11 @@ mod tests {
         as_code: bool,
         data: &[u8],
     ) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let addr = 8192;
         let addr_size = 4096;
 
@@ -1308,7 +1397,11 @@ mod tests {
 
     #[test]
     fn test_load_code_unaligned_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let addr = 4097;
         let addr_size = 4096;
         let data = [2; 32];
@@ -1349,7 +1442,11 @@ mod tests {
 
     #[test]
     fn test_load_code_slice_out_of_bound_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let addr = 4096;
         let addr_size = 4096;
         let data = [2; 32];
@@ -1392,7 +1489,11 @@ mod tests {
 
     #[test]
     fn test_load_code_not_enough_space_error() {
-        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
         let addr = 4096;
         let addr_size = 4096;
 
@@ -1433,5 +1534,73 @@ mod tests {
         for i in addr..addr + addr_size {
             assert_eq!(machine.memory_mut().load8(&i), Ok(1));
         }
+    }
+
+    #[test]
+    fn test_vm_version0() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION0,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, VM_VERSION);
+
+        let result = VMVersion::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 0);
+    }
+
+    #[test]
+    fn test_vm_version1() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION1,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, VM_VERSION);
+
+        let result = VMVersion::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 1);
+    }
+
+    #[test]
+    fn test_current_cycles() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+            ISA_IMC,
+            VERSION1,
+            u64::max_value(),
+        );
+
+        machine.set_register(A0, 0);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0);
+        machine.set_register(A5, 0);
+        machine.set_register(A7, CURRENT_CYCLES);
+
+        machine.set_cycles(100);
+
+        let result = CurrentCycles::new().ecall(&mut machine);
+
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(machine.registers()[A0], 100);
     }
 }

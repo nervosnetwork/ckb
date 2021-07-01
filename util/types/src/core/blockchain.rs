@@ -1,3 +1,4 @@
+use ckb_constant::MAX_VM_VERSION;
 use ckb_error::OtherError;
 use std::convert::TryFrom;
 
@@ -7,14 +8,14 @@ use crate::packed;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptHashType {
     /// TODO(doc): @quake
-    Data = 0,
+    Data(u8),
     /// TODO(doc): @quake
-    Type = 1,
+    Type,
 }
 
 impl Default for ScriptHashType {
     fn default() -> Self {
-        ScriptHashType::Data
+        ScriptHashType::Data(0)
     }
 }
 
@@ -23,7 +24,17 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 
     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
         match Into::<u8>::into(v) {
-            0 => Ok(ScriptHashType::Data),
+            x if x % 2 == 0 => {
+                let vm_version = x / 2;
+                if vm_version > MAX_VM_VERSION {
+                    Err(OtherError::new(format!(
+                        "The maximum vm version currently supported is {}, but got {}",
+                        MAX_VM_VERSION, vm_version
+                    )))
+                } else {
+                    Ok(ScriptHashType::Data(vm_version))
+                }
+            }
             1 => Ok(ScriptHashType::Type),
             _ => Err(OtherError::new(format!("Invalid script hash type {}", v))),
         }
@@ -33,21 +44,24 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 impl ScriptHashType {
     #[inline]
     pub(crate) fn verify_value(v: u8) -> bool {
-        v <= 1
+        v == 1 || ((v % 2 == 0) && (v / 2 <= MAX_VM_VERSION))
     }
 }
 
 impl Into<u8> for ScriptHashType {
     #[inline]
     fn into(self) -> u8 {
-        self as u8
+        match self {
+            Self::Data(v) => v * 2,
+            Self::Type => 1,
+        }
     }
 }
 
 impl Into<packed::Byte> for ScriptHashType {
     #[inline]
     fn into(self) -> packed::Byte {
-        (self as u8).into()
+        Into::<u8>::into(self).into()
     }
 }
 

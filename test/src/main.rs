@@ -424,7 +424,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         )),
         Box::new(SendSecpTxUseDepGroup::new(
             "send_secp_tx_use_dep_group_data_hash",
-            ScriptHashType::Data,
+            ScriptHashType::Data(0),
         )),
         Box::new(SendSecpTxUseDepGroup::new(
             "send_secp_tx_use_dep_group_type_hash",
@@ -432,7 +432,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         )),
         Box::new(SendMultiSigSecpTxUseDepGroup::new(
             "send_multisig_secp_tx_use_dep_group_data_hash",
-            ScriptHashType::Data,
+            ScriptHashType::Data(0),
         )),
         Box::new(SendMultiSigSecpTxUseDepGroup::new(
             "send_multisig_secp_tx_use_dep_group_type_hash",
@@ -446,7 +446,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(WhitelistOnSessionLimit),
         // Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
-        Box::new(InsufficientReward),
+        // TODO ckb2021 update the import json file for new ScriptHashType
+        // Box::new(InsufficientReward),
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),
         Box::new(PackUnclesIntoEpochStarting),
@@ -492,6 +493,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
         Box::new(CheckBlockExtension),
+        Box::new(CheckVmVersion),
         Box::new(DuplicateCellDepsForDataHashTypeLockScript),
         Box::new(DuplicateCellDepsForDataHashTypeTypeScript),
         Box::new(DuplicateCellDepsForTypeHashTypeLockScript),

@@ -500,7 +500,8 @@ class EnumSchema(HTMLParser):
         if self.variant_parser is not None:
             self.variant_parser.handle_endtag(tag)
             if self.variant_parser.completed():
-                self.variants.append((self.next_variant, self.variant_parser))
+                if self.next_variant not in [v[0] for v in self.variants]:
+                    self.variants.append((self.next_variant, self.variant_parser))
                 self.next_variant = None
                 self.variant_parser = None
 

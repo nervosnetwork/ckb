@@ -66,8 +66,10 @@ pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 /// Command line argument `--ba-arg`.
 pub const ARG_BA_ARG: &str = "ba-arg";
-/// Command line argument `--ba-hash-type`.
-pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
+/// Command line argument `--ba-hash-type-kind`.
+pub const ARG_BA_HASH_TYPE_KIND: &str = "ba-hash-type-kind";
+/// Command line argument `--ba-hash-type-vm-version`.
+pub const ARG_BA_HASH_TYPE_VM_VERSION: &str = "ba-hash-type-vm-version";
 /// Command line argument `--ba-message`.
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
@@ -442,13 +444,20 @@ fn init() -> App<'static, 'static> {
                 .help("Sets args in [block_assembler]"),
         )
         .arg(
-            Arg::with_name(ARG_BA_HASH_TYPE)
-                .long(ARG_BA_HASH_TYPE)
-                .value_name("hash_type")
+            Arg::with_name(ARG_BA_HASH_TYPE_KIND)
+                .long(ARG_BA_HASH_TYPE_KIND)
+                .value_name("hash_type_kind")
                 .takes_value(true)
                 .possible_values(&["data", "type"])
                 .default_value("type")
-                .help("Sets hash type in [block_assembler]"),
+                .help("Sets hash type kind in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_HASH_TYPE_VM_VERSION)
+                .long(ARG_BA_HASH_TYPE_VM_VERSION)
+                .value_name("hash_type_vm_version")
+                .takes_value(true)
+                .help("Sets vm version for data hash-type script in [block_assembler]"),
         )
         .group(
             ArgGroup::with_name(GROUP_BA)

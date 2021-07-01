@@ -2,8 +2,8 @@ use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
     error::ScriptError,
     syscalls::{
-        Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash,
-        LoadTx, LoadWitness,
+        CurrentCycles, Debugger, Exec, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript,
+        LoadScriptHash, LoadTx, LoadWitness, VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{ScriptGroup, ScriptGroupType},
@@ -24,16 +24,14 @@ use ckb_types::{
     prelude::*,
 };
 #[cfg(has_asm)]
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 use ckb_vm::{
-    machine::asm::{AsmCoreMachine, AsmMachine},
+    machine::{VERSION0, VERSION1},
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
-    Syscalls,
+    Syscalls, ISA_B, ISA_IMC, ISA_MOP,
 };
 #[cfg(not(has_asm))]
-use ckb_vm::{
-    DefaultCoreMachine, DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc,
-    SparseMemory, SupportMachine, Syscalls, TraceMachine, WXorXMemory,
-};
+use ckb_vm::{DefaultCoreMachine, SparseMemory, TraceMachine, WXorXMemory};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -41,7 +39,7 @@ use std::convert::TryFrom;
 #[cfg(has_asm)]
 type CoreMachineType = Box<AsmCoreMachine>;
 #[cfg(not(has_asm))]
-type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>;
+type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum DataGurad {
@@ -269,6 +267,26 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         self.rtx.transaction.hash()
     }
 
+    fn build_current_cycles(&self) -> CurrentCycles {
+        CurrentCycles::new()
+    }
+
+    fn build_vm_version(&self) -> VMVersion {
+        VMVersion::new()
+    }
+
+    fn build_exec(&'a self, group_inputs: &'a [usize], group_outputs: &'a [usize]) -> Exec<'a, DL> {
+        Exec::new(
+            &self.data_loader,
+            &self.outputs,
+            self.resolved_inputs(),
+            self.resolved_cell_deps(),
+            group_inputs,
+            group_outputs,
+            self.witnesses(),
+        )
+    }
+
     fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(&self.rtx.transaction)
     }
@@ -335,8 +353,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     /// Extracts actual script binary either in dep cells.
     pub fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
-        match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
-            ScriptHashType::Data => {
+        let script_hash_type = ScriptHashType::try_from(script.hash_type())
+            .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
+        match script_hash_type {
+            ScriptHashType::Data(_) => {
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(lazy.access(self.data_loader))
                 } else {
@@ -364,6 +384,37 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     }
                 } else {
                     Err(ScriptError::InvalidCodeHash)
+                }
+            }
+        }
+    }
+
+    /// Select the ISA and the version number of the new machine.
+    pub fn select_machine_options(&self, script: &'a Script) -> Result<(u8, u32), ScriptError> {
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let hardfork_switch = self.consensus.hardfork_switch();
+        let is_vm_version_1_and_syscalls_2_enabled =
+            hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number);
+        let script_hash_type = ScriptHashType::try_from(script.hash_type())
+            .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
+        match script_hash_type {
+            ScriptHashType::Data(version) => {
+                if !is_vm_version_1_and_syscalls_2_enabled && version > 0 {
+                    Err(ScriptError::InvalidVmVersion(version))
+                } else {
+                    match version {
+                        0 => Ok((ISA_IMC, VERSION0)),
+                        1 => Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1)),
+                        _ => Err(ScriptError::InvalidVmVersion(version)),
+                    }
+                }
+            }
+            ScriptHashType::Type => {
+                if is_vm_version_1_and_syscalls_2_enabled {
+                    Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1))
+                } else {
+                    Ok((ISA_IMC, VERSION0))
                 }
             }
         }
@@ -459,10 +510,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// Prepares syscalls.
     pub fn generate_syscalls(
         &'a self,
+        version: u32,
         script_group: &'a ScriptGroup,
     ) -> Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> {
         let current_script_hash = script_group.script.calc_script_hash();
-        vec![
+        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> = vec![
             Box::new(self.build_load_script_hash(current_script_hash.clone())),
             Box::new(self.build_load_tx()),
             Box::new(
@@ -481,22 +533,30 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 ),
             ),
             Box::new(Debugger::new(current_script_hash, &self.debug_printer)),
-        ]
+        ];
+        if version >= VERSION1 {
+            syscalls.append(&mut vec![
+                Box::new(self.build_vm_version()),
+                Box::new(self.build_current_cycles()),
+                Box::new(
+                    self.build_exec(&script_group.input_indices, &script_group.output_indices),
+                ),
+            ])
+        }
+        syscalls
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
+        let (isa, version) = self.select_machine_options(&script_group.script)?;
         #[cfg(has_asm)]
-        let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
+        let core_machine = AsmCoreMachine::new(isa, version, max_cycles);
         #[cfg(not(has_asm))]
-        let core_machine =
-            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
-                max_cycles,
-            );
+        let core_machine = CoreMachineType::new(isa, version, max_cycles);
         let machine_builder = DefaultMachineBuilder::<CoreMachineType>::new(core_machine)
             .instruction_cycle_func(self.cost_model());
         let machine_builder = self
-            .generate_syscalls(script_group)
+            .generate_syscalls(version, script_group)
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
@@ -538,8 +598,9 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB};
     use ckb_types::{
         core::{
-            capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, HeaderView,
-            ScriptHashType, TransactionBuilder, TransactionInfo,
+            capacity_bytes, cell::CellMetaBuilder, hardfork::HardForkSwitch, Capacity, Cycle,
+            DepType, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder,
+            TransactionInfo,
         },
         h256,
         packed::{
@@ -666,7 +727,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -706,7 +770,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -731,7 +795,10 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -777,7 +844,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data.into())
+                        .hash_type(ScriptHashType::Data(0).into())
                         .build(),
                 )
                 .pack(),
@@ -817,7 +884,10 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -852,7 +922,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data.into())
+                        .hash_type(ScriptHashType::Data(0).into())
                         .build(),
                 )
                 .pack(),
@@ -874,7 +944,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data.into())
+                        .hash_type(ScriptHashType::Data(0).into())
                         .build(),
                 )
                 .pack(),
@@ -914,7 +984,10 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -958,7 +1031,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -984,7 +1057,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1017,7 +1093,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1043,7 +1119,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1089,13 +1168,13 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let output_data = Bytes::default();
         let output = CellOutputBuilder::default()
             .lock(
                 Script::new_builder()
-                    .hash_type(ScriptHashType::Data.into())
+                    .hash_type(ScriptHashType::Data(0).into())
                     .build(),
             )
             .type_(Some(script).pack())
@@ -1132,7 +1211,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1178,7 +1260,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
         let output = CellOutputBuilder::default()
             .type_(Some(script.clone()).pack())
@@ -1212,7 +1294,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1244,7 +1329,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data(0).into())
             .build();
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
@@ -1283,7 +1368,10 @@ mod tests {
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1352,7 +1440,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1419,7 +1510,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1497,7 +1591,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1561,7 +1658,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1640,7 +1740,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1725,7 +1828,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1799,7 +1905,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1961,7 +2070,10 @@ mod tests {
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
-        let consensus = ConsensusBuilder::default().build();
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
         let tx_env = {
             let header = HeaderView::new_advanced_builder().build();
             TxVerifyEnv::new_commit(&header)
@@ -1972,5 +2084,210 @@ mod tests {
         let cycle = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
         assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
         assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    }
+
+    #[test]
+    fn check_vm_version() {
+        let vm_version_cell_data = Bytes::from(
+            std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/vm_version"))
+                .unwrap(),
+        );
+        let vm_version_cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(vm_version_cell_data.len()).unwrap().pack())
+            .build();
+        let vm_version_script = Script::new_builder()
+            .hash_type(ScriptHashType::Data(1).into())
+            .code_hash(CellOutput::calc_data_hash(&vm_version_cell_data))
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(vm_version_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let vm_version_cell =
+            CellMetaBuilder::from_cell_output(vm_version_cell, vm_version_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![vm_version_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let fork_at = 10;
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0237(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let tx_env = {
+            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
+            let header = HeaderView::new_advanced_builder()
+                .epoch(epoch.pack())
+                .build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
+        assert!(verifier.verify(6000).is_ok());
+    }
+
+    #[test]
+    fn check_exec_from_cell_data() {
+        let exec_caller_cell_data = Bytes::from(
+            std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_cell_data"),
+            )
+            .unwrap(),
+        );
+        let exec_caller_cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+            .build();
+
+        let exec_callee_cell_data = Bytes::from(
+            std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_callee"))
+                .unwrap(),
+        );
+        let exec_callee_cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
+            .build();
+
+        let exec_caller_script = Script::new_builder()
+            .hash_type(ScriptHashType::Data(1).into())
+            .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(exec_caller_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let exec_caller_cell =
+            CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+
+        let exec_callee_cell =
+            CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let fork_at = 10;
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0237(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let tx_env = {
+            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
+            let header = HeaderView::new_advanced_builder()
+                .epoch(epoch.pack())
+                .build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
+        assert!(verifier.verify(600000).is_ok());
+    }
+
+    #[test]
+    fn check_exec_from_witness() {
+        let exec_caller_cell_data = Bytes::from(
+            std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_witness"),
+            )
+            .unwrap(),
+        );
+        let exec_caller_cell = CellOutput::new_builder()
+            .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+            .build();
+
+        let exec_callee = Bytes::from(
+            std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_callee"))
+                .unwrap(),
+        )
+        .pack();
+
+        let exec_caller_script = Script::new_builder()
+            .hash_type(ScriptHashType::Data(1).into())
+            .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(exec_caller_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default()
+            .input(input)
+            .set_witnesses(vec![exec_callee])
+            .build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let exec_caller_cell =
+            CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+
+        let rtx = ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![exec_caller_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let fork_at = 10;
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+            .as_builder()
+            .rfc_pr_0237(fork_at)
+            .build()
+            .unwrap();
+        let consensus = ConsensusBuilder::default()
+            .hardfork_switch(hardfork_switch)
+            .build();
+        let tx_env = {
+            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
+            let header = HeaderView::new_advanced_builder()
+                .epoch(epoch.pack())
+                .build();
+            TxVerifyEnv::new_commit(&header)
+        };
+
+        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
+        assert!(verifier.verify(600000).is_ok());
     }
 }

@@ -9,6 +9,7 @@ mod debug;
 mod experiment;
 mod fee_rate;
 mod fixed_bytes;
+mod hardfork;
 mod net;
 mod pool;
 mod primitive;
@@ -23,8 +24,8 @@ pub use self::block_template::{
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
     DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow,
-    Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
-    TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
+    Script, ScriptHashType, ScriptHashTypeKind, Status, Transaction, TransactionProof,
+    TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
@@ -33,6 +34,7 @@ pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::DryRunResult;
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
+pub use self::hardfork::ChainEdition;
 pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,
@@ -46,7 +48,7 @@ pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
-    Timestamp, Version,
+    Timestamp, Version, VmVersion,
 };
 pub use serde::{Deserialize, Serialize};
 

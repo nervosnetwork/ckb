@@ -1,5 +1,11 @@
 name = "ckb_dev"
 
+# Choose the edition, possible values:
+# - "2019"
+# - "2021"
+# The default is "2019", the latest is "2021".
+edition = "2021"
+
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -16,7 +22,8 @@ message = "ckb_dev" # {{
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
-hash_type = "data"
+hash_type.kind = "data"
+hash_type.vm_version = 0
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
@@ -40,7 +47,8 @@ capacity = 100_000_0000_0000
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
-hash_type = "data"
+hash_type.kind = "data"
+hash_type.vm_version = 0
 
 # Dep group cells
 [[genesis.dep_groups]]
@@ -60,28 +68,29 @@ files = [
 [genesis.bootstrap_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
-hash_type = "type"
+hash_type.kind = "type"
 
 # Burn
 [[genesis.issued_cells]]
 capacity = 8_400_000_000_00000000
 lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
-lock.hash_type = "data"
+lock.hash_type.kind = "data"
+lock.hash_type.vm_version = 0
 
 # issue for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
 [[genesis.issued_cells]]
 capacity = 20_000_000_000_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"
-lock.hash_type = "type"
+lock.hash_type.kind = "type"
 
 # issue for random generated private key: 63d86723e08f0f813a36ce6aa123bb2289d90680ae1e99d4de8cdb334553f24d
 [[genesis.issued_cells]]
 capacity = 5_198_735_037_00000000
 lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
 lock.args = "0x470dcdc5e44064909650113a274b3b36aecb6dc7"
-lock.hash_type = "type"
+lock.hash_type.kind = "type"
 
 [params]
 initial_primary_epoch_reward = 1_917_808_21917808
@@ -94,6 +103,13 @@ genesis_epoch_length = 1000
 # For development and testing purposes only.
 # Keep difficulty be permanent if the pow is Dummy. (default: false)
 permanent_difficulty_in_dummy = true
+
+[params.hardfork]
+rfc_pr_0221 = 0
+rfc_pr_0222 = 0
+rfc_pr_0223 = 0
+rfc_pr_0224 = 0
+rfc_pr_0237 = 0
 
 [pow]
 func = "Dummy"

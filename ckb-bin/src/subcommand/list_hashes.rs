@@ -130,7 +130,7 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches<'_>) -> Result<(), Ex
             resource = Resource::bundled_ckb_config();
         }
 
-        let mut config: CKBAppConfig = toml::from_slice(&resource.get()?)?;
+        let mut config = CKBAppConfig::load_from_slice(&resource.get()?)?;
         config.chain.spec.absolutize(&root_dir);
         let chain_spec = ChainSpec::load_from(&config.chain.spec).map_err(to_config_error)?;
         let spec_name = chain_spec.name.clone();

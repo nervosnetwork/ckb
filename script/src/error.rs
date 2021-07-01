@@ -28,6 +28,14 @@ pub enum ScriptError {
     #[error("Known bugs encountered in output {1}: {0}")]
     EncounteredKnownBugs(String, usize),
 
+    /// InvalidScriptHashType
+    #[error("InvalidScriptHashType: {0}")]
+    InvalidScriptHashType(String),
+
+    /// InvalidVmVersion
+    #[error("Invalid VM Version: {0}")]
+    InvalidVmVersion(u8),
+
     /// Known bugs are detected in transaction script outputs
     #[error("VM Internal Error: {0}")]
     VMInternalError(String),
@@ -87,7 +95,7 @@ impl fmt::Display for TransactionScriptError {
 impl ScriptError {
     pub(crate) fn validation_failure(script: &Script, exit_code: i8) -> ScriptError {
         let url_path = match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
-            ScriptHashType::Data => {
+            ScriptHashType::Data(_) => {
                 format!("by-data-hash/{:x}", script.code_hash())
             }
             ScriptHashType::Type => {

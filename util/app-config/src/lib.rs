@@ -4,19 +4,24 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+pub(crate) mod legacy;
 #[cfg(feature = "with_sentry")]
 mod sentry_config;
 
-pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
+pub use app_config::{
+    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
+};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
+#[cfg(feature = "with_sentry")]
+pub use sentry_config::SentryConfig;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{ScriptHashTypeKind, VmVersion};
 use ckb_types::{u256, H256, U256};
 use clap::{value_t, ArgMatches, ErrorKind};
 use std::{path::PathBuf, str::FromStr};
@@ -244,9 +249,14 @@ impl Setup {
             .unwrap_or_default()
             .map(str::to_string)
             .collect();
-        let block_assembler_hash_type = matches
-            .value_of(cli::ARG_BA_HASH_TYPE)
-            .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
+        let block_assembler_hash_type_kind = matches
+            .value_of(cli::ARG_BA_HASH_TYPE_KIND)
+            .and_then(|hash_type| serde_plain::from_str::<ScriptHashTypeKind>(hash_type).ok())
+            .unwrap();
+        let block_assembler_hash_type_vm_version = matches
+            .value_of(cli::ARG_BA_HASH_TYPE_VM_VERSION)
+            .map(|vm_version| serde_plain::from_str::<VmVersion>(vm_version))
+            .transpose()
             .unwrap();
         let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
 
@@ -271,7 +281,8 @@ impl Setup {
             log_to_stdout,
             block_assembler_code_hash,
             block_assembler_args,
-            block_assembler_hash_type,
+            block_assembler_hash_type_kind,
+            block_assembler_hash_type_vm_version,
             block_assembler_message,
             import_spec,
             customize_spec,

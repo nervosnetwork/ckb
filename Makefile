@@ -23,6 +23,7 @@ cov: ## Run code coverage.
 
 .PHONY: wasm-build-test
 wasm-build-test: ## Build core packages for wasm target
+	cp -f Cargo.lock wasm-build-test/
 	cd wasm-build-test && cargo build --target=wasm32-unknown-unknown
 
 .PHONY: setup-ckb-test
