@@ -15,7 +15,7 @@ use ckb_types::{
     core::{
         cell::{
             resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
-            ResolvedTransaction,
+            ResolveOptions, ResolvedTransaction,
         },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
@@ -721,11 +721,14 @@ impl ChainService {
                     };
 
                     let transactions = b.transactions();
-                    let no_immature_header_deps = self
-                        .shared
-                        .consensus()
-                        .hardfork_switch()
-                        .is_remove_header_deps_immature_rule_enabled(b.epoch().number());
+                    let resolve_opts = {
+                        let consensus = self.shared.consensus();
+                        let hardfork_switch = consensus.hardfork_switch();
+                        let flag = hardfork_switch
+                            .is_remove_header_deps_immature_rule_enabled(b.epoch().number());
+                        ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+                    };
+
                     let resolved = {
                         let txn_cell_provider = txn.cell_provider();
                         let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
@@ -738,7 +741,7 @@ impl ChainService {
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
-                                    no_immature_header_deps,
+                                    resolve_opts,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()

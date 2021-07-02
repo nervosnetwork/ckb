@@ -12,8 +12,8 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
-            resolve_transaction_with_options, OverlayCellProvider, ResolvedTransaction,
-            TransactionsProvider,
+            resolve_transaction_with_options, OverlayCellProvider, ResolveOptions,
+            ResolvedTransaction, TransactionsProvider,
         },
         BlockView,
     },
@@ -181,10 +181,13 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-        let current_epoch_number = block_template.epoch.epoch_number();
-        let no_immature_header_deps = consensus
-            .hardfork_switch()
-            .is_remove_header_deps_immature_rule_enabled(current_epoch_number);
+        let resolve_opts = {
+            let current_epoch_number = block_template.epoch.epoch_number();
+            let flag = consensus
+                .hardfork_switch()
+                .is_remove_header_deps_immature_rule_enabled(current_epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+        };
 
         let rtxs = txs
             .iter()
@@ -194,7 +197,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                     &mut seen_inputs,
                     &overlay_cell_provider,
                     snapshot,
-                    no_immature_header_deps,
+                    resolve_opts,
                 )
                 .map_err(|err| {
                     error!(

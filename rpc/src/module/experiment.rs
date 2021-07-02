@@ -6,7 +6,10 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         self,
-        cell::{resolve_transaction_with_options, CellProvider, CellStatus, HeaderChecker},
+        cell::{
+            resolve_transaction_with_options, CellProvider, CellStatus, HeaderChecker,
+            ResolveOptions,
+        },
         error::OutPointError,
     },
     packed,
@@ -250,19 +253,19 @@ impl<'a> DryRunner<'a> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_submit(&tip_header);
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let proposal_window = consensus.tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
-            consensus
-                .hardfork_switch()
-                .is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let hardfork_switch = consensus.hardfork_switch();
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
         match resolve_transaction_with_options(
             tx.into_view(),
             &mut HashSet::new(),
             self,
             self,
-            no_immature_header_deps,
+            resolve_opts,
         ) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;

@@ -14,7 +14,7 @@ use ckb_types::{
     core::{
         cell::{
             resolve_transaction_with_options, OverlayCellChecker, OverlayCellProvider,
-            ResolvedTransaction,
+            ResolveOptions, ResolvedTransaction,
         },
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Cycle, TransactionView,
@@ -298,7 +298,7 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
-        no_immature_header_deps: bool,
+        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
@@ -311,7 +311,7 @@ impl TxPool {
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
-            no_immature_header_deps,
+            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -319,7 +319,7 @@ impl TxPool {
     pub(crate) fn check_rtx_from_pending_and_proposed(
         &self,
         rtx: &ResolvedTransaction,
-        no_immature_header_deps: bool,
+        resolve_opts: ResolveOptions,
     ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
@@ -331,7 +331,7 @@ impl TxPool {
             &mut seen_inputs,
             &pending_and_proposed_checker,
             snapshot,
-            no_immature_header_deps,
+            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -339,7 +339,7 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
-        no_immature_header_deps: bool,
+        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
@@ -349,7 +349,7 @@ impl TxPool {
             &mut seen_inputs,
             &cell_provider,
             snapshot,
-            no_immature_header_deps,
+            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -357,18 +357,13 @@ impl TxPool {
     pub(crate) fn check_rtx_from_proposed(
         &self,
         rtx: &ResolvedTransaction,
-        no_immature_header_deps: bool,
+        resolve_opts: ResolveOptions,
     ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        rtx.check(
-            &mut seen_inputs,
-            &cell_checker,
-            snapshot,
-            no_immature_header_deps,
-        )
-        .map_err(Reject::Resolve)
+        rtx.check(&mut seen_inputs, &cell_checker, snapshot, resolve_opts)
+            .map_err(Reject::Resolve)
     }
 
     pub(crate) fn gap_rtx(
@@ -381,15 +376,14 @@ impl TxPool {
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
 
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let proposal_window = snapshot.consensus().tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
-            snapshot
-                .consensus()
-                .hardfork_switch()
-                .is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let hardfork_switch = snapshot.consensus().hardfork_switch();
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
-        self.check_rtx_from_pending_and_proposed(&rtx, no_immature_header_deps)?;
+        self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
@@ -413,15 +407,14 @@ impl TxPool {
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
 
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let proposal_window = snapshot.consensus().tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
-            snapshot
-                .consensus()
-                .hardfork_switch()
-                .is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let hardfork_switch = snapshot.consensus().hardfork_switch();
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
-        self.check_rtx_from_proposed(&rtx, no_immature_header_deps)?;
+        self.check_rtx_from_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;

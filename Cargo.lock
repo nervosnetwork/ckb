@@ -1425,6 +1425,7 @@ name = "ckb-types"
 version = "0.44.0-pre"
 dependencies = [
  "bit-vec",
+ "bitflags",
  "bytes 1.0.1",
  "ckb-channel",
  "ckb-constant",

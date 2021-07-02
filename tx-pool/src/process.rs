@@ -21,7 +21,7 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
-            get_related_dep_out_points, OverlayCellChecker, ResolvedTransaction,
+            get_related_dep_out_points, OverlayCellChecker, ResolveOptions, ResolvedTransaction,
             TransactionsChecker,
         },
         hardfork::HardForkSwitch,
@@ -211,10 +211,12 @@ impl TxPoolService {
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
-        let no_immature_header_deps = snapshot
-            .consensus()
-            .hardfork_switch()
-            .is_remove_header_deps_immature_rule_enabled(current_epoch.number());
+        let resolve_opts = {
+            let hardfork_switch = snapshot.consensus().hardfork_switch();
+            let flag =
+                hardfork_switch.is_remove_header_deps_immature_rule_enabled(current_epoch.number());
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+        };
 
         let rtxs: Vec<_> = block_in_place(|| {
             entries_iter
@@ -226,7 +228,7 @@ impl TxPoolService {
                         &mut seen_inputs,
                         &overlay_cell_checker,
                         snapshot,
-                        no_immature_header_deps,
+                        resolve_opts,
                     ) {
                         error!(
                             "resolve transactions when build block template, \
@@ -791,13 +793,14 @@ fn check_rtx(
     let proposal_window = snapshot.consensus().tx_proposal_window();
     let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let tx_env = TxStatus::Proposed.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
         tx_pool
-            .check_rtx_from_proposed(rtx, no_immature_header_deps)
+            .check_rtx_from_proposed(rtx, resolve_opts)
             .map(|_| TxStatus::Proposed)
     } else {
         let tx_status = if snapshot.proposals().contains_gap(&short_id) {
@@ -805,13 +808,14 @@ fn check_rtx(
         } else {
             TxStatus::Fresh
         };
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let tx_env = tx_status.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
         tx_pool
-            .check_rtx_from_pending_and_proposed(rtx, no_immature_header_deps)
+            .check_rtx_from_pending_and_proposed(rtx, resolve_opts)
             .map(|_| tx_status)
     }
 }
@@ -822,13 +826,14 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
     let proposal_window = snapshot.consensus().tx_proposal_window();
     let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let tx_env = TxStatus::Proposed.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
         tx_pool
-            .resolve_tx_from_proposed(tx, no_immature_header_deps)
+            .resolve_tx_from_proposed(tx, resolve_opts)
             .map(|rtx| (rtx, TxStatus::Proposed))
     } else {
         let tx_status = if snapshot.proposals().contains_gap(&short_id) {
@@ -836,13 +841,14 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
         } else {
             TxStatus::Fresh
         };
-        let no_immature_header_deps = {
+        let resolve_opts = {
             let tx_env = tx_status.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number)
+            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
+            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
         };
         tx_pool
-            .resolve_tx_from_pending_and_proposed(tx, no_immature_header_deps)
+            .resolve_tx_from_pending_and_proposed(tx, resolve_opts)
             .map(|rtx| (rtx, tx_status))
     }
 }
