@@ -340,10 +340,17 @@ impl Synchronizer {
     }
 
     fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let (is_outbound, is_whitelist) = nc
+        let pid = SupportProtocols::Sync.protocol_id();
+        let (is_outbound, is_whitelist, is_2021edition) = nc
             .get_peer(peer)
-            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
-            .unwrap_or((false, false));
+            .map(|peer| {
+                (
+                    peer.is_outbound(),
+                    peer.is_whitelist,
+                    peer.protocols.get(&pid).map(|v| v == "2").unwrap_or(false),
+                )
+            })
+            .unwrap_or((false, false, false));
 
         let sync_state = self.shared().state();
         let protect_outbound = is_outbound
@@ -364,6 +371,7 @@ impl Synchronizer {
                 is_outbound,
                 is_whitelist,
                 is_protect: protect_outbound,
+                is_2021edition,
             },
         );
     }
@@ -1255,6 +1263,9 @@ mod tests {
     }
 
     impl CKBProtocolContext for DummyNetworkContext {
+        fn ckb2021(&self) -> bool {
+            false
+        }
         // Interact with underlying p2p service
         fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();

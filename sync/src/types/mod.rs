@@ -124,6 +124,7 @@ pub struct PeerFlags {
     pub is_outbound: bool,
     pub is_protect: bool,
     pub is_whitelist: bool,
+    pub is_2021edition: bool,
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -942,6 +943,12 @@ impl Peers {
     pub fn get_flag(&self, peer: PeerIndex) -> Option<PeerFlags> {
         self.state.get(&peer).map(|state| state.peer_flags)
     }
+
+    pub fn is_2021edition(&self, peer: PeerIndex) -> Option<bool> {
+        self.state
+            .get(&peer)
+            .map(|state| state.peer_flags.is_2021edition)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1157,7 +1164,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
@@ -1167,7 +1174,7 @@ impl SyncShared {
         shared: Shared,
         sync_config: SyncConfig,
         tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1517,7 +1524,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+    tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1569,7 +1576,7 @@ impl SyncState {
         &self.inflight_proposals
     }
 
-    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, Byte32)> {
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 

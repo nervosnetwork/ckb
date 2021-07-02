@@ -305,9 +305,14 @@ impl MinerRpc for MinerRpcImpl {
             );
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
+            let pid = if self.network_controller.load_ckb2021() {
+                SupportProtocols::RelayV2.protocol_id()
+            } else {
+                SupportProtocols::Relay.protocol_id()
+            };
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+                .quick_broadcast(pid, message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }
