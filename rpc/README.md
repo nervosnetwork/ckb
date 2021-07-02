@@ -292,6 +292,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
       "nonce": "0x0",
       "number": "0x400",
@@ -299,7 +300,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b117",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -411,6 +411,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
       "nonce": "0x0",
       "number": "0x400",
@@ -418,7 +419,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b117",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -523,6 +523,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -530,7 +531,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   }
 }
@@ -599,6 +599,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -606,7 +607,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   }
 }
@@ -795,6 +795,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -802,7 +803,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   },
   "id": 42
@@ -1206,6 +1206,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
       "nonce": "0x0",
       "number": "0x400",
@@ -1213,7 +1214,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b118",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -1624,13 +1624,13 @@ Response
           "compact_target": "0x1e083126",
           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
           "epoch": "0x7080018000001",
+          "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "nonce": "0x0",
           "number": "0x400",
           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "timestamp": "0x5cd2b118",
           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-          "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "version":"0x0"
         },
         "proposals": [],
@@ -1674,13 +1674,13 @@ Request
         "compact_target": "0x1e083126",
         "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
         "epoch": "0x7080018000001",
+        "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "nonce": "0x0",
         "number": "0x400",
         "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "timestamp": "0x5cd2b117",
         "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0"
       },
       "proposals": [],
@@ -3584,9 +3584,13 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
     It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
 
-*   `uncles_hash`: [`H256`](#type-h256) - The hash on `uncles` in the block body.
+*   `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
-    It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together. The extension hash is the hash of the extension. The extra hash is the hash on uncles hash and extension hash concatenated together.
+
+    ### Notice
+
+    This field is renamed from `uncles_hash` since 0.44.0. More details can be found in [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title).
 
 *   `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
@@ -3616,7 +3620,7 @@ This structure is serialized into a JSON object with field `hash` and all the fi
   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "timestamp": "0x5cd2b117",
   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-  "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "version": "0x0"
 }
 ```
