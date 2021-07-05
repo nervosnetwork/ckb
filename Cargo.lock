@@ -432,7 +432,7 @@ dependencies = [
  "ckb-logger",
  "ckb-spawn",
  "ckb-stop-handler",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -906,7 +906,7 @@ dependencies = [
  "rand_distr",
  "serde",
  "serde_json",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-compat-02",
 ]
 
@@ -949,7 +949,7 @@ dependencies = [
  "snap",
  "tempfile",
  "tentacle",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-util 0.6.6",
  "trust-dns-resolver",
 ]
@@ -1300,7 +1300,7 @@ dependencies = [
  "ckb-channel",
  "ckb-logger",
  "parking_lot",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -1417,7 +1417,7 @@ dependencies = [
  "ckb-verification",
  "faketime",
  "lru",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -1496,7 +1496,7 @@ dependencies = [
  "faketime",
  "rand 0.7.3",
  "rayon",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -4634,7 +4634,7 @@ dependencies = [
  "tentacle-multiaddr",
  "tentacle-secio",
  "thiserror",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-util 0.6.6",
  "tokio-yamux",
  "wasm-bindgen",
@@ -4674,7 +4674,7 @@ dependencies = [
  "ring",
  "secp256k1",
  "sha2",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-util 0.6.6",
  "unsigned-varint",
  "x25519-dalek",
@@ -4798,9 +4798,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.5.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f0c8e7c0addab50b663055baf787d0af7f413a46e6e7fb9559a4e4db7137a5"
+checksum = "570c2eb13b3ab38208130eccd41be92520388791207fde783bda7c1e8ace28d4"
 dependencies = [
  "autocfg 1.0.0",
  "bytes 1.0.1",
@@ -4826,7 +4826,7 @@ dependencies = [
  "once_cell",
  "pin-project-lite 0.2.4",
  "tokio 0.2.25",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-stream",
 ]
 
@@ -4849,7 +4849,7 @@ checksum = "f8864d706fdb3cc0843a49647ac892720dac98a6eeb818b77190592cf4994066"
 dependencies = [
  "futures-core",
  "pin-project-lite 0.2.4",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -4887,7 +4887,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite 0.2.4",
- "tokio 1.5.0",
+ "tokio 1.8.0",
 ]
 
 [[package]]
@@ -4900,7 +4900,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "tokio 1.5.0",
+ "tokio 1.8.0",
  "tokio-util 0.6.6",
 ]
 
