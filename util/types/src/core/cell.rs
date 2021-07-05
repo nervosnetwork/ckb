@@ -6,6 +6,7 @@ use crate::{
     packed::{Byte32, CellDep, CellOutput, CellOutputVec, OutPoint, OutPointVec},
     prelude::*,
 };
+use bitflags::bitflags;
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
@@ -265,6 +266,7 @@ impl ResolvedTransaction {
         seen_inputs: &mut HashSet<OutPoint, S>,
         cell_checker: &CC,
         header_checker: &HC,
+        resolve_opts: ResolveOptions,
     ) -> Result<(), OutPointError> {
         let check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
             if seen_inputs.contains(out_point) {
@@ -322,7 +324,13 @@ impl ResolvedTransaction {
         }
 
         for block_hash in self.transaction.header_deps_iter() {
-            header_checker.check_valid(&block_hash)?;
+            let result = header_checker.check_valid(&block_hash);
+            if resolve_opts.if_skip_immature_header_deps_check() {
+                if let Err(OutPointError::ImmatureHeader(_)) = result {
+                    continue;
+                }
+            }
+            result?;
         }
 
         seen_inputs.extend(self.resolved_inputs.iter().map(|i| &i.out_point).cloned());
@@ -560,6 +568,27 @@ pub trait HeaderChecker {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError>;
 }
 
+bitflags! {
+    /// Bit flags to set options for resolving transactions.
+    pub struct ResolveOptions: u8 {
+        /// Skip the immature header deps check.
+        const SKIP_IMMATURE_HEADER_DEPS_CHECK               = 0b00000001;
+    }
+}
+
+impl ResolveOptions {
+    /// Get the flag whether skips the immature header deps check or not.
+    pub fn if_skip_immature_header_deps_check(self) -> bool {
+        self.contains(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK)
+    }
+
+    /// Set the flag whether skips the immature header deps check or not.
+    pub fn set_skip_immature_header_deps_check(mut self, value: bool) -> Self {
+        self.set(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK, value);
+        self
+    }
+}
+
 /// Gather all cell dep out points and resolved dep group out points
 pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
     tx: &TransactionView,
@@ -619,12 +648,33 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
     Ok((dep_group_cell, resolved_deps))
 }
 
-/// TODO(doc): @quake
+/// **Deprecated** Use `resolve_transaction_with_options` instead of.
+///
+/// This function is only used to be compatible with the old unit tests.
+/// Please don't add more tests with this function.
+/// Then we could remove this function easier in future.
 pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
+) -> Result<ResolvedTransaction, OutPointError> {
+    resolve_transaction_with_options(
+        transaction,
+        seen_inputs,
+        cell_provider,
+        header_checker,
+        ResolveOptions::empty().set_skip_immature_header_deps_check(false),
+    )
+}
+
+/// TODO(doc): @quake
+pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
+    transaction: TransactionView,
+    seen_inputs: &mut HashSet<OutPoint, S>,
+    cell_provider: &CP,
+    header_checker: &HC,
+    resolve_opts: ResolveOptions,
 ) -> Result<ResolvedTransaction, OutPointError> {
     let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
@@ -674,7 +724,13 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     )?;
 
     for block_hash in transaction.header_deps_iter() {
-        header_checker.check_valid(&block_hash)?;
+        let result = header_checker.check_valid(&block_hash);
+        if resolve_opts.if_skip_immature_header_deps_check() {
+            if let Err(OutPointError::ImmatureHeader(_)) = result {
+                continue;
+            }
+        }
+        result?;
     }
 
     seen_inputs.extend(current_inputs);

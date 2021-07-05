@@ -9,6 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
+bitflags = "1.0"
 ckb-constant = { path = "../constant", version = "= 0.44.0-pre" }
 molecule = "=0.7.1"
 ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.44.0-pre" }

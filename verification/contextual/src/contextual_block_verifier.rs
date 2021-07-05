@@ -383,16 +383,21 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 let tx_hash = tx.transaction.hash();
                 let tx_env = TxVerifyEnv::new_commit(&self.header);
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
-                    TimeRelativeTransactionVerifier::new(&tx, self.context, &tx_env)
-                        .verify()
-                        .map_err(|error| {
-                            BlockTransactionsError {
-                                index: index as u32,
-                                error,
-                            }
-                            .into()
-                        })
-                        .map(|_| (tx_hash, *cache_entry))
+                    TimeRelativeTransactionVerifier::new(
+                        &tx,
+                        self.context.consensus,
+                        self.context,
+                        &tx_env,
+                    )
+                    .verify()
+                    .map_err(|error| {
+                        BlockTransactionsError {
+                            index: index as u32,
+                            error,
+                        }
+                        .into()
+                    })
+                    .map(|_| (tx_hash, *cache_entry))
                 } else {
                     ContextualTransactionVerifier::new(
                         &tx,

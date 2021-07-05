@@ -81,7 +81,7 @@ pub(crate) fn verify_rtx(
     let consensus = snapshot.consensus();
 
     if let Some(cached) = cache_entry {
-        TimeRelativeTransactionVerifier::new(&rtx, snapshot, tx_env)
+        TimeRelativeTransactionVerifier::new(&rtx, consensus, snapshot, tx_env)
             .verify()
             .map(|_| cached)
             .map_err(Reject::Verification)

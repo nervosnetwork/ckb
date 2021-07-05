@@ -1,6 +1,6 @@
 use ckb_constant::MAX_VM_VERSION;
 use ckb_error::OtherError;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use crate::packed;
 
@@ -19,11 +19,11 @@ impl Default for ScriptHashType {
     }
 }
 
-impl TryFrom<packed::Byte> for ScriptHashType {
+impl TryFrom<u8> for ScriptHashType {
     type Error = OtherError;
 
-    fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
-        match Into::<u8>::into(v) {
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
             x if x % 2 == 0 => {
                 let vm_version = x / 2;
                 if vm_version > MAX_VM_VERSION {
@@ -38,6 +38,14 @@ impl TryFrom<packed::Byte> for ScriptHashType {
             1 => Ok(ScriptHashType::Type),
             _ => Err(OtherError::new(format!("Invalid script hash type {}", v))),
         }
+    }
+}
+
+impl TryFrom<packed::Byte> for ScriptHashType {
+    type Error = OtherError;
+
+    fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
+        Into::<u8>::into(v).try_into()
     }
 }
 
