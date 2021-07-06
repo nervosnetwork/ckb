@@ -2072,9 +2072,9 @@ checksum = "b02a61fea82de8484f9d7ce99b698b0e190ef8de71035690a961a43d7b18a2ad"
 
 [[package]]
 name = "faux"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40c3668239842a12c1810beec5afa357caa1aca3ee6b7cd9c60514af9787061f"
+checksum = "255bae09c55bba9e35b7ab3de3c2b959b7c91b64f3ea68020bb0e805eca8e5ac"
 dependencies = [
  "faux_macros",
  "paste 1.0.5",
