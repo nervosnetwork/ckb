@@ -199,15 +199,9 @@ impl TxChunkProcess {
                         exceeded_maximum_cycles_error(&script_verifier, max_cycles, &snap.current);
                     return Err(Reject::Verification(error));
                 }
-                let remain = max_cycles - snap.current_cycles;
-                let step_cycles = snap.limit_cycles + MIN_STEP_CYCLE;
 
-                let limit_cycles = if step_cycles < remain {
-                    step_cycles
-                } else {
-                    last_step = true;
-                    remain
-                };
+                let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                last_step = last;
                 let ret = script_verifier.resume_from_snap(snap, limit_cycles);
                 init_snap = None;
                 ret
@@ -220,15 +214,17 @@ impl TxChunkProcess {
                     return Err(Reject::Verification(error));
                 }
 
-                let remain = max_cycles - state.current_cycles;
-                let step_cycles = state.limit_cycles + MIN_STEP_CYCLE;
+                // next_limit_cycles
+                // let remain = max_cycles - self.current_cycles;
+                // let next_limit = self.limit_cycles + step_cycles;
 
-                let limit_cycles = if step_cycles < remain {
-                    step_cycles
-                } else {
-                    last_step = true;
-                    remain
-                };
+                // if next_limit < remain {
+                //     (next_limit, false)
+                // } else {
+                //     (remain, true)
+                // }
+                let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                last_step = last;
                 script_verifier.resume_from_state(state, limit_cycles)
             } else {
                 script_verifier.resumable_verify(MIN_STEP_CYCLE)

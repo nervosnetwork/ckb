@@ -159,6 +159,34 @@ pub struct TransactionState<'a> {
     pub limit_cycles: Cycle,
 }
 
+impl TransactionState<'_> {
+    /// Return next limit cycles according to max_cycles and step_cycles
+    pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
+        let remain = max_cycles - self.current_cycles;
+        let next_limit = self.limit_cycles + step_cycles;
+
+        if next_limit < remain {
+            (next_limit, false)
+        } else {
+            (remain, true)
+        }
+    }
+}
+
+impl TransactionSnapshot {
+    /// Return next limit cycles according to max_cycles and step_cycles
+    pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
+        let remain = max_cycles - self.current_cycles;
+        let next_limit = self.limit_cycles + step_cycles;
+
+        if next_limit < remain {
+            (next_limit, false)
+        } else {
+            (remain, true)
+        }
+    }
+}
+
 impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
     type Error = Error;
 
