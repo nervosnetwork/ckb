@@ -1151,7 +1151,7 @@ dependencies = [
  "ckb-vm",
  "ckb-vm-definitions",
  "faster-hex",
- "goblin 0.2.3",
+ "goblin 0.4.0",
  "proptest",
  "serde",
  "tiny-keccak",
