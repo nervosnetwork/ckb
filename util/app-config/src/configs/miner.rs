@@ -1,5 +1,3 @@
-use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
-use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
 /// Miner config options.
@@ -34,15 +32,6 @@ pub enum WorkerConfig {
     Dummy(DummyConfig),
     /// Eaglesong worker which solves Eaglesong PoW.
     EaglesongSimple(EaglesongSimpleConfig),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BlockAssemblerConfig {
-    pub code_hash: H256,
-    pub args: Vec<JsonBytes>,
-    #[serde(default)]
-    pub message: JsonBytes,
-    pub hash_type: ScriptHashType,
 }
 
 /// Dummy worker config options.
