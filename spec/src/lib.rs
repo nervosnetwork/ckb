@@ -642,7 +642,7 @@ impl ChainSpec {
             })
         {
             match ScriptHashType::try_from(lock_script.hash_type()).expect("checked data") {
-                ScriptHashType::Data(_) => {
+                ScriptHashType::Data => {
                     if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=data",
@@ -655,6 +655,15 @@ impl ChainSpec {
                     if !type_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=type",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+                ScriptHashType::Data1 => {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data1",
                             lock_script.code_hash(),
                         )
                         .into());
@@ -736,7 +745,7 @@ impl ChainSpec {
         let special_issued_lock = packed::Script::new_builder()
             .args(secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone())).pack())
             .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let special_issued_cell = packed::CellOutput::new_builder()
             .capacity(special_cell_capacity.pack())

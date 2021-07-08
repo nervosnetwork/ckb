@@ -459,16 +459,11 @@ impl<'a> CompatibleVerifier<'a> {
                         description: format!("unknown hash type {:02x}", val),
                     }
                 })?;
-                match hash_type {
-                    ScriptHashType::Data(vm_version) => {
-                        if vm_version > 0 {
-                            return Err(TransactionError::Compatible {
-                                feature: "VM Version 1",
-                            }
-                            .into());
-                        }
+                if hash_type == ScriptHashType::Data1 {
+                    return Err(TransactionError::Compatible {
+                        feature: "VM Version 1",
                     }
-                    ScriptHashType::Type => {}
+                    .into());
                 }
             }
         }

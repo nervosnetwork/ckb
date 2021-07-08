@@ -70,10 +70,7 @@ pub trait PoolRpc {
     ///           "lock": {
     ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": {
-    ///               "kind": "data",
-    ///               "vm_version": 0
-    ///             }
+    ///             "hash_type": "data"
     ///           },
     ///           "type": null
     ///         }
@@ -505,7 +502,7 @@ mod tests {
             assert!(validator.validate(&tx).is_err());
 
             // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data(0), vec![1; 20]);
+            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
             assert!(validator.validate(&tx).is_err());
 
             // invalid code hash
@@ -537,7 +534,7 @@ mod tests {
             assert!(validator.validate(&tx).is_err());
 
             // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data(0), vec![1; 20]);
+            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
             assert!(validator.validate(&tx).is_err());
 
             // invalid since args format
@@ -592,7 +589,7 @@ mod tests {
                 core::ScriptHashType::Type,
                 vec![1; 20],
                 &type_type_hash,
-                core::ScriptHashType::Data(0),
+                core::ScriptHashType::Data,
             );
             assert!(validator.validate(&tx).is_err());
 

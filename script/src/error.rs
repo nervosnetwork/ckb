@@ -99,7 +99,7 @@ impl fmt::Display for TransactionScriptError {
 impl ScriptError {
     pub(crate) fn validation_failure(script: &Script, exit_code: i8) -> ScriptError {
         let url_path = match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
-            ScriptHashType::Data(_) => {
+            ScriptHashType::Data | ScriptHashType::Data1 => {
                 format!("by-data-hash/{:x}", script.code_hash())
             }
             ScriptHashType::Type => {

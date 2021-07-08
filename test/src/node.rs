@@ -193,7 +193,7 @@ impl Node {
         let always_success_code_hash = CellOutput::calc_data_hash(&always_success_raw);
         Script::new_builder()
             .code_hash(always_success_code_hash)
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build()
     }
 

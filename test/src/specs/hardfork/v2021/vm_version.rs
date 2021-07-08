@@ -7,7 +7,6 @@ use crate::{
     utils::{assert_send_transaction_fail, wait_until},
     Node, Spec,
 };
-use ckb_constant::MAX_VM_VERSION as RPC_MAX_VM_VERSION;
 use ckb_jsonrpc_types as rpc;
 use ckb_logger::{debug, info};
 use ckb_types::{
@@ -17,7 +16,9 @@ use ckb_types::{
 };
 use std::fmt;
 
-const MAX_VM_VERSION: u8 = RPC_MAX_VM_VERSION - 1;
+// TODO ckb2021 how to test malformed hash type?
+const RPC_MAX_VM_VERSION: u8 = 1;
+const MAX_VM_VERSION: u8 = 1;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
 const CKB2021_START_EPOCH: u64 = 10;
@@ -164,9 +165,14 @@ impl NewScript {
     }
 
     fn as_data_script(&self, vm_version: u8) -> packed::Script {
+        let hash_type = match vm_version {
+            0 => ScriptHashType::Data,
+            1 => ScriptHashType::Data1,
+            _ => panic!("unknown vm_version [{}]", vm_version),
+        };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(ScriptHashType::Data(vm_version).into())
+            .hash_type(hash_type.into())
             .build()
     }
 

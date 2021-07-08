@@ -445,7 +445,7 @@ impl NewScript {
     fn as_data_script(&self) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build()
     }
 

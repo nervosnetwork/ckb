@@ -29,14 +29,14 @@ use ckb_types::{
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
-use ckb_vm::snapshot::{resume, Snapshot};
+#[cfg(not(has_asm))]
+use ckb_vm::TraceMachine;
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
+    snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
     Syscalls, ISA_B, ISA_IMC, ISA_MOP,
 };
-#[cfg(not(has_asm))]
-use ckb_vm::{DefaultCoreMachine, SparseMemory, TraceMachine, WXorXMemory};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -362,7 +362,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
-            ScriptHashType::Data(_) => {
+            ScriptHashType::Data | ScriptHashType::Data1 => {
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(lazy.access(self.data_loader))
                 } else {
@@ -405,15 +405,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
-            ScriptHashType::Data(version) => {
-                if !is_vm_version_1_and_syscalls_2_enabled && version > 0 {
-                    Err(ScriptError::InvalidVmVersion(version))
+            ScriptHashType::Data => Ok((ISA_IMC, VERSION0)),
+            ScriptHashType::Data1 => {
+                if is_vm_version_1_and_syscalls_2_enabled {
+                    Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1))
                 } else {
-                    match version {
-                        0 => Ok((ISA_IMC, VERSION0)),
-                        1 => Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1)),
-                        _ => Err(ScriptError::InvalidVmVersion(version)),
-                    }
+                    Err(ScriptError::InvalidVmVersion(1))
                 }
             }
             ScriptHashType::Type => {
@@ -440,7 +437,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles: Cycle = 0;
 
         // Now run each script group
-        for (_ty, hash, group) in self.groups() {
+        for (_ty, _hash, group) in self.groups() {
             // max_cycles must reduce by each group exec
             let used_cycles = self
                 .verify_script_group(group, max_cycles - cycles)
@@ -448,7 +445,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     #[cfg(feature = "logging")]
                     info!(
                         "Error validating script group {} of transaction {}: {}",
-                        hash,
+                        _hash,
                         self.hash(),
                         e
                     );
@@ -1200,7 +1197,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1274,7 +1271,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data(0).into())
+                        .hash_type(ScriptHashType::Data.into())
                         .build(),
                 )
                 .pack(),
@@ -1352,7 +1349,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data(0).into())
+                        .hash_type(ScriptHashType::Data.into())
                         .build(),
                 )
                 .pack(),
@@ -1374,7 +1371,7 @@ mod tests {
                 Some(
                     Script::new_builder()
                         .code_hash(h256!("0x123456abcd90").pack())
-                        .hash_type(ScriptHashType::Data(0).into())
+                        .hash_type(ScriptHashType::Data.into())
                         .build(),
                 )
                 .pack(),
@@ -1461,7 +1458,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1523,7 +1520,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1598,13 +1595,13 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let output_data = Bytes::default();
         let output = CellOutputBuilder::default()
             .lock(
                 Script::new_builder()
-                    .hash_type(ScriptHashType::Data(0).into())
+                    .hash_type(ScriptHashType::Data.into())
                     .build(),
             )
             .type_(Some(script).pack())
@@ -1690,7 +1687,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let output = CellOutputBuilder::default()
             .type_(Some(script.clone()).pack())
@@ -1759,7 +1756,7 @@ mod tests {
         let script = Script::new_builder()
             .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
@@ -2526,7 +2523,7 @@ mod tests {
             .capacity(Capacity::bytes(vm_version_cell_data.len()).unwrap().pack())
             .build();
         let vm_version_script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(1).into())
+            .hash_type(ScriptHashType::Data1.into())
             .code_hash(CellOutput::calc_data_hash(&vm_version_cell_data))
             .build();
         let output = CellOutputBuilder::default()
@@ -2597,7 +2594,7 @@ mod tests {
             .build();
 
         let exec_caller_script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(1).into())
+            .hash_type(ScriptHashType::Data1.into())
             .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
             .build();
         let output = CellOutputBuilder::default()
@@ -2671,7 +2668,7 @@ mod tests {
         .pack();
 
         let exec_caller_script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(1).into())
+            .hash_type(ScriptHashType::Data1.into())
             .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
             .build();
         let output = CellOutputBuilder::default()

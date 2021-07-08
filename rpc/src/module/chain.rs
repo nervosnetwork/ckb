@@ -125,10 +125,7 @@ pub trait ChainRpc {
     ///             "lock": {
     ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": {
-    ///                 "kind": "data",
-    ///                 "vm_version": 0
-    ///               }
+    ///               "hash_type": "data"
     ///             },
     ///             "type": null
     ///           }
@@ -247,10 +244,7 @@ pub trait ChainRpc {
     ///             "lock": {
     ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": {
-    ///                 "kind": "data",
-    ///                 "vm_version": 0
-    ///               }
+    ///               "hash_type": "data"
     ///             },
     ///             "type": null
     ///           }
@@ -508,10 +502,7 @@ pub trait ChainRpc {
     ///           "lock": {
     ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": {
-    ///               "kind": "data",
-    ///               "vm_version": 0
-    ///             }
+    ///             "hash_type": "data"
     ///           },
     ///           "type": null
     ///         }
@@ -699,10 +690,7 @@ pub trait ChainRpc {
     ///         "lock": {
     ///           "args": "0x",
     ///           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    ///           "hash_type": {
-    ///             "kind": "data",
-    ///             "vm_version": 0
-    ///           }
+    ///           "hash_type": "data"
     ///         },
     ///         "type": null
     ///       }
@@ -1057,10 +1045,7 @@ pub trait ChainRpc {
     ///             "lock": {
     ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": {
-    ///                 "kind": "data",
-    ///                 "vm_version": 0
-    ///               }
+    ///               "hash_type": "data"
     ///             },
     ///             "type": null
     ///           }

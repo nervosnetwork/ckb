@@ -871,7 +871,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(Bytes::from(data.to_owned()).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let hash = script.calc_script_hash();
         let data = hash.raw_data();
@@ -930,7 +930,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(Bytes::from(data.to_owned()).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
         let h = script.calc_script_hash();
         let hash = h.as_bytes();

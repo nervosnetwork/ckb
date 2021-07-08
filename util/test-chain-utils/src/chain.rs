@@ -37,7 +37,7 @@ lazy_static! {
             .build();
 
         let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .code_hash(CellOutput::calc_data_hash(&data))
             .build();
 
@@ -75,7 +75,7 @@ lazy_static! {
             .build();
 
         let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .code_hash(CellOutput::calc_data_hash(&data))
             .build();
 
@@ -118,7 +118,7 @@ lazy_static! {
             .build();
 
         let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .code_hash(CellOutput::calc_data_hash(&data))
             .build();
 
